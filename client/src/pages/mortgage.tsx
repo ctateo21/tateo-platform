@@ -119,7 +119,9 @@ export default function Mortgage() {
     // Get base interest rate based on loan type from current rates
     let baseInterestRate = mortgageRates[loanType as keyof typeof mortgageRates];
     
-    // Apply state-specific adjustments to the interest rate
+    // We're now using exact rates from MortgageNewsDaily.com without state adjustments
+    // But we'll keep the code here for possible future customizations
+    /*
     const highRateStates = ['CA', 'NY', 'HI', 'NJ', 'MA']; // High cost of living states
     const lowRateStates = ['TX', 'FL', 'GA', 'NC', 'TN']; // Lower cost of living states
     
@@ -128,6 +130,7 @@ export default function Mortgage() {
     } else if (lowRateStates.includes(selectedState)) {
       baseInterestRate -= 0.003; // Subtract 0.3% for low-cost states
     }
+    */
     
     // Calculate max monthly payment available (total PITI - principal, interest, taxes, insurance)
     const maxMonthlyPayment = (monthlyIncome * maxDti) - debts;
