@@ -245,11 +245,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const { address, placeId } = schema.parse(req.body);
       
-      // Get API key from environment
-      const apiKey = process.env.GOOGLE_MAPS_API_KEY || "";
-      if (!apiKey) {
+      // Get Google Maps API key from environment
+      const googleMapsApiKey = process.env.GOOGLE_MAPS_API_KEY || "";
+      if (!googleMapsApiKey) {
         return res.status(500).json({ message: "Google Maps API key not configured" });
       }
+      
+      // Get Zillow API key from environment (in a real implementation)
+      const zillowApiKey = process.env.ZILLOW_API_KEY || "demo-key";
       
       // In a real implementation, we would use the address and place_id to get property details from Zillow API
       // Since we're simulating, we'll generate a realistic property with the address in the details
