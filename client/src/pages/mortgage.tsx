@@ -106,18 +106,49 @@ export default function Mortgage() {
     // Calculate monthly income - yearly income is already provided
     const monthlyIncome = income / 12; // $120,000/12 = $10,000 per month
     
-    // Determine max DTI based on credit score
+    // Determine max DTI based on credit score - highest credit scores get highest DTI
     let maxDti = 0.43; // Default DTI ratio
     
-    // Adjust DTI based on credit score
-    if (creditScore === 'excellent') maxDti = 0.45;
-    else if (creditScore === 'good') maxDti = 0.43;
-    else if (creditScore === 'fair') maxDti = 0.41;
-    else if (creditScore === 'poor') maxDti = 0.38;
-    else if (creditScore === 'bad') maxDti = 0.35;
+    // Credit scores 740+ get max DTI of 45%
+    if (parseInt(creditScore) >= 740) {
+      maxDti = 0.45;
+    }
+    // Credit scores 700-739 get max DTI of 43%
+    else if (parseInt(creditScore) >= 700) {
+      maxDti = 0.43;
+    }
+    // Credit scores 660-699 get max DTI of 41%
+    else if (parseInt(creditScore) >= 660) {
+      maxDti = 0.41;
+    }
+    // Credit scores 640-659 get max DTI of 38%
+    else if (parseInt(creditScore) >= 640) {
+      maxDti = 0.38;
+    }
+    // Below 640 get max DTI of 36%
+    else if (parseInt(creditScore) > 0) {
+      maxDti = 0.36;
+    }
     
     // Get base interest rate based on loan type from current rates
     let baseInterestRate = mortgageRates[loanType as keyof typeof mortgageRates];
+    
+    // Apply credit score adjustments - add 0.1% for each tier below 780+
+    const scoreTiers = [780, 760, 740, 720, 700, 680, 660, 640, 620, 600];
+    if (creditScore) {
+      const creditScoreNum = parseInt(creditScore);
+      const tierIndex = scoreTiers.findIndex(score => score <= creditScoreNum);
+      
+      // Calculate adjustment based on tier difference
+      // Example: 780+ is tier 0, 700-719 is tier 4, so add 0.4%
+      if (tierIndex > 0) {
+        const rateAdjustment = tierIndex * 0.001; // 0.1% per tier
+        baseInterestRate += rateAdjustment;
+        console.log(`Credit score adjustment: +${(rateAdjustment * 100).toFixed(1)}% (tier ${tierIndex})`);
+      } else if (tierIndex === 0) {
+        console.log('No credit score adjustment for top tier (780+)');
+      }
+    }
     
     // We're now using exact rates from MortgageNewsDaily.com without state adjustments
     // But we'll keep the code here for possible future customizations
@@ -372,11 +403,16 @@ export default function Mortgage() {
                     onChange={(e) => setCreditScore(e.target.value)}
                   >
                     <option value="">Select your credit score range</option>
-                    <option value="excellent">Excellent (750+)</option>
-                    <option value="good">Good (700-749)</option>
-                    <option value="fair">Fair (650-699)</option>
-                    <option value="poor">Poor (600-649)</option>
-                    <option value="bad">Bad (below 600)</option>
+                    <option value="780">780+</option>
+                    <option value="760">760-779</option>
+                    <option value="740">740-759</option>
+                    <option value="720">720-739</option>
+                    <option value="700">700-719</option>
+                    <option value="680">680-699</option>
+                    <option value="660">660-679</option>
+                    <option value="640">640-659</option>
+                    <option value="620">620-639</option>
+                    <option value="600">Below 620</option>
                   </select>
                 </div>
                 
