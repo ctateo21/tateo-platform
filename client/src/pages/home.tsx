@@ -16,7 +16,6 @@ export default function Home() {
       <HeroSection />
       <ServiceSelector />
       <FeaturesSection />
-      <GuidesSection />
       <CTASection />
     </>
   );
