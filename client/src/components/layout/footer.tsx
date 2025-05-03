@@ -8,10 +8,10 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
           {/* Column 1: Company Info */}
           <div className="col-span-1 lg:col-span-1">
-            <div className="mb-6">
-              <span className="text-white font-bold text-4xl">TC</span>
+            <div className="mb-7">
+              <span className="text-white font-bold text-5xl">TC</span>
             </div>
-            <p className="mb-6 text-white/90 leading-relaxed">
+            <p className="mb-7 text-white/90 leading-relaxed text-base">
               Our mission is to provide unparalleled expertise and comprehensive support to clients in every step of their real
               estate journey. With Tateo & Co, you benefit from a team that knows every aspect of the real estate, mortgage,
               insurance, & solar industry.
@@ -34,8 +34,11 @@ export default function Footer() {
                 <Youtube size={16} className="text-[#123764]" />
               </a>
             </div>
-
-            <div className="space-y-2">
+          </div>
+          
+          {/* Column 2: License Info */}
+          <div className="col-span-1 lg:col-span-1">
+            <div className="space-y-6">
               <div>
                 <h5 className="font-medium text-white">Paul Christian Tateo</h5>
                 <p className="text-white/80 text-sm">CEO & Founder</p>
@@ -43,12 +46,7 @@ export default function Footer() {
                 <p className="text-white/80 text-sm">Tateo & Co.</p>
                 <a href="mailto:christian@tateoco.com" className="text-white/80 text-sm hover:text-[#f6921e]">christian@tateoco.com</a>
               </div>
-            </div>
-          </div>
-          
-          {/* Column 2: License Info */}
-          <div className="col-span-1 lg:col-span-1">
-            <div className="space-y-6">
+              
               <div>
                 <h5 className="font-medium text-white">Paul Christian Tateo PA</h5>
                 <p className="text-white/80 text-sm">SL3098399</p>
