@@ -1,115 +1,210 @@
 import { Link } from "wouter";
-import { Facebook, Instagram, Linkedin, MapPin, Phone, Mail } from "lucide-react";
-import { Separator } from "@/components/ui/separator";
+import { Facebook, Instagram, Linkedin, Youtube } from "lucide-react";
 
 export default function Footer() {
   return (
-    <footer className="bg-[#123764] text-white/80 pt-12 pb-6">
+    <footer className="bg-[#123764] text-white pt-16 pb-12">
       <div className="container mx-auto px-4">
-        {/* Main Footer Content */}
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-8 mb-12">
-          {/* Column 1: Company & Social */}
-          <div className="lg:col-span-1">
-            <div className="flex items-center mb-6">
-              <div className="bg-white px-3 py-2 rounded-md mr-2">
-                <span className="text-[#123764] font-bold text-xl">Tateo & Co</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
+          {/* Column 1: Company Info */}
+          <div className="col-span-1 lg:col-span-1">
+            <div className="mb-6">
+              <span className="text-white font-bold text-4xl">TC</span>
+            </div>
+            <p className="mb-6 text-white/90 leading-relaxed">
+              Our mission is to provide unparalleled expertise and comprehensive support to clients in every step of their real
+              estate journey. With Tateo & Co, you benefit from a team that knows every aspect of the real estate, mortgage,
+              insurance, & solar industry.
+            </p>
+            <div className="flex space-x-2 mb-6">
+              <a href="https://www.facebook.com/tateoco" target="_blank" rel="noopener noreferrer" 
+                 className="bg-[#f6921e] h-8 w-8 rounded-full flex items-center justify-center transition-colors" aria-label="Facebook">
+                <Facebook size={16} className="text-[#123764]" />
+              </a>
+              <a href="https://www.instagram.com/tateocommunities/" target="_blank" rel="noopener noreferrer" 
+                 className="bg-[#f6921e] h-8 w-8 rounded-full flex items-center justify-center transition-colors" aria-label="Instagram">
+                <Instagram size={16} className="text-[#123764]" />
+              </a>
+              <a href="https://www.linkedin.com/company/tateo-co/" target="_blank" rel="noopener noreferrer" 
+                 className="bg-[#f6921e] h-8 w-8 rounded-full flex items-center justify-center transition-colors" aria-label="LinkedIn">
+                <Linkedin size={16} className="text-[#123764]" />
+              </a>
+              <a href="#" target="_blank" rel="noopener noreferrer" 
+                 className="bg-[#f6921e] h-8 w-8 rounded-full flex items-center justify-center transition-colors" aria-label="Youtube">
+                <Youtube size={16} className="text-[#123764]" />
+              </a>
+            </div>
+
+            <div className="space-y-2">
+              <div>
+                <h5 className="font-medium text-white">Paul Christian Tateo</h5>
+                <p className="text-white/80 text-sm">CEO & Founder</p>
+                <p className="text-white/80 text-sm">(239) 580-7786</p>
+                <p className="text-white/80 text-sm">Tateo & Co.</p>
+                <a href="mailto:christian@tateoco.com" className="text-white/80 text-sm hover:text-[#f6921e]">christian@tateoco.com</a>
               </div>
             </div>
-            <p className="mb-6 text-white/80 leading-relaxed">
-              Your trusted partner for all real estate needs. We provide comprehensive services to make your real estate journey smooth and successful.
-            </p>
-            <div className="flex space-x-4 mb-6">
-              <a href="https://www.facebook.com/tateoco" target="_blank" rel="noopener noreferrer" className="bg-white/10 hover:bg-[#f58634] h-10 w-10 rounded-full flex items-center justify-center transition-colors" aria-label="Facebook">
-                <Facebook size={18} className="text-white" />
-              </a>
-              <a href="https://www.instagram.com/tateocommunities/" target="_blank" rel="noopener noreferrer" className="bg-white/10 hover:bg-[#f58634] h-10 w-10 rounded-full flex items-center justify-center transition-colors" aria-label="Instagram">
-                <Instagram size={18} className="text-white" />
-              </a>
-              <a href="https://www.linkedin.com/company/tateo-co/" target="_blank" rel="noopener noreferrer" className="bg-white/10 hover:bg-[#f58634] h-10 w-10 rounded-full flex items-center justify-center transition-colors" aria-label="LinkedIn">
-                <Linkedin size={18} className="text-white" />
-              </a>
+          </div>
+          
+          {/* Column 2: License Info */}
+          <div className="col-span-1 lg:col-span-1">
+            <div className="space-y-6">
+              <div>
+                <h5 className="font-medium text-white">Paul Christian Tateo PA</h5>
+                <p className="text-white/80 text-sm">SL3098399</p>
+                <p className="text-white/80 text-sm">Licensed in FL</p>
+                <p className="text-white/80 text-sm">Sponsored By The Zac, Inc</p>
+                <a href="mailto:marcorealtor@mac.com" className="text-white/80 text-sm hover:text-[#f6921e]">marcorealtor@mac.com</a>
+              </div>
+
+              <div>
+                <h5 className="font-medium text-white">Mortgage Originator</h5>
+                <p className="text-white/80 text-sm">NMLS #1259745</p>
+                <p className="text-white/80 text-sm">Licensed in FL & MO</p>
+                <p className="text-white/80 text-sm">Barnett Financial LLC</p>
+                <a href="http://www.barnettfinanced.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">www.barnettfinanced.com</a>
+              </div>
+
+              <div>
+                <h5 className="font-medium text-white">Insurance Agent</h5>
+                <p className="text-white/80 text-sm">AM Insurance Group</p>
+                <p className="text-white/80 text-sm">L123977</p>
+                <p className="text-white/80 text-sm">Licensed in FL</p>
+                <a href="http://www.aminsurancegroup.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">www.aminsurancegroup.com</a>
+              </div>
             </div>
           </div>
           
-          {/* Column 2: Contact Info */}
+          {/* Column 3: Resources */}
           <div>
-            <h4 className="text-lg font-semibold text-white mb-6">Contact Us</h4>
-            <ul className="space-y-4">
-              <li className="flex items-start">
-                <MapPin className="mr-3 h-5 w-5 text-[#f58634] shrink-0 mt-0.5" />
-                <span className="text-white/70">4900 Main Street, Suite 100<br />Kansas City, MO 64112</span>
-              </li>
-              <li className="flex items-center">
-                <Phone className="mr-3 h-5 w-5 text-[#f58634]" />
-                <a href="tel:+18168959500" className="text-white/70 hover:text-[#f58634]">(816) 895-9500</a>
-              </li>
-              <li className="flex items-center">
-                <Mail className="mr-3 h-5 w-5 text-[#f58634]" />
-                <a href="mailto:info@tateoco.com" className="text-white/70 hover:text-[#f58634]">info@tateoco.com</a>
-              </li>
-            </ul>
-          </div>
-          
-          {/* Column 3: Quick Links */}
-          <div>
-            <h4 className="text-lg font-semibold text-white mb-6">Quick Links</h4>
-            <div className="grid grid-cols-1 gap-3">
-              <Link href="/real-estate" className="text-white/70 hover:text-[#f58634]">
-                Real Estate
-              </Link>
-              <Link href="/#services" className="text-white/70 hover:text-[#f58634]">
-                Mortgage
-              </Link>
-              <Link href="/#services" className="text-white/70 hover:text-[#f58634]">
-                Insurance
-              </Link>
-              <Link href="/#services" className="text-white/70 hover:text-[#f58634]">
-                Property Management
-              </Link>
-              <Link href="/#services" className="text-white/70 hover:text-[#f58634]">
-                Construction
-              </Link>
-              <Link href="/#services" className="text-white/70 hover:text-[#f58634]">
-                Home Services
-              </Link>
-            </div>
-          </div>
-          
-          {/* Column 4: Business Hours */}
-          <div>
-            <h4 className="text-lg font-semibold text-white mb-6">Business Hours</h4>
+            <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Resources</h4>
             <ul className="space-y-2">
-              <li className="flex justify-between">
-                <span className="text-white/70">Monday - Friday:</span>
-                <span className="text-white">9:00 AM - 5:00 PM</span>
+              <li>
+                <Link href="/blog" className="text-white/90 hover:text-[#f6921e]">
+                  Blog
+                </Link>
               </li>
-              <li className="flex justify-between">
-                <span className="text-white/70">Saturday:</span>
-                <span className="text-white">By Appointment</span>
+              <li>
+                <Link href="/contact" className="text-white/90 hover:text-[#f6921e]">
+                  Contact
+                </Link>
               </li>
-              <li className="flex justify-between">
-                <span className="text-white/70">Sunday:</span>
-                <span className="text-white">Closed</span>
+              <li>
+                <Link href="/meet-the-team" className="text-white/90 hover:text-[#f6921e]">
+                  Meet The Team
+                </Link>
+              </li>
+              <li>
+                <Link href="/hoa-calculator" className="text-white/90 hover:text-[#f6921e]">
+                  HOA Calculator
+                </Link>
+              </li>
+              <li>
+                <Link href="/mortgage-calculators" className="text-white/90 hover:text-[#f6921e]">
+                  Mortgage Calculators
+                </Link>
+              </li>
+              <li>
+                <Link href="/partner-network" className="text-white/90 hover:text-[#f6921e]">
+                  Partner Network
+                </Link>
+              </li>
+              <li>
+                <Link href="/real-estate-buyers-guide" className="text-white/90 hover:text-[#f6921e]">
+                  Real Estate Buyers' Guide
+                </Link>
+              </li>
+              <li>
+                <Link href="/real-estate-sellers-guide" className="text-white/90 hover:text-[#f6921e]">
+                  Real Estate Sellers' Guide
+                </Link>
               </li>
             </ul>
+          </div>
+          
+          {/* Column 4: Services + Legal */}
+          <div className="grid grid-cols-1 gap-8">
+            <div>
+              <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Services</h4>
+              <ul className="space-y-2">
+                <li>
+                  <Link href="/real-estate-buyers" className="text-white/90 hover:text-[#f6921e]">
+                    Real Estate Buyers
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/real-estate-sellers" className="text-white/90 hover:text-[#f6921e]">
+                    Real Estate Sellers
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/real-estate-investors" className="text-white/90 hover:text-[#f6921e]">
+                    Real Estate Investors
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/mortgage-purchase" className="text-white/90 hover:text-[#f6921e]">
+                    Mortgage Purchase
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/refinance" className="text-white/90 hover:text-[#f6921e]">
+                    Refinance
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/home-insurance" className="text-white/90 hover:text-[#f6921e]">
+                    Home Insurance
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/property-management" className="text-white/90 hover:text-[#f6921e]">
+                    Property Management
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/solar" className="text-white/90 hover:text-[#f6921e]">
+                    Solar
+                  </Link>
+                </li>
+              </ul>
+            </div>
+            
+            <div>
+              <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Legal</h4>
+              <ul className="space-y-2">
+                <li>
+                  <Link href="/terms-conditions" className="text-white/90 hover:text-[#f6921e]">
+                    Terms & Conditions
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/privacy-policy" className="text-white/90 hover:text-[#f6921e]">
+                    Privacy Policy
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/accessibility" className="text-white/90 hover:text-[#f6921e]">
+                    Accessibility
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/sitemap" className="text-white/90 hover:text-[#f6921e]">
+                    Sitemap
+                  </Link>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
         
-        <Separator className="bg-white/10" />
-        
-        {/* Bottom Footer */}
-        <div className="pt-6">
-          <div className="flex flex-col md:flex-row justify-between items-center">
-            <div className="flex flex-col md:flex-row items-center gap-2 md:gap-6 mb-4 md:mb-0">
-              <p className="text-white/60">&copy; {new Date().getFullYear()} Tateo & Co. All rights reserved.</p>
-              <div className="flex space-x-6">
-                <a href="#" className="text-white/60 hover:text-[#f58634]">Privacy Policy</a>
-                <a href="#" className="text-white/60 hover:text-[#f58634]">Terms of Service</a>
-              </div>
-            </div>
-            <div className="text-white/60 text-sm">
-              <span>Powered by React & Express | Designed with 💙 by Tateo Tech</span>
-            </div>
+        {/* Diagonal Stripe Footer Decoration */}
+        <div className="w-full h-6 overflow-hidden relative mt-8">
+          <div className="absolute bottom-0 right-0 w-full h-12 bg-[#f6921e]/20" 
+               style={{
+                 clipPath: "polygon(0 100%, 100% 0, 100% 100%, 0% 100%)",
+                 background: "repeating-linear-gradient(45deg, rgba(246, 146, 30, 0.2), rgba(246, 146, 30, 0.2) 10px, rgba(246, 146, 30, 0.3) 10px, rgba(246, 146, 30, 0.3) 20px)"
+               }}>
           </div>
         </div>
       </div>
