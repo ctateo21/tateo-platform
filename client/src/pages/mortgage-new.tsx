@@ -313,37 +313,51 @@ export default function Mortgage() {
         componentRestrictions: { country: 'us' }
       };
       
-      // Create the autocomplete instance
-      // @ts-ignore - TypeScript doesn't know about window.google
-      const autoCompleteInstance = new window.google.maps.places.Autocomplete(
-        addressInputRef.current,
-        options
-      );
-      
-      // Add event listener for place selection
-      // @ts-ignore - TypeScript doesn't know about addListener
-      autoCompleteInstance.addListener('place_changed', () => {
-        // @ts-ignore - TypeScript doesn't know about getPlace
-        const place = autoCompleteInstance.getPlace();
-        if (place && place.formatted_address) {
-          setPlaceDetails(place);
-          setPropertyAddress(place.formatted_address);
-          console.log('Selected place:', place.formatted_address);
+      try {
+        // Create the autocomplete instance
+        // @ts-ignore - TypeScript doesn't know about window.google
+        const autoCompleteInstance = new window.google.maps.places.Autocomplete(
+          addressInputRef.current,
+          options
+        );
+        
+        // Add event listener for place selection
+        // @ts-ignore - TypeScript doesn't know about addListener
+        autoCompleteInstance.addListener('place_changed', () => {
+          // @ts-ignore - TypeScript doesn't know about getPlace
+          const place = autoCompleteInstance.getPlace();
+          if (place && place.formatted_address) {
+            setPlaceDetails(place);
+            setPropertyAddress(place.formatted_address);
+            console.log('Selected place:', place.formatted_address);
+          }
+        });
+        
+        // Store the autocomplete instance
+        setAutocomplete(autoCompleteInstance);
+        console.log('Google Places Autocomplete initialized');
+        
+        // Prevent form submission on Enter key
+        addressInputRef.current.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+          }
+        });
+      } catch (autocompleteError) {
+        console.error('Error creating autocomplete instance:', autocompleteError);
+        // If we can't initialize the autocomplete, make sure the input is still usable
+        if (addressInputRef.current) {
+          // Make sure the input is enabled
+          addressInputRef.current.disabled = false;
+          setGoogleMapsLoaded(false);
         }
-      });
-      
-      // Store the autocomplete instance
-      setAutocomplete(autoCompleteInstance);
-      console.log('Google Places Autocomplete initialized');
-      
-      // Prevent form submission on Enter key
-      addressInputRef.current.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-        }
-      });
+      }
     } catch (error) {
       console.error('Error initializing Google Places Autocomplete:', error);
+      // Make sure the input is still usable even if Google Maps fails
+      if (addressInputRef.current) {
+        addressInputRef.current.disabled = false;
+      }
     }
   }, [googleMapsLoaded]);
 
@@ -777,7 +791,11 @@ export default function Mortgage() {
                         onChange={(e) => setPropertyAddress(e.target.value)}
                         ref={addressInputRef}
                       />
-                      {!googleMapsLoaded && <p className="text-xs text-amber-600 mt-1">Google Maps Places API is loading...</p>}
+                      {googleMapsLoaded ? (
+                        <p className="text-xs text-green-600 mt-1">Address autocomplete enabled</p>
+                      ) : (
+                        <p className="text-xs text-gray-500 mt-1">Enter your full address manually</p>
+                      )}
                     </div>
                   </div>
 
