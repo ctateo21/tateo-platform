@@ -8,12 +8,9 @@ export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
 
   const links = [
-    { href: "/", label: "Home", icon: <Home className="mr-2 h-4 w-4" /> },
-    { href: "/#services", label: "Services", icon: <Briefcase className="mr-2 h-4 w-4" /> },
-    { href: "/#about", label: "About", icon: <Building2 className="mr-2 h-4 w-4" /> },
-    { href: "/#buyers-sellers", label: "Buyers & Sellers", icon: <LayoutDashboard className="mr-2 h-4 w-4" /> },
-    { href: "/#insurance", label: "Insurance", icon: <Shield className="mr-2 h-4 w-4" /> },
-    { href: "/#contact", label: "Contact", icon: <PhoneCall className="mr-2 h-4 w-4" /> },
+    { href: "/", label: "HOME", icon: <Home className="mr-2 h-4 w-4" /> },
+    { href: "/#services", label: "SERVICES", icon: <Briefcase className="mr-2 h-4 w-4" /> },
+    { href: "/#about", label: "ABOUT", icon: <Building2 className="mr-2 h-4 w-4" /> },
   ];
 
   return (
@@ -48,9 +45,8 @@ export default function Header() {
         <div className="flex items-center">
           <Link href="/" className="flex items-center">
             <div className="bg-primary px-3 py-2 rounded-md mr-2">
-              <span className="text-white font-bold text-xl">T&C</span>
+              <span className="text-white font-bold text-sm">Tateo & Co</span>
             </div>
-            <span className="text-primary font-bold text-xl">Tateo & Co</span>
           </Link>
         </div>
         
@@ -66,8 +62,8 @@ export default function Header() {
             </Link>
           ))}
           <Button asChild className="bg-secondary hover:bg-secondary/90 text-white">
-            <Link href="/questionnaire">
-              Get Started
+            <Link href="/#contact">
+              CONTACT
             </Link>
           </Button>
         </nav>
@@ -83,9 +79,8 @@ export default function Header() {
           <SheetContent side="right" className="w-[300px] sm:w-[400px]">
             <div className="flex items-center mb-6">
               <div className="bg-primary px-3 py-2 rounded-md mr-2">
-                <span className="text-white font-bold text-xl">T&C</span>
+                <span className="text-white font-bold text-sm">Tateo & Co</span>
               </div>
-              <span className="text-primary font-bold text-xl">Tateo & Co</span>
             </div>
             <nav className="flex flex-col space-y-6">
               {links.map((link) => (
@@ -100,8 +95,8 @@ export default function Header() {
                 </Link>
               ))}
               <Button asChild className="bg-secondary hover:bg-secondary/90 text-white w-full mt-4">
-                <Link href="/questionnaire">
-                  Get Started
+                <Link href="/#contact">
+                  CONTACT
                 </Link>
               </Button>
             </nav>
