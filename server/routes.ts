@@ -1,0 +1,265 @@
+import type { Express } from "express";
+import { createServer, type Server } from "http";
+import { storage } from "./storage";
+import { z } from "zod";
+import { 
+  contactFormSchema, 
+  realEstateFormSchema, 
+  mortgageFormSchema, 
+  insuranceFormSchema, 
+  constructionFormSchema, 
+  propertyManagementFormSchema, 
+  homeServicesFormSchema, 
+  serviceCategories
+} from "@shared/schema";
+import { netcalcsheetIntegration } from "./integrations/netcalcsheet";
+import { ariveIntegration } from "./integrations/arive";
+import { canopyConnectIntegration } from "./integrations/canopy-connect";
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // API routes
+  
+  // Get service categories
+  app.get("/api/services", async (req, res) => {
+    res.json(serviceCategories);
+  });
+
+  // Submit questionnaire data
+  app.post("/api/submit", async (req, res) => {
+    try {
+      // Validate selected services
+      const selectedServices = z.array(z.string()).parse(req.body.selectedServices);
+      
+      // Validate form data based on selected services
+      const formData: Record<string, any> = {};
+      let validationErrors: Record<string, any> = {};
+      let hasErrors = false;
+      
+      // Validate real estate form if selected
+      if (selectedServices.includes("real-estate") && req.body.realEstate) {
+        try {
+          formData.realEstate = realEstateFormSchema.parse(req.body.realEstate);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            validationErrors.realEstate = error.format();
+            hasErrors = true;
+          }
+        }
+      }
+      
+      // Validate mortgage form if selected
+      if (selectedServices.includes("mortgage") && req.body.mortgage) {
+        try {
+          formData.mortgage = mortgageFormSchema.parse(req.body.mortgage);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            validationErrors.mortgage = error.format();
+            hasErrors = true;
+          }
+        }
+      }
+      
+      // Validate insurance form if selected
+      if (selectedServices.includes("insurance") && req.body.insurance) {
+        try {
+          formData.insurance = insuranceFormSchema.parse(req.body.insurance);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            validationErrors.insurance = error.format();
+            hasErrors = true;
+          }
+        }
+      }
+      
+      // Validate construction form if selected
+      if (selectedServices.includes("construction") && req.body.construction) {
+        try {
+          formData.construction = constructionFormSchema.parse(req.body.construction);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            validationErrors.construction = error.format();
+            hasErrors = true;
+          }
+        }
+      }
+      
+      // Validate property management form if selected
+      if (selectedServices.includes("property-management") && req.body.propertyManagement) {
+        try {
+          formData.propertyManagement = propertyManagementFormSchema.parse(req.body.propertyManagement);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            validationErrors.propertyManagement = error.format();
+            hasErrors = true;
+          }
+        }
+      }
+      
+      // Validate home services form if selected
+      if (selectedServices.includes("home-services") && req.body.homeServices) {
+        try {
+          formData.homeServices = homeServicesFormSchema.parse(req.body.homeServices);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            validationErrors.homeServices = error.format();
+            hasErrors = true;
+          }
+        }
+      }
+      
+      // Validate contact form (always required)
+      try {
+        formData.contact = contactFormSchema.parse(req.body.contact);
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          validationErrors.contact = error.format();
+          hasErrors = true;
+        }
+      }
+      
+      if (hasErrors) {
+        return res.status(400).json({ errors: validationErrors });
+      }
+      
+      // Create submission
+      const submission = await storage.createSubmission({
+        userId: null, // Anonymous submission for now
+        selectedServices,
+        formData,
+        status: "pending",
+      });
+      
+      // Process integrations based on selected services
+      const integrationPromises = [];
+      
+      // NetCalcSheet integration for real estate
+      if (selectedServices.includes("real-estate")) {
+        integrationPromises.push(processNetCalcsheetIntegration(submission.id, formData.realEstate));
+      }
+      
+      // Arive integration for mortgage
+      if (selectedServices.includes("mortgage")) {
+        integrationPromises.push(processAriveIntegration(submission.id, formData.mortgage));
+      }
+      
+      // Canopy Connect integration for insurance
+      if (selectedServices.includes("insurance")) {
+        integrationPromises.push(processCanopyConnectIntegration(submission.id, formData.insurance));
+      }
+      
+      // Process all integrations in parallel
+      await Promise.allSettled(integrationPromises);
+      
+      // Update submission status to completed
+      await storage.updateSubmissionStatus(submission.id, "completed");
+      
+      res.status(201).json({ 
+        message: "Submission successful",
+        submissionId: submission.id
+      });
+    } catch (error) {
+      console.error("Error processing submission:", error);
+      res.status(500).json({ message: "An error occurred while processing your submission" });
+    }
+  });
+
+  // Get submission by ID
+  app.get("/api/submission/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "Invalid submission ID" });
+    }
+    
+    const submission = await storage.getSubmission(id);
+    if (!submission) {
+      return res.status(404).json({ message: "Submission not found" });
+    }
+    
+    res.json(submission);
+  });
+
+  const httpServer = createServer(app);
+  return httpServer;
+}
+
+// Integration helper functions
+async function processNetCalcsheetIntegration(submissionId: number, formData: any) {
+  try {
+    // Create integration request record
+    const integrationRequest = await storage.createIntegrationRequest({
+      submissionId,
+      provider: "netcalcsheet",
+      requestData: formData,
+      status: "pending",
+    });
+    
+    // Process the integration
+    const response = await netcalcsheetIntegration(formData);
+    
+    // Update integration request with response
+    await storage.updateIntegrationRequest(
+      integrationRequest.id,
+      "completed",
+      response
+    );
+    
+    return response;
+  } catch (error) {
+    console.error("NetCalcSheet integration error:", error);
+    throw error;
+  }
+}
+
+async function processAriveIntegration(submissionId: number, formData: any) {
+  try {
+    // Create integration request record
+    const integrationRequest = await storage.createIntegrationRequest({
+      submissionId,
+      provider: "arive",
+      requestData: formData,
+      status: "pending",
+    });
+    
+    // Process the integration
+    const response = await ariveIntegration(formData);
+    
+    // Update integration request with response
+    await storage.updateIntegrationRequest(
+      integrationRequest.id,
+      "completed",
+      response
+    );
+    
+    return response;
+  } catch (error) {
+    console.error("Arive integration error:", error);
+    throw error;
+  }
+}
+
+async function processCanopyConnectIntegration(submissionId: number, formData: any) {
+  try {
+    // Create integration request record
+    const integrationRequest = await storage.createIntegrationRequest({
+      submissionId,
+      provider: "canopy-connect",
+      requestData: formData,
+      status: "pending",
+    });
+    
+    // Process the integration
+    const response = await canopyConnectIntegration(formData);
+    
+    // Update integration request with response
+    await storage.updateIntegrationRequest(
+      integrationRequest.id,
+      "completed",
+      response
+    );
+    
+    return response;
+  } catch (error) {
+    console.error("Canopy Connect integration error:", error);
+    throw error;
+  }
+}
