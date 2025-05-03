@@ -47,7 +47,7 @@ export default function ServiceCard({ service }: ServiceCardProps) {
       <div className="py-4 px-5 bg-white">
         <div className="flex flex-wrap gap-2 justify-center items-center">
           {service.options.map((option, index) => (
-            <span key={index} className="text-sm bg-gray-100 text-gray-600 px-3 py-1 rounded-full font-medium">
+            <span key={index} className="text-base bg-gray-200 text-gray-800 px-4 py-2 rounded-full font-medium text-center hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer">
               {option}
             </span>
           ))}
