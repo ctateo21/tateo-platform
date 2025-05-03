@@ -67,43 +67,48 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/#services">
-                  <a className="flex items-center text-white/70 hover:text-secondary">
-                    <ChevronRight className="mr-2 h-4 w-4 text-secondary" />
-                    Mortgage
-                  </a>
+                <Link 
+                  href="/#services"
+                  className="flex items-center text-white/70 hover:text-secondary"
+                >
+                  <ChevronRight className="mr-2 h-4 w-4 text-secondary" />
+                  Mortgage
                 </Link>
               </li>
               <li>
-                <Link href="/#services">
-                  <a className="flex items-center text-white/70 hover:text-secondary">
-                    <ChevronRight className="mr-2 h-4 w-4 text-secondary" />
-                    Insurance
-                  </a>
+                <Link 
+                  href="/#services"
+                  className="flex items-center text-white/70 hover:text-secondary"
+                >
+                  <ChevronRight className="mr-2 h-4 w-4 text-secondary" />
+                  Insurance
                 </Link>
               </li>
               <li>
-                <Link href="/#services">
-                  <a className="flex items-center text-white/70 hover:text-secondary">
-                    <ChevronRight className="mr-2 h-4 w-4 text-secondary" />
-                    Construction
-                  </a>
+                <Link 
+                  href="/#services"
+                  className="flex items-center text-white/70 hover:text-secondary"
+                >
+                  <ChevronRight className="mr-2 h-4 w-4 text-secondary" />
+                  Construction
                 </Link>
               </li>
               <li>
-                <Link href="/#services">
-                  <a className="flex items-center text-white/70 hover:text-secondary">
-                    <ChevronRight className="mr-2 h-4 w-4 text-secondary" />
-                    Property Management
-                  </a>
+                <Link 
+                  href="/#services"
+                  className="flex items-center text-white/70 hover:text-secondary"
+                >
+                  <ChevronRight className="mr-2 h-4 w-4 text-secondary" />
+                  Property Management
                 </Link>
               </li>
               <li>
-                <Link href="/#services">
-                  <a className="flex items-center text-white/70 hover:text-secondary">
-                    <ChevronRight className="mr-2 h-4 w-4 text-secondary" />
-                    Home Services
-                  </a>
+                <Link 
+                  href="/#services"
+                  className="flex items-center text-white/70 hover:text-secondary"
+                >
+                  <ChevronRight className="mr-2 h-4 w-4 text-secondary" />
+                  Home Services
                 </Link>
               </li>
             </ul>

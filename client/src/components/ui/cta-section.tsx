@@ -1,72 +1,63 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
-import { PhoneCall, Mail } from "lucide-react";
+import { PhoneCall, MessageCircle, ArrowRight } from "lucide-react";
 
 export default function CTASection() {
   return (
-    <section className="py-20 relative">
-      {/* Background with diagonal split */}
-      <div className="absolute inset-0 z-0">
-        <div className="h-full w-full bg-gradient-to-r from-primary to-primary/90"></div>
-        <div className="absolute top-0 bottom-0 right-0 w-7/12 clip-path-polygon-[0_0,100%_0,100%_100%,25%_100%] bg-accent"></div>
-      </div>
-      
-      <div className="container mx-auto px-4 text-center relative z-10">
-        <div className="bg-white p-10 rounded-lg shadow-xl max-w-4xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold mb-6 text-primary">Ready to Get Started?</h2>
-          <div className="w-20 h-1 bg-secondary mx-auto mb-6"></div>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto mb-8">
-            Let us help you navigate your real estate journey. Select your services above or contact us directly.
-          </p>
-          
-          <div className="grid md:grid-cols-3 gap-6 mb-8">
-            <div className="flex flex-col items-center p-4">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                <PhoneCall className="h-6 w-6 text-primary" />
-              </div>
-              <h3 className="font-semibold mb-2">Call Us</h3>
-              <p className="text-gray-600">(555) 123-4567</p>
-            </div>
-            
-            <div className="flex flex-col items-center p-4">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                <Mail className="h-6 w-6 text-primary" />
-              </div>
-              <h3 className="font-semibold mb-2">Email Us</h3>
-              <p className="text-gray-600">info@tateoco.com</p>
-            </div>
-            
-            <div className="flex flex-col items-center p-4">
-              <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
-                <svg className="h-6 w-6 text-primary" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                </svg>
-              </div>
-              <h3 className="font-semibold mb-2">Visit Us</h3>
-              <p className="text-gray-600">123 Main Street, City, State</p>
+    <section id="contact" className="py-20 relative bg-gradient-to-r from-primary to-primary/80 text-white">
+      <div className="absolute inset-0 bg-opacity-90 bg-pattern"></div>
+      <div className="container mx-auto px-4 relative z-10">
+        <div className="grid md:grid-cols-2 gap-12 items-center">
+          <div>
+            <h2 className="text-3xl md:text-4xl font-bold mb-6">
+              Ready to Take the Next Step in Your Real Estate Journey?
+            </h2>
+            <p className="text-white/80 mb-8 text-lg leading-relaxed">
+              Whether you're looking to buy, sell, finance, insure, build, or manage a property, our team of experts is here to guide you every step of the way.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <Button asChild className="bg-white text-primary hover:bg-white/90">
+                <a href="tel:5551234567">
+                  <PhoneCall className="mr-2 h-4 w-4" />
+                  Call Us Today
+                </a>
+              </Button>
+              <Button asChild variant="outline" className="bg-transparent border-white text-white hover:bg-white/10">
+                <Link href="/questionnaire">
+                  <MessageCircle className="mr-2 h-4 w-4" />
+                  Send a Message
+                </Link>
+              </Button>
             </div>
           </div>
           
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button
-              asChild
-              size="lg"
-              className="bg-secondary hover:bg-secondary/90 text-white font-medium"
-            >
-              <Link href="#services">
-                Explore Services
-              </Link>
-            </Button>
-            <Button
-              asChild
-              size="lg"
-              variant="outline"
-              className="border-primary text-primary hover:bg-primary/5 font-medium"
-            >
-              <Link href="/questionnaire">
-                Start Questionnaire
-              </Link>
-            </Button>
+          <div className="bg-white rounded-lg p-8 shadow-lg">
+            <h3 className="text-2xl font-bold text-primary mb-6">Our Promise to You</h3>
+            <ul className="space-y-4">
+              <li className="flex items-start">
+                <ArrowRight className="text-secondary mr-3 h-5 w-5 mt-0.5" />
+                <span className="text-gray-700">Personalized service tailored to your unique needs</span>
+              </li>
+              <li className="flex items-start">
+                <ArrowRight className="text-secondary mr-3 h-5 w-5 mt-0.5" />
+                <span className="text-gray-700">Transparent communication throughout the process</span>
+              </li>
+              <li className="flex items-start">
+                <ArrowRight className="text-secondary mr-3 h-5 w-5 mt-0.5" />
+                <span className="text-gray-700">Expert guidance from experienced professionals</span>
+              </li>
+              <li className="flex items-start">
+                <ArrowRight className="text-secondary mr-3 h-5 w-5 mt-0.5" />
+                <span className="text-gray-700">Commitment to achieving your real estate goals</span>
+              </li>
+            </ul>
+            <div className="mt-8 pt-6 border-t border-gray-200">
+              <Button asChild className="w-full bg-secondary hover:bg-secondary/90 text-white">
+                <Link href="/questionnaire">
+                  Get Started Now
+                </Link>
+              </Button>
+            </div>
           </div>
         </div>
       </div>
