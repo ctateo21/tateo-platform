@@ -39,8 +39,8 @@ export default function Mortgage() {
       icon: <Home className="h-10 w-10 text-primary" />
     },
     {
-      title: "Refinancing",
-      description: "Replace your current mortgage with a new one to secure better rates or access your home equity.",
+      title: "Unique Loan Products",
+      description: "Other loan options if you don't fit the guidelines for Conventional, FHA or VA, there are still endless options.",
       icon: <Percent className="h-10 w-10 text-primary" />
     }
   ];
