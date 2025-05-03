@@ -9,7 +9,6 @@ export default function HeroSection() {
   const slides = [
     {
       title: "Your One-Stop Real Estate Solution",
-      subtitle: "Comprehensive Services for Every Step of Your Journey",
       description: "From buying and selling to financing, insurance, construction, and property management, we handle all your real estate needs under one roof.",
       ctaText: "Explore Our Services",
       ctaLink: "/#services",
@@ -17,7 +16,6 @@ export default function HeroSection() {
     },
     {
       title: "Find Your Dream Home",
-      subtitle: "Expert Real Estate Guidance",
       description: "Our experienced agents will help you navigate the market to find the perfect property that meets all your needs and budget.",
       ctaText: "Start Your Search",
       ctaLink: "/questionnaire",
@@ -25,7 +23,6 @@ export default function HeroSection() {
     },
     {
       title: "Finance Your Future",
-      subtitle: "Competitive Mortgage Solutions",
       description: "Get personalized mortgage options with competitive rates and terms tailored to your financial situation.",
       ctaText: "Get Pre-Approved",
       ctaLink: "/questionnaire",
@@ -48,9 +45,7 @@ export default function HeroSection() {
           <div className="absolute inset-0 bg-black/40"></div>
           <div className="container mx-auto px-4 py-32 relative z-10 h-full flex items-center">
             <div className="max-w-3xl text-white">
-              <div className="inline-block bg-secondary text-white text-sm font-semibold px-4 py-1 rounded-full mb-6">
-                {slide.subtitle}
-              </div>
+
               <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-6 leading-tight">
                 {slide.title}
               </h1>
