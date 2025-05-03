@@ -6,7 +6,7 @@ import { FileText, Download, ArrowRight, DollarSign, Percent, Calculator, Home, 
 import { Card, CardContent } from "@/components/ui/card";
 
 export default function Mortgage() {  
-  // State for calculator
+  // State for income-based calculator
   const [yearlyIncome, setYearlyIncome] = useState<string>('');
   const [monthlyDebts, setMonthlyDebts] = useState<string>('');
   const [formattedIncome, setFormattedIncome] = useState<string>('');
@@ -23,6 +23,25 @@ export default function Mortgage() {
     totalMonthlyPayment: 0,
     dtiRatio: 0,
     interestRate: 0
+  });
+  
+  // State for address-based calculator
+  const [propertyAddress, setPropertyAddress] = useState<string>('');
+  const [propertyPrice, setPropertyPrice] = useState<number>(0);
+  const [downPaymentPercent, setDownPaymentPercent] = useState<number>(20);
+  const [addressCreditScore, setAddressCreditScore] = useState<string>('');
+  const [monthlyIncome, setMonthlyIncome] = useState<string>('');
+  const [addressMonthlyDebts, setAddressMonthlyDebts] = useState<string>('');
+  const [addressLoanType, setAddressLoanType] = useState<string>('');
+  const [showAddressResults, setShowAddressResults] = useState(false);
+  const [showPropertyResult, setShowPropertyResult] = useState(false);
+  const [addressResults, setAddressResults] = useState({
+    qualification: true,
+    maximumLoanAmount: 0,
+    requiredIncome: 0,
+    estimatedMonthlyPayment: 0,
+    interestRate: 0,
+    downPaymentAmount: 0
   });
   
   // Current mortgage rates from MortgageNewsDaily.com (as of latest data)
@@ -90,7 +109,7 @@ export default function Mortgage() {
     { value: 'DC', label: 'District of Columbia' }
   ];
 
-  // Calculate mortgage qualification
+  // Calculate mortgage qualification based on income
   const handleCalculate = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     
@@ -104,7 +123,7 @@ export default function Mortgage() {
     const debts = parseFloat(monthlyDebts) || 0;
     
     // Calculate monthly income - yearly income is already provided
-    const monthlyIncome = income / 12; // $120,000/12 = $10,000 per month
+    const monthlyIncomeVal = income / 12; // $120,000/12 = $10,000 per month
     
     // Determine max DTI based on credit score - highest credit scores get highest DTI
     let maxDti = 0.43; // Default DTI ratio
@@ -150,22 +169,9 @@ export default function Mortgage() {
       }
     }
     
-    // We're now using exact rates from MortgageNewsDaily.com without state adjustments
-    // But we'll keep the code here for possible future customizations
-    /*
-    const highRateStates = ['CA', 'NY', 'HI', 'NJ', 'MA']; // High cost of living states
-    const lowRateStates = ['TX', 'FL', 'GA', 'NC', 'TN']; // Lower cost of living states
-    
-    if (highRateStates.includes(selectedState)) {
-      baseInterestRate += 0.005; // Add 0.5% for high-cost states
-    } else if (lowRateStates.includes(selectedState)) {
-      baseInterestRate -= 0.003; // Subtract 0.3% for low-cost states
-    }
-    */
-    
     // Calculate max monthly payment available (total PITI - principal, interest, taxes, insurance)
     // Example: $10,000 × 45% - $1,250 = $4,500 - $1,250 = $3,250 max monthly payment
-    const maxMonthlyPayment = (monthlyIncome * maxDti) - debts;
+    const maxMonthlyPayment = (monthlyIncomeVal * maxDti) - debts;
     
     // Calculate tax and insurance rates (monthly percentages of loan amount)
     // Default rates for most states
@@ -207,7 +213,7 @@ export default function Mortgage() {
     // Debug output to console for verification
     console.log('==== Mortgage Qualification Calculator ====');
     console.log(`Yearly Income: $${income}`);
-    console.log(`Monthly Income: $${monthlyIncome.toFixed(2)}`);
+    console.log(`Monthly Income: $${monthlyIncomeVal.toFixed(2)}`);
     console.log(`Monthly Debts: $${debts}`);
     console.log(`Max DTI: ${(maxDti * 100).toFixed(2)}%`);
     console.log(`Available Monthly Payment: $${maxMonthlyPayment.toFixed(2)}`);
@@ -234,6 +240,93 @@ export default function Mortgage() {
     });
     
     setShowResults(true);
+  };
+
+  // Search for address and get property price
+  const handleSearchAddress = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    
+    if (!propertyAddress) {
+      alert("Please enter a property address to search.");
+      return;
+    }
+    
+    // This would be a Zillow API call in a real implementation
+    // For now, we'll simulate a property lookup with a random value
+    console.log(`Searching for property: ${propertyAddress}`);
+    
+    // Simulate API request delay
+    setTimeout(() => {
+      // Generate a realistic property price between $250,000 and $750,000
+      const randomPrice = Math.floor(Math.random() * (750000 - 250000) + 250000);
+      setPropertyPrice(randomPrice);
+      setShowPropertyResult(true);
+      
+      console.log(`Found property with price: $${randomPrice.toLocaleString()}`);
+    }, 1000);
+  };
+
+  // Calculate qualification based on property address
+  const handleAddressCalculate = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    
+    if (!showPropertyResult) {
+      alert("Please search for a property address first.");
+      return;
+    }
+    
+    if (!downPaymentPercent || !addressCreditScore || !monthlyIncome || !addressMonthlyDebts || !addressLoanType) {
+      alert("Please fill in all fields to calculate your qualification.");
+      return;
+    }
+    
+    const downPaymentAmount = (downPaymentPercent / 100) * propertyPrice;
+    const loanAmount = propertyPrice - downPaymentAmount;
+    const monthlyIncomeVal = parseFloat(monthlyIncome) || 0;
+    const monthlyDebtsVal = parseFloat(addressMonthlyDebts) || 0;
+    
+    // Get base interest rate based on loan type
+    let baseInterestRate = mortgageRates[addressLoanType as keyof typeof mortgageRates];
+    
+    // Apply credit score adjustments - add 0.1% for each tier below 780+
+    const scoreTiers = [780, 760, 740, 720, 700, 680, 660, 640, 620, 600];
+    if (addressCreditScore) {
+      const creditScoreNum = parseInt(addressCreditScore);
+      const tierIndex = scoreTiers.findIndex(score => score <= creditScoreNum);
+      
+      if (tierIndex > 0) {
+        const rateAdjustment = tierIndex * 0.001; // 0.1% per tier
+        baseInterestRate += rateAdjustment;
+      }
+    }
+    
+    // Calculate monthly payment
+    const monthlyInterestRate = baseInterestRate / 12;
+    const term = 30 * 12; // 30-year mortgage in months
+    
+    // Using standard mortgage payment formula
+    const monthlyPayment = loanAmount * (
+      monthlyInterestRate * Math.pow(1 + monthlyInterestRate, term) /
+      (Math.pow(1 + monthlyInterestRate, term) - 1)
+    );
+    
+    // Calculate required income based on 43% DTI (conservative estimate)
+    const totalMonthlyDebt = monthlyDebtsVal + monthlyPayment;
+    const requiredIncome = totalMonthlyDebt / 0.43;
+    
+    // Determine if the user qualifies
+    const qualifies = monthlyIncomeVal >= requiredIncome;
+    
+    setAddressResults({
+      qualification: qualifies,
+      maximumLoanAmount: Math.round(loanAmount),
+      requiredIncome: Math.round(requiredIncome),
+      estimatedMonthlyPayment: Math.round(monthlyPayment),
+      interestRate: baseInterestRate * 100, // Convert to percentage
+      downPaymentAmount: Math.round(downPaymentAmount)
+    });
+    
+    setShowAddressResults(true);
   };
   
   const resources = [
@@ -331,207 +424,208 @@ export default function Mortgage() {
             <div className="bg-white p-6 rounded-lg shadow-md">
               <h3 className="text-xl font-semibold text-primary mb-4 text-center">Qualify by Income</h3>
               <p className="text-sm text-gray-600 mb-4 text-center">Calculate how much home you can afford based on your income and existing debts</p>
-            <form className="space-y-6" id="qualification-form">
-              <div className="grid md:grid-cols-1 gap-6">
-                <div className="space-y-2">
-                  <label htmlFor="yearlyIncome" className="block text-sm font-medium text-gray-700">Yearly Income ($)</label>
-                  <div className="relative">
-                    <input 
-                      type="text" 
-                      id="yearlyIncome" 
-                      name="yearlyIncome" 
-                      placeholder="Enter your annual income" 
-                      className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      value={formattedIncome}
-                      onChange={(e) => {
-                        // Extract numbers only
-                        const value = e.target.value.replace(/[^0-9]/g, '');
-                        setYearlyIncome(value);
-                        
-                        // Format as currency
-                        if (value) {
-                          const numValue = parseInt(value, 10);
-                          setFormattedIncome(new Intl.NumberFormat('en-US', {
-                            style: 'currency',
-                            currency: 'USD',
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0
-                          }).format(numValue));
-                        } else {
-                          setFormattedIncome('');
-                        }
-                      }}
-                    />
+              
+              <form className="space-y-6" id="qualification-form">
+                <div className="grid md:grid-cols-1 gap-6">
+                  <div className="space-y-2">
+                    <label htmlFor="yearlyIncome" className="block text-sm font-medium text-gray-700">Yearly Income ($)</label>
+                    <div className="relative">
+                      <input 
+                        type="text" 
+                        id="yearlyIncome" 
+                        name="yearlyIncome" 
+                        placeholder="Enter your annual income" 
+                        className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        value={formattedIncome}
+                        onChange={(e) => {
+                          // Extract numbers only
+                          const value = e.target.value.replace(/[^0-9]/g, '');
+                          setYearlyIncome(value);
+                          
+                          // Format as currency
+                          if (value) {
+                            const numValue = parseInt(value, 10);
+                            setFormattedIncome(new Intl.NumberFormat('en-US', {
+                              style: 'currency',
+                              currency: 'USD',
+                              minimumFractionDigits: 0,
+                              maximumFractionDigits: 0
+                            }).format(numValue));
+                          } else {
+                            setFormattedIncome('');
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
 
-                <div className="space-y-2">
-                  <label htmlFor="monthlyDebts" className="block text-sm font-medium text-gray-700">Monthly Debts ($)</label>
-                  <div className="relative">
-                    <input 
-                      type="text" 
-                      id="monthlyDebts" 
-                      name="monthlyDebts" 
-                      placeholder="Enter your total monthly debt payments" 
-                      className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      value={formattedDebts}
-                      onChange={(e) => {
-                        // Extract numbers only
-                        const value = e.target.value.replace(/[^0-9]/g, '');
-                        setMonthlyDebts(value);
-                        
-                        // Format as currency
-                        if (value) {
-                          const numValue = parseInt(value, 10);
-                          setFormattedDebts(new Intl.NumberFormat('en-US', {
-                            style: 'currency',
-                            currency: 'USD',
-                            minimumFractionDigits: 0,
-                            maximumFractionDigits: 0
-                          }).format(numValue));
-                        } else {
-                          setFormattedDebts('');
-                        }
-                      }}
-                    />
+                  <div className="space-y-2">
+                    <label htmlFor="monthlyDebts" className="block text-sm font-medium text-gray-700">Monthly Debts ($)</label>
+                    <div className="relative">
+                      <input 
+                        type="text" 
+                        id="monthlyDebts" 
+                        name="monthlyDebts" 
+                        placeholder="Enter your total monthly debt payments" 
+                        className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        value={formattedDebts}
+                        onChange={(e) => {
+                          // Extract numbers only
+                          const value = e.target.value.replace(/[^0-9]/g, '');
+                          setMonthlyDebts(value);
+                          
+                          // Format as currency
+                          if (value) {
+                            const numValue = parseInt(value, 10);
+                            setFormattedDebts(new Intl.NumberFormat('en-US', {
+                              style: 'currency',
+                              currency: 'USD',
+                              minimumFractionDigits: 0,
+                              maximumFractionDigits: 0
+                            }).format(numValue));
+                          } else {
+                            setFormattedDebts('');
+                          }
+                        }}
+                      />
+                    </div>
                   </div>
-                </div>
 
-                <div className="space-y-2">
-                  <label htmlFor="creditScore" className="block text-sm font-medium text-gray-700">Estimated Credit Score</label>
-                  <select 
-                    id="creditScore" 
-                    name="creditScore" 
-                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    value={creditScore}
-                    onChange={(e) => setCreditScore(e.target.value)}
-                  >
-                    <option value="">Select your credit score range</option>
-                    <option value="780">780+</option>
-                    <option value="760">760-779</option>
-                    <option value="740">740-759</option>
-                    <option value="720">720-739</option>
-                    <option value="700">700-719</option>
-                    <option value="680">680-699</option>
-                    <option value="660">660-679</option>
-                    <option value="640">640-659</option>
-                    <option value="620">620-639</option>
-                    <option value="600">Below 620</option>
-                  </select>
+                  <div className="space-y-2">
+                    <label htmlFor="creditScore" className="block text-sm font-medium text-gray-700">Estimated Credit Score</label>
+                    <select 
+                      id="creditScore" 
+                      name="creditScore" 
+                      className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={creditScore}
+                      onChange={(e) => setCreditScore(e.target.value)}
+                    >
+                      <option value="">Select your credit score range</option>
+                      <option value="780">780+</option>
+                      <option value="760">760-779</option>
+                      <option value="740">740-759</option>
+                      <option value="720">720-739</option>
+                      <option value="700">700-719</option>
+                      <option value="680">680-699</option>
+                      <option value="660">660-679</option>
+                      <option value="640">640-659</option>
+                      <option value="620">620-639</option>
+                      <option value="600">Below 620</option>
+                    </select>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label htmlFor="selectedState" className="block text-sm font-medium text-gray-700">State You're Buying In</label>
+                    <select 
+                      id="selectedState" 
+                      name="selectedState" 
+                      className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={selectedState}
+                      onChange={(e) => setSelectedState(e.target.value)}
+                    >
+                      <option value="">Select a state</option>
+                      {usStates.map((state) => (
+                        <option key={state.value} value={state.value}>{state.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="loanType" className="block text-sm font-medium text-gray-700">Loan Type</label>
+                    <select 
+                      id="loanType" 
+                      name="loanType" 
+                      className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={loanType}
+                      onChange={(e) => setLoanType(e.target.value)}
+                    >
+                      <option value="">Select loan type</option>
+                      <option value="conventional">Conventional</option>
+                      <option value="fha">FHA</option>
+                      <option value="va">VA</option>
+                      <option value="usda">USDA</option>
+                      <option value="unique">Unique Loan Products</option>
+                    </select>
+                  </div>
                 </div>
                 
-                <div className="space-y-2">
-                  <label htmlFor="selectedState" className="block text-sm font-medium text-gray-700">State You're Buying In</label>
-                  <select 
-                    id="selectedState" 
-                    name="selectedState" 
-                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    value={selectedState}
-                    onChange={(e) => setSelectedState(e.target.value)}
+                <div className="text-center pt-4">
+                  <Button 
+                    type="button" 
+                    id="calculate-button"
+                    className="bg-primary hover:bg-primary/90 text-white px-8 py-2"
+                    onClick={handleCalculate}
                   >
-                    <option value="">Select a state</option>
-                    {usStates.map((state) => (
-                      <option key={state.value} value={state.value}>{state.label}</option>
-                    ))}
-                  </select>
+                    Calculate Qualification <Calculator className="ml-2 h-4 w-4" />
+                  </Button>
                 </div>
+              </form>
 
-                <div className="space-y-2">
-                  <label htmlFor="loanType" className="block text-sm font-medium text-gray-700">Loan Type</label>
-                  <select 
-                    id="loanType" 
-                    name="loanType" 
-                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    value={loanType}
-                    onChange={(e) => setLoanType(e.target.value)}
-                  >
-                    <option value="">Select loan type</option>
-                    <option value="conventional">Conventional</option>
-                    <option value="fha">FHA</option>
-                    <option value="va">VA</option>
-                    <option value="usda">USDA</option>
-                    <option value="unique">Unique Loan Products</option>
-                  </select>
-                </div>
-              </div>
-              
-              <div className="text-center pt-4">
-                <Button 
-                  type="button" 
-                  id="calculate-button"
-                  className="bg-primary hover:bg-primary/90 text-white px-8 py-2"
-                  onClick={(e) => handleCalculate(e)}
-                >
-                  Calculate Qualification <Calculator className="ml-2 h-4 w-4" />
-                </Button>
-              </div>
-            </form>
-
-            {showResults && (
-              <div className="mt-8 p-6 bg-gray-50 rounded-lg">
-                <h3 className="text-xl font-semibold text-primary mb-3">Your Estimated Qualification</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-medium">Estimated Loan Amount:</span>
-                    <span className="text-xl font-bold text-primary">${results.loanAmount.toLocaleString()}</span>
-                  </div>
-                  
-                  <div className="bg-blue-50 p-4 rounded-md my-4">
-                    <h4 className="font-semibold text-primary mb-2">Monthly Payment Breakdown:</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Principal & Interest:</span>
-                        <span className="font-medium">${results.principalAndInterest.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Property Taxes:</span>
-                        <span className="font-medium">${results.propertyTax.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Homeowners Insurance:</span>
-                        <span className="font-medium">${results.insurance.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center border-t border-blue-200 pt-2 mt-2">
-                        <span className="font-medium">Total Monthly Payment:</span>
-                        <span className="font-bold">${results.totalMonthlyPayment.toLocaleString()}</span>
+              {showResults && (
+                <div className="mt-8 p-6 bg-gray-50 rounded-lg">
+                  <h3 className="text-xl font-semibold text-primary mb-3">Your Estimated Qualification</h3>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                      <span className="font-medium">Estimated Loan Amount:</span>
+                      <span className="text-xl font-bold text-primary">${results.loanAmount.toLocaleString()}</span>
+                    </div>
+                    
+                    <div className="bg-blue-50 p-4 rounded-md my-4">
+                      <h4 className="font-semibold text-primary mb-2">Monthly Payment Breakdown:</h4>
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm">Principal & Interest:</span>
+                          <span className="font-medium">${results.principalAndInterest.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm">Property Taxes:</span>
+                          <span className="font-medium">${results.propertyTax.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm">Homeowners Insurance:</span>
+                          <span className="font-medium">${results.insurance.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between items-center border-t border-blue-200 pt-2 mt-2">
+                          <span className="font-medium">Total Monthly Payment:</span>
+                          <span className="font-bold">${results.totalMonthlyPayment.toLocaleString()}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                  
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-medium">Debt-to-Income Ratio:</span>
-                    <span>{results.dtiRatio}%</span>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-medium">Estimated Interest Rate:</span>
-                    <div className="flex items-center">
-                      <span>{results.interestRate.toFixed(2)}%</span>
-                      <a href="https://www.mortgagenewsdaily.com/mortgage-rates" target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 ml-2 text-xs underline flex items-center">
-                        <ExternalLink className="h-3 w-3 mr-1" /> View current rates
-                      </a>
+                    
+                    <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                      <span className="font-medium">Debt-to-Income Ratio:</span>
+                      <span>{results.dtiRatio}%</span>
                     </div>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-medium">Loan Type:</span>
-                    <span className="capitalize">{loanType} Loan</span>
-                  </div>
-                  
-                  {selectedState === 'FL' && (
-                    <div className="mt-4 bg-orange-50 p-3 rounded-md text-sm">
-                      <p className="font-medium text-orange-700 mb-1">Florida Property Information:</p>
-                      <p className="text-gray-700">Florida has property tax rates of approximately 1.5% annually and homeowners insurance of around 0.75% annually of the home's value.</p>
+                    <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                      <span className="font-medium">Estimated Interest Rate:</span>
+                      <div className="flex items-center">
+                        <span>{results.interestRate.toFixed(2)}%</span>
+                        <a href="https://www.mortgagenewsdaily.com/mortgage-rates" target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 ml-2 text-xs underline flex items-center">
+                          <ExternalLink className="h-3 w-3 mr-1" /> View current rates
+                        </a>
+                      </div>
                     </div>
-                  )}
-                  
-                  <p className="text-sm text-gray-500 mt-4">
-                    This is just an estimate. For a more accurate assessment, please contact our mortgage specialists.
-                  </p>
-                  <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500">
-                    <p>Interest rates updated from MortgageNewsDaily.com</p>
+                    <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                      <span className="font-medium">Loan Type:</span>
+                      <span className="capitalize">{loanType} Loan</span>
+                    </div>
+                    
+                    {selectedState === 'FL' && (
+                      <div className="mt-4 bg-orange-50 p-3 rounded-md text-sm">
+                        <p className="font-medium text-orange-700 mb-1">Florida Property Information:</p>
+                        <p className="text-gray-700">Florida has property tax rates of approximately 1.5% annually and homeowners insurance of around 0.75% annually of the home's value.</p>
+                      </div>
+                    )}
+                    
+                    <p className="text-sm text-gray-500 mt-4">
+                      This is just an estimate. For a more accurate assessment, please contact our mortgage specialists.
+                    </p>
+                    <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500">
+                      <p>Interest rates updated from MortgageNewsDaily.com</p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
             </div>
 
             {/* Address-Based Qualification */}
@@ -550,17 +644,21 @@ export default function Mortgage() {
                         name="propertyAddress" 
                         placeholder="Enter the full property address" 
                         className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        value={propertyAddress}
+                        onChange={(e) => setPropertyAddress(e.target.value)}
                       />
                     </div>
                   </div>
 
-                  <div id="propertyResult" className="hidden mt-4 p-4 bg-gray-50 rounded-md">
-                    <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
-                      <span className="font-medium">Property Price:</span>
-                      <span className="text-lg font-bold text-primary">$0</span>
+                  {showPropertyResult && (
+                    <div className="mt-4 p-4 bg-gray-50 rounded-md">
+                      <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
+                        <span className="font-medium">Property Price:</span>
+                        <span className="text-lg font-bold text-primary">${propertyPrice.toLocaleString()}</span>
+                      </div>
+                      <p className="text-xs text-gray-500">Data from Zillow</p>
                     </div>
-                    <p className="text-xs text-gray-500">Data from Zillow</p>
-                  </div>
+                  )}
 
                   <div className="space-y-2">
                     <label htmlFor="downPayment" className="block text-sm font-medium text-gray-700">Down Payment (%)</label>
@@ -573,6 +671,8 @@ export default function Mortgage() {
                         min="3" 
                         max="50"
                         className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        value={downPaymentPercent}
+                        onChange={(e) => setDownPaymentPercent(parseInt(e.target.value))}
                       />
                     </div>
                   </div>
@@ -583,6 +683,8 @@ export default function Mortgage() {
                       id="addressCreditScore" 
                       name="addressCreditScore" 
                       className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={addressCreditScore}
+                      onChange={(e) => setAddressCreditScore(e.target.value)}
                     >
                       <option value="">Select your credit score range</option>
                       <option value="780">780+</option>
@@ -607,6 +709,8 @@ export default function Mortgage() {
                         name="monthlyIncome" 
                         placeholder="Enter your monthly income" 
                         className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        value={monthlyIncome}
+                        onChange={(e) => setMonthlyIncome(e.target.value.replace(/[^0-9]/g, ''))}
                       />
                     </div>
                   </div>
@@ -620,6 +724,8 @@ export default function Mortgage() {
                         name="addressMonthlyDebts" 
                         placeholder="Enter your total monthly debt payments" 
                         className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                        value={addressMonthlyDebts}
+                        onChange={(e) => setAddressMonthlyDebts(e.target.value.replace(/[^0-9]/g, ''))}
                       />
                     </div>
                   </div>
@@ -630,6 +736,8 @@ export default function Mortgage() {
                       id="addressLoanType" 
                       name="addressLoanType" 
                       className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={addressLoanType}
+                      onChange={(e) => setAddressLoanType(e.target.value)}
                     >
                       <option value="">Select loan type</option>
                       <option value="conventional">Conventional</option>
@@ -646,6 +754,7 @@ export default function Mortgage() {
                     type="button" 
                     id="search-address-button"
                     className="bg-secondary hover:bg-secondary/90 text-white px-8 py-2 mb-3 w-full"
+                    onClick={handleSearchAddress}
                   >
                     Find Property <Search className="ml-2 h-4 w-4" />
                   </Button>
@@ -654,82 +763,75 @@ export default function Mortgage() {
                     type="button" 
                     id="calculate-address-button"
                     className="bg-primary hover:bg-primary/90 text-white px-8 py-2 w-full"
+                    onClick={handleAddressCalculate}
+                    disabled={!showPropertyResult}
                   >
                     Calculate Qualification <Calculator className="ml-2 h-4 w-4" />
                   </Button>
                 </div>
               </form>
 
-              <div id="addressQualificationResults" className="hidden mt-8 p-6 bg-gray-50 rounded-lg">
-                <h3 className="text-xl font-semibold text-primary mb-3">Your Estimated Qualification</h3>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-medium">Estimated Loan Amount:</span>
-                    <span className="text-xl font-bold text-primary">${results.loanAmount.toLocaleString()}</span>
-                  </div>
+              {showAddressResults && (
+                <div className="mt-8 p-6 bg-gray-50 rounded-lg">
+                  <h3 className="text-xl font-semibold text-primary mb-3">Property Qualification Results</h3>
                   
-                  <div className="bg-blue-50 p-4 rounded-md my-4">
-                    <h4 className="font-semibold text-primary mb-2">Monthly Payment Breakdown:</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Principal & Interest:</span>
-                        <span className="font-medium">${results.principalAndInterest.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Property Taxes:</span>
-                        <span className="font-medium">${results.propertyTax.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Homeowners Insurance:</span>
-                        <span className="font-medium">${results.insurance.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between items-center border-t border-blue-200 pt-2 mt-2">
-                        <span className="font-medium">Total Monthly Payment:</span>
-                        <span className="font-bold">${results.totalMonthlyPayment.toLocaleString()}</span>
-                      </div>
+                  {addressResults.qualification ? (
+                    <div className="bg-green-50 p-4 rounded-md mb-4">
+                      <p className="font-medium text-green-700">Congratulations! You qualify for this property.</p>
                     </div>
-                  </div>
-                  
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-medium">Debt-to-Income Ratio:</span>
-                    <span>{results.dtiRatio}%</span>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-medium">Estimated Interest Rate:</span>
-                    <div className="flex items-center">
-                      <span>{results.interestRate.toFixed(2)}%</span>
-                      <a href="https://www.mortgagenewsdaily.com/mortgage-rates" target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 ml-2 text-xs underline flex items-center">
-                        <ExternalLink className="h-3 w-3 mr-1" /> View current rates
-                      </a>
-                    </div>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-medium">Loan Type:</span>
-                    <span className="capitalize">{loanType} Loan</span>
-                  </div>
-                  
-                  {selectedState === 'FL' && (
-                    <div className="mt-4 bg-orange-50 p-3 rounded-md text-sm">
-                      <p className="font-medium text-orange-700 mb-1">Florida Property Information:</p>
-                      <p className="text-gray-700">Florida has property tax rates of approximately 1.5% annually and homeowners insurance of around 0.75% annually of the home's value.</p>
+                  ) : (
+                    <div className="bg-red-50 p-4 rounded-md mb-4">
+                      <p className="font-medium text-red-700">Based on the information provided, you may not qualify for this property.</p>
+                      <p className="text-sm text-gray-700 mt-2">Required monthly income: ${addressResults.requiredIncome.toLocaleString()}</p>
                     </div>
                   )}
                   
-                  <p className="text-sm text-gray-500 mt-4">
-                    This is just an estimate. For a more accurate assessment, please contact our mortgage specialists.
-                  </p>
-                  <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500">
-                    <p>Interest rates updated from MortgageNewsDaily.com</p>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                      <span className="font-medium">Property Price:</span>
+                      <span className="font-semibold">${propertyPrice.toLocaleString()}</span>
+                    </div>
+                    
+                    <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                      <span className="font-medium">Down Payment:</span>
+                      <span className="font-semibold">${addressResults.downPaymentAmount.toLocaleString()} ({downPaymentPercent}%)</span>
+                    </div>
+                    
+                    <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                      <span className="font-medium">Loan Amount:</span>
+                      <span className="text-lg font-bold text-primary">${addressResults.maximumLoanAmount.toLocaleString()}</span>
+                    </div>
+                    
+                    <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                      <span className="font-medium">Estimated Monthly Payment:</span>
+                      <span className="font-semibold">${addressResults.estimatedMonthlyPayment.toLocaleString()}</span>
+                    </div>
+                    
+                    <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                      <span className="font-medium">Estimated Interest Rate:</span>
+                      <div className="flex items-center">
+                        <span>{addressResults.interestRate.toFixed(2)}%</span>
+                        <a href="https://www.mortgagenewsdaily.com/mortgage-rates" target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 ml-2 text-xs underline flex items-center">
+                          <ExternalLink className="h-3 w-3 mr-1" /> View current rates
+                        </a>
+                      </div>
+                    </div>
+                    
+                    <p className="text-sm text-gray-500 mt-4">
+                      This is just an estimate. For a more accurate assessment, please contact our mortgage specialists.
+                    </p>
+                    
+                    <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500">
+                      <p>Property data from Zillow (simulated). Interest rates from MortgageNewsDaily.com</p>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </section>
       
-
-
       <section className="py-16">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">

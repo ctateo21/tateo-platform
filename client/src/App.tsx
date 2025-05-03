@@ -10,7 +10,7 @@ import Footer from "./components/layout/footer";
 import Home from "./pages/home";
 import Questionnaire from "./pages/questionnaire";
 import RealEstate from "./pages/real-estate";
-import Mortgage from "./pages/mortgage";
+import Mortgage from "./pages/mortgage-new";
 import Insurance from "./pages/insurance";
 import Construction from "./pages/construction";
 import PropertyManagement from "./pages/property-management";
