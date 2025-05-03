@@ -253,10 +253,32 @@ export default function Mortgage() {
   
   // Load Google Maps API script
   useEffect(() => {
-    // Get API key from environment variables
-    const apiKey = import.meta.env.GOOGLE_MAPS_API_KEY as string;
+    // For Vite environment variables, they must be prefixed with VITE_
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+    
+    // If we can't find the key in import.meta.env, try a server-side fetch
     if (!apiKey) {
-      console.error('Google Maps API key is not set');
+      console.log('Trying to fetch Google Maps API key from server...');
+      // Fetch the key from server
+      fetch('/api/config/google-maps-api-key')
+        .then(response => response.json())
+        .then(data => {
+          if (data.apiKey) {
+            console.log('Successfully retrieved Google Maps API key from server');
+            loadGoogleMapsApi(data.apiKey)
+              .then(() => {
+                setGoogleMapsLoaded(true);
+              })
+              .catch(err => {
+                console.error('Failed to load Google Maps API:', err);
+              });
+          } else {
+            console.error('Google Maps API key not provided by server');
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching Google Maps API key:', error);
+        });
       return;
     }
     

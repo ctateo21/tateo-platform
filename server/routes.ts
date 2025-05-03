@@ -179,13 +179,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(submission);
   });
 
-  // Zillow API endpoints
+  // API keys endpoints
   
   // Get configuration for Zillow API integration
   app.get("/api/config/zillow-api-key", async (req, res) => {
     // In a real implementation, this would retrieve the API key from secure environment variables
     // Here we're using a placeholder for demonstration purposes
     const apiKey = process.env.ZILLOW_API_KEY || "demo-key";
+    res.json({ apiKey });
+  });
+  
+  // Get configuration for Google Maps API integration
+  app.get("/api/config/google-maps-api-key", async (req, res) => {
+    // Retrieve the Google Maps API key from environment variables
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY || "";
+    if (!apiKey) {
+      return res.status(500).json({ message: "Google Maps API key not configured" });
+    }
     res.json({ apiKey });
   });
   
