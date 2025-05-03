@@ -1,7 +1,7 @@
 import { ServiceCategory } from "@shared/schema";
 import { cn } from "@/lib/utils";
 import { useServices } from "@/context/services-context";
-import { Check } from "lucide-react";
+import { Check, SquareCheck, Square } from "lucide-react";
 
 interface ServiceCardProps {
   service: ServiceCategory;
@@ -28,6 +28,17 @@ export default function ServiceCard({ service }: ServiceCardProps) {
       onClick={handleClick}
     >
       <div className="relative h-48 overflow-hidden">
+        <div className="absolute top-3 right-3 z-10">
+          {selected ? (
+            <div className="bg-white rounded p-0.5 shadow-md">
+              <SquareCheck className="h-6 w-6 text-primary" />
+            </div>
+          ) : (
+            <div className="bg-white rounded p-0.5 shadow-md">
+              <Square className="h-6 w-6 text-gray-600" />
+            </div>
+          )}
+        </div>
         <img 
           src={service.imageUrl} 
           alt={`${service.displayName} Services`} 
@@ -36,11 +47,6 @@ export default function ServiceCard({ service }: ServiceCardProps) {
         <div className="absolute bottom-0 left-0 right-0 bg-primary p-3 transition-colors">
           <div className="flex justify-between items-center">
             <h4 className="text-white font-semibold card-title">{service.displayName}</h4>
-            {selected && (
-              <div className="bg-secondary rounded-full w-6 h-6 flex items-center justify-center">
-                <Check className="h-4 w-4 text-white" />
-              </div>
-            )}
           </div>
         </div>
       </div>

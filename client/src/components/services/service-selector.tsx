@@ -33,13 +33,16 @@ export default function ServiceSelector() {
   };
 
   return (
-    <section id="services" className="py-20 bg-gray-50">
+    <section id="services" className="py-12 pb-20 bg-gray-50">
       <div className="container mx-auto px-4">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl md:text-5xl font-bold mb-4 text-primary">
+        <div className="text-center mb-6">
+          <h2 className="text-3xl md:text-5xl font-bold mb-3 text-primary">
             Our Services
           </h2>
-          <div className="w-20 h-1 bg-secondary mx-auto mb-6"></div>
+          <div className="w-20 h-1 bg-secondary mx-auto mb-4"></div>
+          <p className="text-black font-bold text-lg mb-6 underline">
+            Pick which services you are looking for
+          </p>
         </div>
         
         {/* Service Selection */}
