@@ -14,7 +14,10 @@ export default function Mortgage() {
   const [showResults, setShowResults] = useState(false);
   const [results, setResults] = useState({
     loanAmount: 0,
-    monthlyPayment: 0,
+    principalAndInterest: 0,
+    propertyTax: 0,
+    insurance: 0,
+    totalMonthlyPayment: 0,
     dtiRatio: 0,
     interestRate: 0
   });
@@ -113,18 +116,53 @@ export default function Mortgage() {
       baseInterestRate -= 0.003; // Subtract 0.3% for low-cost states
     }
     
-    // Calculate max monthly payment
+    // Calculate max monthly payment available (total PITI - principal, interest, taxes, insurance)
     const maxMonthlyPayment = (monthlyIncome * maxDti) - debts;
     
-    // Estimate loan amount with state-adjusted interest rate
-    const interestRate = baseInterestRate / 12; // Monthly interest rate
-    const term = 30 * 12; // Term in months
-    const loanAmount = maxMonthlyPayment * (1 - Math.pow(1 + interestRate, -term)) / interestRate;
+    // Calculate tax and insurance rates (monthly percentages of loan amount)
+    // Default rates for most states
+    let propertyTaxRate = 0.01 / 12; // 1% annual property tax / 12 months
+    let insuranceRate = 0.005 / 12; // 0.5% annual insurance / 12 months
+    
+    // Florida-specific rates
+    if (selectedState === 'FL') {
+      propertyTaxRate = 0.015 / 12; // 1.5% annual property tax / 12 months
+      insuranceRate = 0.0075 / 12; // 0.75% annual insurance / 12 months
+    }
+    
+    // Calculate how much of the monthly payment is available for principal and interest
+    // Using an algebraic transformation of the standard mortgage formula that accounts for taxes and insurance
+    const monthlyInterestRate = baseInterestRate / 12;
+    const term = 30 * 12; // 30-year mortgage in months
+    
+    // This factor accounts for taxes and insurance proportional to loan amount
+    const taxInsuranceFactor = propertyTaxRate + insuranceRate;
+    
+    // Calculate loan amount using mortgage formula adjusted for insurance and taxes
+    // Formula derivation: Payment = L × [r(1+r)^n/((1+r)^n-1) + tax + ins]
+    // Where L = loan amount, r = monthly interest rate, n = term in months, tax = monthly tax rate, ins = monthly insurance rate
+    const piRatio = monthlyInterestRate * Math.pow(1 + monthlyInterestRate, term) / (Math.pow(1 + monthlyInterestRate, term) - 1);
+    const loanAmount = maxMonthlyPayment / (piRatio + taxInsuranceFactor);
+    
+    // Calculate the components of the payment
+    const principalAndInterest = loanAmount * piRatio;
+    const propertyTax = loanAmount * propertyTaxRate;
+    const insurance = loanAmount * insuranceRate;
+    
+    // Round to nearest whole numbers for display
+    const roundedLoanAmount = Math.round(loanAmount);
+    const roundedPrincipalAndInterest = Math.round(principalAndInterest);
+    const roundedPropertyTax = Math.round(propertyTax);
+    const roundedInsurance = Math.round(insurance);
+    const roundedTotalPayment = Math.round(principalAndInterest + propertyTax + insurance);
     
     // Update results
     setResults({
-      loanAmount: Math.round(loanAmount),
-      monthlyPayment: Math.round(maxMonthlyPayment),
+      loanAmount: roundedLoanAmount,
+      principalAndInterest: roundedPrincipalAndInterest,
+      propertyTax: roundedPropertyTax,
+      insurance: roundedInsurance,
+      totalMonthlyPayment: roundedTotalPayment,
       dtiRatio: Math.round(maxDti * 100),
       interestRate: baseInterestRate * 100 // Convert to percentage
     });
@@ -308,10 +346,29 @@ export default function Mortgage() {
                     <span className="font-medium">Estimated Loan Amount:</span>
                     <span className="text-xl font-bold text-primary">${results.loanAmount.toLocaleString()}</span>
                   </div>
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-medium">Monthly Payment Estimate:</span>
-                    <span>${results.monthlyPayment.toLocaleString()}</span>
+                  
+                  <div className="bg-blue-50 p-4 rounded-md my-4">
+                    <h4 className="font-semibold text-primary mb-2">Monthly Payment Breakdown:</h4>
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm">Principal & Interest:</span>
+                        <span className="font-medium">${results.principalAndInterest.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm">Property Taxes:</span>
+                        <span className="font-medium">${results.propertyTax.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm">Homeowners Insurance:</span>
+                        <span className="font-medium">${results.insurance.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between items-center border-t border-blue-200 pt-2 mt-2">
+                        <span className="font-medium">Total Monthly Payment:</span>
+                        <span className="font-bold">${results.totalMonthlyPayment.toLocaleString()}</span>
+                      </div>
+                    </div>
                   </div>
+                  
                   <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                     <span className="font-medium">Debt-to-Income Ratio:</span>
                     <span>{results.dtiRatio}%</span>
@@ -320,6 +377,14 @@ export default function Mortgage() {
                     <span className="font-medium">Estimated Interest Rate:</span>
                     <span>{results.interestRate.toFixed(2)}%</span>
                   </div>
+                  
+                  {selectedState === 'FL' && (
+                    <div className="mt-4 bg-orange-50 p-3 rounded-md text-sm">
+                      <p className="font-medium text-orange-700 mb-1">Florida Property Information:</p>
+                      <p className="text-gray-700">Florida has property tax rates of approximately 1.5% annually and homeowners insurance of around 0.75% annually of the home's value.</p>
+                    </div>
+                  )}
+                  
                   <p className="text-sm text-gray-500 mt-4">
                     This is just an estimate. For a more accurate assessment, please contact our mortgage specialists.
                   </p>
