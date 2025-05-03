@@ -10,16 +10,80 @@ export default function Mortgage() {
   const [yearlyIncome, setYearlyIncome] = useState<string>('');
   const [monthlyDebts, setMonthlyDebts] = useState<string>('');
   const [creditScore, setCreditScore] = useState<string>('');
+  const [selectedState, setSelectedState] = useState<string>('');
   const [showResults, setShowResults] = useState(false);
   const [results, setResults] = useState({
     loanAmount: 0,
     monthlyPayment: 0,
-    dtiRatio: 0
+    dtiRatio: 0,
+    interestRate: 0
   });
+  
+  // List of US states
+  const usStates = [
+    { value: 'AL', label: 'Alabama' },
+    { value: 'AK', label: 'Alaska' },
+    { value: 'AZ', label: 'Arizona' },
+    { value: 'AR', label: 'Arkansas' },
+    { value: 'CA', label: 'California' },
+    { value: 'CO', label: 'Colorado' },
+    { value: 'CT', label: 'Connecticut' },
+    { value: 'DE', label: 'Delaware' },
+    { value: 'FL', label: 'Florida' },
+    { value: 'GA', label: 'Georgia' },
+    { value: 'HI', label: 'Hawaii' },
+    { value: 'ID', label: 'Idaho' },
+    { value: 'IL', label: 'Illinois' },
+    { value: 'IN', label: 'Indiana' },
+    { value: 'IA', label: 'Iowa' },
+    { value: 'KS', label: 'Kansas' },
+    { value: 'KY', label: 'Kentucky' },
+    { value: 'LA', label: 'Louisiana' },
+    { value: 'ME', label: 'Maine' },
+    { value: 'MD', label: 'Maryland' },
+    { value: 'MA', label: 'Massachusetts' },
+    { value: 'MI', label: 'Michigan' },
+    { value: 'MN', label: 'Minnesota' },
+    { value: 'MS', label: 'Mississippi' },
+    { value: 'MO', label: 'Missouri' },
+    { value: 'MT', label: 'Montana' },
+    { value: 'NE', label: 'Nebraska' },
+    { value: 'NV', label: 'Nevada' },
+    { value: 'NH', label: 'New Hampshire' },
+    { value: 'NJ', label: 'New Jersey' },
+    { value: 'NM', label: 'New Mexico' },
+    { value: 'NY', label: 'New York' },
+    { value: 'NC', label: 'North Carolina' },
+    { value: 'ND', label: 'North Dakota' },
+    { value: 'OH', label: 'Ohio' },
+    { value: 'OK', label: 'Oklahoma' },
+    { value: 'OR', label: 'Oregon' },
+    { value: 'PA', label: 'Pennsylvania' },
+    { value: 'RI', label: 'Rhode Island' },
+    { value: 'SC', label: 'South Carolina' },
+    { value: 'SD', label: 'South Dakota' },
+    { value: 'TN', label: 'Tennessee' },
+    { value: 'TX', label: 'Texas' },
+    { value: 'UT', label: 'Utah' },
+    { value: 'VT', label: 'Vermont' },
+    { value: 'VA', label: 'Virginia' },
+    { value: 'WA', label: 'Washington' },
+    { value: 'WV', label: 'West Virginia' },
+    { value: 'WI', label: 'Wisconsin' },
+    { value: 'WY', label: 'Wyoming' },
+    { value: 'DC', label: 'District of Columbia' }
+  ];
 
   // Calculate mortgage qualification
   const handleCalculate = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    
+    // Validate required fields
+    if (!yearlyIncome || !monthlyDebts || !creditScore || !selectedState) {
+      alert("Please fill in all fields to calculate your qualification.");
+      return;
+    }
+    
     const income = parseFloat(yearlyIncome) || 0;
     const debts = parseFloat(monthlyDebts) || 0;
     
@@ -36,12 +100,24 @@ export default function Mortgage() {
     else if (creditScore === 'poor') maxDti = 0.38;
     else if (creditScore === 'bad') maxDti = 0.35;
     
+    // Adjust interest rate based on state (simplified example)
+    let baseInterestRate = 0.065; // 6.5% base interest rate
+    
+    // State-specific interest rate adjustments (simplified example)
+    const highRateStates = ['CA', 'NY', 'HI', 'NJ', 'MA']; // High cost of living states
+    const lowRateStates = ['TX', 'FL', 'GA', 'NC', 'TN']; // Lower cost of living states
+    
+    if (highRateStates.includes(selectedState)) {
+      baseInterestRate += 0.005; // Add 0.5% for high-cost states
+    } else if (lowRateStates.includes(selectedState)) {
+      baseInterestRate -= 0.003; // Subtract 0.3% for low-cost states
+    }
+    
     // Calculate max monthly payment
     const maxMonthlyPayment = (monthlyIncome * maxDti) - debts;
     
-    // Estimate loan amount (simplified - would normally include interest rate, term, etc.)
-    // Assuming 30-year fixed at 6.5% interest rate
-    const interestRate = 0.065 / 12; // Monthly interest rate
+    // Estimate loan amount with state-adjusted interest rate
+    const interestRate = baseInterestRate / 12; // Monthly interest rate
     const term = 30 * 12; // Term in months
     const loanAmount = maxMonthlyPayment * (1 - Math.pow(1 + interestRate, -term)) / interestRate;
     
@@ -49,7 +125,8 @@ export default function Mortgage() {
     setResults({
       loanAmount: Math.round(loanAmount),
       monthlyPayment: Math.round(maxMonthlyPayment),
-      dtiRatio: Math.round(maxDti * 100)
+      dtiRatio: Math.round(maxDti * 100),
+      interestRate: baseInterestRate * 100 // Convert to percentage
     });
     
     setShowResults(true);
@@ -193,6 +270,22 @@ export default function Mortgage() {
                     <option value="bad">Bad (below 600)</option>
                   </select>
                 </div>
+                
+                <div className="space-y-2">
+                  <label htmlFor="selectedState" className="block text-sm font-medium text-gray-700">State You're Buying In</label>
+                  <select 
+                    id="selectedState" 
+                    name="selectedState" 
+                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={selectedState}
+                    onChange={(e) => setSelectedState(e.target.value)}
+                  >
+                    <option value="">Select a state</option>
+                    {usStates.map((state) => (
+                      <option key={state.value} value={state.value}>{state.label}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               
               <div className="text-center pt-4">
@@ -222,6 +315,10 @@ export default function Mortgage() {
                   <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                     <span className="font-medium">Debt-to-Income Ratio:</span>
                     <span>{results.dtiRatio}%</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                    <span className="font-medium">Estimated Interest Rate:</span>
+                    <span>{results.interestRate.toFixed(2)}%</span>
                   </div>
                   <p className="text-sm text-gray-500 mt-4">
                     This is just an estimate. For a more accurate assessment, please contact our mortgage specialists.
