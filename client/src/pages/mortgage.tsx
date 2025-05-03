@@ -103,8 +103,8 @@ export default function Mortgage() {
     const income = parseFloat(yearlyIncome) || 0;
     const debts = parseFloat(monthlyDebts) || 0;
     
-    // Calculate monthly income
-    const monthlyIncome = income / 12;
+    // Calculate monthly income - yearly income is already provided
+    const monthlyIncome = income / 12; // $120,000/12 = $10,000 per month
     
     // Determine max DTI based on credit score
     let maxDti = 0.43; // Default DTI ratio
@@ -133,6 +133,7 @@ export default function Mortgage() {
     */
     
     // Calculate max monthly payment available (total PITI - principal, interest, taxes, insurance)
+    // Example: $10,000 × 45% - $1,250 = $4,500 - $1,250 = $3,250 max monthly payment
     const maxMonthlyPayment = (monthlyIncome * maxDti) - debts;
     
     // Calculate tax and insurance rates (monthly percentages of loan amount)
@@ -171,6 +172,24 @@ export default function Mortgage() {
     const roundedPropertyTax = Math.round(propertyTax);
     const roundedInsurance = Math.round(insurance);
     const roundedTotalPayment = Math.round(principalAndInterest + propertyTax + insurance);
+    
+    // Debug output to console for verification
+    console.log('==== Mortgage Qualification Calculator ====');
+    console.log(`Yearly Income: $${income}`);
+    console.log(`Monthly Income: $${monthlyIncome.toFixed(2)}`);
+    console.log(`Monthly Debts: $${debts}`);
+    console.log(`Max DTI: ${(maxDti * 100).toFixed(2)}%`);
+    console.log(`Available Monthly Payment: $${maxMonthlyPayment.toFixed(2)}`);
+    console.log(`Interest Rate: ${(baseInterestRate * 100).toFixed(2)}%`);
+    console.log(`Monthly Interest Rate: ${(monthlyInterestRate * 100).toFixed(4)}%`);
+    console.log(`P&I Ratio: ${piRatio.toFixed(6)}`);
+    console.log(`Tax+Insurance Factor: ${taxInsuranceFactor.toFixed(6)}`);
+    console.log(`Loan Amount: $${loanAmount.toFixed(2)}`);
+    console.log(`Principal & Interest: $${principalAndInterest.toFixed(2)}`);
+    console.log(`Property Tax: $${propertyTax.toFixed(2)}`);
+    console.log(`Insurance: $${insurance.toFixed(2)}`);
+    console.log(`Total Monthly Payment: $${(principalAndInterest + propertyTax + insurance).toFixed(2)}`);
+    console.log('=======================================');
     
     // Update results
     setResults({
