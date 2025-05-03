@@ -242,8 +242,25 @@ export default function Mortgage() {
     setShowResults(true);
   };
 
+  // Get Google Maps API key from environment
+  const [placeDetails, setPlaceDetails] = useState<google.maps.places.PlaceResult | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  // Handle place selection from Google Places autocomplete
+  const handlePlaceSelected = (place: google.maps.places.PlaceResult) => {
+    setPlaceDetails(place);
+    setPropertyAddress(place.formatted_address || '');
+  };
+
+  // Initialize Google Places autocomplete
+  const { bindInputRef, isLoaded } = useGooglePlaces({
+    apiKey: process.env.GOOGLE_MAPS_API_KEY || '',
+    onPlaceSelected: handlePlaceSelected
+  });
+
   // Search for address and get property price
-  const handleSearchAddress = (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleSearchAddress = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     
     if (!propertyAddress) {
@@ -251,19 +268,43 @@ export default function Mortgage() {
       return;
     }
     
-    // This would be a Zillow API call in a real implementation
-    // For now, we'll simulate a property lookup with a random value
-    console.log(`Searching for property: ${propertyAddress}`);
+    setIsSearching(true);
+    setSearchError(null);
     
-    // Simulate API request delay
-    setTimeout(() => {
-      // Generate a realistic property price between $250,000 and $750,000
-      const randomPrice = Math.floor(Math.random() * (750000 - 250000) + 250000);
-      setPropertyPrice(randomPrice);
-      setShowPropertyResult(true);
+    try {
+      // Call our server endpoint to get property details
+      const response = await fetch('/api/properties/lookup-by-address', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          address: propertyAddress,
+          placeId: placeDetails?.place_id
+        })
+      });
       
-      console.log(`Found property with price: $${randomPrice.toLocaleString()}`);
-    }, 1000);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch property data: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.property) {
+        setPropertyPrice(data.property.price);
+        setShowPropertyResult(true);
+        console.log(`Found property with price: $${data.property.price.toLocaleString()}`);
+      } else {
+        setSearchError("No property data found for this address.");
+        setShowPropertyResult(false);
+      }
+    } catch (error) {
+      console.error('Error fetching property data:', error);
+      setSearchError("Error searching for property. Please try again.");
+      setShowPropertyResult(false);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
   // Calculate qualification based on property address
