@@ -1,7 +1,8 @@
 import { ServiceCategory } from "@shared/schema";
+import { Link } from "wouter";
 import { cn } from "@/lib/utils";
 import { useServices } from "@/context/services-context";
-import { Check, SquareCheck, Square } from "lucide-react";
+import { SquareCheck, Square } from "lucide-react";
 
 interface ServiceCardProps {
   service: ServiceCategory;
@@ -12,13 +13,14 @@ export default function ServiceCard({ service }: ServiceCardProps) {
   const selected = isServiceSelected(service.id);
 
   const handleClick = () => {
+    // Keep the selection functionality for the questionnaire
     if (selected) {
       deselectService(service.id);
     } else {
       selectService(service);
     }
   };
-
+  
   return (
     <div 
       className={cn(

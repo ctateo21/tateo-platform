@@ -22,11 +22,11 @@ export default function Header() {
       hasDropdown: true,
       dropdownItems: [
         { href: "/real-estate", label: "Real Estate" },
-        { href: "/#", label: "Mortgage" },
-        { href: "/#", label: "Insurance" },
-        { href: "/#", label: "Construction" },
-        { href: "/#", label: "Property Management" },
-        { href: "/#", label: "Home Services" }
+        { href: "/mortgage", label: "Mortgage" },
+        { href: "/insurance", label: "Insurance" },
+        { href: "/construction", label: "Construction" },
+        { href: "/property-management", label: "Property Management" },
+        { href: "/home-services", label: "Home Services" }
       ]
     },
     { href: "/#about", label: "ABOUT", icon: <Building2 className="mr-2 h-4 w-4" /> },
