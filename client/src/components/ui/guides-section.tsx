@@ -62,7 +62,7 @@ export default function GuidesSection() {
           <p className="text-gray-600 max-w-2xl mx-auto mb-8">Our team of real estate experts is ready to answer all your questions and provide personalized guidance.</p>
           <Button asChild className="bg-secondary hover:bg-secondary/90 text-white">
             <Link href="/#contact">
-              Contact Us <ArrowRight className="ml-2 h-4 w-4" />
+              CONTACT <ArrowRight className="ml-2 h-4 w-4" />
             </Link>
           </Button>
         </div>

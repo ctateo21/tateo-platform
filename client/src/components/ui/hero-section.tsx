@@ -63,11 +63,6 @@ export default function HeroSection() {
                     {slide.ctaText} <ChevronRight className="ml-2 h-5 w-5" />
                   </Link>
                 </Button>
-                <Button asChild size="lg" variant="outline" className="border-white text-white hover:bg-white/10">
-                  <Link href="/questionnaire">
-                    Get In Touch
-                  </Link>
-                </Button>
               </div>
             </div>
           </div>

@@ -22,12 +22,7 @@ export default function CTASection() {
                   Call Us Today
                 </a>
               </Button>
-              <Button asChild variant="outline" className="bg-transparent border-white text-white hover:bg-white/10">
-                <Link href="/questionnaire">
-                  <MessageCircle className="mr-2 h-4 w-4" />
-                  Send a Message
-                </Link>
-              </Button>
+
             </div>
           </div>
           
@@ -53,8 +48,8 @@ export default function CTASection() {
             </ul>
             <div className="mt-8 pt-6 border-t border-gray-200">
               <Button asChild className="w-full bg-secondary hover:bg-secondary/90 text-white">
-                <Link href="/questionnaire">
-                  Get Started Now
+                <Link href="/#contact">
+                  CONTACT
                 </Link>
               </Button>
             </div>
