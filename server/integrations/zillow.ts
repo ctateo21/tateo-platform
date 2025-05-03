@@ -11,18 +11,23 @@ export interface ZillowProperty {
     state: string;
     zipcode: string;
   };
-  price: number;
+  price: number;             // Current price (either listPrice if for sale, or zestimate if not)
+  zestimate?: number;        // Zillow's estimate of the property value
+  listPrice?: number;        // Only present if property is for sale
   bedrooms: number;
   bathrooms: number;
-  livingArea: number; // square feet
-  lotSize: number; // square feet
+  livingArea: number;        // square feet
+  lotSize: number;           // square feet
   yearBuilt: number;
   description: string;
   photos: string[];
   listingStatus: 'forSale' | 'sold' | 'offMarket';
-  listingDate: string;
+  listingDate?: string;      // Only present if property is for sale or sold
   latitude: number;
   longitude: number;
+  priceSource?: string;      // Where the price data came from: 'listing', 'estimated', 'zestimate', etc.
+  priceType?: string;        // The type of price: 'listPrice', 'zestimate', etc.
+  zillow_url?: string;       // URL to the property on Zillow
 }
 
 export interface ZillowSearchParams {

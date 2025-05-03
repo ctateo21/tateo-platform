@@ -393,9 +393,38 @@ export default function Mortgage() {
       const data = await response.json();
       
       if (data.property) {
+        // Store the property price
         setPropertyPrice(data.property.price);
         setShowPropertyResult(true);
-        console.log(`Found property with price: $${data.property.price.toLocaleString()}`);
+        
+        // Log the property details
+        console.log(`Found property:`, data.property);
+        
+        // Try to extract state from the address for Florida-specific calculations
+        if (data.property.address.state === 'FL') {
+          setSelectedState('FL');
+        } else {
+          setSelectedState('');
+        }
+        
+        // If we didn't get full place details from Google Maps, extract from Zillow data
+        if (!placeDetails || !placeDetails.formatted_address) {
+          const fullAddress = `${data.property.address.streetAddress}, ${data.property.address.city}, ${data.property.address.state} ${data.property.address.zipcode}`;
+          setPropertyAddress(fullAddress);
+        }
+
+        // Determine price type for display
+        let priceMessage = "";
+        if (data.property.listingStatus === "forSale") {
+          priceMessage = "Listed for sale at";
+        } else if (data.property.zestimate) {
+          priceMessage = "Estimated value";
+        } else {
+          priceMessage = "Approximate value";
+        }
+        
+        console.log(`${priceMessage}: $${data.property.price.toLocaleString()}`);
+        
       } else {
         setSearchError("No property data found for this address.");
         setShowPropertyResult(false);
@@ -443,18 +472,45 @@ export default function Mortgage() {
       }
     }
     
-    // Calculate monthly payment
+    // Calculate monthly payment (principal and interest)
     const monthlyInterestRate = baseInterestRate / 12;
     const term = 30 * 12; // 30-year mortgage in months
     
-    // Using standard mortgage payment formula
-    const monthlyPayment = loanAmount * (
+    // Using standard mortgage payment formula for principal and interest
+    const principalAndInterestPayment = loanAmount * (
       monthlyInterestRate * Math.pow(1 + monthlyInterestRate, term) /
       (Math.pow(1 + monthlyInterestRate, term) - 1)
     );
     
+    // For Florida properties, add property tax and homeowners insurance
+    let propertyTaxAmount = 0;
+    let homeownersInsuranceAmount = 0;
+    let totalMonthlyPayment = principalAndInterestPayment;
+    
+    if (selectedState === 'FL') {
+      // Add Florida-specific calculations:
+      // Property tax: approximately 1.5% of property value per year
+      propertyTaxAmount = (propertyPrice * 0.015) / 12;
+      
+      // Homeowners insurance: approximately 0.75% of property value per year
+      homeownersInsuranceAmount = (propertyPrice * 0.0075) / 12;
+      
+      // Add tax and insurance to monthly payment
+      totalMonthlyPayment += propertyTaxAmount + homeownersInsuranceAmount;
+    } else {
+      // For non-Florida properties, use national averages
+      // Property tax: approximately 1.1% of property value per year
+      propertyTaxAmount = (propertyPrice * 0.011) / 12;
+      
+      // Homeowners insurance: approximately 0.35% of property value per year
+      homeownersInsuranceAmount = (propertyPrice * 0.0035) / 12;
+      
+      // Add tax and insurance to monthly payment
+      totalMonthlyPayment += propertyTaxAmount + homeownersInsuranceAmount;
+    }
+    
     // Calculate required income based on 43% DTI (conservative estimate)
-    const totalMonthlyDebt = monthlyDebtsVal + monthlyPayment;
+    const totalMonthlyDebt = monthlyDebtsVal + totalMonthlyPayment;
     const requiredIncome = totalMonthlyDebt / 0.43;
     
     // Determine if the user qualifies
@@ -464,9 +520,12 @@ export default function Mortgage() {
       qualification: qualifies,
       maximumLoanAmount: Math.round(loanAmount),
       requiredIncome: Math.round(requiredIncome),
-      estimatedMonthlyPayment: Math.round(monthlyPayment),
+      estimatedMonthlyPayment: Math.round(totalMonthlyPayment),
       interestRate: baseInterestRate * 100, // Convert to percentage
-      downPaymentAmount: Math.round(downPaymentAmount)
+      downPaymentAmount: Math.round(downPaymentAmount),
+      principalAndInterest: Math.round(principalAndInterestPayment),
+      propertyTax: Math.round(propertyTaxAmount),
+      homeownersInsurance: Math.round(homeownersInsuranceAmount)
     });
     
     setShowAddressResults(true);
@@ -805,7 +864,39 @@ export default function Mortgage() {
                         <span className="font-medium">Property Price:</span>
                         <span className="text-lg font-bold text-primary">${propertyPrice.toLocaleString()}</span>
                       </div>
-                      <p className="text-xs text-gray-500">Data from Zillow</p>
+                      
+                      {/* Property Location */}
+                      <div className="mt-2 border-t border-gray-200 pt-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Location:</span>
+                          <span className="text-gray-900">
+                            {placeDetails?.vicinity || placeDetails?.formatted_address || propertyAddress}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      {/* State-Specific Information */}
+                      {selectedState === 'FL' && (
+                        <div className="mt-2 p-2 bg-amber-50 rounded text-sm">
+                          <p className="text-amber-800 font-medium">Florida Property</p>
+                          <p className="text-xs text-gray-700 mt-1">
+                            Florida properties include property tax (~1.5%) and higher homeowners insurance (~0.75%) in monthly payment calculations.
+                          </p>
+                        </div>
+                      )}
+                      
+                      {/* Attribution and Link */}
+                      <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-200">
+                        <p className="text-xs text-gray-500">Data from Zillow</p>
+                        <a 
+                          href={`https://www.zillow.com/homes/${encodeURIComponent(propertyAddress)}_rb/`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary hover:text-primary/80 flex items-center"
+                        >
+                          <ExternalLink className="h-3 w-3 mr-1" /> View on Zillow
+                        </a>
+                      </div>
                     </div>
                   )}
 
