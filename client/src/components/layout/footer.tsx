@@ -40,8 +40,8 @@ export default function Footer() {
           <div className="col-span-1 lg:col-span-1">
             <div className="space-y-6">
               <div>
-                <h5 className="font-medium text-white">Paul Christian Tateo</h5>
-                <p className="text-white/80 text-sm">CEO & Founder</p>
+                <h5 className="font-medium text-white">Paul Christian Tateo PA</h5>
+                <p className="text-white/80 text-sm">Realtor</p>
                 <p className="text-white/80 text-sm">(239) 580-7786</p>
                 <p className="text-white/80 text-sm">Tateo & Co.</p>
                 <a href="mailto:christian@tateoco.com" className="text-white/80 text-sm hover:text-[#f6921e]">christian@tateoco.com</a>
@@ -49,10 +49,10 @@ export default function Footer() {
               
               <div>
                 <h5 className="font-medium text-white">Paul Christian Tateo PA</h5>
-                <p className="text-white/80 text-sm">SL3098399</p>
+                <p className="text-white/80 text-sm">SL3502339</p>
                 <p className="text-white/80 text-sm">Licensed in FL</p>
-                <p className="text-white/80 text-sm">Sponsored By The Zac, Inc</p>
-                <a href="mailto:marcorealtor@mac.com" className="text-white/80 text-sm hover:text-[#f6921e]">marcorealtor@mac.com</a>
+                <p className="text-white/80 text-sm">Horizons By The Sea, Inc</p>
+                <a href="http://www.marconaplesliving.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">marconaplesliving.com</a>
               </div>
             </div>
           </div>
@@ -61,19 +61,19 @@ export default function Footer() {
           <div className="col-span-1 lg:col-span-1">
             <div className="space-y-6">
               <div>
-                <h5 className="font-medium text-white">Mortgage Originator</h5>
-                <p className="text-white/80 text-sm">NMLS #1259745</p>
-                <p className="text-white/80 text-sm">Licensed in FL & MO</p>
-                <p className="text-white/80 text-sm">Barnett Financial LLC</p>
-                <a href="http://www.barnettfinanced.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">www.barnettfinanced.com</a>
+                <h5 className="font-medium text-white">Mortgage Loan Originator</h5>
+                <p className="text-white/80 text-sm">NMLS #1223755</p>
+                <p className="text-white/80 text-sm">Licensed in Multiple States</p>
+                <p className="text-white/80 text-sm">Barrett Financial Group, LLC</p>
+                <a href="http://www.barrettfinancial.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">www.barrettfinancial.com</a>
               </div>
 
               <div>
                 <h5 className="font-medium text-white">Insurance Agent</h5>
-                <p className="text-white/80 text-sm">AM Insurance Group</p>
+                <p className="text-white/80 text-sm">Tateo & Co Insurance</p>
                 <p className="text-white/80 text-sm">L123977</p>
                 <p className="text-white/80 text-sm">Licensed in FL</p>
-                <a href="http://www.aminsurancegroup.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">www.aminsurancegroup.com</a>
+                <a href="http://www.tateoco.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">www.tateoco.com</a>
               </div>
             </div>
           </div>
