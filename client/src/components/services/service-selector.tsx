@@ -36,13 +36,10 @@ export default function ServiceSelector() {
     <section id="services" className="py-20 bg-gray-50">
       <div className="container mx-auto px-4">
         <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-5xl font-bold mb-4">
-            Our <span className="gradient-text">Services</span>
+          <h2 className="text-3xl md:text-5xl font-bold mb-4 text-primary">
+            Our Services
           </h2>
           <div className="w-20 h-1 bg-secondary mx-auto mb-6"></div>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Select from our comprehensive range of real estate services to get started on your journey.
-          </p>
         </div>
         
         {/* Service Selection */}
