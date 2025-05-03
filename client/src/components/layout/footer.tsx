@@ -38,10 +38,9 @@ export default function Footer() {
           
           {/* Column 2: Paul Christian Tateo Info */}
           <div className="col-span-1 lg:col-span-1">
-            <div className="space-y-6">
+            <div className="space-y-10">
               <div>
-                <h5 className="font-medium text-white">Paul Christian Tateo PA</h5>
-                <p className="text-white/80 text-sm">Realtor</p>
+                <h5 className="font-medium text-white">Christian Tateo</h5>
                 <p className="text-white/80 text-sm">(239) 580-7786</p>
                 <p className="text-white/80 text-sm">Tateo & Co.</p>
                 <a href="mailto:christian@tateoco.com" className="text-white/80 text-sm hover:text-[#f6921e]">christian@tateoco.com</a>
@@ -49,31 +48,29 @@ export default function Footer() {
               
               <div>
                 <h5 className="font-medium text-white">Paul Christian Tateo PA</h5>
+                <p className="text-white/80 text-sm">Realtor</p>
                 <p className="text-white/80 text-sm">SL3502339</p>
                 <p className="text-white/80 text-sm">Licensed in FL</p>
-                <p className="text-white/80 text-sm">Horizons By The Sea, Inc</p>
-                <a href="http://www.marconaplesliving.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">marconaplesliving.com</a>
+                <a href="http://www.marconaplesliving.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">Horizons By The Sea, Inc</a>
               </div>
             </div>
           </div>
 
           {/* Column 3: Additional License Info */}
           <div className="col-span-1 lg:col-span-1">
-            <div className="space-y-6">
+            <div className="space-y-10">
               <div>
                 <h5 className="font-medium text-white">Mortgage Loan Originator</h5>
                 <p className="text-white/80 text-sm">NMLS #1223755</p>
                 <p className="text-white/80 text-sm">Licensed in Multiple States</p>
-                <p className="text-white/80 text-sm">Barrett Financial Group, LLC</p>
-                <a href="http://www.barrettfinancial.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">www.barrettfinancial.com</a>
+                <a href="http://www.barrettfinancial.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">Barrett Financial Group, LLC</a>
               </div>
 
               <div>
                 <h5 className="font-medium text-white">Insurance Agent</h5>
-                <p className="text-white/80 text-sm">Tateo & Co Insurance</p>
+                <a href="http://www.tateoco.com/insurance" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">Tateo & Co Insurance</a>
                 <p className="text-white/80 text-sm">L123977</p>
                 <p className="text-white/80 text-sm">Licensed in FL</p>
-                <a href="http://www.tateoco.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">www.tateoco.com</a>
               </div>
             </div>
           </div>
