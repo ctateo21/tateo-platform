@@ -36,7 +36,7 @@ export default function Footer() {
             </div>
           </div>
           
-          {/* Column 2: License Info */}
+          {/* Column 2: Paul Christian Tateo Info */}
           <div className="col-span-1 lg:col-span-1">
             <div className="space-y-6">
               <div>
@@ -54,7 +54,12 @@ export default function Footer() {
                 <p className="text-white/80 text-sm">Sponsored By The Zac, Inc</p>
                 <a href="mailto:marcorealtor@mac.com" className="text-white/80 text-sm hover:text-[#f6921e]">marcorealtor@mac.com</a>
               </div>
+            </div>
+          </div>
 
+          {/* Column 3: Additional License Info */}
+          <div className="col-span-1 lg:col-span-1">
+            <div className="space-y-6">
               <div>
                 <h5 className="font-medium text-white">Mortgage Originator</h5>
                 <p className="text-white/80 text-sm">NMLS #1259745</p>
@@ -73,83 +78,84 @@ export default function Footer() {
             </div>
           </div>
           
-          {/* Column 3: Resources */}
+          {/* Column 4: Resources & Legal */}
           <div>
-            <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Resources</h4>
-            <ul className="space-y-2">
-              <li>
-                <Link href="/contact" className="text-white/90 hover:text-[#f6921e]">
-                  Contact
-                </Link>
-              </li>
-              <li>
-                <Link href="/meet-the-team" className="text-white/90 hover:text-[#f6921e]">
-                  Meet the Team
-                </Link>
-              </li>
-              <li>
-                <Link href="/real-estate-buyers-guide" className="text-white/90 hover:text-[#f6921e]">
-                  RE Buyer's Guide
-                </Link>
-              </li>
-              <li>
-                <Link href="/real-estate-sellers-guide" className="text-white/90 hover:text-[#f6921e]">
-                  RE Seller's Guide
-                </Link>
-              </li>
-              <li>
-                <Link href="/mortgage-calculator" className="text-white/90 hover:text-[#f6921e]">
-                  Mortgage Calculator
-                </Link>
-              </li>
-              <li>
-                <Link href="/insurance-pricing" className="text-white/90 hover:text-[#f6921e]">
-                  Insurance Pricing
-                </Link>
-              </li>
-              <li>
-                <Link href="/construction-bid" className="text-white/90 hover:text-[#f6921e]">
-                  Construction Bid
-                </Link>
-              </li>
-              <li>
-                <Link href="/property-management" className="text-white/90 hover:text-[#f6921e]">
-                  Prop Mgmt / Rentals
-                </Link>
-              </li>
-              <li>
-                <Link href="/home-services" className="text-white/90 hover:text-[#f6921e]">
-                  Home Services
-                </Link>
-              </li>
-            </ul>
-          </div>
-          
-          {/* Column 4: Legal */}
-          <div>
-            <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Legal</h4>
-            <ul className="space-y-2">
-              <li>
-                <Link href="/terms-conditions" className="text-white/90 hover:text-[#f6921e]">
-                  Terms & Conditions
-                </Link>
-              </li>
-              <li>
-                <Link href="/privacy-policy" className="text-white/90 hover:text-[#f6921e]">
-                  Privacy Policy
-                </Link>
-              </li>
-              <li>
-                <Link href="/accessibility" className="text-white/90 hover:text-[#f6921e]">
-                  Accessibility
-                </Link>
-              </li>
-              <li>
-                <Link href="/sitemap" className="text-white/90 hover:text-[#f6921e]">
-                  Sitemap
-                </Link>
-              </li>
-            </ul>
+            <div className="mb-8">
+              <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Resources</h4>
+              <ul className="space-y-2">
+                <li>
+                  <Link href="/contact" className="text-white/90 hover:text-[#f6921e]">
+                    Contact
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/meet-the-team" className="text-white/90 hover:text-[#f6921e]">
+                    Meet the Team
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/real-estate-buyers-guide" className="text-white/90 hover:text-[#f6921e]">
+                    RE Buyer's Guide
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/real-estate-sellers-guide" className="text-white/90 hover:text-[#f6921e]">
+                    RE Seller's Guide
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/mortgage-calculator" className="text-white/90 hover:text-[#f6921e]">
+                    Mortgage Calculator
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/insurance-pricing" className="text-white/90 hover:text-[#f6921e]">
+                    Insurance Pricing
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/construction-bid" className="text-white/90 hover:text-[#f6921e]">
+                    Construction Bid
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/property-management" className="text-white/90 hover:text-[#f6921e]">
+                    Prop Mgmt / Rentals
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/home-services" className="text-white/90 hover:text-[#f6921e]">
+                    Home Services
+                  </Link>
+                </li>
+              </ul>
+            </div>
+            
+            <div>
+              <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Legal</h4>
+              <ul className="space-y-2">
+                <li>
+                  <Link href="/terms-conditions" className="text-white/90 hover:text-[#f6921e]">
+                    Terms & Conditions
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/privacy-policy" className="text-white/90 hover:text-[#f6921e]">
+                    Privacy Policy
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/accessibility" className="text-white/90 hover:text-[#f6921e]">
+                    Accessibility
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/sitemap" className="text-white/90 hover:text-[#f6921e]">
+                    Sitemap
+                  </Link>
+                </li>
+              </ul>
+            </div>
           </div>
         </div>
         
