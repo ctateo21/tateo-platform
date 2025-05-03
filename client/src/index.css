@@ -13,11 +13,11 @@
   --card-foreground: 20 14.3% 4.1%;
   --border: 20 5.9% 90%;
   --input: 20 5.9% 90%;
-  --primary: 200 85% 30%; /* Updated to Tateo blue */
+  --primary: 209 72% 23%; /* Tateo blue #123764 */
   --primary-foreground: 0 0% 100%;
-  --secondary: 27 100% 50%; /* Tateo orange */
+  --secondary: 25 91% 58%; /* Tateo orange #f58634 */
   --secondary-foreground: 0 0% 100%;
-  --accent: 21 83% 55%; /* Tateo gold */
+  --accent: 39 86% 58%; /* Tateo gold #f4b330 */
   --accent-foreground: 0 0% 100%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 60 9.1% 97.8%;
@@ -50,11 +50,11 @@
   --card-foreground: 0 0% 98%;
   --border: 240 3.7% 15.9%;
   --input: 240 3.7% 15.9%;
-  --primary: 200 85% 40%; /* Updated to Tateo blue - brighter for dark mode */
+  --primary: 209 72% 33%; /* Tateo blue - brighter for dark mode */
   --primary-foreground: 0 0% 100%;
-  --secondary: 27 100% 50%; /* Tateo orange */
+  --secondary: 25 91% 68%; /* Tateo orange - brighter for dark mode */
   --secondary-foreground: 0 0% 100%;
-  --accent: 21 83% 65%; /* Tateo gold - brighter for dark mode */
+  --accent: 39 86% 68%; /* Tateo gold - brighter for dark mode */
   --accent-foreground: 0 0% 100%;
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 0 0% 98%;
