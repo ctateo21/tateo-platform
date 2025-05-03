@@ -78,43 +78,48 @@ export default function Footer() {
             <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Resources</h4>
             <ul className="space-y-2">
               <li>
-                <Link href="/blog" className="text-white/90 hover:text-[#f6921e]">
-                  Blog
-                </Link>
-              </li>
-              <li>
                 <Link href="/contact" className="text-white/90 hover:text-[#f6921e]">
                   Contact
                 </Link>
               </li>
               <li>
                 <Link href="/meet-the-team" className="text-white/90 hover:text-[#f6921e]">
-                  Meet The Team
-                </Link>
-              </li>
-              <li>
-                <Link href="/hoa-calculator" className="text-white/90 hover:text-[#f6921e]">
-                  HOA Calculator
-                </Link>
-              </li>
-              <li>
-                <Link href="/mortgage-calculators" className="text-white/90 hover:text-[#f6921e]">
-                  Mortgage Calculators
-                </Link>
-              </li>
-              <li>
-                <Link href="/partner-network" className="text-white/90 hover:text-[#f6921e]">
-                  Partner Network
+                  Meet the Team
                 </Link>
               </li>
               <li>
                 <Link href="/real-estate-buyers-guide" className="text-white/90 hover:text-[#f6921e]">
-                  Real Estate Buyers' Guide
+                  RE Buyer's Guide
                 </Link>
               </li>
               <li>
                 <Link href="/real-estate-sellers-guide" className="text-white/90 hover:text-[#f6921e]">
-                  Real Estate Sellers' Guide
+                  RE Seller's Guide
+                </Link>
+              </li>
+              <li>
+                <Link href="/mortgage-calculator" className="text-white/90 hover:text-[#f6921e]">
+                  Mortgage Calculator
+                </Link>
+              </li>
+              <li>
+                <Link href="/insurance-pricing" className="text-white/90 hover:text-[#f6921e]">
+                  Insurance Pricing
+                </Link>
+              </li>
+              <li>
+                <Link href="/construction-bid" className="text-white/90 hover:text-[#f6921e]">
+                  Construction Bid
+                </Link>
+              </li>
+              <li>
+                <Link href="/property-management" className="text-white/90 hover:text-[#f6921e]">
+                  Prop Mgmt / Rentals
+                </Link>
+              </li>
+              <li>
+                <Link href="/home-services" className="text-white/90 hover:text-[#f6921e]">
+                  Home Services
                 </Link>
               </li>
             </ul>
