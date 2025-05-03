@@ -36,8 +36,8 @@ export default function ServiceSelector() {
     <section id="services" className="py-20 bg-gray-50">
       <div className="container mx-auto px-4">
         <div className="text-center mb-16">
-          <h2 className="text-3xl md:text-5xl font-bold mb-4 text-primary">
-            Our Services
+          <h2 className="text-3xl md:text-5xl font-bold mb-4">
+            Our <span className="gradient-text">Services</span>
           </h2>
           <div className="w-20 h-1 bg-secondary mx-auto mb-6"></div>
           <p className="text-lg text-gray-600 max-w-2xl mx-auto">
@@ -48,8 +48,8 @@ export default function ServiceSelector() {
         {/* Service Selection */}
         <div className="mb-12">
           <div className="flex flex-col md:flex-row justify-between items-center mb-8">
-            <h3 className="text-2xl font-semibold mb-4 md:mb-0 text-[#0c3a56]">
-              What can we help you with today?
+            <h3 className="text-2xl font-semibold mb-4 md:mb-0">
+              What can we <span className="gradient-text-alt font-bold">help you</span> with today?
             </h3>
             {selectedServices.length > 0 && (
               <Button

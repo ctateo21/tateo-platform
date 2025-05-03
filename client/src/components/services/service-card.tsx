@@ -35,7 +35,7 @@ export default function ServiceCard({ service }: ServiceCardProps) {
         />
         <div className="absolute bottom-0 left-0 right-0 bg-primary p-3 transition-colors">
           <div className="flex justify-between items-center">
-            <h4 className="text-white font-semibold">{service.displayName}</h4>
+            <h4 className="text-white font-semibold card-title">{service.displayName}</h4>
             {selected && (
               <div className="bg-secondary rounded-full w-6 h-6 flex items-center justify-center">
                 <Check className="h-4 w-4 text-white" />
