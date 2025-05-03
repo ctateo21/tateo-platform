@@ -1,10 +1,10 @@
 import { Helmet } from "react-helmet";
 import { Link } from "wouter";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { FileText, Download, ArrowRight, DollarSign, Percent, Calculator, Home, ExternalLink, Search } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { useGooglePlaces } from "@/hooks/use-google-places";
+import { loadGoogleMapsApi } from "@/lib/script-loader";
 
 export default function Mortgage() {  
   // State for income-based calculator
@@ -243,22 +243,87 @@ export default function Mortgage() {
     setShowResults(true);
   };
 
-  // Get Google Maps API key from environment
+  // Google Maps and address search states
   const [placeDetails, setPlaceDetails] = useState<any | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-
-  // Handle place selection from Google Places autocomplete
-  const handlePlaceSelected = (place: any) => {
-    setPlaceDetails(place);
-    setPropertyAddress(place.formatted_address || '');
-  };
-
-  // Initialize Google Places autocomplete
-  const { bindInputRef, isLoaded } = useGooglePlaces({
-    apiKey: import.meta.env.GOOGLE_MAPS_API_KEY || '',
-    onPlaceSelected: handlePlaceSelected
-  });
+  const [googleMapsLoaded, setGoogleMapsLoaded] = useState(false);
+  const addressInputRef = useRef<HTMLInputElement>(null);
+  const [autocomplete, setAutocomplete] = useState<any>(null);
+  
+  // Load Google Maps API script
+  useEffect(() => {
+    // Get API key from environment variables
+    const apiKey = import.meta.env.GOOGLE_MAPS_API_KEY as string;
+    if (!apiKey) {
+      console.error('Google Maps API key is not set');
+      return;
+    }
+    
+    // Load the Google Maps API script
+    loadGoogleMapsApi(apiKey)
+      .then(() => {
+        console.log('Google Maps API loaded successfully');
+        setGoogleMapsLoaded(true);
+      })
+      .catch(err => {
+        console.error('Failed to load Google Maps API:', err);
+      });
+  }, []);
+  
+  // Initialize Google Places Autocomplete when API is loaded
+  useEffect(() => {
+    // Skip initialization if API not loaded, input not available, or autocomplete already created
+    if (!googleMapsLoaded || !addressInputRef.current || autocomplete) {
+      return;
+    }
+    
+    try {
+      // Check if Google Maps API is fully loaded
+      if (!window.google?.maps?.places?.Autocomplete) {
+        console.warn('Google Maps Places API not fully loaded yet');
+        return;
+      }
+      
+      // Options for the autocomplete - restrict to addresses in the US
+      const options = {
+        types: ['address'],
+        componentRestrictions: { country: 'us' }
+      };
+      
+      // Create the autocomplete instance
+      // @ts-ignore - TypeScript doesn't know about window.google
+      const autoCompleteInstance = new window.google.maps.places.Autocomplete(
+        addressInputRef.current,
+        options
+      );
+      
+      // Add event listener for place selection
+      // @ts-ignore - TypeScript doesn't know about addListener
+      autoCompleteInstance.addListener('place_changed', () => {
+        // @ts-ignore - TypeScript doesn't know about getPlace
+        const place = autoCompleteInstance.getPlace();
+        if (place && place.formatted_address) {
+          setPlaceDetails(place);
+          setPropertyAddress(place.formatted_address);
+          console.log('Selected place:', place.formatted_address);
+        }
+      });
+      
+      // Store the autocomplete instance
+      setAutocomplete(autoCompleteInstance);
+      console.log('Google Places Autocomplete initialized');
+      
+      // Prevent form submission on Enter key
+      addressInputRef.current.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+        }
+      });
+    } catch (error) {
+      console.error('Error initializing Google Places Autocomplete:', error);
+    }
+  }, [googleMapsLoaded]);
 
   // Search for address and get property price
   const handleSearchAddress = async (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -688,9 +753,9 @@ export default function Mortgage() {
                         className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                         value={propertyAddress}
                         onChange={(e) => setPropertyAddress(e.target.value)}
-                        ref={bindInputRef}
+                        ref={addressInputRef}
                       />
-                      {!isLoaded && <p className="text-xs text-amber-600 mt-1">Google Maps Places API is loading...</p>}
+                      {!googleMapsLoaded && <p className="text-xs text-amber-600 mt-1">Google Maps Places API is loading...</p>}
                     </div>
                   </div>
 
