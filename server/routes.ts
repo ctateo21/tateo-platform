@@ -15,6 +15,7 @@ import {
 import { netcalcsheetIntegration } from "./integrations/netcalcsheet";
 import { ariveIntegration } from "./integrations/arive";
 import { canopyConnectIntegration } from "./integrations/canopy-connect";
+import { searchProperties, getPropertyDetails, ZillowSearchParams } from "./integrations/zillow";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API routes
@@ -176,6 +177,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     res.json(submission);
+  });
+
+  // Zillow API endpoints
+  
+  // Get configuration for Zillow API integration
+  app.get("/api/config/zillow-api-key", async (req, res) => {
+    // In a real implementation, this would retrieve the API key from secure environment variables
+    // Here we're using a placeholder for demonstration purposes
+    const apiKey = process.env.ZILLOW_API_KEY || "demo-key";
+    res.json({ apiKey });
+  });
+  
+  // Search properties
+  app.post("/api/properties/search", async (req, res) => {
+    try {
+      // Validate search parameters
+      const searchParamsSchema = z.object({
+        location: z.string(),
+        priceMin: z.number().optional(),
+        priceMax: z.number().optional(),
+        bedroomsMin: z.number().optional(),
+        bedroomsMax: z.number().optional(),
+        bathroomsMin: z.number().optional(),
+        homeType: z.array(z.string()).optional(),
+        livingAreaMin: z.number().optional(),
+        livingAreaMax: z.number().optional(),
+        lotSizeMin: z.number().optional(),
+        lotSizeMax: z.number().optional(),
+        yearBuiltMin: z.number().optional(),
+        yearBuiltMax: z.number().optional(),
+        keywords: z.string().optional(),
+        customArea: z.object({
+          points: z.array(z.object({
+            lat: z.number(),
+            lng: z.number()
+          }))
+        }).optional()
+      });
+      
+      const params: ZillowSearchParams = searchParamsSchema.parse(req.body);
+      
+      // Get API key from environment (in a real implementation)
+      const apiKey = process.env.ZILLOW_API_KEY || "demo-key";
+      
+      // Search properties using Zillow API
+      const properties = await searchProperties(params, apiKey);
+      
+      res.json({ properties });
+    } catch (error) {
+      console.error("Error searching properties:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid search parameters", errors: error.format() });
+      }
+      res.status(500).json({ message: "An error occurred while searching properties" });
+    }
+  });
+  
+  // Get property details
+  app.get("/api/properties/:id", async (req, res) => {
+    try {
+      const propertyId = req.params.id;
+      
+      // Get API key from environment (in a real implementation)
+      const apiKey = process.env.ZILLOW_API_KEY || "demo-key";
+      
+      // Get property details from Zillow API
+      const property = await getPropertyDetails(propertyId, apiKey);
+      
+      if (!property) {
+        return res.status(404).json({ message: "Property not found" });
+      }
+      
+      res.json({ property });
+    } catch (error) {
+      console.error("Error getting property details:", error);
+      res.status(500).json({ message: "An error occurred while retrieving property details" });
+    }
   });
 
   const httpServer = createServer(app);

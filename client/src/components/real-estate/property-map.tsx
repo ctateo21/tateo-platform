@@ -60,21 +60,55 @@ export default function PropertyMap({ apiKey }: PropertyMapProps) {
     };
   }, [apiKey]);
   
-  const handleSearch = () => {
-    // This would trigger a search with the Zillow API using the searchQuery
-    console.log('Searching for:', searchQuery);
-    console.log('Price range:', priceRange);
-    console.log('Bedrooms:', bedrooms);
-    
-    // In a real implementation, you would make an API call to Zillow here
-    // and update the map with the results
+  const handleSearch = async () => {
+    try {
+      // This triggers a search with the Zillow API using the searchQuery
+      console.log('Searching for:', searchQuery);
+      console.log('Price range:', priceRange);
+      console.log('Bedrooms:', bedrooms);
+      
+      // Make API call to our backend, which will call Zillow API
+      const response = await fetch('/api/properties/search', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          location: searchQuery,
+          priceMin: priceRange[0],
+          priceMax: priceRange[1],
+          bedroomsMin: bedrooms[0],
+          bedroomsMax: bedrooms[1]
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to search properties');
+      }
+      
+      const data = await response.json();
+      console.log('Search results:', data.properties);
+      
+      // In a real implementation, you would update the map with the results
+      setIsMapLoaded(true);
+    } catch (error) {
+      console.error('Error searching properties:', error);
+      setMapError('Failed to search properties. Please try again.');
+    }
   };
   
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  
   const handleDrawArea = () => {
-    // Would enable drawing mode on the map
-    console.log('Draw area mode activated');
+    // Toggle drawing mode on the map
+    setIsDrawingMode(!isDrawingMode);
+    console.log('Draw area mode:', !isDrawingMode ? 'activated' : 'deactivated');
     
-    // In a real implementation, this would enable drawing tools on the map
+    // In a real implementation with Zillow's mapping API, this would enable drawing tools
+    // For example:
+    // if (mapInstance) {
+    //   mapInstance.setDrawingMode(!isDrawingMode ? 'polygon' : null);
+    // }
   };
   
   return (
@@ -97,9 +131,13 @@ export default function PropertyMap({ apiKey }: PropertyMapProps) {
           </Button>
         </div>
         
-        <Button variant="outline" onClick={handleDrawArea} className="flex items-center">
+        <Button 
+          variant={isDrawingMode ? "default" : "outline"} 
+          onClick={handleDrawArea} 
+          className={`flex items-center ${isDrawingMode ? "bg-primary text-white" : ""}`}
+        >
           <MapPin className="mr-2 h-4 w-4" />
-          Draw Area
+          {isDrawingMode ? "Cancel Drawing" : "Draw Area"}
         </Button>
       </div>
       
@@ -169,11 +207,24 @@ export default function PropertyMap({ apiKey }: PropertyMapProps) {
                 <p>{mapError}</p>
               </div>
               <p className="text-gray-600 mb-4">
-                To enable the interactive property map, please provide a valid Zillow API key.
+                To enable the interactive property map, a valid Zillow API key is required.
               </p>
-              <Button variant="outline" onClick={() => window.location.reload()}>
-                Retry
-              </Button>
+              <div className="space-y-4">
+                <Input 
+                  type="password" 
+                  placeholder="Enter Zillow API Key" 
+                  className="w-full" 
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setMapError(null);
+                      setIsMapLoaded(true);
+                    }
+                  }}
+                />
+                <Button variant="default" className="w-full" onClick={() => window.location.reload()}>
+                  Activate Map
+                </Button>
+              </div>
             </div>
           </div>
         ) : !isMapLoaded ? (
@@ -183,22 +234,36 @@ export default function PropertyMap({ apiKey }: PropertyMapProps) {
           </div>
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center max-w-md">
-              {/* This is a placeholder for the actual map */}
-              <div className="bg-white/90 p-6 rounded-lg shadow-md">
-                <p className="text-gray-800 font-semibold mb-2">Interactive Property Map</p>
-                <p className="text-gray-600 mb-4">
-                  In the actual implementation, this area would display an interactive Zillow map with property listings.
-                </p>
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="bg-blue-100 text-blue-800 p-2 rounded text-sm">304 Properties</div>
-                  <div className="bg-green-100 text-green-800 p-2 rounded text-sm">$350k Avg. Price</div>
+            {isDrawingMode ? (
+              <div className="text-center max-w-md">
+                <div className="bg-primary/90 text-white p-6 rounded-lg shadow-md">
+                  <p className="text-white font-semibold mb-2">Drawing Mode Active</p>
+                  <p className="text-white/90 mb-4">
+                    Click on the map to start drawing a custom search area. Click multiple points to create a polygon shape, and click the first point to complete the area.
+                  </p>
+                  <div className="bg-white/20 p-3 rounded text-sm">
+                    Tip: The more precise your drawn area, the more accurate your search results will be.
+                  </div>
                 </div>
-                <p className="text-xs text-gray-500">
-                  Data provided by Zillow API
-                </p>
               </div>
-            </div>
+            ) : (
+              <div className="text-center max-w-md">
+                {/* This is a placeholder for the actual map */}
+                <div className="bg-white/90 p-6 rounded-lg shadow-md">
+                  <p className="text-gray-800 font-semibold mb-2">Interactive Property Map</p>
+                  <p className="text-gray-600 mb-4">
+                    In the actual implementation, this area would display an interactive Zillow map with property listings.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3 mb-4">
+                    <div className="bg-blue-100 text-blue-800 p-2 rounded text-sm">304 Properties</div>
+                    <div className="bg-green-100 text-green-800 p-2 rounded text-sm">$350k Avg. Price</div>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Data provided by Zillow API
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
