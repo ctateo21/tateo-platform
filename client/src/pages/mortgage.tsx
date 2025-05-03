@@ -9,6 +9,8 @@ export default function Mortgage() {
   // State for calculator
   const [yearlyIncome, setYearlyIncome] = useState<string>('');
   const [monthlyDebts, setMonthlyDebts] = useState<string>('');
+  const [formattedIncome, setFormattedIncome] = useState<string>('');
+  const [formattedDebts, setFormattedDebts] = useState<string>('');
   const [creditScore, setCreditScore] = useState<string>('');
   const [selectedState, setSelectedState] = useState<string>('');
   const [loanType, setLoanType] = useState<string>('');
@@ -276,30 +278,66 @@ export default function Mortgage() {
               <div className="grid md:grid-cols-1 gap-6">
                 <div className="space-y-2">
                   <label htmlFor="yearlyIncome" className="block text-sm font-medium text-gray-700">Yearly Income ($)</label>
-                  <input 
-                    type="number" 
-                    id="yearlyIncome" 
-                    name="yearlyIncome" 
-                    placeholder="Enter your annual income" 
-                    min="0"
-                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    value={yearlyIncome}
-                    onChange={(e) => setYearlyIncome(e.target.value)}
-                  />
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      id="yearlyIncome" 
+                      name="yearlyIncome" 
+                      placeholder="Enter your annual income" 
+                      className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={formattedIncome}
+                      onChange={(e) => {
+                        // Extract numbers only
+                        const value = e.target.value.replace(/[^0-9]/g, '');
+                        setYearlyIncome(value);
+                        
+                        // Format as currency
+                        if (value) {
+                          const numValue = parseInt(value, 10);
+                          setFormattedIncome(new Intl.NumberFormat('en-US', {
+                            style: 'currency',
+                            currency: 'USD',
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                          }).format(numValue));
+                        } else {
+                          setFormattedIncome('');
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
                   <label htmlFor="monthlyDebts" className="block text-sm font-medium text-gray-700">Monthly Debts ($)</label>
-                  <input 
-                    type="number" 
-                    id="monthlyDebts" 
-                    name="monthlyDebts" 
-                    placeholder="Enter your total monthly debt payments" 
-                    min="0"
-                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    value={monthlyDebts}
-                    onChange={(e) => setMonthlyDebts(e.target.value)}
-                  />
+                  <div className="relative">
+                    <input 
+                      type="text" 
+                      id="monthlyDebts" 
+                      name="monthlyDebts" 
+                      placeholder="Enter your total monthly debt payments" 
+                      className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={formattedDebts}
+                      onChange={(e) => {
+                        // Extract numbers only
+                        const value = e.target.value.replace(/[^0-9]/g, '');
+                        setMonthlyDebts(value);
+                        
+                        // Format as currency
+                        if (value) {
+                          const numValue = parseInt(value, 10);
+                          setFormattedDebts(new Intl.NumberFormat('en-US', {
+                            style: 'currency',
+                            currency: 'USD',
+                            minimumFractionDigits: 0,
+                            maximumFractionDigits: 0
+                          }).format(numValue));
+                        } else {
+                          setFormattedDebts('');
+                        }
+                      }}
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
