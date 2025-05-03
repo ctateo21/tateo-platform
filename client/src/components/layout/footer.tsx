@@ -125,79 +125,31 @@ export default function Footer() {
             </ul>
           </div>
           
-          {/* Column 4: Services + Legal */}
-          <div className="grid grid-cols-1 gap-8">
-            <div>
-              <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Services</h4>
-              <ul className="space-y-2">
-                <li>
-                  <Link href="/real-estate-buyers" className="text-white/90 hover:text-[#f6921e]">
-                    Real Estate Buyers
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/real-estate-sellers" className="text-white/90 hover:text-[#f6921e]">
-                    Real Estate Sellers
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/real-estate-investors" className="text-white/90 hover:text-[#f6921e]">
-                    Real Estate Investors
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/mortgage-purchase" className="text-white/90 hover:text-[#f6921e]">
-                    Mortgage Purchase
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/refinance" className="text-white/90 hover:text-[#f6921e]">
-                    Refinance
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/home-insurance" className="text-white/90 hover:text-[#f6921e]">
-                    Home Insurance
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/property-management" className="text-white/90 hover:text-[#f6921e]">
-                    Property Management
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/solar" className="text-white/90 hover:text-[#f6921e]">
-                    Solar
-                  </Link>
-                </li>
-              </ul>
-            </div>
-            
-            <div>
-              <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Legal</h4>
-              <ul className="space-y-2">
-                <li>
-                  <Link href="/terms-conditions" className="text-white/90 hover:text-[#f6921e]">
-                    Terms & Conditions
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/privacy-policy" className="text-white/90 hover:text-[#f6921e]">
-                    Privacy Policy
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/accessibility" className="text-white/90 hover:text-[#f6921e]">
-                    Accessibility
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/sitemap" className="text-white/90 hover:text-[#f6921e]">
-                    Sitemap
-                  </Link>
-                </li>
-              </ul>
-            </div>
+          {/* Column 4: Legal */}
+          <div>
+            <h4 className="text-xl font-semibold text-[#f6921e] mb-4">Legal</h4>
+            <ul className="space-y-2">
+              <li>
+                <Link href="/terms-conditions" className="text-white/90 hover:text-[#f6921e]">
+                  Terms & Conditions
+                </Link>
+              </li>
+              <li>
+                <Link href="/privacy-policy" className="text-white/90 hover:text-[#f6921e]">
+                  Privacy Policy
+                </Link>
+              </li>
+              <li>
+                <Link href="/accessibility" className="text-white/90 hover:text-[#f6921e]">
+                  Accessibility
+                </Link>
+              </li>
+              <li>
+                <Link href="/sitemap" className="text-white/90 hover:text-[#f6921e]">
+                  Sitemap
+                </Link>
+              </li>
+            </ul>
           </div>
         </div>
         
