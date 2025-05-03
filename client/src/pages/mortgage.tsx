@@ -11,6 +11,7 @@ export default function Mortgage() {
   const [monthlyDebts, setMonthlyDebts] = useState<string>('');
   const [creditScore, setCreditScore] = useState<string>('');
   const [selectedState, setSelectedState] = useState<string>('');
+  const [loanType, setLoanType] = useState<string>('');
   const [showResults, setShowResults] = useState(false);
   const [results, setResults] = useState({
     loanAmount: 0,
@@ -22,6 +23,16 @@ export default function Mortgage() {
     interestRate: 0
   });
   
+  // Current mortgage rates from MortgageNewsDaily.com (as of latest data)
+  // These would ideally be fetched from an API in a production environment
+  const mortgageRates = {
+    conventional: 0.0675, // 6.75%
+    fha: 0.0625, // 6.25%
+    va: 0.0615, // 6.15%
+    usda: 0.0655, // 6.55%
+    unique: 0.0725 // 7.25%
+  };
+
   // List of US states
   const usStates = [
     { value: 'AL', label: 'Alabama' },
@@ -82,7 +93,7 @@ export default function Mortgage() {
     e.preventDefault();
     
     // Validate required fields
-    if (!yearlyIncome || !monthlyDebts || !creditScore || !selectedState) {
+    if (!yearlyIncome || !monthlyDebts || !creditScore || !selectedState || !loanType) {
       alert("Please fill in all fields to calculate your qualification.");
       return;
     }
@@ -103,10 +114,10 @@ export default function Mortgage() {
     else if (creditScore === 'poor') maxDti = 0.38;
     else if (creditScore === 'bad') maxDti = 0.35;
     
-    // Adjust interest rate based on state (simplified example)
-    let baseInterestRate = 0.065; // 6.5% base interest rate
+    // Get base interest rate based on loan type from current rates
+    let baseInterestRate = mortgageRates[loanType as keyof typeof mortgageRates];
     
-    // State-specific interest rate adjustments (simplified example)
+    // Apply state-specific adjustments to the interest rate
     const highRateStates = ['CA', 'NY', 'HI', 'NJ', 'MA']; // High cost of living states
     const lowRateStates = ['TX', 'FL', 'GA', 'NC', 'TN']; // Lower cost of living states
     
@@ -324,6 +335,24 @@ export default function Mortgage() {
                     ))}
                   </select>
                 </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="loanType" className="block text-sm font-medium text-gray-700">Loan Type</label>
+                  <select 
+                    id="loanType" 
+                    name="loanType" 
+                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={loanType}
+                    onChange={(e) => setLoanType(e.target.value)}
+                  >
+                    <option value="">Select loan type</option>
+                    <option value="conventional">Conventional</option>
+                    <option value="fha">FHA</option>
+                    <option value="va">VA</option>
+                    <option value="usda">USDA</option>
+                    <option value="unique">Unique Loan Products</option>
+                  </select>
+                </div>
               </div>
               
               <div className="text-center pt-4">
@@ -376,6 +405,10 @@ export default function Mortgage() {
                   <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                     <span className="font-medium">Estimated Interest Rate:</span>
                     <span>{results.interestRate.toFixed(2)}%</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                    <span className="font-medium">Loan Type:</span>
+                    <span className="capitalize">{loanType} Loan</span>
                   </div>
                   
                   {selectedState === 'FL' && (
