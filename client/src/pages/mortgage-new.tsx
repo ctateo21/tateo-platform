@@ -42,7 +42,10 @@ export default function Mortgage() {
     requiredIncome: 0,
     estimatedMonthlyPayment: 0,
     interestRate: 0,
-    downPaymentAmount: 0
+    downPaymentAmount: 0,
+    principalAndInterest: 0,
+    propertyTax: 0,
+    homeownersInsurance: 0
   });
   
   // Current mortgage rates from MortgageNewsDaily.com (as of latest data)
@@ -1059,6 +1062,34 @@ export default function Mortgage() {
                     <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                       <span className="font-medium">Estimated Monthly Payment:</span>
                       <span className="font-semibold">${addressResults.estimatedMonthlyPayment.toLocaleString()}</span>
+                    </div>
+                    
+                    <div className="mt-4 bg-gray-50 p-3 rounded-md">
+                      <h4 className="text-sm font-semibold mb-2">Payment Breakdown:</h4>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Principal & Interest:</span>
+                          <span className="font-medium">${addressResults.principalAndInterest.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Property Tax:</span>
+                          <span className="font-medium">${addressResults.propertyTax.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Homeowners Insurance:</span>
+                          <span className="font-medium">${addressResults.homeownersInsurance.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between font-semibold">
+                          <span>Total:</span>
+                          <span className="text-primary">${addressResults.estimatedMonthlyPayment.toLocaleString()}</span>
+                        </div>
+                      </div>
+                      
+                      {selectedState === 'FL' && (
+                        <div className="mt-2 text-xs text-amber-700 italic">
+                          * Florida properties include higher property tax (1.5%) and homeowners insurance (0.75%) rates
+                        </div>
+                      )}
                     </div>
                     
                     <div className="flex justify-between items-center border-b border-gray-200 pb-2">
