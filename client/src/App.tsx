@@ -10,6 +10,11 @@ import Footer from "./components/layout/footer";
 import Home from "./pages/home";
 import Questionnaire from "./pages/questionnaire";
 import RealEstate from "./pages/real-estate";
+import Mortgage from "./pages/mortgage";
+import Insurance from "./pages/insurance";
+import Construction from "./pages/construction";
+import PropertyManagement from "./pages/property-management";
+import HomeServices from "./pages/home-services";
 import NotFound from "./pages/not-found";
 
 function App() {
@@ -24,6 +29,11 @@ function App() {
                 <Route path="/" component={Home} />
                 <Route path="/questionnaire" component={Questionnaire} />
                 <Route path="/real-estate" component={RealEstate} />
+                <Route path="/mortgage" component={Mortgage} />
+                <Route path="/insurance" component={Insurance} />
+                <Route path="/construction" component={Construction} />
+                <Route path="/property-management" component={PropertyManagement} />
+                <Route path="/home-services" component={HomeServices} />
                 <Route component={NotFound} />
               </Switch>
             </main>
