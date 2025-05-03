@@ -124,4 +124,96 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+// Use DatabaseStorage for persistent storage with PostgreSQL
+import { eq } from "drizzle-orm";
+import { db } from "./db";
+
+export class DatabaseStorage implements IStorage {
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user || undefined;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(insertUser)
+      .returning();
+    return user;
+  }
+  
+  async createSubmission(insertSubmission: InsertSubmission): Promise<Submission> {
+    const [submission] = await db
+      .insert(submissions)
+      .values(insertSubmission)
+      .returning();
+    return submission;
+  }
+
+  async getSubmission(id: number): Promise<Submission | undefined> {
+    const [submission] = await db.select().from(submissions).where(eq(submissions.id, id));
+    return submission || undefined;
+  }
+
+  async updateSubmissionStatus(id: number, status: string): Promise<Submission | undefined> {
+    const [submission] = await db
+      .update(submissions)
+      .set({ status })
+      .where(eq(submissions.id, id))
+      .returning();
+    return submission || undefined;
+  }
+
+  async getSubmissionsByUserId(userId: number): Promise<Submission[]> {
+    return await db.select().from(submissions).where(eq(submissions.userId, userId));
+  }
+
+  async createIntegrationRequest(request: InsertIntegrationRequest): Promise<IntegrationRequest> {
+    const [integrationRequest] = await db
+      .insert(integrationRequests)
+      .values(request)
+      .returning();
+    return integrationRequest;
+  }
+
+  async getIntegrationRequest(id: number): Promise<IntegrationRequest | undefined> {
+    const [request] = await db
+      .select()
+      .from(integrationRequests)
+      .where(eq(integrationRequests.id, id));
+    return request || undefined;
+  }
+
+  async updateIntegrationRequest(
+    id: number, 
+    status: string, 
+    responseData: any
+  ): Promise<IntegrationRequest | undefined> {
+    const [request] = await db
+      .update(integrationRequests)
+      .set({ status, responseData })
+      .where(eq(integrationRequests.id, id))
+      .returning();
+    return request || undefined;
+  }
+
+  async getIntegrationRequestsBySubmissionId(submissionId: number): Promise<IntegrationRequest[]> {
+    return await db
+      .select()
+      .from(integrationRequests)
+      .where(eq(integrationRequests.submissionId, submissionId));
+  }
+}
+
+// Use DatabaseStorage instead of MemStorage
+export const storage = new DatabaseStorage();
