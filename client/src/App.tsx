@@ -9,6 +9,7 @@ import Header from "./components/layout/header";
 import Footer from "./components/layout/footer";
 import Home from "./pages/home";
 import Questionnaire from "./pages/questionnaire";
+import RealEstate from "./pages/real-estate";
 import NotFound from "./pages/not-found";
 
 function App() {
@@ -22,6 +23,7 @@ function App() {
               <Switch>
                 <Route path="/" component={Home} />
                 <Route path="/questionnaire" component={Questionnaire} />
+                <Route path="/real-estate" component={RealEstate} />
                 <Route component={NotFound} />
               </Switch>
             </main>

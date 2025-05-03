@@ -1,15 +1,34 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { Menu, PhoneCall, Home, Building2, Briefcase, LayoutDashboard, Shield, HelpCircle } from "lucide-react";
+import { Menu, PhoneCall, Home, Building2, Briefcase, LayoutDashboard, Shield, HelpCircle, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
 
   const links = [
     { href: "/", label: "HOME", icon: <Home className="mr-2 h-4 w-4" /> },
-    { href: "/#services", label: "SERVICES", icon: <Briefcase className="mr-2 h-4 w-4" /> },
+    { 
+      href: "/#services", 
+      label: "SERVICES", 
+      icon: <Briefcase className="mr-2 h-4 w-4" />, 
+      hasDropdown: true,
+      dropdownItems: [
+        { href: "/real-estate", label: "Real Estate" },
+        { href: "/#", label: "Mortgage" },
+        { href: "/#", label: "Insurance" },
+        { href: "/#", label: "Construction" },
+        { href: "/#", label: "Property Management" },
+        { href: "/#", label: "Home Services" }
+      ]
+    },
     { href: "/#about", label: "ABOUT", icon: <Building2 className="mr-2 h-4 w-4" /> },
   ];
 
@@ -53,13 +72,30 @@ export default function Header() {
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center space-x-6">
           {links.map((link) => (
-            <Link 
-              key={link.label} 
-              href={link.href}
-              className="text-gray-700 hover:text-primary font-medium text-sm uppercase tracking-wide py-2"
-            >
-              {link.label}
-            </Link>
+            link.hasDropdown ? (
+              <DropdownMenu key={link.label}>
+                <DropdownMenuTrigger className="text-gray-700 hover:text-primary font-medium text-sm uppercase tracking-wide py-2 focus:outline-none flex items-center">
+                  {link.label} <ChevronDown className="ml-1 h-4 w-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" className="w-56">
+                  {link.dropdownItems?.map((item) => (
+                    <DropdownMenuItem key={item.label} asChild>
+                      <Link href={item.href} className="w-full cursor-pointer">
+                        {item.label}
+                      </Link>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <Link 
+                key={link.label} 
+                href={link.href}
+                className="text-gray-700 hover:text-primary font-medium text-sm uppercase tracking-wide py-2"
+              >
+                {link.label}
+              </Link>
+            )
           ))}
           <Button asChild className="bg-secondary hover:bg-secondary/90 text-white">
             <Link href="/#contact">
@@ -84,15 +120,37 @@ export default function Header() {
             </div>
             <nav className="flex flex-col space-y-6">
               {links.map((link) => (
-                <Link 
-                  key={link.label} 
-                  href={link.href}
-                  className="flex items-center text-lg font-medium text-gray-700"
-                  onClick={() => setIsOpen(false)}
-                >
-                  {link.icon}
-                  {link.label}
-                </Link>
+                <div key={link.label}>
+                  {link.hasDropdown ? (
+                    <>
+                      <div className="flex items-center text-lg font-medium text-gray-700 mb-2">
+                        {link.icon}
+                        {link.label}
+                      </div>
+                      <div className="ml-8 space-y-3">
+                        {link.dropdownItems?.map((item) => (
+                          <Link 
+                            key={item.label} 
+                            href={item.href}
+                            className="block text-gray-600 hover:text-primary"
+                            onClick={() => setIsOpen(false)}
+                          >
+                            {item.label}
+                          </Link>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <Link 
+                      href={link.href}
+                      className="flex items-center text-lg font-medium text-gray-700"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      {link.icon}
+                      {link.label}
+                    </Link>
+                  )}
+                </div>
               ))}
               <Button asChild className="bg-secondary hover:bg-secondary/90 text-white w-full mt-4">
                 <Link href="/#contact">
