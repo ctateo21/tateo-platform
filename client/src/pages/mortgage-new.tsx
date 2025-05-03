@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FileText, Download, ArrowRight, DollarSign, Percent, Calculator, Home, ExternalLink, Search } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { useGooglePlaces } from "@/hooks/use-google-places";
 
 export default function Mortgage() {  
   // State for income-based calculator
@@ -243,19 +244,19 @@ export default function Mortgage() {
   };
 
   // Get Google Maps API key from environment
-  const [placeDetails, setPlaceDetails] = useState<google.maps.places.PlaceResult | null>(null);
+  const [placeDetails, setPlaceDetails] = useState<any | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
   // Handle place selection from Google Places autocomplete
-  const handlePlaceSelected = (place: google.maps.places.PlaceResult) => {
+  const handlePlaceSelected = (place: any) => {
     setPlaceDetails(place);
     setPropertyAddress(place.formatted_address || '');
   };
 
   // Initialize Google Places autocomplete
   const { bindInputRef, isLoaded } = useGooglePlaces({
-    apiKey: process.env.GOOGLE_MAPS_API_KEY || '',
+    apiKey: import.meta.env.GOOGLE_MAPS_API_KEY || '',
     onPlaceSelected: handlePlaceSelected
   });
 
@@ -687,7 +688,9 @@ export default function Mortgage() {
                         className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                         value={propertyAddress}
                         onChange={(e) => setPropertyAddress(e.target.value)}
+                        ref={bindInputRef}
                       />
+                      {!isLoaded && <p className="text-xs text-amber-600 mt-1">Google Maps Places API is loading...</p>}
                     </div>
                   </div>
 
@@ -796,9 +799,23 @@ export default function Mortgage() {
                     id="search-address-button"
                     className="bg-secondary hover:bg-secondary/90 text-white px-8 py-2 mb-3 w-full"
                     onClick={handleSearchAddress}
+                    disabled={isSearching}
                   >
-                    Find Property <Search className="ml-2 h-4 w-4" />
+                    {isSearching ? (
+                      <>
+                        <span className="animate-pulse">Searching</span>
+                        <span className="ml-1 animate-pulse">...</span>
+                      </>
+                    ) : (
+                      <>
+                        Find Property <Search className="ml-2 h-4 w-4" />
+                      </>
+                    )}
                   </Button>
+                  
+                  {searchError && (
+                    <div className="text-red-500 text-sm mb-3">{searchError}</div>
+                  )}
                   
                   <Button 
                     type="button" 

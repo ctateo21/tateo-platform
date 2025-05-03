@@ -2,44 +2,54 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 
 interface GooglePlacesHookProps {
   apiKey: string;
-  onPlaceSelected?: (place: google.maps.places.PlaceResult) => void;
+  onPlaceSelected?: (place: any) => void;
 }
 
 interface PlacesAutocompleteInstance {
   addListener: (
     eventName: string,
     callback: (...args: any[]) => void
-  ) => google.maps.MapsEventListener;
-  getPlace: () => google.maps.places.PlaceResult;
+  ) => any;
+  getPlace: () => any;
 }
 
 export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookProps) {
   const [scriptLoaded, setScriptLoaded] = useState(false);
-  const [autocomplete, setAutocomplete] = useState<PlacesAutocompleteInstance | null>(null);
+  const [autocomplete, setAutocomplete] = useState<any | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // Load the Google Maps Places API script
   useEffect(() => {
     const scriptElement = document.getElementById('google-maps-script') as HTMLScriptElement;
-    if (!scriptElement.src) {
+    if (!scriptElement.src && apiKey) {
       scriptElement.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-      scriptElement.onload = () => setScriptLoaded(true);
-    } else {
+      scriptElement.onload = () => {
+        setScriptLoaded(true);
+      };
+    } else if (window.google && window.google.maps && window.google.maps.places) {
+      // Script already loaded
       setScriptLoaded(true);
     }
+
+    return () => {
+      // Cleanup if needed
+    };
   }, [apiKey]);
 
   // Initialize autocomplete when the input reference is available and script is loaded
   const initializeAutocomplete = useCallback(
     (inputElement: HTMLInputElement) => {
-      if (!window.google || !scriptLoaded) return;
+      if (!window.google || !window.google.maps || !window.google.maps.places || !scriptLoaded) {
+        return;
+      }
 
-      // Create the autocomplete instance
-      const options = {
-        types: ['address']
-      };
-      
       try {
+        // Create the autocomplete instance
+        const options = {
+          types: ['address'],
+          componentRestrictions: { country: 'us' } // Restrict to US addresses only
+        };
+        
         const autocompleteInstance = new window.google.maps.places.Autocomplete(
           inputElement,
           options
@@ -53,7 +63,7 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
           }
         });
 
-        setAutocomplete(autocompleteInstance as unknown as PlacesAutocompleteInstance);
+        setAutocomplete(autocompleteInstance);
         
         // Prevent form submission when Enter is pressed in the input field
         inputElement.addEventListener('keydown', (e) => {
@@ -71,9 +81,11 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
   // Function to bind the input ref
   const bindInputRef = useCallback(
     (ref: HTMLInputElement | null) => {
-      inputRef.current = ref;
-      if (ref && scriptLoaded && window.google) {
-        initializeAutocomplete(ref);
+      if (ref !== inputRef.current) {
+        inputRef.current = ref;
+        if (ref && scriptLoaded && window.google && window.google.maps && window.google.maps.places) {
+          initializeAutocomplete(ref);
+        }
       }
     },
     [scriptLoaded, initializeAutocomplete]
@@ -81,14 +93,14 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
 
   // Initialize when the script is loaded and input ref exists
   useEffect(() => {
-    if (scriptLoaded && inputRef.current && window.google) {
+    if (scriptLoaded && inputRef.current && window.google && window.google.maps && window.google.maps.places) {
       initializeAutocomplete(inputRef.current);
     }
   }, [scriptLoaded, initializeAutocomplete]);
 
   return {
     bindInputRef,
-    isLoaded: scriptLoaded && !!window.google,
+    isLoaded: scriptLoaded && !!window.google?.maps?.places,
     autocomplete,
   };
 }
@@ -96,9 +108,9 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
 // Add TypeScript definitions for the Google Maps API
 declare global {
   interface Window {
-    google: {
-      maps: {
-        places: {
+    google?: {
+      maps?: {
+        places?: {
           Autocomplete: new (input: HTMLInputElement, options?: object) => any;
           PlacesService: any;
         };
