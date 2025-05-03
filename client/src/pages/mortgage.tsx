@@ -28,11 +28,11 @@ export default function Mortgage() {
   // Current mortgage rates from MortgageNewsDaily.com (as of latest data)
   // These would ideally be fetched from an API in a production environment
   const mortgageRates = {
-    conventional: 0.0675, // 6.75%
-    fha: 0.0625, // 6.25%
-    va: 0.0615, // 6.15%
-    usda: 0.0655, // 6.55%
-    unique: 0.0725 // 7.25%
+    conventional: 0.0701, // 7.01% - 30-Year Fixed
+    fha: 0.0660, // 6.60% - 30-Year FHA
+    va: 0.0668, // 6.68% - 30-Year VA
+    usda: 0.0660, // 6.60% - Same as FHA
+    unique: 0.0741 // 7.41% - Conventional + 0.4%
   };
 
   // List of US states
@@ -459,6 +459,9 @@ export default function Mortgage() {
                   <p className="text-sm text-gray-500 mt-4">
                     This is just an estimate. For a more accurate assessment, please contact our mortgage specialists.
                   </p>
+                  <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500">
+                    <p>Interest rates updated from MortgageNewsDaily.com</p>
+                  </div>
                 </div>
               </div>
             )}
