@@ -998,22 +998,8 @@ export default function Mortgage() {
                     <span className="capitalize">{loanType} Loan</span>
                   </div>
                   
-                  {selectedState === 'FL' && (
-                    <div className="mt-4 bg-orange-50 p-3 rounded-md text-sm">
-                      <p className="font-medium text-orange-700 mb-1">Florida Property Information:</p>
-                      <p className="text-gray-700">Florida has property tax rates of approximately 1.5% annually and homeowners insurance of around 0.75% annually of the home's value.</p>
-                    </div>
-                  )}
-                  
-                  <p className="text-sm text-gray-500 mt-4">
-                    This is just an estimate. For a more accurate assessment, please contact our mortgage specialists.
-                  </p>
-                  <div className="mt-4 pt-3 border-t border-gray-200 text-xs text-gray-500">
-                    <p>Interest rates updated from MortgageNewsDaily.com</p>
-                  </div>
-                  
                   {/* Qualify for a Property Button */}
-                  <div className="mt-6">
+                  <div className="mt-4">
                     <Button 
                       type="button" 
                       id="qualify-for-property-button"
@@ -1128,15 +1114,7 @@ export default function Mortgage() {
                           </div>
                         )}
 
-                        {/* State-Specific Florida Property Information */}
-                        {showPropertyResult && selectedState === 'FL' && (
-                          <div className="mt-4 p-2 bg-amber-50 rounded text-sm">
-                            <p className="text-amber-800 font-medium">Florida Property</p>
-                            <p className="text-xs text-gray-700 mt-1">
-                              Florida properties include property tax (~1.5%) and higher homeowners insurance (~0.75%) in monthly payment calculations.
-                            </p>
-                          </div>
-                        )}
+                        {/* Florida Property Information removed as requested */}
 
                         {showPropertyResult && (
                           <div className="space-y-2 mt-4">
