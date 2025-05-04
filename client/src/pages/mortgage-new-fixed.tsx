@@ -253,16 +253,36 @@ export default function Mortgage() {
     if (addressLoanType === 'unique' && uniqueLoanProduct) {
       // If unique loan product is selected, use that specific product's requirements
       loanProductKey = uniqueLoanProduct;
-    } else {
-      // Otherwise use the selected standard loan type
+    } else if (addressLoanType) {
+      // Otherwise use the selected standard loan type if it exists
       loanProductKey = addressLoanType;
+    } else if (loanType === 'unique' && uniqueLoanProduct) {
+      // Fall back to self-qualify section loan type if address loan type not set
+      loanProductKey = uniqueLoanProduct;
+    } else if (loanType) {
+      // Fall back to self-qualify section standard loan type
+      loanProductKey = loanType;
+    } else {
+      // Default to conventional if nothing else is selected
+      loanProductKey = 'conventional';
     }
     
-    // Get the minimum down payment requirement
-    const minDownPayment = minDownPaymentRequirements[buyerCategory as keyof typeof minDownPaymentRequirements][loanProductKey as keyof (typeof minDownPaymentRequirements.firstTimeBuyer)];
+    console.log(`Calculating minimum down payment: buyer=${buyerCategory}, loan=${loanProductKey}`);
     
-    // Default to 20% if we couldn't find a requirement for this loan type
-    return minDownPayment || 20;
+    try {
+      // Get the minimum down payment requirement
+      const buyerRequirements = minDownPaymentRequirements[buyerCategory as keyof typeof minDownPaymentRequirements] || {};
+      const minDownPayment = buyerRequirements[loanProductKey as keyof typeof minDownPaymentRequirements.firstTimeBuyer];
+      
+      // Log for debugging
+      console.log(`Minimum down payment for ${loanProductKey}: ${minDownPayment}%`);
+      
+      // Default to 20% if we couldn't find a requirement for this loan type
+      return minDownPayment || 20;
+    } catch (error) {
+      console.error('Error calculating minimum down payment:', error);
+      return 20; // Safe default
+    }
   };
   
   // List of US states
@@ -1394,6 +1414,23 @@ export default function Mortgage() {
                       setLoanType(e.target.value);
                       if (e.target.value !== 'unique') {
                         setUniqueLoanProduct(''); // Reset unique loan product when changing loan type
+                        
+                        // Update minimum down payment based on selected loan type
+                        const isFirstTimeBuyer = propertiesOwnedCount === '0';
+                        const buyerCategory = isFirstTimeBuyer ? 'firstTimeBuyer' : 'notFirstTimeBuyer';
+                        const loanProductKey = e.target.value;
+                        
+                        try {
+                          if (loanProductKey) {
+                            const minDownPayment = minDownPaymentRequirements[buyerCategory as keyof typeof minDownPaymentRequirements]?.[loanProductKey as keyof typeof minDownPaymentRequirements.firstTimeBuyer];
+                            if (minDownPayment !== undefined) {
+                              console.log(`Setting minimum down payment to ${minDownPayment}% for ${loanProductKey} loan`);
+                              setDownPaymentPercent(minDownPayment);
+                            }
+                          }
+                        } catch (error) {
+                          console.error('Error setting minimum down payment:', error);
+                        }
                       }
                     }}
                   >
@@ -1424,7 +1461,26 @@ export default function Mortgage() {
                       name="uniqueLoanProduct" 
                       className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                       value={uniqueLoanProduct}
-                      onChange={(e) => setUniqueLoanProduct(e.target.value)}
+                      onChange={(e) => {
+                        setUniqueLoanProduct(e.target.value);
+                        
+                        // Update minimum down payment based on selected unique loan product
+                        const isFirstTimeBuyer = propertiesOwnedCount === '0';
+                        const buyerCategory = isFirstTimeBuyer ? 'firstTimeBuyer' : 'notFirstTimeBuyer';
+                        const loanProductKey = e.target.value;
+                        
+                        try {
+                          if (loanProductKey) {
+                            const minDownPayment = minDownPaymentRequirements[buyerCategory as keyof typeof minDownPaymentRequirements]?.[loanProductKey as keyof typeof minDownPaymentRequirements.firstTimeBuyer];
+                            if (minDownPayment !== undefined) {
+                              console.log(`Setting minimum down payment to ${minDownPayment}% for ${loanProductKey} unique loan product`);
+                              setDownPaymentPercent(minDownPayment);
+                            }
+                          }
+                        } catch (error) {
+                          console.error('Error setting minimum down payment for unique loan product:', error);
+                        }
+                      }}
                     >
                       <option value="">Select specific loan product</option>
                       
