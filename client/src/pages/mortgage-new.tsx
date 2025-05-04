@@ -631,7 +631,7 @@ export default function Mortgage() {
           <div className="grid md:grid-cols-2 gap-8">
             {/* Income-Based Qualification */}
             <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-semibold text-primary mb-4 text-center">Qualify by Income</h3>
+              <h3 className="text-xl font-semibold text-primary mb-4 text-center">Self Qualify</h3>
               <p className="text-sm text-gray-600 mb-4 text-center">Calculate how much home you can afford based on your income and existing debts</p>
               
               <form className="space-y-6" id="qualification-form">
