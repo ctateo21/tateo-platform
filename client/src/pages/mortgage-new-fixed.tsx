@@ -1235,10 +1235,17 @@ export default function Mortgage() {
                     className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     value={propertyType}
                     onChange={(e) => {
-                      setPropertyType(e.target.value);
+                      const newPropertyType = e.target.value;
+                      setPropertyType(newPropertyType);
+                      
                       // Reset uniqueLoanProduct when property type changes
                       if (loanType === 'unique') {
                         setUniqueLoanProduct('');
+                      }
+                      
+                      // If changing from primary to secondary/investment, reset loan type if it's FHA, VA, or USDA
+                      if (newPropertyType !== 'primary' && ['fha', 'va', 'usda'].includes(loanType)) {
+                        setLoanType(''); // Reset to empty so user must choose conventional or unique
                       }
                     }}
                   >
@@ -1265,11 +1272,20 @@ export default function Mortgage() {
                   >
                     <option value="">Select loan type</option>
                     <option value="conventional">Conventional</option>
-                    <option value="fha">FHA</option>
-                    <option value="va">VA</option>
-                    <option value="usda">USDA</option>
+                    {propertyType === 'primary' && (
+                      <>
+                        <option value="fha">FHA</option>
+                        <option value="va">VA</option>
+                        <option value="usda">USDA</option>
+                      </>
+                    )}
                     <option value="unique">Unique Loan Products</option>
                   </select>
+                  {propertyType && propertyType !== 'primary' && (
+                    <div className="mt-2 text-xs text-gray-500 italic">
+                      Note: FHA, VA, and USDA loans are only available for primary residences.
+                    </div>
+                  )}
                 </div>
                 
                 {/* Show specific unique loan products when Unique Loan Products is selected */}
