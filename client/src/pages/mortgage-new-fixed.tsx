@@ -1224,21 +1224,29 @@ export default function Mortgage() {
                               <span className="font-medium">${addressResults.principalAndInterest.toLocaleString()}</span>
                             </div>
                             <div className="flex justify-between items-center">
-                              <span className="text-sm">Property Tax:</span>
-                              <div className="flex items-center">
-                                <span className="font-medium">${addressResults.propertyTax.toFixed(2)}</span>
+                              <span className="text-sm">
+                                Property Tax
+                                {addressResults.customTaxEstimate && (
+                                  <span className="text-sm font-normal text-gray-600"> (</span>
+                                )}
                                 {addressResults.customTaxEstimate && (
                                   <a 
                                     href="https://gis.hcpafl.org/propertysearch/taxestimator.aspx" 
                                     target="_blank"
                                     rel="noopener noreferrer" 
-                                    className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full hover:bg-green-200 transition-colors flex items-center"
+                                    className="text-sm font-normal text-primary hover:text-primary/80"
                                   >
-                                    <span>Hillsborough data</span>
-                                    <ExternalLink className="ml-1 h-3 w-3" />
+                                    Hillsborough data
                                   </a>
                                 )}
-                              </div>
+                                {addressResults.customTaxEstimate && (
+                                  <span className="text-sm font-normal text-gray-600">):</span>
+                                )}
+                                {!addressResults.customTaxEstimate && (
+                                  <span>:</span>
+                                )}
+                              </span>
+                              <span className="font-medium">${addressResults.propertyTax.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-sm">Homeowners Insurance:</span>
