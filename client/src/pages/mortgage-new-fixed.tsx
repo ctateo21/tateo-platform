@@ -1175,13 +1175,13 @@ export default function Mortgage() {
                       <h3 className="text-xl font-semibold text-primary mb-3">Property Qualification Results</h3>
                       
                       {addressResults.qualification ? (
-                        <div className="bg-green-50 p-4 rounded-md mb-4">
-                          <p className="font-medium text-green-700">Congratulations! You qualify for this property.</p>
+                        <div className="bg-green-500 p-4 rounded-md mb-4">
+                          <p className="font-medium text-black">Congratulations! You qualify for this property.</p>
                         </div>
                       ) : (
-                        <div className="bg-red-50 p-4 rounded-md mb-4">
-                          <p className="font-medium text-red-700">Based on the information provided, you may not qualify for this property.</p>
-                          <p className="text-sm text-gray-700 mt-2">Required monthly income: ${addressResults.requiredIncome.toLocaleString()}</p>
+                        <div className="bg-red-500 p-4 rounded-md mb-4">
+                          <p className="font-medium text-black">Based on the information provided, you may not qualify for this property.</p>
+                          <p className="text-sm text-black mt-2">Required yearly income: ${(addressResults.requiredIncome * 12).toLocaleString()}</p>
                         </div>
                       )}
                       
