@@ -1153,32 +1153,6 @@ export default function Mortgage() {
                           </div>
                         )}
                         
-                        {showPropertyResult && creditScore && (
-                          <div className="p-3 my-4 bg-gray-50 rounded-md">
-                            <div className="flex justify-between text-sm">
-                              <span className="text-gray-600">Using Credit Score:</span>
-                              <span className="font-medium">{creditScore}</span>
-                            </div>
-                            <div className="flex justify-between text-sm mt-1">
-                              <span className="text-gray-600">Yearly Income:</span>
-                              <span className="font-medium">${parseInt(yearlyIncome).toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between text-sm mt-1">
-                              <span className="text-gray-600">Monthly Debts:</span>
-                              <span className="font-medium">${parseInt(monthlyDebts).toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between text-sm mt-1">
-                              <span className="text-gray-600">Loan Type:</span>
-                              <span className="font-medium capitalize">{loanType}</span>
-                            </div>
-                            <div className="flex justify-between text-sm mt-1">
-                              <span className="text-gray-600">Property Type:</span>
-                              <span className="font-medium capitalize">{propertyType ? propertyType : 'primary'}</span>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-2">Using your information from Self Qualify</p>
-                          </div>
-                        )}
-                        
                         {showPropertyResult && (
                           <div className="text-center mt-6">
                             <Button 
