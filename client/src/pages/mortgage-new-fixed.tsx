@@ -1216,15 +1216,15 @@ export default function Mortgage() {
                           <span className="font-semibold">${addressResults.estimatedMonthlyPayment.toLocaleString()}</span>
                         </div>
                         
-                        <div className="mt-4 bg-gray-50 p-3 rounded-md">
-                          <h4 className="text-sm font-semibold mb-2">Payment Breakdown:</h4>
-                          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Principal & Interest:</span>
+                        <div className="mt-4 bg-blue-50 p-3 rounded-md">
+                          <h4 className="font-semibold text-primary mb-2">Monthly Payment Breakdown:</h4>
+                          <div className="space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm">Principal & Interest:</span>
                               <span className="font-medium">${addressResults.principalAndInterest.toLocaleString()}</span>
                             </div>
                             <div className="flex justify-between items-center">
-                              <span className="text-gray-600">Property Tax:</span>
+                              <span className="text-sm">Property Tax:</span>
                               <div className="flex items-center">
                                 <span className="font-medium">${addressResults.propertyTax.toFixed(2)}</span>
                                 {addressResults.customTaxEstimate && (
@@ -1240,13 +1240,13 @@ export default function Mortgage() {
                                 )}
                               </div>
                             </div>
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Homeowners Insurance:</span>
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm">Homeowners Insurance:</span>
                               <span className="font-medium">${addressResults.homeownersInsurance.toLocaleString()}</span>
                             </div>
-                            <div className="flex justify-between font-semibold">
-                              <span>Total:</span>
-                              <span className="text-primary">${addressResults.estimatedMonthlyPayment.toLocaleString()}</span>
+                            <div className="flex justify-between items-center border-t border-blue-200 pt-2 mt-2">
+                              <span className="font-medium">Total Monthly Payment:</span>
+                              <span className="font-bold">${addressResults.estimatedMonthlyPayment.toLocaleString()}</span>
                             </div>
                           </div>
                           
