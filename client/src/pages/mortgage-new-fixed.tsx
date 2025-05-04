@@ -78,6 +78,7 @@ export default function Mortgage() {
   const [creditScore, setCreditScore] = useState<string>('');
   const [selectedState, setSelectedState] = useState<string>('');
   const [loanType, setLoanType] = useState<string>('');
+  const [uniqueLoanProduct, setUniqueLoanProduct] = useState<string>('');
   const [propertyType, setPropertyType] = useState<string>('primary');
   const [showResults, setShowResults] = useState(false);
   const [results, setResults] = useState({
@@ -255,6 +256,12 @@ export default function Mortgage() {
       return;
     }
     
+    // Make sure unique loan product is selected if that loan type is chosen
+    if (loanType === 'unique' && !uniqueLoanProduct) {
+      alert("Please select a specific unique loan product.");
+      return;
+    }
+    
     const income = parseFloat(yearlyIncome) || 0;
     const debts = parseFloat(monthlyDebts) || 0;
     
@@ -287,6 +294,13 @@ export default function Mortgage() {
     
     // Get base interest rate based on loan type from current rates
     let baseInterestRate = mortgageRates[loanType as keyof typeof mortgageRates];
+    
+    // If using a unique loan product, we might want to show which one was selected
+    let loanProductName = loanType;
+    if (loanType === 'unique' && uniqueLoanProduct) {
+      console.log(`Selected unique loan product: ${uniqueLoanProduct}`);
+      loanProductName = financingOptions[uniqueLoanProduct as keyof typeof financingOptions]?.title || 'Unique Financing';
+    }
     
     // Apply credit score adjustments - add 0.1% for each tier below 780+
     const scoreTiers = [780, 760, 740, 720, 700, 680, 660, 640, 620, 600];
@@ -508,6 +522,12 @@ export default function Mortgage() {
               // Set loan type to match if available
               if (loanType) {
                 setAddressLoanType(loanType);
+                
+                // If unique loan type is selected, also bring that selection over
+                if (loanType === 'unique' && uniqueLoanProduct) {
+                  // In a real app, we might need to set an addressUniqueLoanProduct state
+                  console.log(`Using unique loan product for address qualification: ${uniqueLoanProduct}`);
+                }
               }
               
               // Set income to match if available
@@ -1219,6 +1239,38 @@ export default function Mortgage() {
                   </select>
                 </div>
                 
+                {/* Show specific unique loan products when Unique Loan Products is selected */}
+                {loanType === 'unique' && (
+                  <div className="space-y-2 col-span-2">
+                    <label htmlFor="uniqueLoanProduct" className="block text-sm font-medium text-gray-700">Select Unique Loan Product</label>
+                    <select 
+                      id="uniqueLoanProduct" 
+                      name="uniqueLoanProduct" 
+                      className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                      value={uniqueLoanProduct}
+                      onChange={(e) => setUniqueLoanProduct(e.target.value)}
+                    >
+                      <option value="">Select specific loan product</option>
+                      <option value="heloc">HELOC</option>
+                      <option value="heloan">HELOAN</option>
+                      <option value="dscr">DSCR (Debt Service Coverage Ratio)</option>
+                      <option value="jumbo">Jumbo</option>
+                      <option value="assetUtilization">Asset Utilization</option>
+                      <option value="bankStatement">Bank Statement (Business or Personal)</option>
+                      <option value="form1099">1099</option>
+                      <option value="itin">ITIN</option>
+                      <option value="cpaPL">CPA P&L</option>
+                      <option value="fixAndFlip">Fix and Flip</option>
+                      <option value="newConstruction">New Construction</option>
+                      <option value="arm">ARM Loans</option>
+                      <option value="hardMoney">Hard Money / Private Money</option>
+                    </select>
+                    <div className="mt-2 text-xs text-gray-500 italic">
+                      Each unique loan product has different qualification criteria. Click on options in the "Unique Financing" section above for more details.
+                    </div>
+                  </div>
+                )}
+                
                 <div className="space-y-2">
                   <label htmlFor="propertyType" className="block text-sm font-medium text-gray-700">Property Type</label>
                   <select 
@@ -1294,7 +1346,13 @@ export default function Mortgage() {
                   </div>
                   <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                     <span className="font-medium">Loan Type:</span>
-                    <span className="capitalize">{loanType} Loan</span>
+                    <span className="capitalize">
+                      {loanType === 'unique' && uniqueLoanProduct ? (
+                        financingOptions[uniqueLoanProduct as keyof typeof financingOptions]?.title || 'Unique Financing'
+                      ) : (
+                        `${loanType} Loan`
+                      )}
+                    </span>
                   </div>
                   
                   {/* Qualify for a Property Button */}
