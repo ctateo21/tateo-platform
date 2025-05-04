@@ -1153,6 +1153,11 @@ export default function Mortgage() {
                     value={propertiesOwnedCount}
                     onChange={(e) => setPropertiesOwnedCount(e.target.value)}
                   />
+                  {propertiesOwnedCount === '0' && (
+                    <div className="mt-2 text-xs text-green-600 italic">
+                      You are considered a first-time home buyer. This opens up additional options and assistance programs.
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-2">
