@@ -867,7 +867,7 @@ export default function Mortgage() {
                     <div className="mt-4 p-4 bg-gray-50 rounded-md">
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
                         <span className="font-medium">
-                          {propertyDetails?.listingStatus === "forSale" ? "Listed Price:" : "Zestimate:"}
+                          {propertyData?.listingStatus === "forSale" ? "Listed Price:" : "Zestimate:"}
                         </span>
                         <span className="text-lg font-bold text-primary">${propertyPrice.toLocaleString()}</span>
                       </div>
@@ -896,7 +896,7 @@ export default function Mortgage() {
                       <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-200">
                         <p className="text-xs text-gray-500">Data from Zillow</p>
                         <a 
-                          href={`https://www.zillow.com/homes/${encodeURIComponent(propertyAddress)}_rb/`} 
+                          href={propertyData?.zillow_url || `https://www.zillow.com/homes/${encodeURIComponent(propertyAddress)}_rb/`} 
                           target="_blank" 
                           rel="noopener noreferrer"
                           className="text-xs text-primary hover:text-primary/80 flex items-center"
@@ -907,22 +907,24 @@ export default function Mortgage() {
                     </div>
                   )}
 
-                  <div className="space-y-2">
-                    <label htmlFor="downPayment" className="block text-sm font-medium text-gray-700">Down Payment (%)</label>
-                    <div className="relative">
-                      <input 
-                        type="number" 
-                        id="downPayment" 
-                        name="downPayment" 
-                        placeholder="20" 
-                        min="3" 
-                        max="50"
-                        className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        value={downPaymentPercent}
-                        onChange={(e) => setDownPaymentPercent(parseInt(e.target.value))}
-                      />
+                  {showPropertyResult && (
+                    <div className="space-y-2 mt-4">
+                      <label htmlFor="downPayment" className="block text-sm font-medium text-gray-700">Down Payment (%)</label>
+                      <div className="relative">
+                        <input 
+                          type="number" 
+                          id="downPayment" 
+                          name="downPayment" 
+                          placeholder="20" 
+                          min="3" 
+                          max="50"
+                          className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                          value={downPaymentPercent}
+                          onChange={(e) => setDownPaymentPercent(parseInt(e.target.value))}
+                        />
+                      </div>
                     </div>
-                  </div>
+                  )}
                   
                   <div className="space-y-2">
                     <label htmlFor="addressCreditScore" className="block text-sm font-medium text-gray-700">Estimated Credit Score</label>
@@ -1049,7 +1051,9 @@ export default function Mortgage() {
                   
                   <div className="space-y-3">
                     <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                      <span className="font-medium">Property Price:</span>
+                      <span className="font-medium">
+                        {propertyData?.listingStatus === "forSale" ? "Listed Price:" : "Zestimate:"}
+                      </span>
                       <span className="font-semibold">${propertyPrice.toLocaleString()}</span>
                     </div>
                     
