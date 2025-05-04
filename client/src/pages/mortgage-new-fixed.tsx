@@ -33,6 +33,14 @@ interface ZillowProperty {
   zillow_url?: string;
 }
 
+interface TaxEstimateResult {
+  annualTaxAmount: number;
+  monthlyTaxAmount: number;
+  taxRate: number;
+  homesteadExemption: boolean;
+  countyName: string;
+}
+
 interface AddressQualificationResults {
   qualification: boolean;
   maximumLoanAmount: number;
@@ -43,6 +51,7 @@ interface AddressQualificationResults {
   principalAndInterest: number;
   propertyTax: number;
   homeownersInsurance: number;
+  customTaxEstimate?: boolean;
 }
 
 export default function Mortgage() {  
@@ -571,7 +580,7 @@ export default function Mortgage() {
   };
 
   // Calculate qualification based on property address
-  const handleAddressCalculate = (e: React.MouseEvent<HTMLButtonElement>) => {
+  const handleAddressCalculate = async (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     
     if (!showPropertyResult) {
@@ -622,31 +631,71 @@ export default function Mortgage() {
       (Math.pow(1 + monthlyInterestRate, term) - 1)
     );
     
-    // For Florida properties, add property tax and homeowners insurance
+    // Initialize tax and insurance amounts
     let propertyTaxAmount = 0;
     let homeownersInsuranceAmount = 0;
     let totalMonthlyPayment = principalAndInterestPayment;
+    let customTaxEstimate = false;
     
-    if (selectedState === 'FL') {
-      // Add Florida-specific calculations:
-      // Property tax: approximately 1.5% of property value per year
+    // Check if this is a Hillsborough County, FL property
+    if (propertyAddress.toLowerCase().includes('tampa') && propertyAddress.toLowerCase().includes('fl')) {
+      try {
+        // Use the Hillsborough County tax estimator API for more accurate tax data
+        console.log('Using Hillsborough County tax estimator for', propertyAddress);
+        
+        const response = await fetch('/api/property-tax/hillsborough', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            address: propertyAddress,
+            propertyValue: propertyPrice,
+            isPrimaryResidence: propertyType === 'primary'
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.taxEstimate) {
+            // Use the accurate tax data from Hillsborough County
+            propertyTaxAmount = data.taxEstimate.monthlyTaxAmount;
+            customTaxEstimate = true;
+            console.log(`Using Hillsborough County tax estimate: $${propertyTaxAmount}/month`);
+            
+            // Still use our insurance estimate
+            homeownersInsuranceAmount = (propertyPrice * 0.0075) / 12;
+            totalMonthlyPayment = principalAndInterestPayment + propertyTaxAmount + homeownersInsuranceAmount;
+          }
+        } else {
+          // Fall back to standard estimation
+          console.log('Could not get Hillsborough tax data, using standard estimates');
+          if (selectedState === 'FL') {
+            propertyTaxAmount = (propertyPrice * 0.015) / 12;
+            homeownersInsuranceAmount = (propertyPrice * 0.0075) / 12;
+          } else {
+            propertyTaxAmount = (propertyPrice * 0.011) / 12;
+            homeownersInsuranceAmount = (propertyPrice * 0.0035) / 12;
+          }
+          totalMonthlyPayment = principalAndInterestPayment + propertyTaxAmount + homeownersInsuranceAmount;
+        }
+      } catch (error) {
+        console.error('Error fetching Hillsborough tax data:', error);
+        // Fall back to standard tax calculation if the API fails
+        propertyTaxAmount = (propertyPrice * 0.015) / 12; // Florida rate
+        homeownersInsuranceAmount = (propertyPrice * 0.0075) / 12;
+        totalMonthlyPayment = principalAndInterestPayment + propertyTaxAmount + homeownersInsuranceAmount;
+      }
+    } else if (selectedState === 'FL') {
+      // For other Florida properties, use standard Florida rates
       propertyTaxAmount = (propertyPrice * 0.015) / 12;
-      
-      // Homeowners insurance: approximately 0.75% of property value per year
       homeownersInsuranceAmount = (propertyPrice * 0.0075) / 12;
-      
-      // Add tax and insurance to monthly payment
-      totalMonthlyPayment += propertyTaxAmount + homeownersInsuranceAmount;
+      totalMonthlyPayment = principalAndInterestPayment + propertyTaxAmount + homeownersInsuranceAmount;
     } else {
       // For non-Florida properties, use national averages
-      // Property tax: approximately 1.1% of property value per year
       propertyTaxAmount = (propertyPrice * 0.011) / 12;
-      
-      // Homeowners insurance: approximately 0.35% of property value per year
       homeownersInsuranceAmount = (propertyPrice * 0.0035) / 12;
-      
-      // Add tax and insurance to monthly payment
-      totalMonthlyPayment += propertyTaxAmount + homeownersInsuranceAmount;
+      totalMonthlyPayment = principalAndInterestPayment + propertyTaxAmount + homeownersInsuranceAmount;
     }
     
     // Calculate required income based on 43% DTI (conservative estimate)

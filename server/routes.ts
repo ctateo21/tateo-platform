@@ -16,6 +16,7 @@ import { netcalcsheetIntegration } from "./integrations/netcalcsheet";
 import { ariveIntegration } from "./integrations/arive";
 import { canopyConnectIntegration } from "./integrations/canopy-connect";
 import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowProperty } from "./integrations/zillow";
+import { getHillsboroughTaxEstimate, isHillsboroughCountyAddress } from "./integrations/hillsborough-tax";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API routes
@@ -244,6 +245,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Get property tax estimate for Hillsborough County
+  app.post("/api/property-tax/hillsborough", async (req, res) => {
+    try {
+      // Validate request body
+      const schema = z.object({
+        address: z.string(),
+        propertyValue: z.number().min(1),
+        isPrimaryResidence: z.boolean().default(true)
+      });
+      
+      const params = schema.parse(req.body);
+      
+      // Check if address is in Hillsborough County
+      if (!isHillsboroughCountyAddress(params.address)) {
+        return res.status(400).json({ 
+          message: "Address is not in Hillsborough County, FL",
+          useFallback: true
+        });
+      }
+      
+      // Get tax estimate
+      const taxEstimate = await getHillsboroughTaxEstimate({
+        address: params.address,
+        propertyValue: params.propertyValue,
+        isPrimaryResidence: params.isPrimaryResidence
+      });
+      
+      res.json({
+        taxEstimate,
+        message: "Tax estimate calculated successfully"
+      });
+    } catch (error) {
+      console.error("Error getting property tax estimate:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid parameters", errors: error.format() });
+      }
+      res.status(500).json({ 
+        message: "An error occurred while calculating property tax",
+        useFallback: true
+      });
+    }
+  });
+
   // Lookup property by address
   app.post("/api/properties/lookup-by-address", async (req, res) => {
     try {
