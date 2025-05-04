@@ -29,6 +29,7 @@ export default function Mortgage() {
   // State for address-based calculator
   const [propertyAddress, setPropertyAddress] = useState<string>('');
   const [propertyPrice, setPropertyPrice] = useState<number>(0);
+  const [propertyData, setPropertyData] = useState<any>(null);
   const [downPaymentPercent, setDownPaymentPercent] = useState<number>(20);
   const [addressCreditScore, setAddressCreditScore] = useState<string>('');
   const [monthlyIncome, setMonthlyIncome] = useState<string>('');
@@ -396,7 +397,8 @@ export default function Mortgage() {
       const data = await response.json();
       
       if (data.property) {
-        // Store the property price
+        // Store the property data and price
+        setPropertyData(data.property);
         setPropertyPrice(data.property.price);
         setShowPropertyResult(true);
         
@@ -864,7 +866,9 @@ export default function Mortgage() {
                   {showPropertyResult && (
                     <div className="mt-4 p-4 bg-gray-50 rounded-md">
                       <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
-                        <span className="font-medium">Property Price:</span>
+                        <span className="font-medium">
+                          {propertyDetails?.listingStatus === "forSale" ? "Listed Price:" : "Zestimate:"}
+                        </span>
                         <span className="text-lg font-bold text-primary">${propertyPrice.toLocaleString()}</span>
                       </div>
                       
