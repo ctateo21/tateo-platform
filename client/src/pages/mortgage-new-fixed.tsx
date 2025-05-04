@@ -2,9 +2,23 @@ import { Helmet } from "react-helmet";
 import { Link } from "wouter";
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { FileText, Download, ArrowRight, DollarSign, Percent, Calculator, Home, ExternalLink, Search } from "lucide-react";
+import { FileText, Download, ArrowRight, DollarSign, Percent, Calculator, Home, ExternalLink, Search, Info } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 
 interface ZillowProperty {
@@ -118,6 +132,62 @@ export default function Mortgage() {
     va: 0.0668, // 6.68% - 30-Year VA
     usda: 0.0660, // 6.60% - Same as FHA
     unique: 0.0730 // 7.30% - Conventional + 0.4%
+  };
+  
+  // Financing options descriptions
+  const financingOptions = {
+    heloc: {
+      title: "HELOC (Home Equity Line of Credit)",
+      description: "A revolving line of credit that allows homeowners to borrow against the equity in their home. Unlike a loan, you only pay interest on the amount you use, and you can draw funds as needed up to your credit limit."
+    },
+    heloan: {
+      title: "HELOAN (Home Equity Loan)",
+      description: "Also known as a second mortgage, this is a fixed-rate loan based on the equity in your home. You receive the entire loan amount upfront and repay it over a set term with fixed monthly payments."
+    },
+    dscr: {
+      title: "DSCR (Debt Service Coverage Ratio)",
+      description: "A loan specifically for investment properties that uses the property's income potential rather than your personal income to qualify. Ideal for real estate investors with multiple properties who may not qualify using traditional debt-to-income ratios."
+    },
+    jumbo: {
+      title: "Jumbo Loans",
+      description: "Mortgages that exceed the conforming loan limits set by Fannie Mae and Freddie Mac. These loans are designed for high-value properties and typically require larger down payments, higher credit scores, and more stringent qualification requirements."
+    },
+    assetUtilization: {
+      title: "Asset Utilization",
+      description: "A mortgage qualification method that considers your assets rather than just income to qualify for a loan. Great for retirees, self-employed individuals, or those with significant assets but lower documented income."
+    },
+    bankStatement: {
+      title: "Bank Statement (Business or Personal)",
+      description: "A mortgage program that uses bank statements (typically 12-24 months) instead of tax returns to verify income. Ideal for self-employed borrowers, business owners, or those with complex income situations."
+    },
+    form1099: {
+      title: "1099 Income",
+      description: "A loan program designed for independent contractors, freelancers, and gig workers who receive 1099 forms instead of W-2s. Allows qualification based on 1099 income history rather than traditional employment."
+    },
+    itin: {
+      title: "ITIN (Individual Taxpayer Identification Number)",
+      description: "Mortgage loans for non-US citizens who pay taxes using an ITIN instead of a Social Security Number. These programs provide homeownership opportunities for legal residents without traditional SSNs."
+    },
+    cpaPL: {
+      title: "CPA P&L (Profit & Loss Statement)",
+      description: "A mortgage option that uses CPA-prepared profit and loss statements to verify income for self-employed borrowers, often in combination with bank statements or other income verification methods."
+    },
+    fixAndFlip: {
+      title: "Fix and Flip",
+      description: "Short-term financing specifically for purchasing, renovating, and reselling properties. These loans typically have higher interest rates but faster approval processes and focus on the property's after-repair value (ARV)."
+    },
+    newConstruction: {
+      title: "New Construction",
+      description: "Specialized financing for building a new home, often structured as a construction-to-permanent loan that converts to a traditional mortgage once construction is complete."
+    },
+    arm: {
+      title: "ARM (Adjustable Rate Mortgage) Loans",
+      description: "Mortgage loans with interest rates that adjust periodically based on market indexes. Typically start with lower rates than fixed-rate mortgages for an initial period (e.g., 5/1 ARM, 7/1 ARM) before adjusting annually."
+    },
+    hardMoney: {
+      title: "Hard Money / Private Money",
+      description: "Loans from private investors or companies that focus primarily on the property's value rather than the borrower's creditworthiness. These typically have higher interest rates but faster approvals and more flexible terms."
+    }
   };
 
   // List of US states
@@ -838,24 +908,179 @@ export default function Mortgage() {
                   <AccordionContent className="bg-white p-6 border border-gray-200 rounded-b-md shadow-md">
                     <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
                       <ul className="list-disc pl-6 space-y-2">
-                        <li className="text-gray-700">HELOC</li>
-                        <li className="text-gray-700">HELOAN</li>
-                        <li className="text-gray-700">DSCR (Debt Service Coverage Ratio)</li>
-                        <li className="text-gray-700">Jumbo</li>
-                        <li className="text-gray-700">Asset Utilization</li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">HELOC</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.heloc.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.heloc.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">HELOAN</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.heloan.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.heloan.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">DSCR (Debt Service Coverage Ratio)</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.dscr.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.dscr.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">Jumbo</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.jumbo.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.jumbo.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">Asset Utilization</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.assetUtilization.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.assetUtilization.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
                       </ul>
                       <ul className="list-disc pl-6 space-y-2">
-                        <li className="text-gray-700">Bank Statement (Business or Personal)</li>
-                        <li className="text-gray-700">1099</li>
-                        <li className="text-gray-700">ITIN</li>
-                        <li className="text-gray-700">CPA P&L</li>
-                        <li className="text-gray-700">Fix and Flip</li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">Bank Statement (Business or Personal)</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.bankStatement.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.bankStatement.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">1099</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.form1099.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.form1099.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">ITIN</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.itin.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.itin.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">CPA P&L</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.cpaPL.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.cpaPL.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">Fix and Flip</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.fixAndFlip.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.fixAndFlip.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
                       </ul>
                       <ul className="list-disc pl-6 space-y-2">
-                        <li className="text-gray-700">New Construction</li>
-                        <li className="text-gray-700">Jumbo</li>
-                        <li className="text-gray-700">ARM Loans</li>
-                        <li className="text-gray-700">Hard Money / Private Money</li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">New Construction</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.newConstruction.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.newConstruction.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">ARM Loans</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.arm.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.arm.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
+                        <li className="text-gray-700">
+                          <Dialog>
+                            <DialogTrigger className="text-primary hover:underline cursor-pointer">Hard Money / Private Money</DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>{financingOptions.hardMoney.title}</DialogTitle>
+                                <DialogDescription className="pt-4">
+                                  {financingOptions.hardMoney.description}
+                                </DialogDescription>
+                              </DialogHeader>
+                            </DialogContent>
+                          </Dialog>
+                        </li>
                       </ul>
                     </div>
                   </AccordionContent>
