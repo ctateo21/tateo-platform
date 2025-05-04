@@ -71,6 +71,8 @@ interface AddressQualificationResults {
 
 export default function Mortgage() {  
   // State for income-based calculator
+  const [transactionType, setTransactionType] = useState<string>('purchase');
+  const [propertiesOwnedCount, setPropertiesOwnedCount] = useState<string>('1');
   const [yearlyIncome, setYearlyIncome] = useState<string>('');
   const [monthlyDebts, setMonthlyDebts] = useState<string>('');
   const [formattedIncome, setFormattedIncome] = useState<string>('');
@@ -251,7 +253,7 @@ export default function Mortgage() {
     e.preventDefault();
     
     // Validate required fields
-    if (!yearlyIncome || !monthlyDebts || !creditScore || !selectedState || !propertyType || !loanType) {
+    if (!transactionType || !propertiesOwnedCount || !yearlyIncome || !monthlyDebts || !creditScore || !selectedState || !propertyType || !loanType) {
       alert("Please fill in all fields to calculate your qualification.");
       return;
     }
@@ -1124,6 +1126,35 @@ export default function Mortgage() {
             
             <form className="space-y-6" id="qualification-form">
               <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label htmlFor="transactionType" className="block text-sm font-medium text-gray-700">Type of Transaction</label>
+                  <select 
+                    id="transactionType" 
+                    name="transactionType" 
+                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={transactionType}
+                    onChange={(e) => setTransactionType(e.target.value)}
+                  >
+                    <option value="purchase">Purchase</option>
+                    <option value="refinance">Refinance</option>
+                  </select>
+                </div>
+                
+                <div className="space-y-2">
+                  <label htmlFor="propertiesOwnedCount" className="block text-sm font-medium text-gray-700">Number of Properties in Personal Name</label>
+                  <input 
+                    type="number" 
+                    id="propertiesOwnedCount" 
+                    name="propertiesOwnedCount" 
+                    placeholder="1-25+" 
+                    min="1"
+                    max="25"
+                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={propertiesOwnedCount}
+                    onChange={(e) => setPropertiesOwnedCount(e.target.value)}
+                  />
+                </div>
+
                 <div className="space-y-2">
                   <label htmlFor="yearlyIncome" className="block text-sm font-medium text-gray-700">Yearly Income ($)</label>
                   <div className="relative">
