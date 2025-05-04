@@ -137,6 +137,52 @@ export default function Mortgage() {
     unique: 0.0730 // 7.30% - Conventional + 0.4%
   };
   
+  // Minimum down payment requirements by loan type and first-time homebuyer status
+  const minDownPaymentRequirements = {
+    firstTimeBuyer: {
+      // Standard loan types
+      conventional: 3,
+      fha: 3.5,
+      va: 0,
+      usda: 0,
+      // Unique loan products
+      heloc: 10,
+      heloan: 10,
+      dscr: 15,
+      jumbo: 10,
+      assetUtilization: 10,
+      bankStatement: 10,
+      form1099: 20,
+      itin: 20,
+      cpaPL: 10,
+      newConstruction: 0,
+      arm: 3,
+      fixAndFlip: 20,
+      hardMoney: 20
+    },
+    notFirstTimeBuyer: {
+      // Standard loan types
+      conventional: 5,
+      fha: 3.5,
+      va: 0,
+      usda: 0,
+      // Unique loan products
+      heloc: 10,
+      heloan: 10,
+      dscr: 15,
+      jumbo: 10,
+      assetUtilization: 10,
+      bankStatement: 10,
+      form1099: 20,
+      itin: 20,
+      cpaPL: 10,
+      newConstruction: 0,
+      arm: 5,
+      fixAndFlip: 20,
+      hardMoney: 20
+    }
+  };
+  
   // Financing options descriptions
   const financingOptions = {
     heloc: {
@@ -193,6 +239,32 @@ export default function Mortgage() {
     }
   };
 
+  // Function to get minimum down payment based on loan type and first-time homebuyer status
+  const getMinimumDownPayment = (): number => {
+    // Determine if user is a first-time homebuyer based on properties owned count
+    const isFirstTimeBuyer = propertiesOwnedCount === '0';
+    
+    // Look up minimum down payment from our requirements
+    const buyerCategory = isFirstTimeBuyer ? 'firstTimeBuyer' : 'notFirstTimeBuyer';
+    
+    // Get current loan type (either standard or unique product)
+    let loanProductKey: string;
+    
+    if (addressLoanType === 'unique' && uniqueLoanProduct) {
+      // If unique loan product is selected, use that specific product's requirements
+      loanProductKey = uniqueLoanProduct;
+    } else {
+      // Otherwise use the selected standard loan type
+      loanProductKey = addressLoanType;
+    }
+    
+    // Get the minimum down payment requirement
+    const minDownPayment = minDownPaymentRequirements[buyerCategory as keyof typeof minDownPaymentRequirements][loanProductKey as keyof (typeof minDownPaymentRequirements.firstTimeBuyer)];
+    
+    // Default to 20% if we couldn't find a requirement for this loan type
+    return minDownPayment || 20;
+  };
+  
   // List of US states
   const usStates = [
     { value: 'AL', label: 'Alabama' },
@@ -529,6 +601,25 @@ export default function Mortgage() {
                 if (loanType === 'unique' && uniqueLoanProduct) {
                   // In a real app, we might need to set an addressUniqueLoanProduct state
                   console.log(`Using unique loan product for address qualification: ${uniqueLoanProduct}`);
+                }
+                
+                // Set minimum down payment based on loan type and first-time homebuyer status
+                const isFirstTimeBuyer = propertiesOwnedCount === '0';
+                const buyerCategory = isFirstTimeBuyer ? 'firstTimeBuyer' : 'notFirstTimeBuyer';
+                let loanProductKey = loanType;
+                
+                if (loanType === 'unique' && uniqueLoanProduct) {
+                  loanProductKey = uniqueLoanProduct;
+                }
+                
+                const minDownPayment = minDownPaymentRequirements[buyerCategory as keyof typeof minDownPaymentRequirements][loanProductKey as keyof (typeof minDownPaymentRequirements.firstTimeBuyer)];
+                
+                if (minDownPayment) {
+                  console.log(`Setting minimum down payment to ${minDownPayment}% based on loan type ${loanProductKey}`);
+                  setDownPaymentPercent(minDownPayment);
+                } else {
+                  // Default to 20% if we couldn't find a minimum
+                  setDownPaymentPercent(20);
                 }
               }
               
@@ -1591,12 +1682,26 @@ export default function Mortgage() {
                                 id="downPayment" 
                                 name="downPayment" 
                                 placeholder="20" 
-                                min="3" 
+                                min={getMinimumDownPayment()} 
                                 max="50"
                                 className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                                 value={downPaymentPercent}
-                                onChange={(e) => setDownPaymentPercent(parseInt(e.target.value))}
+                                onChange={(e) => {
+                                  const newValue = parseInt(e.target.value);
+                                  const minimumDownPayment = getMinimumDownPayment();
+                                  if (newValue < minimumDownPayment) {
+                                    alert(`The minimum down payment for this loan type is ${minimumDownPayment}%`);
+                                    setDownPaymentPercent(minimumDownPayment);
+                                  } else {
+                                    setDownPaymentPercent(newValue);
+                                  }
+                                }}
                               />
+                              <div className="mt-2 text-xs text-gray-500">
+                                Minimum down payment for {addressLoanType === 'unique' ? 
+                                  (financingOptions[uniqueLoanProduct as keyof typeof financingOptions]?.title || 'this loan product') : 
+                                  `${addressLoanType.toUpperCase()} loan`}: {getMinimumDownPayment()}%
+                              </div>
                             </div>
                           </div>
                         )}
