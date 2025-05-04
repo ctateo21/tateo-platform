@@ -339,10 +339,23 @@ export default function Mortgage() {
       });
   }, []);
   
+  // Track when the property qualifier section becomes visible
+  useEffect(() => {
+    // When the property qualifier becomes visible, reset autocomplete to ensure it reinitializes
+    if (showPropertyQualifier) {
+      setAutocomplete(null);
+    }
+  }, [showPropertyQualifier]);
+  
   // Initialize Google Places Autocomplete when API is loaded
   useEffect(() => {
-    // Skip initialization if API not loaded, input not available, or autocomplete already created
-    if (!googleMapsLoaded || !addressInputRef.current || autocomplete) {
+    // Skip if API not loaded or input not available
+    if (!googleMapsLoaded || !addressInputRef.current) {
+      return;
+    }
+    
+    // Only initialize if property qualifier is showing
+    if (!showPropertyQualifier) {
       return;
     }
     
@@ -353,13 +366,22 @@ export default function Mortgage() {
         return;
       }
       
+      console.log('Initializing Google Places Autocomplete...');
+      
       // Options for the autocomplete - restrict to addresses in the US
       const options = {
         types: ['address'],
-        componentRestrictions: { country: 'us' }
+        componentRestrictions: { country: 'us' },
+        fields: ['address_components', 'formatted_address', 'geometry', 'place_id']
       };
       
       try {
+        // Clean up any existing autocomplete first
+        if (autocomplete) {
+          // Google doesn't provide a clean way to remove the autocomplete, so we just make a new one
+          setAutocomplete(null);
+        }
+        
         // Create the autocomplete instance
         // @ts-ignore - TypeScript doesn't know about window.google
         const autoCompleteInstance = new window.google.maps.places.Autocomplete(
@@ -369,7 +391,7 @@ export default function Mortgage() {
         
         // Add event listener for place selection
         // @ts-ignore - TypeScript doesn't know about addListener
-        autoCompleteInstance.addListener('place_changed', () => {
+        const listener = autoCompleteInstance.addListener('place_changed', () => {
           // @ts-ignore - TypeScript doesn't know about getPlace
           const place = autoCompleteInstance.getPlace();
           if (place && place.formatted_address) {
@@ -413,14 +435,29 @@ export default function Mortgage() {
         
         // Store the autocomplete instance
         setAutocomplete(autoCompleteInstance);
-        console.log('Google Places Autocomplete initialized');
+        console.log('Google Places Autocomplete initialized successfully');
         
         // Prevent form submission on Enter key
-        addressInputRef.current.addEventListener('keydown', (e) => {
+        const keydownListener = (e: KeyboardEvent) => {
           if (e.key === 'Enter') {
             e.preventDefault();
           }
-        });
+        };
+        
+        addressInputRef.current.addEventListener('keydown', keydownListener);
+        
+        // Clean up function
+        return () => {
+          // @ts-ignore - TypeScript doesn't know about google.maps
+          if (listener && window.google?.maps?.event) {
+            // @ts-ignore
+            window.google.maps.event.removeListener(listener);
+          }
+          
+          if (addressInputRef.current) {
+            addressInputRef.current.removeEventListener('keydown', keydownListener);
+          }
+        };
       } catch (autocompleteError) {
         console.error('Error creating autocomplete instance:', autocompleteError);
         // If we can't initialize the autocomplete, make sure the input is still usable
@@ -437,7 +474,7 @@ export default function Mortgage() {
         addressInputRef.current.disabled = false;
       }
     }
-  }, [googleMapsLoaded, creditScore, loanType, yearlyIncome, monthlyDebts]);
+  }, [googleMapsLoaded, showPropertyQualifier, creditScore, loanType, yearlyIncome, monthlyDebts, addressInputRef]);
 
   // Search for address and get property price
   const handleSearchAddress = async (e: React.MouseEvent<HTMLButtonElement>) => {
