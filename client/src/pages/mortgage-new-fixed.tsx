@@ -54,6 +54,7 @@ export default function Mortgage() {
   const [creditScore, setCreditScore] = useState<string>('');
   const [selectedState, setSelectedState] = useState<string>('');
   const [loanType, setLoanType] = useState<string>('');
+  const [propertyType, setPropertyType] = useState<string>('primary');
   const [showResults, setShowResults] = useState(false);
   const [results, setResults] = useState({
     loanAmount: 0,
@@ -853,6 +854,22 @@ export default function Mortgage() {
                     <option value="unique">Unique Loan Products</option>
                   </select>
                 </div>
+                
+                <div className="space-y-2">
+                  <label htmlFor="propertyType" className="block text-sm font-medium text-gray-700">Property Type</label>
+                  <select 
+                    id="propertyType" 
+                    name="propertyType" 
+                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={propertyType}
+                    onChange={(e) => setPropertyType(e.target.value)}
+                  >
+                    <option value="">Select property type</option>
+                    <option value="primary">Primary Residence</option>
+                    <option value="secondary">Secondary Home</option>
+                    <option value="investment">Investment Property</option>
+                  </select>
+                </div>
               </div>
               
               <div className="text-center pt-4">
@@ -1092,6 +1109,10 @@ export default function Mortgage() {
                             <div className="flex justify-between text-sm mt-1">
                               <span className="text-gray-600">Loan Type:</span>
                               <span className="font-medium capitalize">{loanType}</span>
+                            </div>
+                            <div className="flex justify-between text-sm mt-1">
+                              <span className="text-gray-600">Property Type:</span>
+                              <span className="font-medium capitalize">{propertyType ? propertyType : 'primary'}</span>
                             </div>
                             <p className="text-xs text-gray-500 mt-2">Using your information from Self Qualify</p>
                           </div>
