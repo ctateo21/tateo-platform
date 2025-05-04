@@ -981,10 +981,6 @@ export default function Mortgage() {
                   </div>
                   
                   <div className="flex justify-between items-center border-b border-gray-200 pb-2">
-                    <span className="font-medium">Debt-to-Income Ratio:</span>
-                    <span>{results.dtiRatio}%</span>
-                  </div>
-                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                     <span className="font-medium">Estimated Interest Rate:</span>
                     <div className="flex items-center">
                       <span>{results.interestRate.toFixed(2)}%</span>
@@ -992,6 +988,10 @@ export default function Mortgage() {
                         <ExternalLink className="h-3 w-3 mr-1" /> View current rates
                       </a>
                     </div>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                    <span className="font-medium">Debt-to-Income Ratio:</span>
+                    <span>{results.dtiRatio}%</span>
                   </div>
                   <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                     <span className="font-medium">Loan Type:</span>
@@ -1209,6 +1209,16 @@ export default function Mortgage() {
                         <div className="flex justify-between items-center border-b border-gray-200 pb-2">
                           <span className="font-medium">Loan Amount:</span>
                           <span className="text-lg font-bold text-primary">${addressResults.maximumLoanAmount.toLocaleString()}</span>
+                        </div>
+                        
+                        <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                          <span className="font-medium">Estimated Interest Rate:</span>
+                          <div className="flex items-center">
+                            <span>{addressResults.interestRate.toFixed(2)}%</span>
+                            <a href="https://www.mortgagenewsdaily.com/mortgage-rates" target="_blank" rel="noopener noreferrer" className="text-primary hover:text-primary/80 ml-2 text-xs underline flex items-center">
+                              <ExternalLink className="h-3 w-3 mr-1" /> View current rates
+                            </a>
+                          </div>
                         </div>
                         
                         <div className="flex justify-between items-center border-b border-gray-200 pb-2">
