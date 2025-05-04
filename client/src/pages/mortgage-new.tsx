@@ -459,7 +459,9 @@ export default function Mortgage() {
     
     const downPaymentAmount = (downPaymentPercent / 100) * propertyPrice;
     const loanAmount = propertyPrice - downPaymentAmount;
-    const monthlyIncomeVal = parseFloat(monthlyIncome) || 0;
+    // Convert yearly income to monthly income for calculations
+    const yearlyIncomeVal = parseFloat(monthlyIncome) || 0;
+    const monthlyIncomeVal = yearlyIncomeVal / 12;
     const monthlyDebtsVal = parseFloat(addressMonthlyDebts) || 0;
     
     // Get base interest rate based on loan type
@@ -970,16 +972,20 @@ export default function Mortgage() {
                   </div>
 
                   <div className="space-y-2">
-                    <label htmlFor="monthlyIncome" className="block text-sm font-medium text-gray-700">Monthly Income ($)</label>
+                    <label htmlFor="monthlyIncome" className="block text-sm font-medium text-gray-700">Yearly Income ($)</label>
                     <div className="relative">
                       <input 
                         type="text" 
                         id="monthlyIncome" 
                         name="monthlyIncome" 
-                        placeholder="Enter your monthly income" 
+                        placeholder="Enter your yearly income" 
                         className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        value={monthlyIncome}
-                        onChange={(e) => setMonthlyIncome(e.target.value.replace(/[^0-9]/g, ''))}
+                        value={monthlyIncome ? `$${parseInt(monthlyIncome).toLocaleString()}` : ''}
+                        onChange={(e) => {
+                          // Extract numbers only
+                          const value = e.target.value.replace(/[^0-9]/g, '');
+                          setMonthlyIncome(value);
+                        }}
                       />
                     </div>
                   </div>
@@ -993,8 +999,12 @@ export default function Mortgage() {
                         name="addressMonthlyDebts" 
                         placeholder="Enter your total monthly debt payments" 
                         className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                        value={addressMonthlyDebts}
-                        onChange={(e) => setAddressMonthlyDebts(e.target.value.replace(/[^0-9]/g, ''))}
+                        value={addressMonthlyDebts ? `$${parseInt(addressMonthlyDebts).toLocaleString()}` : ''}
+                        onChange={(e) => {
+                          // Extract numbers only
+                          const value = e.target.value.replace(/[^0-9]/g, '');
+                          setAddressMonthlyDebts(value);
+                        }}
                       />
                     </div>
                   </div>
