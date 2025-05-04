@@ -72,7 +72,7 @@ interface AddressQualificationResults {
 export default function Mortgage() {  
   // State for income-based calculator
   const [transactionType, setTransactionType] = useState<string>('purchase');
-  const [propertiesOwnedCount, setPropertiesOwnedCount] = useState<string>('1');
+  const [propertiesOwnedCount, setPropertiesOwnedCount] = useState<string>('0');
   const [yearlyIncome, setYearlyIncome] = useState<string>('');
   const [monthlyDebts, setMonthlyDebts] = useState<string>('');
   const [formattedIncome, setFormattedIncome] = useState<string>('');
@@ -1146,8 +1146,8 @@ export default function Mortgage() {
                     type="number" 
                     id="propertiesOwnedCount" 
                     name="propertiesOwnedCount" 
-                    placeholder="1-25+" 
-                    min="1"
+                    placeholder="0-25+" 
+                    min="0"
                     max="25"
                     className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     value={propertiesOwnedCount}
