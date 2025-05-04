@@ -638,7 +638,22 @@ export default function Mortgage() {
     let customTaxEstimate = false;
     
     // Check if this is a Hillsborough County, FL property
-    if (propertyAddress.toLowerCase().includes('tampa') && propertyAddress.toLowerCase().includes('fl')) {
+    // Use a comprehensive check for Hillsborough County cities and FL
+    const isHillsborough = (
+      propertyAddress.toLowerCase().includes('fl') &&
+      (
+        propertyAddress.toLowerCase().includes('tampa') ||
+        propertyAddress.toLowerCase().includes('temple terrace') ||
+        propertyAddress.toLowerCase().includes('plant city') ||
+        propertyAddress.toLowerCase().includes('brandon') ||
+        propertyAddress.toLowerCase().includes('riverview') ||
+        propertyAddress.toLowerCase().includes('sun city') ||
+        propertyAddress.toLowerCase().includes('apollo beach') ||
+        propertyAddress.toLowerCase().includes('hillsborough')
+      )
+    );
+    
+    if (isHillsborough) {
       try {
         // Use the Hillsborough County tax estimator API for more accurate tax data
         console.log('Using Hillsborough County tax estimator for', propertyAddress);
@@ -714,7 +729,8 @@ export default function Mortgage() {
       downPaymentAmount: Math.round(downPaymentAmount),
       principalAndInterest: Math.round(principalAndInterestPayment),
       propertyTax: Math.round(propertyTaxAmount),
-      homeownersInsurance: Math.round(homeownersInsuranceAmount)
+      homeownersInsurance: Math.round(homeownersInsuranceAmount),
+      customTaxEstimate: customTaxEstimate
     });
     
     setShowAddressResults(true);
@@ -1229,9 +1245,14 @@ export default function Mortgage() {
                               <span className="text-gray-600">Principal & Interest:</span>
                               <span className="font-medium">${addressResults.principalAndInterest.toLocaleString()}</span>
                             </div>
-                            <div className="flex justify-between">
+                            <div className="flex justify-between items-center">
                               <span className="text-gray-600">Property Tax:</span>
-                              <span className="font-medium">${addressResults.propertyTax.toLocaleString()}</span>
+                              <div className="flex items-center">
+                                <span className="font-medium">${addressResults.propertyTax.toLocaleString()}</span>
+                                {addressResults.customTaxEstimate && (
+                                  <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">Hillsborough data</span>
+                                )}
+                              </div>
                             </div>
                             <div className="flex justify-between">
                               <span className="text-gray-600">Homeowners Insurance:</span>
@@ -1243,9 +1264,18 @@ export default function Mortgage() {
                             </div>
                           </div>
                           
-                          {selectedState === 'FL' && (
+                          {selectedState === 'FL' && !addressResults.customTaxEstimate && (
                             <div className="mt-2 text-xs text-amber-700 italic">
                               * Florida properties include higher property tax (1.5%) and homeowners insurance (0.75%) rates
+                            </div>
+                          )}
+                          
+                          {addressResults.customTaxEstimate && (
+                            <div className="mt-2 text-xs text-green-700 italic">
+                              * Using precise property tax data from the Hillsborough County Property Appraiser
+                              {propertyType === 'primary' && (
+                                <span className="block mt-1">* Includes homestead exemption benefits for primary residences</span>
+                              )}
                             </div>
                           )}
                         </div>
