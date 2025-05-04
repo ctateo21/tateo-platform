@@ -251,14 +251,14 @@ export default function Mortgage() {
     e.preventDefault();
     
     // Validate required fields
-    if (!yearlyIncome || !monthlyDebts || !creditScore || !selectedState || !loanType) {
+    if (!yearlyIncome || !monthlyDebts || !creditScore || !selectedState || !propertyType || !loanType) {
       alert("Please fill in all fields to calculate your qualification.");
       return;
     }
     
     // Make sure unique loan product is selected if that loan type is chosen
     if (loanType === 'unique' && !uniqueLoanProduct) {
-      alert("Please select a specific unique loan product.");
+      alert("Please select a specific unique loan product based on your property type.");
       return;
     }
     
@@ -688,8 +688,14 @@ export default function Mortgage() {
       return;
     }
     
-    if (!downPaymentPercent || !creditScore || !yearlyIncome || !loanType) {
-      alert("Please complete the Self Qualify section first.");
+    if (!downPaymentPercent || !creditScore || !yearlyIncome || !propertyType || !loanType) {
+      alert("Please complete the Self Qualify section first, including property type selection.");
+      return;
+    }
+    
+    // Make sure unique loan product is selected if that loan type is chosen
+    if (loanType === 'unique' && !uniqueLoanProduct) {
+      alert("Please select a specific unique loan product based on your property type.");
       return;
     }
     
@@ -1222,13 +1228,40 @@ export default function Mortgage() {
                 </div>
 
                 <div className="space-y-2">
+                  <label htmlFor="propertyType" className="block text-sm font-medium text-gray-700">Property Type</label>
+                  <select 
+                    id="propertyType" 
+                    name="propertyType" 
+                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                    value={propertyType}
+                    onChange={(e) => {
+                      setPropertyType(e.target.value);
+                      // Reset uniqueLoanProduct when property type changes
+                      if (loanType === 'unique') {
+                        setUniqueLoanProduct('');
+                      }
+                    }}
+                  >
+                    <option value="">Select property type</option>
+                    <option value="primary">Primary Residence</option>
+                    <option value="secondary">Secondary Home</option>
+                    <option value="investment">Investment Property</option>
+                  </select>
+                </div>
+                
+                <div className="space-y-2">
                   <label htmlFor="loanType" className="block text-sm font-medium text-gray-700">Loan Type</label>
                   <select 
                     id="loanType" 
                     name="loanType" 
                     className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
                     value={loanType}
-                    onChange={(e) => setLoanType(e.target.value)}
+                    onChange={(e) => {
+                      setLoanType(e.target.value);
+                      if (e.target.value !== 'unique') {
+                        setUniqueLoanProduct(''); // Reset unique loan product when changing loan type
+                      }
+                    }}
                   >
                     <option value="">Select loan type</option>
                     <option value="conventional">Conventional</option>
@@ -1251,41 +1284,65 @@ export default function Mortgage() {
                       onChange={(e) => setUniqueLoanProduct(e.target.value)}
                     >
                       <option value="">Select specific loan product</option>
-                      <option value="heloc">HELOC</option>
-                      <option value="heloan">HELOAN</option>
-                      <option value="dscr">DSCR (Debt Service Coverage Ratio)</option>
-                      <option value="jumbo">Jumbo</option>
-                      <option value="assetUtilization">Asset Utilization</option>
-                      <option value="bankStatement">Bank Statement (Business or Personal)</option>
-                      <option value="form1099">1099</option>
-                      <option value="itin">ITIN</option>
-                      <option value="cpaPL">CPA P&L</option>
-                      <option value="fixAndFlip">Fix and Flip</option>
-                      <option value="newConstruction">New Construction</option>
-                      <option value="arm">ARM Loans</option>
-                      <option value="hardMoney">Hard Money / Private Money</option>
+                      
+                      {/* Options for Primary Residence */}
+                      {propertyType === 'primary' && (
+                        <>
+                          <option value="heloc">HELOC</option>
+                          <option value="heloan">HELOAN</option>
+                          <option value="jumbo">Jumbo</option>
+                          <option value="assetUtilization">Asset Utilization</option>
+                          <option value="bankStatement">Bank Statement (Business or Personal)</option>
+                          <option value="form1099">1099</option>
+                          <option value="itin">ITIN</option>
+                          <option value="cpaPL">CPA P&L</option>
+                          <option value="newConstruction">New Construction</option>
+                          <option value="arm">ARM Loans</option>
+                        </>
+                      )}
+                      
+                      {/* Options for Secondary Residence */}
+                      {propertyType === 'secondary' && (
+                        <>
+                          <option value="heloc">HELOC</option>
+                          <option value="heloan">HELOAN</option>
+                          <option value="jumbo">Jumbo</option>
+                          <option value="assetUtilization">Asset Utilization</option>
+                          <option value="bankStatement">Bank Statement (Business or Personal)</option>
+                          <option value="form1099">1099</option>
+                          <option value="itin">ITIN</option>
+                          <option value="cpaPL">CPA P&L</option>
+                          <option value="fixAndFlip">Fix and Flip</option>
+                          <option value="newConstruction">New Construction</option>
+                          <option value="arm">ARM Loans</option>
+                          <option value="hardMoney">Hard Money / Private Money</option>
+                        </>
+                      )}
+                      
+                      {/* Options for Investment Property */}
+                      {propertyType === 'investment' && (
+                        <>
+                          <option value="heloc">HELOC</option>
+                          <option value="heloan">HELOAN</option>
+                          <option value="dscr">DSCR (Debt Service Coverage Ratio)</option>
+                          <option value="jumbo">Jumbo</option>
+                          <option value="assetUtilization">Asset Utilization</option>
+                          <option value="bankStatement">Bank Statement (Business or Personal)</option>
+                          <option value="form1099">1099</option>
+                          <option value="itin">ITIN</option>
+                          <option value="cpaPL">CPA P&L</option>
+                          <option value="fixAndFlip">Fix and Flip</option>
+                          <option value="newConstruction">New Construction</option>
+                          <option value="arm">ARM Loans</option>
+                          <option value="hardMoney">Hard Money / Private Money</option>
+                        </>
+                      )}
                     </select>
                     <div className="mt-2 text-xs text-gray-500 italic">
                       Each unique loan product has different qualification criteria. Click on options in the "Unique Financing" section above for more details.
                     </div>
                   </div>
                 )}
-                
-                <div className="space-y-2">
-                  <label htmlFor="propertyType" className="block text-sm font-medium text-gray-700">Property Type</label>
-                  <select 
-                    id="propertyType" 
-                    name="propertyType" 
-                    className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    value={propertyType}
-                    onChange={(e) => setPropertyType(e.target.value)}
-                  >
-                    <option value="">Select property type</option>
-                    <option value="primary">Primary Residence</option>
-                    <option value="secondary">Secondary Home</option>
-                    <option value="investment">Investment Property</option>
-                  </select>
-                </div>
               </div>
               
               <div className="text-center pt-4">
