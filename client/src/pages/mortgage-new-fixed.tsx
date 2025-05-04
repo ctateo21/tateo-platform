@@ -630,6 +630,15 @@ export default function Mortgage() {
       }
     }
     
+    // Apply property type rate adjustments
+    if (propertyType === 'secondary') {
+      baseInterestRate += 0.003; // Add 0.30% for secondary residences
+      console.log("Secondary residence adjustment: +0.30%");
+    } else if (propertyType === 'investment') {
+      baseInterestRate += 0.005; // Add 0.50% for investment properties
+      console.log("Investment property adjustment: +0.50%");
+    }
+    
     // Calculate monthly payment (principal and interest)
     const monthlyInterestRate = baseInterestRate / 12;
     const term = 30 * 12; // 30-year mortgage in months
