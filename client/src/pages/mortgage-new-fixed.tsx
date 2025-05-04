@@ -808,6 +808,24 @@ export default function Mortgage() {
             Use our calculators below to get a quick estimate of your mortgage qualification. You can either enter your income details or search for a specific property address.
           </p>
         </div>
+
+        {/* Mortgage Types - Moved above calculator */}
+        <div className="mb-12">
+          <h2 className="text-2xl font-bold text-primary mb-6">Mortgage Options</h2>
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {mortgageTypes.map((type, index) => (
+              <Card key={index} className="overflow-hidden hover:shadow-lg transition-shadow duration-300">
+                <CardContent className="p-6">
+                  <div className="mb-4">
+                    {type.icon}
+                  </div>
+                  <h3 className="font-semibold text-lg mb-2">{type.title}</h3>
+                  <p className="text-gray-600 text-sm">{type.description}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
         
         <div className="grid md:grid-cols-1 gap-8">
           {/* Combined Qualification */}
@@ -1311,23 +1329,7 @@ export default function Mortgage() {
           </div>
         </div>
 
-        {/* Mortgage Types */}
-        <div className="mt-12">
-          <h2 className="text-2xl font-bold text-primary mb-6">Mortgage Options</h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {mortgageTypes.map((type, index) => (
-              <Card key={index} className="overflow-hidden hover:shadow-lg transition-shadow duration-300">
-                <CardContent className="p-6">
-                  <div className="mb-4">
-                    {type.icon}
-                  </div>
-                  <h3 className="font-semibold text-lg mb-2">{type.title}</h3>
-                  <p className="text-gray-600 text-sm">{type.description}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
+        {/* Mortgage Types section was moved to the top of the page */}
 
         {/* Call to Action */}
         <div className="mt-12 bg-gradient-to-r from-primary to-secondary text-white p-8 rounded-lg">
