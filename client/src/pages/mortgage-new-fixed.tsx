@@ -376,6 +376,38 @@ export default function Mortgage() {
             setPlaceDetails(place);
             setPropertyAddress(place.formatted_address);
             console.log('Selected place:', place.formatted_address);
+            
+            // Extract state for Florida-specific handling
+            const addressComponents = place.address_components || [];
+            const stateComponent = addressComponents.find(
+              (component: any) => component.types.includes('administrative_area_level_1')
+            );
+            
+            if (stateComponent) {
+              const stateCode = stateComponent.short_name;
+              console.log('State detected:', stateCode);
+              setSelectedState(stateCode);
+              
+              // Also set the addressCreditScore to match the self-qualify score if available
+              if (creditScore) {
+                setAddressCreditScore(creditScore);
+              }
+              
+              // Set loan type to match if available
+              if (loanType) {
+                setAddressLoanType(loanType);
+              }
+              
+              // Set income to match if available
+              if (yearlyIncome) {
+                setMonthlyIncome(yearlyIncome);
+              }
+              
+              // Set monthly debts to match if available
+              if (monthlyDebts) {
+                setAddressMonthlyDebts(monthlyDebts);
+              }
+            }
           }
         });
         
@@ -405,7 +437,7 @@ export default function Mortgage() {
         addressInputRef.current.disabled = false;
       }
     }
-  }, [googleMapsLoaded]);
+  }, [googleMapsLoaded, creditScore, loanType, yearlyIncome, monthlyDebts]);
 
   // Search for address and get property price
   const handleSearchAddress = async (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -450,14 +482,29 @@ export default function Mortgage() {
         // Try to extract state from the address for Florida-specific calculations
         if (data.property.address.state === 'FL') {
           setSelectedState('FL');
-        } else {
-          setSelectedState('');
         }
         
         // If we didn't get full place details from Google Maps, extract from Zillow data
         if (!placeDetails || !placeDetails.formatted_address) {
           const fullAddress = `${data.property.address.streetAddress}, ${data.property.address.city}, ${data.property.address.state} ${data.property.address.zipcode}`;
           setPropertyAddress(fullAddress);
+        }
+
+        // Auto-populate fields from self-qualify section if available
+        if (creditScore && !addressCreditScore) {
+          setAddressCreditScore(creditScore);
+        }
+        
+        if (loanType && !addressLoanType) {
+          setAddressLoanType(loanType);
+        }
+        
+        if (yearlyIncome && !monthlyIncome) {
+          setMonthlyIncome(yearlyIncome);
+        }
+        
+        if (monthlyDebts && !addressMonthlyDebts) {
+          setAddressMonthlyDebts(monthlyDebts);
         }
 
         // Determine price type for display
