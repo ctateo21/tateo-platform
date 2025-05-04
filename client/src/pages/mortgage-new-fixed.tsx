@@ -578,25 +578,31 @@ export default function Mortgage() {
       return;
     }
     
-    if (!downPaymentPercent || !addressCreditScore || !monthlyIncome || !addressLoanType) {
-      alert("Please fill in all fields to calculate your qualification.");
+    if (!downPaymentPercent || !creditScore || !yearlyIncome || !loanType) {
+      alert("Please complete the Self Qualify section first.");
       return;
     }
+    
+    // Auto-populate values from self-qualify section
+    setAddressCreditScore(creditScore);
+    setMonthlyIncome(yearlyIncome);
+    setAddressMonthlyDebts(monthlyDebts);
+    setAddressLoanType(loanType);
     
     const downPaymentAmount = (downPaymentPercent / 100) * propertyPrice;
     const loanAmount = propertyPrice - downPaymentAmount;
     // Convert yearly income to monthly income for calculations
-    const yearlyIncomeVal = parseFloat(monthlyIncome) || 0;
+    const yearlyIncomeVal = parseFloat(yearlyIncome) || 0;
     const monthlyIncomeVal = yearlyIncomeVal / 12;
-    const monthlyDebtsVal = parseFloat(addressMonthlyDebts) || 0;
+    const monthlyDebtsVal = parseFloat(monthlyDebts) || 0;
     
     // Get base interest rate based on loan type
-    let baseInterestRate = mortgageRates[addressLoanType as keyof typeof mortgageRates];
+    let baseInterestRate = mortgageRates[loanType as keyof typeof mortgageRates];
     
     // Apply credit score adjustments - add 0.1% for each tier below 780+
     const scoreTiers = [780, 760, 740, 720, 700, 680, 660, 640, 620, 600];
-    if (addressCreditScore) {
-      const creditScoreNum = parseInt(addressCreditScore);
+    if (creditScore) {
+      const creditScoreNum = parseInt(creditScore);
       const tierIndex = scoreTiers.findIndex(score => score <= creditScoreNum);
       
       if (tierIndex > 0) {
@@ -1069,90 +1075,25 @@ export default function Mortgage() {
                           </div>
                         )}
                         
-                        {showPropertyResult && (
-                          <div className="space-y-2 mt-4">
-                            <label htmlFor="addressCreditScore" className="block text-sm font-medium text-gray-700">Estimated Credit Score</label>
-                            <select 
-                              id="addressCreditScore" 
-                              name="addressCreditScore" 
-                              className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                              value={addressCreditScore}
-                              onChange={(e) => setAddressCreditScore(e.target.value)}
-                            >
-                              <option value="">Select your credit score range</option>
-                              <option value="780">780+</option>
-                              <option value="760">760-779</option>
-                              <option value="740">740-759</option>
-                              <option value="720">720-739</option>
-                              <option value="700">700-719</option>
-                              <option value="680">680-699</option>
-                              <option value="660">660-679</option>
-                              <option value="640">640-659</option>
-                              <option value="620">620-639</option>
-                              <option value="600">Below 620</option>
-                            </select>
-                          </div>
-                        )}
-                        
-                        {showPropertyResult && (
-                          <div className="space-y-2 mt-4">
-                            <label htmlFor="monthlyIncome" className="block text-sm font-medium text-gray-700">Yearly Income ($)</label>
-                            <div className="relative">
-                              <input 
-                                type="text" 
-                                id="monthlyIncome" 
-                                name="monthlyIncome" 
-                                placeholder="Enter your yearly income" 
-                                className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                                value={monthlyIncome ? `$${parseInt(monthlyIncome).toLocaleString()}` : ''}
-                                onChange={(e) => {
-                                  // Extract numbers only
-                                  const value = e.target.value.replace(/[^0-9]/g, '');
-                                  setMonthlyIncome(value);
-                                }}
-                              />
+                        {showPropertyResult && creditScore && (
+                          <div className="p-3 my-4 bg-gray-50 rounded-md">
+                            <div className="flex justify-between text-sm">
+                              <span className="text-gray-600">Using Credit Score:</span>
+                              <span className="font-medium">{creditScore}</span>
                             </div>
-                          </div>
-                        )}
-
-                        {showPropertyResult && (
-                          <div className="space-y-2 mt-4">
-                            <label htmlFor="addressMonthlyDebts" className="block text-sm font-medium text-gray-700">Monthly Debts ($)</label>
-                            <div className="relative">
-                              <input 
-                                type="text" 
-                                id="addressMonthlyDebts" 
-                                name="addressMonthlyDebts" 
-                                placeholder="Enter your total monthly debt payments" 
-                                className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                                value={addressMonthlyDebts ? `$${parseInt(addressMonthlyDebts).toLocaleString()}` : ''}
-                                onChange={(e) => {
-                                  // Extract numbers only
-                                  const value = e.target.value.replace(/[^0-9]/g, '');
-                                  setAddressMonthlyDebts(value);
-                                }}
-                              />
+                            <div className="flex justify-between text-sm mt-1">
+                              <span className="text-gray-600">Yearly Income:</span>
+                              <span className="font-medium">${parseInt(yearlyIncome).toLocaleString()}</span>
                             </div>
-                          </div>
-                        )}
-                        
-                        {showPropertyResult && (
-                          <div className="space-y-2 mt-4">
-                            <label htmlFor="addressLoanType" className="block text-sm font-medium text-gray-700">Loan Type</label>
-                            <select 
-                              id="addressLoanType" 
-                              name="addressLoanType" 
-                              className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                              value={addressLoanType}
-                              onChange={(e) => setAddressLoanType(e.target.value)}
-                            >
-                              <option value="">Select loan type</option>
-                              <option value="conventional">Conventional</option>
-                              <option value="fha">FHA</option>
-                              <option value="va">VA</option>
-                              <option value="usda">USDA</option>
-                              <option value="unique">Unique Loan Products</option>
-                            </select>
+                            <div className="flex justify-between text-sm mt-1">
+                              <span className="text-gray-600">Monthly Debts:</span>
+                              <span className="font-medium">${parseInt(monthlyDebts).toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between text-sm mt-1">
+                              <span className="text-gray-600">Loan Type:</span>
+                              <span className="font-medium capitalize">{loanType}</span>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-2">Using your information from Self Qualify</p>
                           </div>
                         )}
                         
