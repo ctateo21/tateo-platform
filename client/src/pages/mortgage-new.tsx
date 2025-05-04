@@ -864,23 +864,24 @@ export default function Mortgage() {
                   </div>
                   
                   {/* Property Price Display Field */}
-                  {showPropertyResult && (
-                    <div className="space-y-2 mt-4">
-                      <label htmlFor="propertyPriceDisplay" className="block text-sm font-medium text-gray-700">
-                        {propertyData?.listingStatus === "forSale" ? "For Sale Price" : "Zestimate"}
-                      </label>
-                      <div className="relative">
-                        <input 
-                          type="text" 
-                          id="propertyPriceDisplay" 
-                          name="propertyPriceDisplay" 
-                          className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-gray-50"
-                          value={`$${propertyPrice.toLocaleString()}`}
-                          readOnly
-                        />
-                      </div>
+                  <div className="space-y-2 mt-4">
+                    <label htmlFor="propertyPriceDisplay" className="block text-sm font-medium text-gray-700">
+                      {showPropertyResult 
+                        ? (propertyData?.listingStatus === "forSale" ? "For Sale Price" : "Zestimate") 
+                        : "Property Price"}
+                    </label>
+                    <div className="relative">
+                      <input 
+                        type="text" 
+                        id="propertyPriceDisplay" 
+                        name="propertyPriceDisplay" 
+                        placeholder="Property price will appear here after search"
+                        className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-gray-50"
+                        value={showPropertyResult ? `$${propertyPrice.toLocaleString()}` : ''}
+                        readOnly
+                      />
                     </div>
-                  )}
+                  </div>
 
                   {showPropertyResult && (
                     <div className="mt-4 p-4 bg-gray-50 rounded-md">
