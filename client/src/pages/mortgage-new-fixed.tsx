@@ -234,6 +234,15 @@ export default function Mortgage() {
       }
     }
     
+    // Apply property type rate adjustments
+    if (propertyType === 'secondary') {
+      baseInterestRate += 0.003; // Add 0.30% for secondary residences
+      console.log("Secondary residence adjustment: +0.30%");
+    } else if (propertyType === 'investment') {
+      baseInterestRate += 0.005; // Add 0.50% for investment properties
+      console.log("Investment property adjustment: +0.50%");
+    }
+    
     // Calculate max monthly payment available (total PITI - principal, interest, taxes, insurance)
     // Example: $10,000 × 45% - $1,250 = $4,500 - $1,250 = $3,250 max monthly payment
     const maxMonthlyPayment = (monthlyIncomeVal * maxDti) - debts;
