@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { FileText, Download, ArrowRight, DollarSign, Percent, Calculator, Home, ExternalLink, Search } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 
 interface ZillowProperty {
@@ -812,18 +813,55 @@ export default function Mortgage() {
         {/* Mortgage Types - Moved above calculator */}
         <div className="mb-12">
           <h2 className="text-2xl font-bold text-primary mb-6">Mortgage Options</h2>
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {mortgageTypes.map((type, index) => (
-              <Card key={index} className="overflow-hidden hover:shadow-lg transition-shadow duration-300">
-                <CardContent className="p-6">
-                  <div className="mb-4">
-                    {type.icon}
-                  </div>
-                  <h3 className="font-semibold text-lg mb-2">{type.title}</h3>
-                  <p className="text-gray-600 text-sm">{type.description}</p>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="space-y-6">
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {mortgageTypes.map((type, index) => (
+                <Card key={index} className="overflow-hidden hover:shadow-lg transition-shadow duration-300">
+                  <CardContent className="p-6">
+                    <div className="mb-4">
+                      {type.icon}
+                    </div>
+                    <h3 className="font-semibold text-lg mb-2">{type.title}</h3>
+                    <p className="text-gray-600 text-sm">{type.description}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+            
+            {/* Unique Financing Option with Dropdown */}
+            <div className="w-full">
+              <Accordion type="single" collapsible>
+                <AccordionItem value="unique-financing">
+                  <AccordionTrigger className="bg-primary text-white hover:bg-primary/90 p-4 rounded-md text-lg font-semibold">
+                    Unique Financing
+                  </AccordionTrigger>
+                  <AccordionContent className="bg-white p-6 border border-gray-200 rounded-b-md shadow-md">
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <ul className="list-disc pl-6 space-y-2">
+                        <li className="text-gray-700">HELOC</li>
+                        <li className="text-gray-700">HELOAN</li>
+                        <li className="text-gray-700">DSCR (Debt Service Coverage Ratio)</li>
+                        <li className="text-gray-700">Jumbo</li>
+                        <li className="text-gray-700">Asset Utilization</li>
+                      </ul>
+                      <ul className="list-disc pl-6 space-y-2">
+                        <li className="text-gray-700">Bank Statement (Business or Personal)</li>
+                        <li className="text-gray-700">1099</li>
+                        <li className="text-gray-700">ITIN</li>
+                        <li className="text-gray-700">CPA P&L</li>
+                        <li className="text-gray-700">Fix and Flip</li>
+                      </ul>
+                      <ul className="list-disc pl-6 space-y-2">
+                        <li className="text-gray-700">New Construction</li>
+                        <li className="text-gray-700">Jumbo</li>
+                        <li className="text-gray-700">ARM Loans</li>
+                        <li className="text-gray-700">Hard Money / Private Money</li>
+                      </ul>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
+            </div>
           </div>
         </div>
         
