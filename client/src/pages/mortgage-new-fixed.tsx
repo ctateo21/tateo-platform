@@ -728,7 +728,7 @@ export default function Mortgage() {
       interestRate: baseInterestRate * 100, // Convert to percentage
       downPaymentAmount: Math.round(downPaymentAmount),
       principalAndInterest: Math.round(principalAndInterestPayment),
-      propertyTax: Math.round(propertyTaxAmount),
+      propertyTax: propertyTaxAmount, // Keep exact amount with cents
       homeownersInsurance: Math.round(homeownersInsuranceAmount),
       customTaxEstimate: customTaxEstimate
     });
@@ -1248,9 +1248,17 @@ export default function Mortgage() {
                             <div className="flex justify-between items-center">
                               <span className="text-gray-600">Property Tax:</span>
                               <div className="flex items-center">
-                                <span className="font-medium">${addressResults.propertyTax.toLocaleString()}</span>
+                                <span className="font-medium">${addressResults.propertyTax.toFixed(2)}</span>
                                 {addressResults.customTaxEstimate && (
-                                  <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">Hillsborough data</span>
+                                  <a 
+                                    href="https://gis.hcpafl.org/propertysearch/taxestimator.aspx" 
+                                    target="_blank"
+                                    rel="noopener noreferrer" 
+                                    className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full hover:bg-green-200 transition-colors flex items-center"
+                                  >
+                                    <span>Hillsborough data</span>
+                                    <ExternalLink className="ml-1 h-3 w-3" />
+                                  </a>
                                 )}
                               </div>
                             </div>
