@@ -867,11 +867,23 @@ export default function Mortgage() {
                   
                   {/* Property Price Display Field */}
                   <div className="space-y-2 mt-4">
-                    <label htmlFor="propertyPriceDisplay" className="block text-sm font-medium text-gray-700">
-                      {showPropertyResult 
-                        ? (propertyData?.listingStatus === "forSale" ? "For Sale Price" : "Zestimate") 
-                        : "Property Price"}
-                    </label>
+                    <div className="flex justify-between items-center">
+                      <label htmlFor="propertyPriceDisplay" className="block text-sm font-medium text-gray-700">
+                        {showPropertyResult 
+                          ? (propertyData?.listingStatus === "forSale" ? "For Sale Price" : "Zestimate") 
+                          : "Property Price"}
+                      </label>
+                      {showPropertyResult && (
+                        <a 
+                          href={propertyData?.zillow_url || `https://www.zillow.com/homes/${encodeURIComponent(propertyAddress)}_rb/`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary hover:text-primary/80 flex items-center"
+                        >
+                          <ExternalLink className="h-3 w-3 mr-1" /> View on Zillow
+                        </a>
+                      )}
+                    </div>
                     <div className="relative">
                       <input 
                         type="text" 
@@ -885,47 +897,13 @@ export default function Mortgage() {
                     </div>
                   </div>
 
-                  {showPropertyResult && (
-                    <div className="mt-4 p-4 bg-gray-50 rounded-md">
-                      <div className="flex justify-between items-center border-b border-gray-200 pb-2 mb-2">
-                        <span className="font-medium">
-                          {propertyData?.listingStatus === "forSale" ? "Listed Price:" : "Zestimate:"}
-                        </span>
-                        <span className="text-lg font-bold text-primary">${propertyPrice.toLocaleString()}</span>
-                      </div>
-                      
-                      {/* Property Location */}
-                      <div className="mt-2 border-t border-gray-200 pt-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">Location:</span>
-                          <span className="text-gray-900">
-                            {placeDetails?.vicinity || placeDetails?.formatted_address || propertyAddress}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      {/* State-Specific Information */}
-                      {selectedState === 'FL' && (
-                        <div className="mt-2 p-2 bg-amber-50 rounded text-sm">
-                          <p className="text-amber-800 font-medium">Florida Property</p>
-                          <p className="text-xs text-gray-700 mt-1">
-                            Florida properties include property tax (~1.5%) and higher homeowners insurance (~0.75%) in monthly payment calculations.
-                          </p>
-                        </div>
-                      )}
-                      
-                      {/* Attribution and Link */}
-                      <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-200">
-                        <p className="text-xs text-gray-500">Data from Zillow</p>
-                        <a 
-                          href={propertyData?.zillow_url || `https://www.zillow.com/homes/${encodeURIComponent(propertyAddress)}_rb/`} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-xs text-primary hover:text-primary/80 flex items-center"
-                        >
-                          <ExternalLink className="h-3 w-3 mr-1" /> View on Zillow
-                        </a>
-                      </div>
+                  {/* State-Specific Florida Property Information */}
+                  {showPropertyResult && selectedState === 'FL' && (
+                    <div className="mt-4 p-2 bg-amber-50 rounded text-sm">
+                      <p className="text-amber-800 font-medium">Florida Property</p>
+                      <p className="text-xs text-gray-700 mt-1">
+                        Florida properties include property tax (~1.5%) and higher homeowners insurance (~0.75%) in monthly payment calculations.
+                      </p>
                     </div>
                   )}
 
