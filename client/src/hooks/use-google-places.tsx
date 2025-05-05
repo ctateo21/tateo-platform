@@ -37,6 +37,11 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
       setScriptLoaded(true);
     }
 
+    // Check if google maps is already loaded (e.g., from another instance)
+    if (window.google && window.google.maps && window.google.maps.places) {
+      setScriptLoaded(true);
+    }
+
     return () => {
       // Cleanup function - not removing the script because other components might use it
     };
@@ -82,10 +87,11 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
         
         // Return cleanup function
         return () => {
-          if (listener) {
-            window.google?.maps?.event?.removeListener(listener);
+          // Note: Google Maps Autocomplete has its own cleanup
+          // We just need to clean up our keydown handler
+          if (inputElement) {
+            inputElement.removeEventListener('keydown', keydownHandler);
           }
-          inputElement.removeEventListener('keydown', keydownHandler);
         };
       } catch (error) {
         console.error('Error initializing Google Places Autocomplete:', error);
@@ -143,7 +149,7 @@ declare global {
         event?: {
           removeListener: (listener: any) => void;
         };
-        MapsEventListener: any;
+        MapsEventListener?: any;
       };
     };
   }

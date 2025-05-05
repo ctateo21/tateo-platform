@@ -74,14 +74,17 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
 
   // Show loading or error state based on API key availability
   useEffect(() => {
-    if (!apiKey) {
-      setError("Address search is initializing. You may enter your address manually.");
-    } else if (!isLoaded) {
-      setError("Loading address search... You may enter your address manually.");
-    } else {
-      setError(null);
+    // Only set error messages if there isn't already an error
+    if (!error) {
+      if (!apiKey) {
+        setError("Address search is initializing. You may enter your address manually.");
+      } else if (!isLoaded) {
+        setError("Loading address search... You may enter your address manually.");
+      } else {
+        setError(null);
+      }
     }
-  }, [apiKey, isLoaded]);
+  }, [apiKey, isLoaded, error]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
