@@ -250,6 +250,15 @@ export default function Review() {
                               Zillow REALTOR
                             </a>
                           )}
+                          
+                          <a 
+                            href="https://www.facebook.com/login/?next=https%3A%2F%2Fwww.facebook.com%2Fprofile.php%3Fid%3D100086591377788&sk=reviews&utm_source=website&utm_medium=review_form&utm_campaign=review" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-primary hover:text-primary/80 underline font-medium"
+                          >
+                            Facebook Review
+                          </a>
                         </div>
                       </div>
                     )}
