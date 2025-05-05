@@ -2,24 +2,12 @@ import { Helmet } from "react-helmet";
 import { Link } from "wouter";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, Star, MessageSquare, ThumbsUp } from "lucide-react";
 
 export default function Review() {  
-  const [rating, setRating] = useState<string>("");
-  const [name, setName] = useState<string>("");
-  const [email, setEmail] = useState<string>("");
-  const [message, setMessage] = useState<string>("");
+  // State for selected services only
   const [selectedServices, setSelectedServices] = useState<{
     realtor: boolean;
     mortgage: boolean;
@@ -51,10 +39,6 @@ export default function Review() {
       setSubmitting(false);
       setSubmitted(true);
       // Reset form
-      setRating("");
-      setName("");
-      setEmail("");
-      setMessage("");
       setSelectedServices({ 
         realtor: false, 
         mortgage: false, 
@@ -274,126 +258,17 @@ export default function Review() {
                       </div>
                     )}
                   </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="rating">Rate your experience</Label>
-                    <Select value={rating} onValueChange={setRating}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select a rating" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="5">
-                          <div className="flex items-center">
-                            <span className="mr-2">5</span>
-                            <div className="flex">
-                              {[...Array(5)].map((_, i) => (
-                                <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                              ))}
-                            </div>
-                            <span className="ml-2">Excellent</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="4">
-                          <div className="flex items-center">
-                            <span className="mr-2">4</span>
-                            <div className="flex">
-                              {[...Array(4)].map((_, i) => (
-                                <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                              ))}
-                              {[...Array(1)].map((_, i) => (
-                                <Star key={i} className="h-4 w-4 text-gray-300" />
-                              ))}
-                            </div>
-                            <span className="ml-2">Good</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="3">
-                          <div className="flex items-center">
-                            <span className="mr-2">3</span>
-                            <div className="flex">
-                              {[...Array(3)].map((_, i) => (
-                                <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                              ))}
-                              {[...Array(2)].map((_, i) => (
-                                <Star key={i} className="h-4 w-4 text-gray-300" />
-                              ))}
-                            </div>
-                            <span className="ml-2">Average</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="2">
-                          <div className="flex items-center">
-                            <span className="mr-2">2</span>
-                            <div className="flex">
-                              {[...Array(2)].map((_, i) => (
-                                <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                              ))}
-                              {[...Array(3)].map((_, i) => (
-                                <Star key={i} className="h-4 w-4 text-gray-300" />
-                              ))}
-                            </div>
-                            <span className="ml-2">Below Average</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="1">
-                          <div className="flex items-center">
-                            <span className="mr-2">1</span>
-                            <div className="flex">
-                              {[...Array(1)].map((_, i) => (
-                                <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                              ))}
-                              {[...Array(4)].map((_, i) => (
-                                <Star key={i} className="h-4 w-4 text-gray-300" />
-                              ))}
-                            </div>
-                            <span className="ml-2">Poor</span>
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Your Name</Label>
-                    <Input 
-                      id="name" 
-                      type="text" 
-                      placeholder="John Smith"
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email Address</Label>
-                    <Input 
-                      id="email" 
-                      type="email" 
-                      placeholder="your@email.com"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="message">Your Review</Label>
-                    <Textarea 
-                      id="message" 
-                      placeholder="Please share your experience working with Tateo & Co..."
-                      rows={5}
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
-                    />
-                  </div>
-                  
-                  <Button 
-                    type="submit" 
-                    className="bg-primary hover:bg-primary/90 text-white w-full"
-                    disabled={submitting}
-                  >
-                    {submitting ? "Submitting..." : "Submit Review"}
-                    {!submitting && <ArrowRight className="ml-2 h-4 w-4" />}
-                  </Button>
+                    {hasSelectedService && (
+                      <div className="flex justify-center mt-6">
+                        <Button 
+                          type="submit" 
+                          className="bg-primary hover:bg-primary/90 text-white"
+                          disabled={submitting}
+                        >
+                          {submitting ? "Submitting..." : "Back"}
+                        </Button>
+                      </div>
+                    )}
                 </form>
               )}
             </div>
