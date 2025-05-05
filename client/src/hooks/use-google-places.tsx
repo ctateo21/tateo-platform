@@ -20,15 +20,19 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
 
   // Load the Google Maps Places API script
   useEffect(() => {
+    if (!apiKey) return;
+    
     const scriptElement = document.getElementById('google-maps-script') as HTMLScriptElement;
-    if (!scriptElement.src && apiKey) {
-      scriptElement.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-      scriptElement.onload = () => {
+    if (scriptElement) {
+      if (!scriptElement.src) {
+        scriptElement.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+        scriptElement.onload = () => {
+          setScriptLoaded(true);
+        };
+      } else if (window.google && window.google.maps && window.google.maps.places) {
+        // Script already loaded
         setScriptLoaded(true);
-      };
-    } else if (window.google && window.google.maps && window.google.maps.places) {
-      // Script already loaded
-      setScriptLoaded(true);
+      }
     }
 
     return () => {

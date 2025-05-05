@@ -8,13 +8,50 @@ import AddressSearch from "@/components/insurance/address-search";
 import InsuranceResults from "@/components/insurance/insurance-results";
 
 export default function Insurance() {  
+  const [property, setProperty] = useState<{ address: string; placeId?: string } | null>(null);
+  const [quote, setQuote] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAddressSelected = async (address: string, placeId?: string) => {
+    setProperty({ address, placeId });
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Call backend API to get insurance quote via Canopy Connect
+      // In the real implementation, we would make a real API call
+      const response = await fetch('/api/insurance/quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          address,
+          placeId,
+          type: 'property' // Default to property insurance
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get insurance quote');
+      }
+
+      const data = await response.json();
+      setQuote(data);
+    } catch (err) {
+      console.error('Error getting insurance quote:', err);
+      setError('We encountered a problem getting your insurance options. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
   const resources = [
     {
-      title: "Insurance Coverage Guide",
-      description: "Learn about different types of insurance coverage and find the right protection for your needs.",
+      title: "Florida Homeowners Insurance Guide",
+      description: "Learn about Florida-specific homeowners insurance options, requirements, and how to get the best coverage for your property.",
       icon: <FileText className="h-10 w-10 text-primary" />,
-      cta: "Download Coverage Guide",
-      link: "#"
+      cta: "Download Homeowners Guide",
+      link: "https://tateoco.com/florida-homeowners-insurance-guide/?utm_source=Insurance&utm_medium=form&utm_campaign=HOI_guide"
     },
     {
       title: "Insurance Claims Guide",
@@ -66,6 +103,26 @@ export default function Insurance() {
       <section className="py-16">
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-primary mb-4">Get a Quote for Your Property</h2>
+            <p className="text-gray-600 max-w-2xl mx-auto">
+              Find personalized insurance options for your property in just a few minutes. Enter your address to get started.
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-8 mb-12">
+            <div>
+              <AddressSearch onAddressSelected={handleAddressSelected} />
+            </div>
+            <div>
+              <InsuranceResults 
+                quote={quote} 
+                isLoading={loading} 
+                error={error} 
+              />
+            </div>
+          </div>
+          
+          <div className="text-center mt-16 mb-12">
             <h2 className="text-3xl font-bold text-primary mb-4">Insurance Coverage Options</h2>
             <p className="text-gray-600 max-w-2xl mx-auto">
               We offer a comprehensive range of insurance products from top-rated carriers to ensure you get the protection you need at competitive rates.
