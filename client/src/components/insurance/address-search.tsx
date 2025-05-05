@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Home, Loader2, SearchIcon } from "lucide-react";
 import { useGooglePlaces } from '@/hooks/use-google-places';
-import apiClient from '@/lib/api';
+import { getGoogleMapsApiKey } from '@/lib/api';
 
 interface AddressSearchProps {
   onAddressSelected: (address: string, placeId?: string) => void;
@@ -40,7 +40,12 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
         const response = await fetch('/api/config/google-maps-api-key');
         if (response.ok) {
           const data = await response.json();
-          setApiKey(data.apiKey);
+          if (data && data.apiKey) {
+            setApiKey(data.apiKey);
+          } else {
+            console.error('Google Maps API key not found in response');
+            setError('Unable to load address search. Please enter your address manually.');
+          }
         } else {
           console.error('Failed to fetch Google Maps API key');
           setError('Unable to load address search. Please enter your address manually.');

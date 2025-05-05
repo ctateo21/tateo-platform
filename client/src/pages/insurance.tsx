@@ -6,6 +6,7 @@ import { FileText, Download, ArrowRight, Car, Home, Shield, Umbrella } from "luc
 import { Card, CardContent } from "@/components/ui/card";
 import AddressSearch from "@/components/insurance/address-search";
 import InsuranceResults from "@/components/insurance/insurance-results";
+import { getInsuranceQuote } from "@/lib/api";
 
 export default function Insurance() {  
   const [property, setProperty] = useState<{ address: string; placeId?: string } | null>(null);
@@ -21,22 +22,12 @@ export default function Insurance() {
     
     try {
       // Call backend API to get insurance quote via Canopy Connect
-      // In the real implementation, we would make a real API call
-      const response = await fetch('/api/insurance/quote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          address,
-          placeId,
-          type: 'property' // Default to property insurance
-        })
+      const data = await getInsuranceQuote({
+        address,
+        placeId,
+        type: 'property' // Default to property insurance
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to get insurance quote');
-      }
-
-      const data = await response.json();
+      
       setQuote(data);
       setShowResults(true);
     } catch (err) {

@@ -5,14 +5,6 @@ interface GooglePlacesHookProps {
   onPlaceSelected?: (place: any) => void;
 }
 
-interface PlacesAutocompleteInstance {
-  addListener: (
-    eventName: string,
-    callback: (...args: any[]) => void
-  ) => any;
-  getPlace: () => any;
-}
-
 export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookProps) {
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const [autocomplete, setAutocomplete] = useState<any | null>(null);
@@ -22,21 +14,31 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
   useEffect(() => {
     if (!apiKey) return;
     
-    const scriptElement = document.getElementById('google-maps-script') as HTMLScriptElement;
-    if (scriptElement) {
-      if (!scriptElement.src) {
-        scriptElement.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-        scriptElement.onload = () => {
-          setScriptLoaded(true);
-        };
-      } else if (window.google && window.google.maps && window.google.maps.places) {
-        // Script already loaded
+    // Check if script element already exists
+    let scriptElement = document.getElementById('google-maps-script') as HTMLScriptElement;
+    
+    // If element doesn't exist, create it
+    if (!scriptElement) {
+      scriptElement = document.createElement('script');
+      scriptElement.id = 'google-maps-script';
+      scriptElement.async = true;
+      scriptElement.defer = true;
+      document.head.appendChild(scriptElement);
+    }
+    
+    // Only set the src if it's not already set
+    if (!scriptElement.src) {
+      scriptElement.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+      scriptElement.onload = () => {
         setScriptLoaded(true);
-      }
+      };
+    } else if (window.google && window.google.maps && window.google.maps.places) {
+      // Script already loaded with src set
+      setScriptLoaded(true);
     }
 
     return () => {
-      // Cleanup if needed
+      // Cleanup function - not removing the script because other components might use it
     };
   }, [apiKey]);
 
@@ -60,7 +62,7 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
         );
 
         // Add listener for place_changed event
-        autocompleteInstance.addListener('place_changed', () => {
+        const listener = autocompleteInstance.addListener('place_changed', () => {
           const place = autocompleteInstance.getPlace();
           if (onPlaceSelected && place) {
             onPlaceSelected(place);
@@ -70,13 +72,24 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
         setAutocomplete(autocompleteInstance);
         
         // Prevent form submission when Enter is pressed in the input field
-        inputElement.addEventListener('keydown', (e) => {
+        const keydownHandler = (e: KeyboardEvent) => {
           if (e.key === 'Enter') {
             e.preventDefault();
           }
-        });
+        };
+        
+        inputElement.addEventListener('keydown', keydownHandler);
+        
+        // Return cleanup function
+        return () => {
+          if (listener) {
+            window.google?.maps?.event?.removeListener(listener);
+          }
+          inputElement.removeEventListener('keydown', keydownHandler);
+        };
       } catch (error) {
         console.error('Error initializing Google Places Autocomplete:', error);
+        return undefined;
       }
     },
     [scriptLoaded, onPlaceSelected]
@@ -98,7 +111,8 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
   // Initialize when the script is loaded and input ref exists
   useEffect(() => {
     if (scriptLoaded && inputRef.current && window.google && window.google.maps && window.google.maps.places) {
-      initializeAutocomplete(inputRef.current);
+      const cleanup = initializeAutocomplete(inputRef.current);
+      return cleanup;
     }
   }, [scriptLoaded, initializeAutocomplete]);
 
@@ -117,6 +131,17 @@ declare global {
         places?: {
           Autocomplete: new (input: HTMLInputElement, options?: object) => any;
           PlacesService: any;
+          PlacesServiceStatus: {
+            OK: string;
+            ZERO_RESULTS: string;
+            OVER_QUERY_LIMIT: string;
+            REQUEST_DENIED: string;
+            INVALID_REQUEST: string;
+            UNKNOWN_ERROR: string;
+          };
+        };
+        event?: {
+          removeListener: (listener: any) => void;
         };
         MapsEventListener: any;
       };
