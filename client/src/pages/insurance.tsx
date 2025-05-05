@@ -9,14 +9,26 @@ import InsuranceResults from "@/components/insurance/insurance-results";
 import { getInsuranceQuote } from "@/lib/api";
 
 export default function Insurance() {  
-  const [property, setProperty] = useState<{ address: string; propertyType: string; placeId?: string } | null>(null);
+  const [property, setProperty] = useState<{ 
+    address: string; 
+    propertyType: string; 
+    insuranceTypes: string[]; 
+    otherOptions: string[];
+    placeId?: string 
+  } | null>(null);
   const [quote, setQuote] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showResults, setShowResults] = useState(false);
 
-  const handleAddressSelected = async (address: string, propertyType: string, placeId?: string) => {
-    setProperty({ address, propertyType, placeId });
+  const handleAddressSelected = async (
+    address: string, 
+    insuranceTypes: string[], 
+    propertyType: string, 
+    otherOptions: string[], 
+    placeId?: string
+  ) => {
+    setProperty({ address, propertyType, insuranceTypes, otherOptions, placeId });
     setLoading(true);
     setError(null);
     
@@ -26,7 +38,10 @@ export default function Insurance() {
         address,
         placeId,
         propertyType,
-        type: 'property' // Default to property insurance
+        insuranceTypes,
+        otherOptions,
+        // Determine primary insurance type based on selection
+        type: insuranceTypes[0] || 'property'
       });
       
       setQuote(data);

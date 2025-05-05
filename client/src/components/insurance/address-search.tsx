@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Home, Loader2, SearchIcon } from "lucide-react";
+import { Home, Loader2, SearchIcon, CheckIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -373,7 +373,7 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
               type={selectedAddress ? "submit" : "button"}
               onClick={selectedAddress ? undefined : handleManualSubmit}
               className="bg-primary hover:bg-primary/90 text-white w-full h-12"
-              disabled={selectedAddress ? (loading || !propertyType) : !address}
+              disabled={selectedAddress ? (loading || !canSubmit) : !address}
             >
               {loading ? (
                 <>

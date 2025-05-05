@@ -29,7 +29,9 @@ export async function getInsuranceQuote(data: {
   address: string;
   placeId?: string;
   propertyType?: string;
-  type?: "auto" | "property" | "other";
+  insuranceTypes?: string[];
+  otherOptions?: string[];
+  type?: string;
 }) {
   return apiRequest("POST", "/api/insurance/quote", data);
 }
