@@ -251,6 +251,17 @@ export default function Review() {
                             </a>
                           )}
                           
+                          {selectedServices.propertyManagement && (
+                            <a 
+                              href="https://www.google.com/search?q=company+called+furnished+flats+google+reviews&sca_esv=8e26205c2bafb5f9&rlz=1C1VDKB_enUS1131US1132&biw=1433&bih=1038&tbm=lcl&sxsrf=AHTn8zoOxnJu6qAAcQqIxbexxHR1hVlObQ%3A1746467461916&ei=hfoYaILbN7uUwbkP_PPpkQQ&ved=0ahUKEwjCsbel8oyNAxU7SjABHfx5OkIQ4dUDCAo&uact=5&oq=company+called+furnished+flats+google+reviews&gs_lp=Eg1nd3Mtd2l6LWxvY2FsIi1jb21wYW55IGNhbGxlZCBmdXJuaXNoZWQgZmxhdHMgZ29vZ2xlIHJldmlld3MyBRAhGKABMgUQIRigATIFECEYoAEyBRAhGKABSONEUNEVWO5DcAN4AJABAZgBswGgAbEqqgEFMTEuMze4AQPIAQD4AQGYAjGgArEqwgIEECMYJ8ICCBAAGKIEGIkFwgIFEAAY7wXCAggQABiABBiiBMICCxAAGIAEGJECGIoFwgIOEAAYgAQYsQMYgwEYigXCAgsQABiABBixAxiDAcICCBAAGIAEGLEDwgIKEAAYgAQYQxiKBcICDRAAGIAEGLEDGEMYigXCAgoQABiABBgUGIcCwgIFEAAYgATCAgcQABiABBgKwgIGEAAYFhgewgIIEAAYFhgKGB7CAgsQABiABBiGAxiKBcICBRAhGJ8FwgIFECEYqwLCAgcQIRigARgKmAMAiAYBkgcFMTEuMzigB7zRArIHBDguMzi4B6Mq&sclient=gws-wiz-local#lkt=LocalPoiReviews&rlfi=hd:;si:15851102711039641024,l,Ci1jb21wYW55IGNhbGxlZCBmdXJuaXNoZWQgZmxhdHMgZ29vZ2xlIHJldmlld3MiA4gBAUjKt4CslbiAgAhaPxAAEAEQAhADEAQQBRgCGAMiLWNvbXBhbnkgY2FsbGVkIGZ1cm5pc2hlZCBmbGF0cyBnb29nbGUgcmV2aWV3c3oOU3QuIFBldGVyc2J1cmeSARtwcm9wZXJ0eV9tYW5hZ2VtZW50X2NvbXBhbnmqAcYBCg0vZy8xMWM1OXAwZzhuCgkvbS8wNDVjN2IKCy9nLzEyMHoxOGwzCgkvbS8wMW5ibHQKCS9tLzAybXoxZBABKjEiLWNvbXBhbnkgY2FsbGVkIGZ1cm5pc2hlZCBmbGF0cyBnb29nbGUgcmV2aWV3cygAMh8QASIb4OwIODG_XAD0Q1WkBS3nKqcvv-gCyE2W0JMoMjEQAiItY29tcGFueSBjYWxsZWQgZnVybmlzaGVkIGZsYXRzIGdvb2dsZSByZXZpZXdz4AEA;mv:[[27.812263607249385,-82.58539773672517],[27.676584457822006,-82.75586911159799]]&lrd=0x2bc318c6080dab3:0xdbfa6deed5bfc5c0,3,,,," 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-primary hover:text-primary/80 underline font-medium"
+                            >
+                              Property Management Review
+                            </a>
+                          )}
+                          
                           <a 
                             href="https://www.facebook.com/login/?next=https%3A%2F%2Fwww.facebook.com%2Fprofile.php%3Fid%3D100086591377788&sk=reviews&utm_source=website&utm_medium=review_form&utm_campaign=review" 
                             target="_blank" 
