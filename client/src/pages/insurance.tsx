@@ -1,8 +1,11 @@
 import { Helmet } from "react-helmet";
 import { Link } from "wouter";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FileText, Download, ArrowRight, Car, Home, Shield, Umbrella } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import AddressSearch from "@/components/insurance/address-search";
+import InsuranceResults from "@/components/insurance/insurance-results";
 
 export default function Insurance() {  
   const resources = [
