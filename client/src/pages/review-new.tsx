@@ -188,9 +188,9 @@ export default function Review() {
                     </div>
                     
                     {hasSelectedService && (
-                      <div className="mt-4 text-center">
+                      <div className="mt-4 text-left">
                         <p className="font-bold mb-2">Please leave your review on EACH site below:</p>
-                        <div className="flex flex-col space-y-2">
+                        <div className="flex flex-col space-y-2 text-left">
                           <a 
                             href="https://www.google.com/maps/place//data=!4m3!3m2!1s0x8203cd622a64e825:0xf771e45c35347782!12e1?source=g.page.m.kd._&laa=lu-desktop-review-solicitation" 
                             target="_blank" 
@@ -257,7 +257,7 @@ export default function Review() {
                     )}
                   </div>
                     {hasSelectedService && (
-                      <div className="flex justify-center mt-6">
+                      <div className="flex justify-start mt-6">
                         <Button 
                           type="submit" 
                           className="bg-primary hover:bg-primary/90 text-white"
