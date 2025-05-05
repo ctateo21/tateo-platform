@@ -88,7 +88,7 @@ export default function Insurance() {
       icon: <Shield className="h-10 w-10 text-primary" />
     },
     {
-      title: "Umbrella Insurance",
+      title: "Other Insurance",
       description: "Additional liability coverage that protects your assets and future earnings beyond standard policy limits.",
       icon: <Umbrella className="h-10 w-10 text-primary" />
     }
