@@ -208,28 +208,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const apiKey = process.env.GOOGLE_MAPS_API_KEY || "";
       if (!apiKey) {
         console.error("Google Maps API key is not configured");
-        return res.status(500).json({ 
+        return res.status(200).json({ 
           success: false,
           error: "Google Maps API key not configured",
-          message: "Google Maps API key is required for fetching reviews",
-          reviews: getMockReviews() // Return mock reviews as fallback
+          message: "Please contact the administrator to set up the Google Maps API key.",
+          reviews: []
         });
       }
       
-      // Fetch Google Reviews using the Google Places API
-      console.log("Attempting to fetch Google reviews with API key");
+      // Fetch Tateo & Co reviews using the exact Place ID from Google Maps URL
+      console.log("Fetching Tateo & Co Google reviews using exact Place ID");
       const reviews = await fetchGoogleReviews();
       
       if (reviews && reviews.length > 0) {
-        console.log(`Successfully fetched ${reviews.length} Google reviews`);
+        console.log(`Successfully fetched ${reviews.length} Google reviews for Tateo & Co`);
         return res.json({ 
           success: true, 
           reviews,
-          message: "Successfully fetched reviews from Google"
+          message: "Successfully fetched Tateo & Co reviews from Google"
         });
       } else {
-        console.error("No reviews found from Google API");
-        throw new Error("No reviews found from Google API");
+        console.error("No reviews found for Tateo & Co");
+        return res.status(200).json({ 
+          success: false,
+          error: "No reviews found for Tateo & Co",
+          message: "Tateo & Co has no reviews on Google yet. Please check back later.",
+          reviews: []
+        });
       }
     } catch (error: any) {
       console.error("Error fetching Google reviews:", error);
@@ -240,12 +245,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         errorMessage = `Error: ${error.message}`;
       }
       
-      // Return mock reviews as fallback if API call fails
+      // Return an empty array with a clear error message
       return res.status(200).json({ 
         success: false,
         error: errorMessage,
-        message: "Using mock reviews due to API error",
-        reviews: getMockReviews()
+        message: "Could not fetch Tateo & Co reviews at this time. Please try again later.",
+        reviews: []
       });
     }
   });
