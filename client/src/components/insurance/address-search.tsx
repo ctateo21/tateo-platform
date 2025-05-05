@@ -4,7 +4,26 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Home, Loader2, SearchIcon } from "lucide-react";
-import { useGooglePlaces } from '@/hooks/use-google-places';
+
+// Define type for Google Autocomplete instance
+type GoogleAutocomplete = any;
+type GoogleMapsEvent = any;
+
+// Add a declaration for Window with Google Maps
+declare global {
+  interface Window {
+    google?: {
+      maps?: {
+        places?: {
+          Autocomplete: new (input: HTMLInputElement, options?: any) => any;
+        };
+        event?: {
+          removeListener: (listener: any) => void;
+        };
+      };
+    };
+  }
+}
 
 interface AddressSearchProps {
   onAddressSelected: (address: string, placeId?: string) => void;
@@ -15,71 +34,112 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
   const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const [apiKey, setApiKey] = useState('');
-  
-  // Handle place selection from Google Places Autocomplete
-  const handlePlaceSelected = (place: any) => {
-    if (place && place.formatted_address) {
-      setAddress(place.formatted_address);
-      // Submit the form automatically when a place is selected
-      if (place.formatted_address && place.place_id) {
-        setLoading(true);
-        onAddressSelected(place.formatted_address, place.place_id);
-        setLoading(false);
-      }
-    }
-  };
+  const autocompleteRef = useRef<GoogleAutocomplete | null>(null);
+  const listenerRef = useRef<GoogleMapsEvent | null>(null);
 
-  // Fetch API key only once when component mounts
+  // Load Google Maps script with Places API
   useEffect(() => {
-    let isMounted = true;
-    
-    const fetchApiKey = async () => {
+    // Skip if script is already loaded
+    if (window.google?.maps?.places) {
+      return;
+    }
+
+    // Skip if script is already being loaded
+    if (document.getElementById('google-maps-script')) {
+      return;
+    }
+
+    const loadScript = async () => {
       try {
+        // Fetch API key
         const response = await fetch('/api/config/google-maps-api-key');
-        if (!isMounted) return;
+        const data = await response.json();
         
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.apiKey) {
-            setApiKey(data.apiKey);
-          } else if (isMounted) {
-            console.error('Google Maps API key not found in response');
-          }
-        } else if (isMounted) {
-          console.error('Failed to fetch Google Maps API key');
+        if (!data.apiKey) {
+          console.error('No Google Maps API key found');
+          return;
         }
+
+        // Create and add script
+        const script = document.createElement('script');
+        script.id = 'google-maps-script';
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${data.apiKey}&libraries=places`;
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
       } catch (err) {
-        if (isMounted) {
-          console.error('Error fetching Google Maps API key:', err);
-        }
+        console.error('Error loading Google Maps API:', err);
       }
     };
 
-    fetchApiKey();
-    
-    // Cleanup function to prevent state updates after unmount
-    return () => { isMounted = false; };
+    loadScript();
   }, []);
 
-  // Initialize Google Places Autocomplete
-  const { bindInputRef, isLoaded } = useGooglePlaces({
-    apiKey,
-    onPlaceSelected: handlePlaceSelected
-  });
-
-  // Connect the input ref to the Google Places hook when it's ready
+  // Initialize autocomplete when input is available and Google Maps is loaded
   useEffect(() => {
-    if (inputRef.current && isLoaded) {
-      bindInputRef(inputRef.current);
+    // Check if Google Maps API is loaded and input exists
+    if (!inputRef.current || !window.google?.maps?.places) {
+      return;
     }
-  }, [bindInputRef, isLoaded]);
+
+    // Clean up previous instance if it exists
+    if (listenerRef.current && window.google?.maps?.event?.removeListener) {
+      window.google.maps.event.removeListener(listenerRef.current);
+      listenerRef.current = null;
+    }
+
+    try {
+      // Create new autocomplete instance
+      const options = {
+        types: ['address'],
+        componentRestrictions: { country: 'us' }
+      };
+      
+      const autocomplete = new window.google.maps.places.Autocomplete(inputRef.current, options);
+      autocompleteRef.current = autocomplete;
+
+      // Add place_changed listener
+      const listener = autocomplete.addListener('place_changed', () => {
+        const place = autocomplete.getPlace();
+        if (place && place.formatted_address) {
+          setAddress(place.formatted_address);
+          if (place.place_id) {
+            setLoading(true);
+            onAddressSelected(place.formatted_address, place.place_id);
+            setLoading(false);
+          }
+        }
+      });
+
+      listenerRef.current = listener;
+
+      // Prevent form submission on Enter key
+      const preventSubmit = (e: KeyboardEvent) => {
+        if (e.key === 'Enter' && document.activeElement === inputRef.current) {
+          e.preventDefault();
+        }
+      };
+
+      inputRef.current.addEventListener('keydown', preventSubmit);
+
+      // Clean up function
+      return () => {
+        if (window.google?.maps?.event?.removeListener && listenerRef.current) {
+          window.google.maps.event.removeListener(listenerRef.current);
+        }
+        if (inputRef.current) {
+          inputRef.current.removeEventListener('keydown', preventSubmit);
+        }
+      };
+    } catch (err) {
+      console.error('Error initializing Google Places Autocomplete:', err);
+    }
+  }, [onAddressSelected]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (address) {
       setLoading(true);
-      // Submit the manually entered address
       onAddressSelected(address);
       setLoading(false);
     }
