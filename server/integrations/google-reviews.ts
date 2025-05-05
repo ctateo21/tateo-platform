@@ -10,9 +10,8 @@ export interface GoogleReview {
   service?: string;
 }
 
-// Google Place ID for Tateo & Co
-// This is a placeholder - you'll need to replace with the actual Place ID for Tateo & Co
-const TATEO_PLACE_ID = 'ChIJw____-xZwokRvBLy41x1XuI';  // This is a sample Google business Place ID
+// Google Place ID for Tateo & Co extracted directly from the Google Maps URL
+const TATEO_PLACE_ID = 'ChIJJeg0Ii09QIYRgiNHNcTlf_c';  // Tateo & Co Place ID
 
 export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
@@ -22,17 +21,33 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     throw new Error('Google Maps API key is required');
   }
   
+  // Construct the API URL with more fields
+  const apiUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${TATEO_PLACE_ID}&fields=name,rating,reviews,formatted_address&key=${apiKey}`;
+  console.log(`Fetching Google reviews for place ID: ${TATEO_PLACE_ID}`);
+  
   try {
     // Fetch place details including reviews using Google Places API
-    const response = await axios.get(
-      `https://maps.googleapis.com/maps/api/place/details/json?place_id=${TATEO_PLACE_ID}&fields=reviews,name&key=${apiKey}`
-    );
+    const response = await axios.get(apiUrl);
+    
+    // Log the response status
+    console.log(`Google Places API response status: ${response.data.status}`);
     
     if (response.data.status !== 'OK') {
+      if (response.data.error_message) {
+        console.error(`Google Places API error message: ${response.data.error_message}`);
+      }
       throw new Error(`Google Places API error: ${response.data.status}`);
     }
     
+    // Check if we have the expected result structure
+    if (!response.data.result) {
+      console.error('Missing result in Google Places API response');
+      throw new Error('Invalid API response format');
+    }
+    
+    // Get reviews from the response
     const reviews = response.data.result.reviews || [];
+    console.log(`Found ${reviews.length} reviews for place ${response.data.result.name || TATEO_PLACE_ID}`);
     
     // Add service name to reviews
     return reviews.map((review: any) => ({

@@ -12,7 +12,14 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     }
     
     const data = await response.json();
-    return data.reviews || [];
+    console.log('Reviews data from API:', data);
+    
+    if (!data.reviews || !Array.isArray(data.reviews)) {
+      console.warn('Invalid or missing reviews data from API');
+      return [];
+    }
+    
+    return data.reviews;
   } catch (error) {
     console.error('Error fetching Google reviews from API:', error);
     // Return empty array on error
