@@ -7,6 +7,7 @@ import {
   realEstateFormSchema, 
   mortgageFormSchema, 
   insuranceFormSchema, 
+  InsuranceFormData,
   constructionFormSchema, 
   propertyManagementFormSchema, 
   homeServicesFormSchema, 

@@ -38,6 +38,7 @@ export default function Insurance() {
 
       const data = await response.json();
       setQuote(data);
+      setShowResults(true);
     } catch (err) {
       console.error('Error getting insurance quote:', err);
       setError('We encountered a problem getting your insurance options. Please try again.');
@@ -115,11 +116,24 @@ export default function Insurance() {
               <AddressSearch onAddressSelected={handleAddressSelected} />
             </div>
             <div>
-              <InsuranceResults 
-                quote={quote} 
-                isLoading={loading} 
-                error={error} 
-              />
+              {property && (
+                <InsuranceResults 
+                  quote={quote} 
+                  isLoading={loading} 
+                  error={error} 
+                />
+              )}
+              {!property && (
+                <Card className="w-full bg-white shadow-md border-0 h-full">
+                  <CardContent className="p-6 flex flex-col items-center justify-center py-12 h-full">
+                    <div className="bg-primary/10 p-3 rounded-full w-16 h-16 flex items-center justify-center mb-4">
+                      <Home className="h-8 w-8 text-primary" />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">Enter Your Address</h3>
+                    <p className="text-gray-600 text-center max-w-md">Enter your property address to get personalized insurance quotes from top carriers.</p>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
           
