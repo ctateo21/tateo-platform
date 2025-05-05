@@ -2,7 +2,7 @@ import { Helmet } from "react-helmet";
 import { Link } from "wouter";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { FileText, Download, ArrowRight, Car, Home, Shield, Umbrella } from "lucide-react";
+import { FileText, Download, ArrowRight, Car, Home, Shield, Umbrella, CheckCircle, AlertTriangle, Loader2 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import AddressSearch from "@/components/insurance/address-search";
 import InsuranceResults from "@/components/insurance/insurance-results";
@@ -123,30 +123,32 @@ export default function Insurance() {
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-8 mb-12">
-            <div>
-              <AddressSearch onAddressSelected={handleAddressSelected} />
-            </div>
-            <div>
-              {property && (
-                <InsuranceResults 
-                  quote={quote} 
-                  isLoading={loading} 
-                  error={error} 
-                />
-              )}
-              {!property && (
-                <Card className="w-full bg-white shadow-md border-0 h-full">
-                  <CardContent className="p-6 flex flex-col items-center justify-center py-12 h-full">
-                    <div className="bg-primary/10 p-3 rounded-full w-16 h-16 flex items-center justify-center mb-4">
-                      <Home className="h-8 w-8 text-primary" />
-                    </div>
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">Enter Your Address</h3>
-                    <p className="text-gray-600 text-center max-w-md">Enter your property address to get personalized insurance quotes from top carriers.</p>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
+          <div className="max-w-2xl mx-auto mb-12">
+            <AddressSearch onAddressSelected={handleAddressSelected} />
+            {property && quote && !loading && !error && (
+              <div className="mt-8 bg-green-50 p-6 rounded-lg border border-green-200">
+                <div className="flex items-center text-green-700 mb-2">
+                  <CheckCircle className="h-5 w-5 mr-2" />
+                  <h3 className="text-lg font-semibold">Quote Request Received</h3>
+                </div>
+                <p className="text-gray-700">Thank you for your request for {property.address}. An insurance specialist will contact you soon with personalized quotes.</p>
+              </div>
+            )}
+            {loading && (
+              <div className="mt-8 text-center p-6">
+                <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary mb-4" />
+                <p className="text-gray-600">Processing your request...</p>
+              </div>
+            )}
+            {error && (
+              <div className="mt-8 bg-red-50 p-6 rounded-lg border border-red-200">
+                <div className="flex items-center text-red-700 mb-2">
+                  <AlertTriangle className="h-5 w-5 mr-2" />
+                  <h3 className="text-lg font-semibold">Error</h3>
+                </div>
+                <p className="text-gray-700">{error}</p>
+              </div>
+            )}
           </div>
         </div>
       </section>
