@@ -118,7 +118,7 @@ export default function Insurance() {
           </div>
 
           <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-primary mb-4">Get a Quote for Your Property</h2>
+            <h2 className="text-3xl font-bold text-primary mb-4">FREE QUOTE NOW</h2>
             <p className="text-gray-600 max-w-2xl mx-auto">
               Find personalized insurance options for your property in just a few minutes. Enter your address to get started.
             </p>

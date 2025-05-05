@@ -173,10 +173,10 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
         <div className="mb-4">
           <h3 className="text-xl font-semibold text-primary flex items-center">
             <Home className="mr-2 h-5 w-5" /> 
-            Enter Your Property Address
+            Enter Your Address
           </h3>
           <p className="text-gray-600 mt-1">
-            We'll help you find insurance coverage options tailored to your property.
+            We'll help you find insurance coverage options tailored for you.
           </p>
         </div>
 
@@ -192,7 +192,7 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
             <Input
               ref={inputRef}
               type="text"
-              placeholder="Enter your property address"
+              placeholder="Enter your address"
               className="pr-10 h-12 border-gray-300"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
