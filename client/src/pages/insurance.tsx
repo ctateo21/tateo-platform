@@ -105,6 +105,27 @@ export default function Insurance() {
       <section className="py-16">
         <div className="container mx-auto px-4">
           <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-primary mb-4">Insurance Coverage Options</h2>
+            <p className="text-gray-600 max-w-2xl mx-auto">
+              We offer a comprehensive range of insurance products from top-rated carriers to ensure you get the protection you need at competitive rates.
+            </p>
+          </div>
+          
+          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 mb-16">
+            {insuranceTypes.map((type, index) => (
+              <Card key={index} className="border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
+                <CardContent className="p-6">
+                  <div className="bg-primary/10 p-3 rounded-lg inline-block mb-4">
+                    {type.icon}
+                  </div>
+                  <h3 className="text-xl font-semibold text-primary mb-2">{type.title}</h3>
+                  <p className="text-gray-600">{type.description}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-primary mb-4">Get a Quote for Your Property</h2>
             <p className="text-gray-600 max-w-2xl mx-auto">
               Find personalized insurance options for your property in just a few minutes. Enter your address to get started.
@@ -134,68 +155,6 @@ export default function Insurance() {
                   </CardContent>
                 </Card>
               )}
-            </div>
-          </div>
-          
-          <div className="text-center mt-16 mb-12">
-            <h2 className="text-3xl font-bold text-primary mb-4">Insurance Coverage Options</h2>
-            <p className="text-gray-600 max-w-2xl mx-auto">
-              We offer a comprehensive range of insurance products from top-rated carriers to ensure you get the protection you need at competitive rates.
-            </p>
-          </div>
-          
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {insuranceTypes.map((type, index) => (
-              <Card key={index} className="border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="bg-primary/10 p-3 rounded-lg inline-block mb-4">
-                    {type.icon}
-                  </div>
-                  <h3 className="text-xl font-semibold text-primary mb-2">{type.title}</h3>
-                  <p className="text-gray-600">{type.description}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-12 bg-gray-50">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-primary mb-4">Why Choose Us for Your Insurance</h2>
-            <div className="w-20 h-1 bg-secondary mx-auto mb-6"></div>
-          </div>
-          
-          <div className="grid md:grid-cols-3 gap-8">
-            <div className="bg-white p-6 rounded-lg shadow-sm">
-              <div className="mb-4">
-                <div className="bg-primary/10 p-3 rounded-full w-14 h-14 flex items-center justify-center">
-                  <Shield className="h-6 w-6 text-primary" />
-                </div>
-              </div>
-              <h3 className="text-xl font-semibold text-primary mb-2">Comprehensive Protection</h3>
-              <p className="text-gray-600">We analyze your specific risks to create insurance solutions that provide complete protection for your assets.</p>
-            </div>
-            
-            <div className="bg-white p-6 rounded-lg shadow-sm">
-              <div className="mb-4">
-                <div className="bg-primary/10 p-3 rounded-full w-14 h-14 flex items-center justify-center">
-                  <Car className="h-6 w-6 text-primary" />
-                </div>
-              </div>
-              <h3 className="text-xl font-semibold text-primary mb-2">Multiple Carrier Options</h3>
-              <p className="text-gray-600">We work with numerous insurance carriers to find you the best coverage at the most competitive rates.</p>
-            </div>
-            
-            <div className="bg-white p-6 rounded-lg shadow-sm">
-              <div className="mb-4">
-                <div className="bg-primary/10 p-3 rounded-full w-14 h-14 flex items-center justify-center">
-                  <ArrowRight className="h-6 w-6 text-primary" />
-                </div>
-              </div>
-              <h3 className="text-xl font-semibold text-primary mb-2">Claims Advocacy</h3>
-              <p className="text-gray-600">When you need to file a claim, our team provides personalized support to ensure a smooth, hassle-free process.</p>
             </div>
           </div>
         </div>
