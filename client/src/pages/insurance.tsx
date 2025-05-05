@@ -68,8 +68,8 @@ export default function Insurance() {
       icon: <Home className="h-10 w-10 text-primary" />
     },
     {
-      title: "Life Insurance",
-      description: "Ensure your loved ones' financial security with term life, whole life, or universal life insurance options.",
+      title: "Commercial Insurance",
+      description: "Protect your business with comprehensive commercial property, liability, and business interruption insurance.",
       icon: <Shield className="h-10 w-10 text-primary" />
     },
     {
