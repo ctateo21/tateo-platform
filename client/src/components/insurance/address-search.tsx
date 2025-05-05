@@ -7,36 +7,14 @@ import { Home, Loader2, SearchIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 
-// Define type for Google Autocomplete instance
-// Define types for Google Maps API
-type GoogleAutocompleteOptions = {
-  types: string[];
-  componentRestrictions: { country: string };
-};
-
-type GoogleAutocomplete = {
-  addListener: (event: string, callback: () => void) => any;
-  getPlace: () => {
-    formatted_address?: string;
-    place_id?: string;
-  };
-};
-
+// Define simplified types for Google Maps API to avoid conflicts
 type GoogleMapsEvent = any;
+type GoogleAutocomplete = any;
 
-// Add a declaration for Window with Google Maps
+// Simplify the Window interface
 declare global {
   interface Window {
-    google?: {
-      maps?: {
-        places?: {
-          Autocomplete: new (input: HTMLInputElement, options?: GoogleAutocompleteOptions) => GoogleAutocomplete;
-        };
-        event?: {
-          removeListener: (listener: any) => void;
-        };
-      };
-    };
+    google?: any;
   }
 }
 

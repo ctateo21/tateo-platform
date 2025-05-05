@@ -85,6 +85,7 @@ export const insuranceFormSchema = z.object({
   additionalInfo: z.string().optional(),
   address: z.string().optional(),
   placeId: z.string().optional(),
+  propertyType: z.string().optional(),
   notes: z.string().optional(),
 });
 
