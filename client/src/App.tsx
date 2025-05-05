@@ -15,7 +15,7 @@ import Insurance from "./pages/insurance";
 import Construction from "./pages/construction";
 import PropertyManagement from "./pages/property-management";
 import HomeServices from "./pages/home-services";
-import Review from "./pages/review";
+import Review from "./pages/review-new";
 import NotFound from "./pages/not-found";
 
 function App() {
