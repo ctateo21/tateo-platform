@@ -24,7 +24,8 @@ const TATEO_PLACE_ID = 'ChIJJeg0Ii09QIYRgiNHNcTlf_c'; // Replace with your actua
  * Initialize Google Maps API and fetch reviews for Tateo & Co
  */
 export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
-  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  // Make sure we're using the correct environment variable name
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY || import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
   
   try {
     await loadGoogleMapsApi(apiKey);
