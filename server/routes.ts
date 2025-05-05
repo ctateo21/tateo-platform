@@ -347,6 +347,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Lookup property by address
+  // Get insurance quote from Canopy Connect
+  app.post("/api/insurance/quote", async (req, res) => {
+    try {
+      // Validate request body
+      const schema = z.object({
+        address: z.string().min(5),
+        placeId: z.string().optional(),
+        type: z.enum(['auto', 'property', 'other']).default('property')
+      });
+      
+      const params = schema.parse(req.body);
+      
+      // Create a form data object compatible with our schema
+      const formData: InsuranceFormData = {
+        type: params.type,
+        coverageAmount: params.type === 'property' ? "$500,000" : "$100,000",
+        address: params.address,
+        placeId: params.placeId,
+        notes: ""
+      };
+      
+      // Process the insurance quote
+      const quote = await canopyConnectIntegration(formData);
+      
+      res.json(quote);
+    } catch (error) {
+      console.error("Error getting insurance quote:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Invalid parameters", errors: error.format() });
+      }
+      res.status(500).json({ message: "An error occurred while getting insurance quote" });
+    }
+  });
+
   app.post("/api/properties/lookup-by-address", async (req, res) => {
     try {
       // Validate request body

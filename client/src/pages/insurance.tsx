@@ -12,6 +12,7 @@ export default function Insurance() {
   const [quote, setQuote] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showResults, setShowResults] = useState(false);
 
   const handleAddressSelected = async (address: string, placeId?: string) => {
     setProperty({ address, placeId });
