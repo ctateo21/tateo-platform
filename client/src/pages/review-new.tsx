@@ -208,14 +208,27 @@ export default function Review() {
                     {hasSelectedService && (
                       <div className="mt-4 text-center">
                         <p className="font-bold mb-2">Please leave your review on EACH site below:</p>
-                        <a 
-                          href="https://www.google.com/maps/place//data=!4m3!3m2!1s0x8203cd622a64e825:0xf771e45c35347782!12e1?source=g.page.m.kd._&laa=lu-desktop-review-solicitation" 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-primary hover:text-primary/80 underline font-medium"
-                        >
-                          Google My Business
-                        </a>
+                        <div className="flex flex-col space-y-2">
+                          <a 
+                            href="https://www.google.com/maps/place//data=!4m3!3m2!1s0x8203cd622a64e825:0xf771e45c35347782!12e1?source=g.page.m.kd._&laa=lu-desktop-review-solicitation" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-primary hover:text-primary/80 underline font-medium"
+                          >
+                            Google My Business
+                          </a>
+                          
+                          {selectedServices.mortgage && (
+                            <a 
+                              href="https://mortgagematchup.com/Profile/tateoco?page=1" 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="text-primary hover:text-primary/80 underline font-medium"
+                            >
+                              Mortgage Matchup
+                            </a>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
