@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Home, Loader2, SearchIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 
 // Define simplified types for Google Maps API to avoid conflicts
 type GoogleMapsEvent = any;
@@ -18,8 +19,20 @@ declare global {
   }
 }
 
+interface InsuranceType {
+  id: string;
+  label: string;
+  showPropertyType?: boolean;
+  showOtherOptions?: boolean;
+}
+
+interface OtherInsuranceOption {
+  id: string;
+  label: string;
+}
+
 interface AddressSearchProps {
-  onAddressSelected: (address: string, propertyType: string, placeId?: string) => void;
+  onAddressSelected: (address: string, insuranceTypes: string[], propertyType: string, otherOptions: string[], placeId?: string) => void;
 }
 
 export default function AddressSearch({ onAddressSelected }: AddressSearchProps) {
@@ -28,9 +41,36 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
   const [address, setAddress] = useState('');
   const [selectedAddress, setSelectedAddress] = useState<{address: string, placeId?: string} | null>(null);
   const [propertyType, setPropertyType] = useState<string>('');
+  const [selectedInsuranceTypes, setSelectedInsuranceTypes] = useState<string[]>([]);
+  const [selectedOtherOptions, setSelectedOtherOptions] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<GoogleAutocomplete | null>(null);
   const listenerRef = useRef<GoogleMapsEvent | null>(null);
+  
+  // Insurance types
+  const insuranceTypes: InsuranceType[] = [
+    { id: 'auto', label: 'Auto' },
+    { id: 'property', label: 'Property', showPropertyType: true },
+    { id: 'flood', label: 'Flood', showPropertyType: true },
+    { id: 'other', label: 'Other', showOtherOptions: true }
+  ];
+
+  // Other insurance options
+  const otherOptions: OtherInsuranceOption[] = [
+    { id: 'commercial', label: 'Commercial Property' },
+    { id: 'umbrella', label: 'Umbrella' },
+    { id: 'liability', label: 'General Liability' },
+    { id: 'workers-comp', label: 'Worker\'s Comp' },
+    { id: 'boat', label: 'Boat' }
+  ];
+
+  // Determine if property type selection should be shown
+  const showPropertyTypeSelection = selectedInsuranceTypes.some(type => 
+    insuranceTypes.find(it => it.id === type)?.showPropertyType
+  );
+
+  // Determine if other options should be shown
+  const showOtherOptions = selectedInsuranceTypes.includes('other');
 
   // Load Google Maps script with Places API
   useEffect(() => {
@@ -144,11 +184,50 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
     }
   };
 
+  // Handle insurance type selection
+  const handleInsuranceTypeChange = (type: string, checked: boolean) => {
+    if (checked) {
+      setSelectedInsuranceTypes(prev => [...prev, type]);
+    } else {
+      setSelectedInsuranceTypes(prev => prev.filter(t => t !== type));
+    }
+  };
+
+  // Handle other options selection
+  const handleOtherOptionChange = (option: string, checked: boolean) => {
+    if (checked) {
+      setSelectedOtherOptions(prev => [...prev, option]);
+    } else {
+      setSelectedOtherOptions(prev => prev.filter(o => o !== option));
+    }
+  };
+
+  // Check if form can be submitted
+  const canSubmit = selectedInsuranceTypes.length > 0 && 
+    (!showPropertyTypeSelection || propertyType !== '') &&
+    (!showOtherOptions || selectedOtherOptions.length > 0);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedAddress && propertyType) {
+    if (selectedAddress && selectedInsuranceTypes.length > 0) {
+      // Property type is required only if property/flood is selected
+      if (showPropertyTypeSelection && !propertyType) {
+        return;
+      }
+      
+      // At least one other option is required if 'other' is selected
+      if (showOtherOptions && selectedOtherOptions.length === 0) {
+        return;
+      }
+      
       setLoading(true);
-      onAddressSelected(selectedAddress.address, propertyType, selectedAddress.placeId);
+      onAddressSelected(
+        selectedAddress.address, 
+        selectedInsuranceTypes, 
+        propertyType, 
+        selectedOtherOptions, 
+        selectedAddress.placeId
+      );
       setLoading(false);
     }
   };
@@ -157,13 +236,6 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
   const handleManualSubmit = () => {
     if (address) {
       setSelectedAddress({ address });
-      // Focus on the property type dropdown
-      setTimeout(() => {
-        const propertyTypeSelect = document.getElementById('property-type');
-        if (propertyTypeSelect) {
-          propertyTypeSelect.focus();
-        }
-      }, 100);
     }
   };
 
@@ -201,25 +273,80 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
             />
           </div>
           
-          {/* Property type dropdown that appears after address selection */}
+          {/* Insurance type selection */}
           {selectedAddress && (
             <div className="space-y-4 mt-4">
               <div className="space-y-2">
-                <Label htmlFor="property-type" className="text-sm font-medium">
-                  Property Type
+                <Label className="text-sm font-medium">
+                  Type of Insurance (Select all that apply)
                 </Label>
-                <Select value={propertyType} onValueChange={setPropertyType}>
-                  <SelectTrigger id="property-type" className="w-full h-12">
-                    <SelectValue placeholder="Select property type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="primary">Primary</SelectItem>
-                    <SelectItem value="secondary">Secondary</SelectItem>
-                    <SelectItem value="vacant">Vacant</SelectItem>
-                    <SelectItem value="seasonal">Seasonal</SelectItem>
-                    <SelectItem value="short-term-rental">Short Term Rental</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="grid grid-cols-2 gap-3">
+                  {insuranceTypes.map(type => (
+                    <div key={type.id} className="flex items-center space-x-2">
+                      <Checkbox 
+                        id={`insurance-${type.id}`} 
+                        checked={selectedInsuranceTypes.includes(type.id)}
+                        onCheckedChange={(checked) => 
+                          handleInsuranceTypeChange(type.id, checked === true)
+                        }
+                      />
+                      <Label 
+                        htmlFor={`insurance-${type.id}`}
+                        className="text-sm font-medium cursor-pointer"
+                      >
+                        {type.label}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Property type dropdown that appears when property or flood is selected */}
+          {selectedAddress && showPropertyTypeSelection && (
+            <div className="space-y-2">
+              <Label htmlFor="property-type" className="text-sm font-medium">
+                Property Type
+              </Label>
+              <Select value={propertyType} onValueChange={setPropertyType}>
+                <SelectTrigger id="property-type" className="w-full h-12">
+                  <SelectValue placeholder="Select property type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="primary">Primary</SelectItem>
+                  <SelectItem value="secondary">Secondary</SelectItem>
+                  <SelectItem value="seasonal">Seasonal</SelectItem>
+                  <SelectItem value="short-term-rental">Short Term Rental</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          
+          {/* Other insurance options */}
+          {selectedAddress && showOtherOptions && (
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">
+                Other Insurance Options (Select all that apply)
+              </Label>
+              <div className="grid grid-cols-2 gap-3">
+                {otherOptions.map(option => (
+                  <div key={option.id} className="flex items-center space-x-2">
+                    <Checkbox 
+                      id={`option-${option.id}`} 
+                      checked={selectedOtherOptions.includes(option.id)}
+                      onCheckedChange={(checked) => 
+                        handleOtherOptionChange(option.id, checked === true)
+                      }
+                    />
+                    <Label 
+                      htmlFor={`option-${option.id}`}
+                      className="text-sm font-medium cursor-pointer"
+                    >
+                      {option.label}
+                    </Label>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -234,6 +361,8 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
                 onClick={() => {
                   setSelectedAddress(null);
                   setPropertyType('');
+                  setSelectedInsuranceTypes([]);
+                  setSelectedOtherOptions([]);
                 }}
               >
                 Change Address
