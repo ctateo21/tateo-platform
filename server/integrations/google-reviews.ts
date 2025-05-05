@@ -37,8 +37,14 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     const exactAddress = "13194 US-301, Riverview, FL 33578";
     const searchUrl1 = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(businessName + " " + exactAddress)}&key=${apiKey}`;
     
+    console.log(`Making request to: ${searchUrl1.replace(apiKey, 'API_KEY_REDACTED')}`);
     const searchResponse1 = await axios.get(searchUrl1);
     console.log(`Text search API response status: ${searchResponse1.data.status}`);
+    
+    // Log full response for debugging
+    if (searchResponse1.data.status !== 'OK') {
+      console.error('Text search API error:', JSON.stringify(searchResponse1.data, null, 2));
+    }
     
     if (searchResponse1.data.status === 'OK' && searchResponse1.data.results && searchResponse1.data.results.length > 0) {
       const result = searchResponse1.data.results[0];
@@ -68,8 +74,14 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     const lng = -82.3030728;
     const nearbyUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=100&keyword=${encodeURIComponent(businessName)}&key=${apiKey}`;
     
+    console.log(`Making request to: ${nearbyUrl.replace(apiKey, 'API_KEY_REDACTED')}`);
     const nearbyResponse = await axios.get(nearbyUrl);
     console.log(`Nearby search API response status: ${nearbyResponse.data.status}`);
+    
+    // Log full response for debugging
+    if (nearbyResponse.data.status !== 'OK') {
+      console.error('Nearby search API error:', JSON.stringify(nearbyResponse.data, null, 2));
+    }
     
     if (nearbyResponse.data.status === 'OK' && nearbyResponse.data.results && nearbyResponse.data.results.length > 0) {
       const result = nearbyResponse.data.results[0];
@@ -97,8 +109,14 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     const phoneNumber = "+18134093663"; // Tateo & Co phone number
     const findPlaceUrl = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${phoneNumber}&inputtype=phonenumber&fields=place_id,name,formatted_address&key=${apiKey}`;
     
+    console.log(`Making request to: ${findPlaceUrl.replace(apiKey, 'API_KEY_REDACTED')}`);
     const findPlaceResponse = await axios.get(findPlaceUrl);
     console.log(`Find Place API response status: ${findPlaceResponse.data.status}`);
+    
+    // Log full response for debugging
+    if (findPlaceResponse.data.status !== 'OK') {
+      console.error('Find Place API error:', JSON.stringify(findPlaceResponse.data, null, 2));
+    }
     
     if (findPlaceResponse.data.status === 'OK' && findPlaceResponse.data.candidates && findPlaceResponse.data.candidates.length > 0) {
       const foundPlaceId = findPlaceResponse.data.candidates[0].place_id;
@@ -124,9 +142,32 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     // If all approaches fail
     console.error('All attempts to fetch Google reviews have failed');
     throw new Error('Unable to find and fetch Google reviews using multiple methods');
-  } catch (error) {
-    console.error('Error in Google reviews fetch operation:', error);
-    throw error;
+  } catch (error: any) {
+    // Provide more detailed error information for easier debugging
+    let errorMessage = 'Error in Google reviews fetch operation';
+    
+    if (error.response) {
+      // The request was made and the server responded with a status code outside of 2xx range
+      errorMessage = `API responded with status ${error.response.status}: ${JSON.stringify(error.response.data)}`;
+      console.error('Google Places API error response:', {
+        status: error.response.status,
+        statusText: error.response.statusText,
+        data: error.response.data
+      });
+    } else if (error.request) {
+      // The request was made but no response was received
+      errorMessage = 'No response received from Google Places API';
+      console.error('No response received from API:', error.request);
+    } else {
+      // Something happened in setting up the request that triggered an Error
+      errorMessage = `Google Places API request error: ${error.message}`;
+      console.error('Error setting up API request:', error.message);
+    }
+    
+    // Log the full stack trace for debugging
+    console.error('Full error:', error);
+    
+    throw new Error(errorMessage);
   }
 }
 
