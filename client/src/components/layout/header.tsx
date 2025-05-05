@@ -29,6 +29,7 @@ export default function Header() {
         { href: "/home-services", label: "Home Services" }
       ]
     },
+    { href: "/review", label: "REVIEWS", icon: <HelpCircle className="mr-2 h-4 w-4" /> },
     { href: "/#about", label: "ABOUT", icon: <Building2 className="mr-2 h-4 w-4" /> },
   ];
 
