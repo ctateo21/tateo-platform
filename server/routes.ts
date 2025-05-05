@@ -355,10 +355,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const schema = z.object({
         address: z.string().min(5),
         placeId: z.string().optional(),
+        propertyType: z.string().optional(),
         type: z.enum(['auto', 'property', 'other']).default('property')
       });
       
       const params = schema.parse(req.body);
+      
+      console.log("Processing Canopy Connect integration with data:", params);
       
       // Create a form data object compatible with our schema
       const formData: InsuranceFormData = {
@@ -366,6 +369,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         coverageAmount: params.type === 'property' ? "$500,000" : "$100,000",
         address: params.address,
         placeId: params.placeId,
+        propertyType: params.propertyType || 'primary',
         notes: ""
       };
       

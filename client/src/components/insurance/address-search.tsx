@@ -8,7 +8,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 
 // Define type for Google Autocomplete instance
-type GoogleAutocomplete = any;
+// Define types for Google Maps API
+type GoogleAutocompleteOptions = {
+  types: string[];
+  componentRestrictions: { country: string };
+};
+
+type GoogleAutocomplete = {
+  addListener: (event: string, callback: () => void) => any;
+  getPlace: () => {
+    formatted_address?: string;
+    place_id?: string;
+  };
+};
+
 type GoogleMapsEvent = any;
 
 // Add a declaration for Window with Google Maps
@@ -17,7 +30,7 @@ declare global {
     google?: {
       maps?: {
         places?: {
-          Autocomplete: new (input: HTMLInputElement, options?: any) => any;
+          Autocomplete: new (input: HTMLInputElement, options?: GoogleAutocompleteOptions) => GoogleAutocomplete;
         };
         event?: {
           removeListener: (listener: any) => void;
@@ -83,9 +96,28 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
   useEffect(() => {
     // Check if Google Maps API is loaded and input exists
     if (!inputRef.current || !window.google?.maps?.places) {
-      return;
+      // We need to check if the API is loaded periodically if it's not loaded yet
+      const checkGoogleApi = setInterval(() => {
+        if (window.google?.maps?.places) {
+          clearInterval(checkGoogleApi);
+          initializeAutocomplete();
+        }
+      }, 300);
+      
+      // Clear the interval when the component unmounts
+      return () => clearInterval(checkGoogleApi);
     }
+    
+    // If the API is already loaded, initialize autocomplete
+    initializeAutocomplete();
+    
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run once when component mounts
 
+  // Function to initialize the Google Places Autocomplete
+  const initializeAutocomplete = () => {
+    if (!inputRef.current || !window.google?.maps?.places) return;
+    
     // Clean up previous instance if it exists
     if (listenerRef.current && window.google?.maps?.event?.removeListener) {
       window.google.maps.event.removeListener(listenerRef.current);
@@ -127,20 +159,12 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
       };
 
       inputRef.current.addEventListener('keydown', preventSubmit);
-
-      // Clean up function
-      return () => {
-        if (window.google?.maps?.event?.removeListener && listenerRef.current) {
-          window.google.maps.event.removeListener(listenerRef.current);
-        }
-        if (inputRef.current) {
-          inputRef.current.removeEventListener('keydown', preventSubmit);
-        }
-      };
+      
+      console.log('Google Places Autocomplete initialized successfully');
     } catch (err) {
       console.error('Error initializing Google Places Autocomplete:', err);
     }
-  }, [onAddressSelected]);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
