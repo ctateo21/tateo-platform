@@ -27,15 +27,15 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
   // Attempt to get reviews using several methods
   try {
     // Most direct approach - use exact business name and location
-    const businessName = "Tateo & Co";
+    // Use a more precise search query specifically targeting the real estate business
+    const businessName = "Tateo & Co Real Estate";
     const businessLocation = "Riverview, FL";
     
     console.log(`Attempting to fetch Google reviews for ${businessName} in ${businessLocation}`);
     
-    // APPROACH 1: Direct search with very specific query including exact address
-    console.log('APPROACH 1: Direct search with exact address');
-    const exactAddress = "13194 US-301, Riverview, FL 33578";
-    const searchUrl1 = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(businessName + " " + exactAddress)}&key=${apiKey}`;
+    // APPROACH 1: Direct search with very specific query targeting real estate
+    console.log('APPROACH 1: Direct search specifically for real estate business');
+    const searchUrl1 = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(businessName + " real estate company " + businessLocation)}&key=${apiKey}`;
     
     console.log(`Making request to: ${searchUrl1.replace(apiKey, 'API_KEY_REDACTED')}`);
     const searchResponse1 = await axios.get(searchUrl1);
@@ -47,9 +47,21 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     }
     
     if (searchResponse1.data.status === 'OK' && searchResponse1.data.results && searchResponse1.data.results.length > 0) {
-      const result = searchResponse1.data.results[0];
+      // Filter results to find the one that's actually a real estate agency
+      let result = searchResponse1.data.results[0];
+      
+      // Try to find a result that specifically matches real estate
+      const realEstateResult = searchResponse1.data.results.find(r => 
+        (r.types && r.types.includes('real_estate_agency')) || 
+        (r.name && r.name.toLowerCase().includes('real estate'))
+      );
+      
+      if (realEstateResult) {
+        result = realEstateResult;
+      }
+      
       const foundPlaceId = result.place_id;
-      console.log(`Found place using exact address: ${result.name} (${result.formatted_address}) with ID ${foundPlaceId}`);
+      console.log(`Found place using business search: ${result.name} (${result.formatted_address}) with ID ${foundPlaceId}`);
       
       // Get reviews using the place ID
       const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${foundPlaceId}&fields=name,rating,reviews,formatted_address,user_ratings_total&key=${apiKey}`;
@@ -68,11 +80,11 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     }
     
     // APPROACH 2: Nearby Search with exact coordinates
-    console.log('APPROACH 2: Nearby Search with exact coordinates');
-    // These coordinates are for Tateo & Co at 13194 US-301, Riverview, FL
-    const lat = 27.8488315;
-    const lng = -82.3030728;
-    const nearbyUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=100&keyword=${encodeURIComponent(businessName)}&key=${apiKey}`;
+    console.log('APPROACH 2: Nearby Search targeting real estate business');
+    // These coordinates are for Tateo & Co Realty office
+    const lat = 27.8471848;
+    const lng = -82.3086126;
+    const nearbyUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=500&keyword=${encodeURIComponent("Tateo & Co Realty")}&type=real_estate_agency&key=${apiKey}`;
     
     console.log(`Making request to: ${nearbyUrl.replace(apiKey, 'API_KEY_REDACTED')}`);
     const nearbyResponse = await axios.get(nearbyUrl);
@@ -104,10 +116,10 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
       }
     }
     
-    // APPROACH 3: Find Place API with phone number
-    console.log('APPROACH 3: Find Place with phone number');
-    const phoneNumber = "+18134093663"; // Tateo & Co phone number
-    const findPlaceUrl = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${phoneNumber}&inputtype=phonenumber&fields=place_id,name,formatted_address&key=${apiKey}`;
+    // APPROACH 3: Find Place API with specific input text
+    console.log('APPROACH 3: Find Place with specific business name');
+    const businessInput = "Tateo & Co Real Estate Riverview"; // Exact business name
+    const findPlaceUrl = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${encodeURIComponent(businessInput)}&inputtype=textquery&fields=place_id,name,formatted_address,types&key=${apiKey}`;
     
     console.log(`Making request to: ${findPlaceUrl.replace(apiKey, 'API_KEY_REDACTED')}`);
     const findPlaceResponse = await axios.get(findPlaceUrl);
@@ -121,7 +133,7 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     if (findPlaceResponse.data.status === 'OK' && findPlaceResponse.data.candidates && findPlaceResponse.data.candidates.length > 0) {
       const foundPlaceId = findPlaceResponse.data.candidates[0].place_id;
       const foundPlaceName = findPlaceResponse.data.candidates[0].name;
-      console.log(`Found place via phone number: ${foundPlaceName} with ID ${foundPlaceId}`);
+      console.log(`Found place via business name: ${foundPlaceName} with ID ${foundPlaceId}`);
       
       // Get reviews using the place ID
       const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${foundPlaceId}&fields=name,rating,reviews,formatted_address,user_ratings_total&key=${apiKey}`;
