@@ -19,7 +19,6 @@ export default function Review() {
   const [rating, setRating] = useState<string>("");
   const [name, setName] = useState<string>("");
   const [email, setEmail] = useState<string>("");
-  const [phone, setPhone] = useState<string>("");
   const [message, setMessage] = useState<string>("");
   const [service, setService] = useState<string>("");
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -38,7 +37,6 @@ export default function Review() {
       setRating("");
       setName("");
       setEmail("");
-      setPhone("");
       setMessage("");
       setService("");
     }, 1500);
@@ -227,17 +225,6 @@ export default function Review() {
                       placeholder="your@email.com"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                    />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Phone Number (Optional)</Label>
-                    <Input 
-                      id="phone" 
-                      type="tel" 
-                      placeholder="(813) 555-1234"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
                     />
                   </div>
                   
