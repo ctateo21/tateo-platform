@@ -35,6 +35,9 @@ export default function Review() {
     construction: false, 
     homeServices: false 
   });
+  
+  // Check if any service is selected
+  const hasSelectedService = Object.values(selectedServices).some(value => value === true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [submitted, setSubmitted] = useState<boolean>(false);
 
@@ -201,6 +204,19 @@ export default function Review() {
                         <Label htmlFor="homeServices" className="font-normal">Home Services</Label>
                       </div>
                     </div>
+                    
+                    {hasSelectedService && (
+                      <div className="mt-4 text-center">
+                        <a 
+                          href="https://www.google.com/maps/place//data=!4m3!3m2!1s0x8203cd622a64e825:0xf771e45c35347782!12e1?source=g.page.m.kd._&laa=lu-desktop-review-solicitation" 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-primary hover:text-primary/80 underline font-medium"
+                        >
+                          Google My Business
+                        </a>
+                      </div>
+                    )}
                   </div>
                   
                   <div className="space-y-2">
