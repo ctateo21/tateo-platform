@@ -63,8 +63,8 @@ export default function Insurance() {
       icon: <Car className="h-10 w-10 text-primary" />
     },
     {
-      title: "Property Insurance",
-      description: "Protect your home, rental property, or business with comprehensive property insurance coverage.",
+      title: "Property or Flood Insurance",
+      description: "Protect your home, rental property, or business with comprehensive property and flood insurance coverage.",
       icon: <Home className="h-10 w-10 text-primary" />
     },
     {
