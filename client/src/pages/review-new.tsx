@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, Star, MessageSquare, ThumbsUp, Loader2 } from "lucide-react";
 import { type GoogleReview } from "@/lib/google-reviews";
 import { fetchGoogleReviews } from "@/lib/api-reviews";
+import { ReviewCarousel } from "@/components/review-carousel";
 
 export default function Review() {  
   // State for selected services only

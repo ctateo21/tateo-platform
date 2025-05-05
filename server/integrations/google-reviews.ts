@@ -184,6 +184,54 @@ export function getMockReviews(): GoogleReview[] {
       text: "As an out-of-state property owner, their property management services have been essential. They handle everything professionally and keep me updated regularly.",
       time: new Date().getTime() / 1000,
       relative_time_description: "3 weeks ago"
+    },
+    {
+      author_name: "Amanda K.",
+      service: "Home Services",
+      rating: 5,
+      text: "The home services team at Tateo & Co was fantastic! They helped us coordinate all the work needed on our new property and found reliable contractors at reasonable prices.",
+      time: new Date().getTime() / 1000,
+      relative_time_description: "1 week ago"
+    },
+    {
+      author_name: "James W.",
+      service: "Construction",
+      rating: 5,
+      text: "Working with Tateo & Co on our home renovation was an excellent experience. They managed the project timeline effectively and kept everything within budget.",
+      time: new Date().getTime() / 1000,
+      relative_time_description: "2 weeks ago"
+    },
+    {
+      author_name: "Rebecca T.",
+      service: "Mortgage Services",
+      rating: 5,
+      text: "I was worried about qualifying for a mortgage with my credit history, but Tateo & Co found the perfect loan program for me. They were patient and explained everything clearly.",
+      time: new Date().getTime() / 1000,
+      relative_time_description: "3 weeks ago"
+    },
+    {
+      author_name: "Thomas B.",
+      service: "Real Estate",
+      rating: 5,
+      text: "Selling our home with Tateo & Co exceeded our expectations. Their marketing strategy resulted in multiple offers and we sold above asking price!",
+      time: new Date().getTime() / 1000,
+      relative_time_description: "1 month ago"
+    },
+    {
+      author_name: "Emily C.",
+      service: "Insurance",
+      rating: 5,
+      text: "Tateo & Co saved us hundreds on our home and auto insurance by bundling policies. Their knowledge of available discounts was impressive.",
+      time: new Date().getTime() / 1000,
+      relative_time_description: "6 weeks ago"
+    },
+    {
+      author_name: "Kevin P.",
+      service: "Property Management",
+      rating: 5,
+      text: "As a landlord with multiple properties, I appreciate how Tateo & Co handles tenant relations and maintenance issues promptly. They've made property ownership much less stressful.",
+      time: new Date().getTime() / 1000,
+      relative_time_description: "2 months ago"
     }
   ];
 }
