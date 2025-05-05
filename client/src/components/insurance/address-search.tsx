@@ -155,6 +155,13 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
   const handleManualSubmit = () => {
     if (address) {
       setSelectedAddress({ address });
+      // Focus on the property type dropdown
+      setTimeout(() => {
+        const propertyTypeSelect = document.getElementById('property-type');
+        if (propertyTypeSelect) {
+          propertyTypeSelect.focus();
+        }
+      }, 100);
     }
   };
 
@@ -178,41 +185,23 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Step 1: Address input */}
-          {!selectedAddress && (
-            <div className="space-y-4">
-              <div className="relative">
-                <Input
-                  ref={inputRef}
-                  type="text"
-                  placeholder="Enter your property address"
-                  className="pr-10 h-12 border-gray-300"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  autoComplete="off"
-                />
-              </div>
-              
-              <Button 
-                type="button"
-                onClick={handleManualSubmit}
-                className="bg-primary hover:bg-primary/90 text-white w-full h-12"
-                disabled={!address}
-              >
-                <SearchIcon className="mr-2 h-4 w-4" />
-                Continue
-              </Button>
-            </div>
-          )}
-
-          {/* Step 2: Property type selection */}
+          {/* Address input - always show it */}
+          <div className="relative">
+            <Input
+              ref={inputRef}
+              type="text"
+              placeholder="Enter your property address"
+              className="pr-10 h-12 border-gray-300"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              autoComplete="off"
+              disabled={!!selectedAddress} /* Disable when address is selected */
+            />
+          </div>
+          
+          {/* Property type dropdown that appears after address selection */}
           {selectedAddress && (
-            <div className="space-y-4">
-              <div className="bg-gray-50 p-3 rounded-md border border-gray-200">
-                <div className="text-sm font-medium text-gray-700">Selected Address:</div>
-                <div className="text-gray-900">{selectedAddress.address}</div>
-              </div>
-              
+            <div className="space-y-4 mt-4">
               <div className="space-y-2">
                 <Label htmlFor="property-type" className="text-sm font-medium">
                   Property Type
@@ -222,44 +211,52 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
                     <SelectValue placeholder="Select property type" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="primary">Primary Residence</SelectItem>
-                    <SelectItem value="secondary">Secondary Home</SelectItem>
-                    <SelectItem value="vacant">Vacant Property</SelectItem>
-                    <SelectItem value="seasonal">Seasonal Property</SelectItem>
+                    <SelectItem value="primary">Primary</SelectItem>
+                    <SelectItem value="secondary">Secondary</SelectItem>
+                    <SelectItem value="vacant">Vacant</SelectItem>
+                    <SelectItem value="seasonal">Seasonal</SelectItem>
                     <SelectItem value="short-term-rental">Short Term Rental</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-
-              <div className="flex gap-3 pt-2">
-                <Button 
-                  type="button"
-                  variant="outline"
-                  className="flex-1 h-12"
-                  onClick={() => {
-                    setSelectedAddress(null);
-                    setPropertyType('');
-                  }}
-                >
-                  Back
-                </Button>
-                <Button 
-                  type="submit" 
-                  className="bg-primary hover:bg-primary/90 text-white flex-1 h-12"
-                  disabled={loading || !propertyType}
-                >
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Loading...
-                    </>
-                  ) : (
-                    <>Find Insurance Options</>
-                  )}
-                </Button>
-              </div>
             </div>
           )}
+          
+          {/* Show the action buttons */}
+          <div className={`${selectedAddress ? 'flex gap-3' : ''} mt-4`}>
+            {selectedAddress && (
+              <Button 
+                type="button"
+                variant="outline"
+                className="flex-1 h-12"
+                onClick={() => {
+                  setSelectedAddress(null);
+                  setPropertyType('');
+                }}
+              >
+                Change Address
+              </Button>
+            )}
+            
+            <Button 
+              type={selectedAddress ? "submit" : "button"}
+              onClick={selectedAddress ? undefined : handleManualSubmit}
+              className="bg-primary hover:bg-primary/90 text-white w-full h-12"
+              disabled={selectedAddress ? (loading || !propertyType) : !address}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>
+                  <SearchIcon className="mr-2 h-4 w-4" />
+                  {selectedAddress ? "Find Insurance Options" : "Continue"}
+                </>
+              )}
+            </Button>
+          </div>
         </form>
       </CardContent>
     </Card>
