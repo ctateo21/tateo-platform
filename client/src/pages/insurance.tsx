@@ -9,14 +9,14 @@ import InsuranceResults from "@/components/insurance/insurance-results";
 import { getInsuranceQuote } from "@/lib/api";
 
 export default function Insurance() {  
-  const [property, setProperty] = useState<{ address: string; placeId?: string } | null>(null);
+  const [property, setProperty] = useState<{ address: string; propertyType: string; placeId?: string } | null>(null);
   const [quote, setQuote] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showResults, setShowResults] = useState(false);
 
-  const handleAddressSelected = async (address: string, placeId?: string) => {
-    setProperty({ address, placeId });
+  const handleAddressSelected = async (address: string, propertyType: string, placeId?: string) => {
+    setProperty({ address, propertyType, placeId });
     setLoading(true);
     setError(null);
     
@@ -25,6 +25,7 @@ export default function Insurance() {
       const data = await getInsuranceQuote({
         address,
         placeId,
+        propertyType,
         type: 'property' // Default to property insurance
       });
       

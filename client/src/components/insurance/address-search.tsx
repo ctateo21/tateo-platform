@@ -4,6 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Home, Loader2, SearchIcon } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 
 // Define type for Google Autocomplete instance
 type GoogleAutocomplete = any;
@@ -26,13 +28,15 @@ declare global {
 }
 
 interface AddressSearchProps {
-  onAddressSelected: (address: string, placeId?: string) => void;
+  onAddressSelected: (address: string, propertyType: string, placeId?: string) => void;
 }
 
 export default function AddressSearch({ onAddressSelected }: AddressSearchProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState('');
+  const [selectedAddress, setSelectedAddress] = useState<{address: string, placeId?: string} | null>(null);
+  const [propertyType, setPropertyType] = useState<string>('');
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<GoogleAutocomplete | null>(null);
   const listenerRef = useRef<GoogleMapsEvent | null>(null);
@@ -104,9 +108,11 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
         if (place && place.formatted_address) {
           setAddress(place.formatted_address);
           if (place.place_id) {
-            setLoading(true);
-            onAddressSelected(place.formatted_address, place.place_id);
-            setLoading(false);
+            // Store selected address for property type selection
+            setSelectedAddress({
+              address: place.formatted_address,
+              placeId: place.place_id
+            });
           }
         }
       });
@@ -138,10 +144,17 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (address) {
+    if (selectedAddress && propertyType) {
       setLoading(true);
-      onAddressSelected(address);
+      onAddressSelected(selectedAddress.address, propertyType, selectedAddress.placeId);
       setLoading(false);
+    }
+  };
+
+  // Handle manual address entry without autocomplete
+  const handleManualSubmit = () => {
+    if (address) {
+      setSelectedAddress({ address });
     }
   };
 
@@ -165,35 +178,88 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="relative">
-            <Input
-              ref={inputRef}
-              type="text"
-              placeholder="Enter your property address"
-              className="pr-10 h-12 border-gray-300"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              autoComplete="off"
-            />
-          </div>
-
-          <Button 
-            type="submit" 
-            className="bg-primary hover:bg-primary/90 text-white w-full h-12"
-            disabled={loading || !address}
-          >
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Loading...
-              </>
-            ) : (
-              <>
+          {/* Step 1: Address input */}
+          {!selectedAddress && (
+            <div className="space-y-4">
+              <div className="relative">
+                <Input
+                  ref={inputRef}
+                  type="text"
+                  placeholder="Enter your property address"
+                  className="pr-10 h-12 border-gray-300"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  autoComplete="off"
+                />
+              </div>
+              
+              <Button 
+                type="button"
+                onClick={handleManualSubmit}
+                className="bg-primary hover:bg-primary/90 text-white w-full h-12"
+                disabled={!address}
+              >
                 <SearchIcon className="mr-2 h-4 w-4" />
-                Find Insurance Options
-              </>
-            )}
-          </Button>
+                Continue
+              </Button>
+            </div>
+          )}
+
+          {/* Step 2: Property type selection */}
+          {selectedAddress && (
+            <div className="space-y-4">
+              <div className="bg-gray-50 p-3 rounded-md border border-gray-200">
+                <div className="text-sm font-medium text-gray-700">Selected Address:</div>
+                <div className="text-gray-900">{selectedAddress.address}</div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="property-type" className="text-sm font-medium">
+                  Property Type
+                </Label>
+                <Select value={propertyType} onValueChange={setPropertyType}>
+                  <SelectTrigger id="property-type" className="w-full h-12">
+                    <SelectValue placeholder="Select property type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="primary">Primary Residence</SelectItem>
+                    <SelectItem value="secondary">Secondary Home</SelectItem>
+                    <SelectItem value="vacant">Vacant Property</SelectItem>
+                    <SelectItem value="seasonal">Seasonal Property</SelectItem>
+                    <SelectItem value="short-term-rental">Short Term Rental</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button 
+                  type="button"
+                  variant="outline"
+                  className="flex-1 h-12"
+                  onClick={() => {
+                    setSelectedAddress(null);
+                    setPropertyType('');
+                  }}
+                >
+                  Back
+                </Button>
+                <Button 
+                  type="submit" 
+                  className="bg-primary hover:bg-primary/90 text-white flex-1 h-12"
+                  disabled={loading || !propertyType}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Loading...
+                    </>
+                  ) : (
+                    <>Find Insurance Options</>
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
         </form>
       </CardContent>
     </Card>

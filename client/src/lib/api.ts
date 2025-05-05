@@ -28,6 +28,7 @@ export async function getGoogleMapsApiKey() {
 export async function getInsuranceQuote(data: {
   address: string;
   placeId?: string;
+  propertyType?: string;
   type?: "auto" | "property" | "other";
 }) {
   return apiRequest("POST", "/api/insurance/quote", data);
