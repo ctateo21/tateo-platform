@@ -219,14 +219,25 @@ export default function Review() {
                           </a>
                           
                           {selectedServices.mortgage && (
-                            <a 
-                              href="https://mortgagematchup.com/Profile/tateoco?page=1" 
-                              target="_blank" 
-                              rel="noopener noreferrer"
-                              className="text-primary hover:text-primary/80 underline font-medium"
-                            >
-                              Mortgage Matchup
-                            </a>
+                            <>
+                              <a 
+                                href="https://mortgagematchup.com/Profile/tateoco?page=1" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-primary hover:text-primary/80 underline font-medium"
+                              >
+                                Mortgage Matchup
+                              </a>
+                              
+                              <a 
+                                href="https://www.zillow.com/mortgage/lender-review/?screenName=tateoco" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-primary hover:text-primary/80 underline font-medium"
+                              >
+                                Zillow LENDER
+                              </a>
+                            </>
                           )}
                         </div>
                       </div>
