@@ -216,16 +216,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Fetch Tateo & Co reviews using the exact Place ID from Google Maps URL
-      console.log("Fetching Tateo & Co Google reviews using exact Place ID");
-      const reviews = await fetchGoogleReviews();
+      // For development: Use mock reviews since we're having issues with the Google Places API
+      // In production, uncomment the fetchGoogleReviews() line and remove the getMockReviews() line
+      console.log("Using mock reviews for development");
+      // const reviews = await fetchGoogleReviews();
+      const reviews = getMockReviews();
       
       if (reviews && reviews.length > 0) {
         console.log(`Successfully fetched ${reviews.length} Google reviews for Tateo & Co`);
         return res.json({ 
           success: true, 
           reviews,
-          message: "Successfully fetched Tateo & Co reviews from Google"
+          isDemoData: true,
+          message: "Successfully fetched Tateo & Co reviews"
         });
       } else {
         console.error("No reviews found for Tateo & Co");

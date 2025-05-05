@@ -288,43 +288,13 @@ export default function Review() {
                   <p className="text-red-600">{reviewsError}</p>
                 </div>
               ) : (
-                <div className="space-y-6">
-                  {googleReviews.map((review, index) => (
-                    <Card key={index} className="overflow-hidden border-gray-100 hover:shadow-md transition-shadow">
-                      <CardContent className="p-6">
-                        <div className="flex items-center mb-4">
-                          <div className="mr-2 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-                            {review.profile_photo_url ? (
-                              <img 
-                                src={review.profile_photo_url} 
-                                alt={review.author_name} 
-                                className="h-8 w-8 rounded-full object-cover"
-                              />
-                            ) : (
-                              <MessageSquare className="h-4 w-4 text-primary" />
-                            )}
-                          </div>
-                          <div>
-                            <h3 className="font-semibold text-primary">{review.author_name}</h3>
-                            <p className="text-sm text-gray-500">
-                              {review.service || 'Tateo & Co Services'}
-                              <span className="ml-2 text-gray-400">•</span>
-                              <span className="ml-2 text-gray-400">{review.relative_time_description}</span>
-                            </p>
-                          </div>
-                          <div className="ml-auto flex">
-                            {[...Array(review.rating)].map((_, i) => (
-                              <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                            ))}
-                            {review.rating < 5 && [...Array(5 - review.rating)].map((_, i) => (
-                              <Star key={i} className="h-4 w-4 text-gray-300" />
-                            ))}
-                          </div>
-                        </div>
-                        <p className="text-gray-700 italic">"{review.text}"</p>
-                      </CardContent>
-                    </Card>
-                  ))}
+                <div className="bg-white rounded-lg shadow-sm border border-gray-100">
+                  <div className="p-4 md:p-6">
+                    <p className="text-gray-600 mb-4 text-sm">
+                      <span className="font-medium">Auto-scrolling every 15 seconds</span> • Swipe or use arrows to navigate
+                    </p>
+                    <ReviewCarousel reviews={googleReviews} autoplayDelay={15000} />
+                  </div>
                 </div>
               )}
             </div>
