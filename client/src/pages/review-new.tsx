@@ -1,10 +1,11 @@
 import { Helmet } from "react-helmet";
 import { Link } from "wouter";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowRight, Star, MessageSquare, ThumbsUp } from "lucide-react";
+import { ArrowRight, Star, MessageSquare, ThumbsUp, Loader2 } from "lucide-react";
+import { fetchGoogleReviews, type GoogleReview } from "@/lib/google-reviews";
 
 export default function Review() {  
   // State for selected services only
@@ -50,32 +51,69 @@ export default function Review() {
     }, 1500);
   };
 
-  const testimonials = [
-    {
-      name: "Jennifer R.",
-      service: "Mortgage Services",
-      rating: 5,
-      comment: "Working with Tateo & Co on our mortgage was a game-changer! They secured us a fantastic rate and made the entire process smooth and stress-free."
-    },
-    {
-      name: "David M.",
-      service: "Real Estate",
-      rating: 5,
-      comment: "Our agent went above and beyond to help us find our dream home. Their market knowledge and negotiation skills were invaluable."
-    },
-    {
-      name: "Sarah L.",
-      service: "Insurance",
-      rating: 5,
-      comment: "Tateo & Co helped us find the perfect insurance coverage for our new home at a competitive rate. Their attention to detail ensured we had all the protection we needed."
-    },
-    {
-      name: "Michael T.",
-      service: "Property Management",
-      rating: 5,
-      comment: "As an out-of-state property owner, their property management services have been essential. They handle everything professionally and keep me updated regularly."
+  const [googleReviews, setGoogleReviews] = useState<GoogleReview[]>([]); 
+  const [isLoadingReviews, setIsLoadingReviews] = useState<boolean>(false);
+  const [reviewsError, setReviewsError] = useState<string | null>(null);
+  
+  // Fetch Google Reviews when component mounts
+  useEffect(() => {
+    async function loadReviews() {
+      setIsLoadingReviews(true);
+      try {
+        // Get the API key from environment variables
+        const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+        if (!apiKey) {
+          throw new Error('Google Maps API key is missing');
+        }
+        
+        const reviews = await fetchGoogleReviews();
+        setGoogleReviews(reviews);
+        setReviewsError(null);
+      } catch (error) {
+        console.error('Error loading Google reviews:', error);
+        setReviewsError('Unable to load reviews. Please try again later.');
+        // Fallback to hardcoded testimonials if API fails
+        setGoogleReviews([
+          {
+            author_name: "Jennifer R.",
+            service: "Mortgage Services",
+            rating: 5,
+            text: "Working with Tateo & Co on our mortgage was a game-changer! They secured us a fantastic rate and made the entire process smooth and stress-free.",
+            time: new Date().getTime() / 1000,
+            relative_time_description: "1 month ago"
+          },
+          {
+            author_name: "David M.",
+            service: "Real Estate",
+            rating: 5,
+            text: "Our agent went above and beyond to help us find our dream home. Their market knowledge and negotiation skills were invaluable.",
+            time: new Date().getTime() / 1000,
+            relative_time_description: "2 months ago"
+          },
+          {
+            author_name: "Sarah L.",
+            service: "Insurance",
+            rating: 5,
+            text: "Tateo & Co helped us find the perfect insurance coverage for our new home at a competitive rate. Their attention to detail ensured we had all the protection we needed.",
+            time: new Date().getTime() / 1000,
+            relative_time_description: "3 months ago"
+          },
+          {
+            author_name: "Michael T.",
+            service: "Property Management",
+            rating: 5,
+            text: "As an out-of-state property owner, their property management services have been essential. They handle everything professionally and keep me updated regularly.",
+            time: new Date().getTime() / 1000,
+            relative_time_description: "3 weeks ago"
+          }
+        ]);
+      } finally {
+        setIsLoadingReviews(false);
+      }
     }
-  ];
+    
+    loadReviews();
+  }, []);
 
   return (
     <div>
@@ -279,29 +317,55 @@ export default function Review() {
                 See what our clients are saying about their experience working with Tateo & Co.
               </p>
               
-              <div className="space-y-6">
-                {testimonials.map((testimonial, index) => (
-                  <Card key={index} className="overflow-hidden border-gray-100 hover:shadow-md transition-shadow">
-                    <CardContent className="p-6">
-                      <div className="flex items-center mb-4">
-                        <div className="mr-2 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-                          <MessageSquare className="h-4 w-4 text-primary" />
+              {isLoadingReviews ? (
+                <div className="flex flex-col items-center justify-center py-12">
+                  <Loader2 className="h-8 w-8 text-primary animate-spin mb-4" />
+                  <p className="text-gray-600">Loading reviews...</p>
+                </div>
+              ) : reviewsError ? (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+                  <p className="text-red-600">{reviewsError}</p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {googleReviews.map((review, index) => (
+                    <Card key={index} className="overflow-hidden border-gray-100 hover:shadow-md transition-shadow">
+                      <CardContent className="p-6">
+                        <div className="flex items-center mb-4">
+                          <div className="mr-2 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                            {review.profile_photo_url ? (
+                              <img 
+                                src={review.profile_photo_url} 
+                                alt={review.author_name} 
+                                className="h-8 w-8 rounded-full object-cover"
+                              />
+                            ) : (
+                              <MessageSquare className="h-4 w-4 text-primary" />
+                            )}
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-primary">{review.author_name}</h3>
+                            <p className="text-sm text-gray-500">
+                              {review.service || 'Tateo & Co Services'}
+                              <span className="ml-2 text-gray-400">•</span>
+                              <span className="ml-2 text-gray-400">{review.relative_time_description}</span>
+                            </p>
+                          </div>
+                          <div className="ml-auto flex">
+                            {[...Array(review.rating)].map((_, i) => (
+                              <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
+                            ))}
+                            {review.rating < 5 && [...Array(5 - review.rating)].map((_, i) => (
+                              <Star key={i} className="h-4 w-4 text-gray-300" />
+                            ))}
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="font-semibold text-primary">{testimonial.name}</h3>
-                          <p className="text-sm text-gray-500">{testimonial.service}</p>
-                        </div>
-                        <div className="ml-auto flex">
-                          {[...Array(testimonial.rating)].map((_, i) => (
-                            <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                          ))}
-                        </div>
-                      </div>
-                      <p className="text-gray-700 italic">"{testimonial.comment}"</p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                        <p className="text-gray-700 italic">"{review.text}"</p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
