@@ -16,6 +16,7 @@ const TATEO_PLACE_ID = 'ChIJJeg0Ii09QIYRgiNHNcTlf_c';  // Original Place ID (may
 const REVIEW_ACCOUNT_ID = '8679399039741655442';  // From the URL path
 
 export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
+  // First, check if API key is available
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   
   if (!apiKey) {
@@ -23,76 +24,108 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     throw new Error('Google Maps API key is required');
   }
   
-  // Use Google Maps Places API to search for and get reviews for Tateo & Co
+  // Attempt to get reviews using several methods
   try {
-    console.log(`Attempting to fetch Google reviews for Tateo & Co business with CID: ${TATEO_CID}`);
+    // Most direct approach - use exact business name and location
+    const businessName = "Tateo & Co";
+    const businessLocation = "Riverview, FL";
     
-    // Try multiple approaches to get reviews
+    console.log(`Attempting to fetch Google reviews for ${businessName} in ${businessLocation}`);
     
-    // Approach 1: Use the highly specific business name and location
-    console.log('Using Text Search API with specific business name and location');
-    const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=Tateo+%26+Co+real+estate+13194+US+301+S+Riverview+FL&key=${apiKey}`;
+    // APPROACH 1: Direct search with very specific query including exact address
+    console.log('APPROACH 1: Direct search with exact address');
+    const exactAddress = "13194 US-301, Riverview, FL 33578";
+    const searchUrl1 = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(businessName + " " + exactAddress)}&key=${apiKey}`;
     
-    const searchResponse = await axios.get(searchUrl);
+    const searchResponse1 = await axios.get(searchUrl1);
+    console.log(`Text search API response status: ${searchResponse1.data.status}`);
     
-    if (searchResponse.data.status === 'OK' && searchResponse.data.results && searchResponse.data.results.length > 0) {
-      // Found the place via search
-      const foundPlaceId = searchResponse.data.results[0].place_id;
-      const foundPlaceName = searchResponse.data.results[0].name;
-      const formattedAddress = searchResponse.data.results[0].formatted_address || '';
+    if (searchResponse1.data.status === 'OK' && searchResponse1.data.results && searchResponse1.data.results.length > 0) {
+      const result = searchResponse1.data.results[0];
+      const foundPlaceId = result.place_id;
+      console.log(`Found place using exact address: ${result.name} (${result.formatted_address}) with ID ${foundPlaceId}`);
       
-      console.log(`Found place via search: ${foundPlaceName} (${formattedAddress}) with ID ${foundPlaceId}`);
-      
-      // Now get the details with this place ID
-      const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${foundPlaceId}&fields=name,rating,reviews,formatted_address,business_status&key=${apiKey}`;
+      // Get reviews using the place ID
+      const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${foundPlaceId}&fields=name,rating,reviews,formatted_address,user_ratings_total&key=${apiKey}`;
       const detailsResponse = await axios.get(detailsUrl);
       
       if (detailsResponse.data.status === 'OK' && detailsResponse.data.result) {
-        const reviews = detailsResponse.data.result.reviews || [];
-        console.log(`Found ${reviews.length} reviews for place ${detailsResponse.data.result.name}`);
+        const place = detailsResponse.data.result;
+        const reviews = place.reviews || [];
+        console.log(`Success! Found ${reviews.length} reviews for ${place.name}`);
         
-        // Add service name to reviews
         return reviews.map((review: any) => ({
           ...review,
-          service: detailsResponse.data.result.name || 'Tateo & Co Services'
+          service: place.name
         }));
       }
     }
     
-    // Approach 2: Try find place by ID API with our CID
-    console.log('Trying Find Place API with CID');
-    const findPlaceUrl = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=Tateo+%26+Co&inputtype=textquery&locationbias=circle:50000@27.8488315,-82.3030728&fields=place_id,name,formatted_address&key=${apiKey}`;
+    // APPROACH 2: Nearby Search with exact coordinates
+    console.log('APPROACH 2: Nearby Search with exact coordinates');
+    // These coordinates are for Tateo & Co at 13194 US-301, Riverview, FL
+    const lat = 27.8488315;
+    const lng = -82.3030728;
+    const nearbyUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=100&keyword=${encodeURIComponent(businessName)}&key=${apiKey}`;
+    
+    const nearbyResponse = await axios.get(nearbyUrl);
+    console.log(`Nearby search API response status: ${nearbyResponse.data.status}`);
+    
+    if (nearbyResponse.data.status === 'OK' && nearbyResponse.data.results && nearbyResponse.data.results.length > 0) {
+      const result = nearbyResponse.data.results[0];
+      const foundPlaceId = result.place_id;
+      console.log(`Found place using nearby search: ${result.name} with ID ${foundPlaceId}`);
+      
+      // Get reviews using the place ID
+      const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${foundPlaceId}&fields=name,rating,reviews,formatted_address,user_ratings_total&key=${apiKey}`;
+      const detailsResponse = await axios.get(detailsUrl);
+      
+      if (detailsResponse.data.status === 'OK' && detailsResponse.data.result) {
+        const place = detailsResponse.data.result;
+        const reviews = place.reviews || [];
+        console.log(`Success! Found ${reviews.length} reviews for ${place.name}`);
+        
+        return reviews.map((review: any) => ({
+          ...review,
+          service: place.name
+        }));
+      }
+    }
+    
+    // APPROACH 3: Find Place API with phone number
+    console.log('APPROACH 3: Find Place with phone number');
+    const phoneNumber = "+18134093663"; // Tateo & Co phone number
+    const findPlaceUrl = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${phoneNumber}&inputtype=phonenumber&fields=place_id,name,formatted_address&key=${apiKey}`;
     
     const findPlaceResponse = await axios.get(findPlaceUrl);
+    console.log(`Find Place API response status: ${findPlaceResponse.data.status}`);
     
     if (findPlaceResponse.data.status === 'OK' && findPlaceResponse.data.candidates && findPlaceResponse.data.candidates.length > 0) {
       const foundPlaceId = findPlaceResponse.data.candidates[0].place_id;
       const foundPlaceName = findPlaceResponse.data.candidates[0].name;
+      console.log(`Found place via phone number: ${foundPlaceName} with ID ${foundPlaceId}`);
       
-      console.log(`Found place via Find Place API: ${foundPlaceName} with ID ${foundPlaceId}`);
-      
-      // Now get the details with this place ID
-      const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${foundPlaceId}&fields=name,rating,reviews,formatted_address&key=${apiKey}`;
+      // Get reviews using the place ID
+      const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${foundPlaceId}&fields=name,rating,reviews,formatted_address,user_ratings_total&key=${apiKey}`;
       const detailsResponse = await axios.get(detailsUrl);
       
       if (detailsResponse.data.status === 'OK' && detailsResponse.data.result) {
-        const reviews = detailsResponse.data.result.reviews || [];
-        console.log(`Found ${reviews.length} reviews for place ${detailsResponse.data.result.name}`);
+        const place = detailsResponse.data.result;
+        const reviews = place.reviews || [];
+        console.log(`Success! Found ${reviews.length} reviews for ${place.name}`);
         
-        // Add service name to reviews
         return reviews.map((review: any) => ({
           ...review,
-          service: detailsResponse.data.result.name || 'Tateo & Co Services'
+          service: place.name
         }));
       }
     }
     
-    // If we get here, all approaches failed
+    // If all approaches fail
     console.error('All attempts to fetch Google reviews have failed');
-    throw new Error('Unable to fetch Google reviews using available methods');
-    
+    throw new Error('Unable to find and fetch Google reviews using multiple methods');
   } catch (error) {
-    console.error('Error fetching Google reviews:', error);
+    console.error('Error in Google reviews fetch operation:', error);
     throw error;
   }
 }
