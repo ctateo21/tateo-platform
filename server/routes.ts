@@ -17,6 +17,7 @@ import { ariveIntegration } from "./integrations/arive";
 import { canopyConnectIntegration } from "./integrations/canopy-connect";
 import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowProperty } from "./integrations/zillow";
 import { getHillsboroughTaxEstimate, isHillsboroughCountyAddress } from "./integrations/hillsborough-tax";
+import { fetchGoogleReviews, getMockReviews } from "./integrations/google-reviews";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API routes
@@ -198,6 +199,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(500).json({ message: "Google Maps API key not configured" });
     }
     res.json({ apiKey });
+  });
+  
+  // Get Google Reviews for Tateo & Co
+  app.get("/api/reviews/google", async (req, res) => {
+    try {
+      // Check if Google Maps API key is configured
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY || "";
+      if (!apiKey) {
+        return res.status(500).json({ 
+          message: "Google Maps API key not configured",
+          reviews: getMockReviews() // Return mock reviews as fallback
+        });
+      }
+      
+      // Fetch Google Reviews using the Google Places API
+      const reviews = await fetchGoogleReviews();
+      res.json({ reviews });
+    } catch (error) {
+      console.error("Error fetching Google reviews:", error);
+      // Return mock reviews as fallback if API call fails
+      res.status(200).json({ 
+        message: "Using mock reviews due to API error",
+        reviews: getMockReviews()
+      });
+    }
   });
   
   // Search properties

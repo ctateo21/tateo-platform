@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent } from "@/components/ui/card";
 import { ArrowRight, Star, MessageSquare, ThumbsUp, Loader2 } from "lucide-react";
-import { fetchGoogleReviews, type GoogleReview } from "@/lib/google-reviews";
+import { type GoogleReview } from "@/lib/google-reviews";
+import { fetchGoogleReviews } from "@/lib/api-reviews";
 
 export default function Review() {  
   // State for selected services only
