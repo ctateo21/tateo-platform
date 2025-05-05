@@ -290,9 +290,6 @@ export default function Review() {
               ) : (
                 <div className="bg-white rounded-lg shadow-sm border border-gray-100">
                   <div className="p-4 md:p-6">
-                    <p className="text-gray-600 mb-4 text-sm">
-                      <span className="font-medium">Auto-scrolling every 15 seconds</span> • Swipe or use arrows to navigate
-                    </p>
                     <ReviewCarousel reviews={googleReviews} autoplayDelay={15000} />
                   </div>
                 </div>
