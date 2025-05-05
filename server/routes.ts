@@ -207,19 +207,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if Google Maps API key is configured
       const apiKey = process.env.GOOGLE_MAPS_API_KEY || "";
       if (!apiKey) {
+        console.error("Google Maps API key is not configured");
         return res.status(500).json({ 
-          message: "Google Maps API key not configured",
+          success: false,
+          error: "Google Maps API key not configured",
+          message: "Google Maps API key is required for fetching reviews",
           reviews: getMockReviews() // Return mock reviews as fallback
         });
       }
       
       // Fetch Google Reviews using the Google Places API
+      console.log("Attempting to fetch Google reviews with API key");
       const reviews = await fetchGoogleReviews();
-      res.json({ reviews });
-    } catch (error) {
+      
+      if (reviews && reviews.length > 0) {
+        console.log(`Successfully fetched ${reviews.length} Google reviews`);
+        return res.json({ 
+          success: true, 
+          reviews,
+          message: "Successfully fetched reviews from Google"
+        });
+      } else {
+        console.error("No reviews found from Google API");
+        throw new Error("No reviews found from Google API");
+      }
+    } catch (error: any) {
       console.error("Error fetching Google reviews:", error);
+      
+      // Provide a specific error message to help troubleshoot
+      let errorMessage = "Unable to fetch Google reviews";
+      if (error.message) {
+        errorMessage = `Error: ${error.message}`;
+      }
+      
       // Return mock reviews as fallback if API call fails
-      res.status(200).json({ 
+      return res.status(200).json({ 
+        success: false,
+        error: errorMessage,
         message: "Using mock reviews due to API error",
         reviews: getMockReviews()
       });

@@ -10,8 +10,10 @@ export interface GoogleReview {
   service?: string;
 }
 
-// Tateo & Co CID from the Google Maps URL
-const TATEO_CID = '15770577126747253634';  // Extracted from your Google Maps review URL
+// Tateo & Co business identifiers from your provided Google review link
+const TATEO_CID = '17830283484417259394';  // LudoCID from the URL parameter
+const TATEO_PLACE_ID = 'ChIJJeg0Ii09QIYRgiNHNcTlf_c';  // Original Place ID (may be outdated)
+const REVIEW_ACCOUNT_ID = '8679399039741655442';  // From the URL path
 
 export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
@@ -23,24 +25,27 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
   
   // Use Google Maps Places API to search for and get reviews for Tateo & Co
   try {
-    console.log(`Attempting to fetch Google reviews for Tateo & Co business`);
+    console.log(`Attempting to fetch Google reviews for Tateo & Co business with CID: ${TATEO_CID}`);
     
-    // Start with Text Search API to find the place first
-    console.log('Using Text Search API to find Tateo & Co');
+    // Try multiple approaches to get reviews
     
-    // Option 2: Using Text Search API to find the place first
-    const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=Tateo+%26+Co+real+estate+Tampa&key=${apiKey}`;
+    // Approach 1: Use the highly specific business name and location
+    console.log('Using Text Search API with specific business name and location');
+    const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=Tateo+%26+Co+real+estate+13194+US+301+S+Riverview+FL&key=${apiKey}`;
+    
     const searchResponse = await axios.get(searchUrl);
     
     if (searchResponse.data.status === 'OK' && searchResponse.data.results && searchResponse.data.results.length > 0) {
       // Found the place via search
       const foundPlaceId = searchResponse.data.results[0].place_id;
       const foundPlaceName = searchResponse.data.results[0].name;
-      console.log(`Found place via search: ${foundPlaceName} with ID ${foundPlaceId}`);
+      const formattedAddress = searchResponse.data.results[0].formatted_address || '';
+      
+      console.log(`Found place via search: ${foundPlaceName} (${formattedAddress}) with ID ${foundPlaceId}`);
       
       // Now get the details with this place ID
-      const secondDetailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${foundPlaceId}&fields=name,rating,reviews,formatted_address&key=${apiKey}`;
-      const detailsResponse = await axios.get(secondDetailsUrl);
+      const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${foundPlaceId}&fields=name,rating,reviews,formatted_address,business_status&key=${apiKey}`;
+      const detailsResponse = await axios.get(detailsUrl);
       
       if (detailsResponse.data.status === 'OK' && detailsResponse.data.result) {
         const reviews = detailsResponse.data.result.reviews || [];
@@ -54,7 +59,35 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
       }
     }
     
-    // If we get here, both approaches failed
+    // Approach 2: Try find place by ID API with our CID
+    console.log('Trying Find Place API with CID');
+    const findPlaceUrl = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=Tateo+%26+Co&inputtype=textquery&locationbias=circle:50000@27.8488315,-82.3030728&fields=place_id,name,formatted_address&key=${apiKey}`;
+    
+    const findPlaceResponse = await axios.get(findPlaceUrl);
+    
+    if (findPlaceResponse.data.status === 'OK' && findPlaceResponse.data.candidates && findPlaceResponse.data.candidates.length > 0) {
+      const foundPlaceId = findPlaceResponse.data.candidates[0].place_id;
+      const foundPlaceName = findPlaceResponse.data.candidates[0].name;
+      
+      console.log(`Found place via Find Place API: ${foundPlaceName} with ID ${foundPlaceId}`);
+      
+      // Now get the details with this place ID
+      const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${foundPlaceId}&fields=name,rating,reviews,formatted_address&key=${apiKey}`;
+      const detailsResponse = await axios.get(detailsUrl);
+      
+      if (detailsResponse.data.status === 'OK' && detailsResponse.data.result) {
+        const reviews = detailsResponse.data.result.reviews || [];
+        console.log(`Found ${reviews.length} reviews for place ${detailsResponse.data.result.name}`);
+        
+        // Add service name to reviews
+        return reviews.map((review: any) => ({
+          ...review,
+          service: detailsResponse.data.result.name || 'Tateo & Co Services'
+        }));
+      }
+    }
+    
+    // If we get here, all approaches failed
     console.error('All attempts to fetch Google reviews have failed');
     throw new Error('Unable to fetch Google reviews using available methods');
     
