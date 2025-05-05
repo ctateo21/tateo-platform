@@ -61,53 +61,12 @@ export default function Review() {
     async function loadReviews() {
       setIsLoadingReviews(true);
       try {
-        // Get the API key from environment variables
-        const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-        if (!apiKey) {
-          throw new Error('Google Maps API key is missing');
-        }
-        
         const reviews = await fetchGoogleReviews();
         setGoogleReviews(reviews);
         setReviewsError(null);
       } catch (error) {
         console.error('Error loading Google reviews:', error);
         setReviewsError('Unable to load reviews. Please try again later.');
-        // Fallback to hardcoded testimonials if API fails
-        setGoogleReviews([
-          {
-            author_name: "Jennifer R.",
-            service: "Mortgage Services",
-            rating: 5,
-            text: "Working with Tateo & Co on our mortgage was a game-changer! They secured us a fantastic rate and made the entire process smooth and stress-free.",
-            time: new Date().getTime() / 1000,
-            relative_time_description: "1 month ago"
-          },
-          {
-            author_name: "David M.",
-            service: "Real Estate",
-            rating: 5,
-            text: "Our agent went above and beyond to help us find our dream home. Their market knowledge and negotiation skills were invaluable.",
-            time: new Date().getTime() / 1000,
-            relative_time_description: "2 months ago"
-          },
-          {
-            author_name: "Sarah L.",
-            service: "Insurance",
-            rating: 5,
-            text: "Tateo & Co helped us find the perfect insurance coverage for our new home at a competitive rate. Their attention to detail ensured we had all the protection we needed.",
-            time: new Date().getTime() / 1000,
-            relative_time_description: "3 months ago"
-          },
-          {
-            author_name: "Michael T.",
-            service: "Property Management",
-            rating: 5,
-            text: "As an out-of-state property owner, their property management services have been essential. They handle everything professionally and keep me updated regularly.",
-            time: new Date().getTime() / 1000,
-            relative_time_description: "3 weeks ago"
-          }
-        ]);
       } finally {
         setIsLoadingReviews(false);
       }

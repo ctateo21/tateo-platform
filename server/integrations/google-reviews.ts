@@ -11,7 +11,8 @@ export interface GoogleReview {
 }
 
 // Google Place ID for Tateo & Co
-const TATEO_PLACE_ID = 'ChIJJeg0Ii09QIYRgiNHNcTlf_c'; // Replace with your actual Place ID
+// This is a placeholder - you'll need to replace with the actual Place ID for Tateo & Co
+const TATEO_PLACE_ID = 'ChIJw____-xZwokRvBLy41x1XuI';  // This is a sample Google business Place ID
 
 export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
