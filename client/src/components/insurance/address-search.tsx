@@ -5,7 +5,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Home, Loader2, SearchIcon } from "lucide-react";
 import { useGooglePlaces } from '@/hooks/use-google-places';
-import { getGoogleMapsApiKey } from '@/lib/api';
 
 interface AddressSearchProps {
   onAddressSelected: (address: string, placeId?: string) => void;
@@ -16,7 +15,8 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
   const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-
+  const [apiKey, setApiKey] = useState('');
+  
   // Handle place selection from Google Places Autocomplete
   const handlePlaceSelected = (place: any) => {
     if (place && place.formatted_address) {
@@ -30,33 +30,36 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
     }
   };
 
-  // Fetch the Google Maps API key from the backend
-  const [apiKey, setApiKey] = useState('');
-
-  // Fetch API key from backend
+  // Fetch API key only once when component mounts
   useEffect(() => {
+    let isMounted = true;
+    
     const fetchApiKey = async () => {
       try {
         const response = await fetch('/api/config/google-maps-api-key');
+        if (!isMounted) return;
+        
         if (response.ok) {
           const data = await response.json();
           if (data && data.apiKey) {
             setApiKey(data.apiKey);
-          } else {
+          } else if (isMounted) {
             console.error('Google Maps API key not found in response');
-            setError('Unable to load address search. Please enter your address manually.');
           }
-        } else {
+        } else if (isMounted) {
           console.error('Failed to fetch Google Maps API key');
-          setError('Unable to load address search. Please enter your address manually.');
         }
       } catch (err) {
-        console.error('Error fetching Google Maps API key:', err);
-        setError('Unable to load address search. Please enter your address manually.');
+        if (isMounted) {
+          console.error('Error fetching Google Maps API key:', err);
+        }
       }
     };
 
     fetchApiKey();
+    
+    // Cleanup function to prevent state updates after unmount
+    return () => { isMounted = false; };
   }, []);
 
   // Initialize Google Places Autocomplete
@@ -65,26 +68,12 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
     onPlaceSelected: handlePlaceSelected
   });
 
-  // Connect the input ref to the Google Places hook
+  // Connect the input ref to the Google Places hook when it's ready
   useEffect(() => {
-    if (inputRef.current) {
+    if (inputRef.current && isLoaded) {
       bindInputRef(inputRef.current);
     }
-  }, [bindInputRef, inputRef.current, isLoaded]);
-
-  // Show loading or error state based on API key availability
-  useEffect(() => {
-    // Only set error messages if there isn't already an error
-    if (!error) {
-      if (!apiKey) {
-        setError("Address search is initializing. You may enter your address manually.");
-      } else if (!isLoaded) {
-        setError("Loading address search... You may enter your address manually.");
-      } else {
-        setError(null);
-      }
-    }
-  }, [apiKey, isLoaded, error]);
+  }, [bindInputRef, isLoaded]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

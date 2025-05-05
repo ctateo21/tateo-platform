@@ -1,126 +1,109 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 
 interface GooglePlacesHookProps {
   apiKey: string;
   onPlaceSelected?: (place: any) => void;
 }
 
+// Define Google Maps API types
+type AutocompleteInstance = google.maps.places.Autocomplete;
+type AutocompleteOptions = google.maps.places.AutocompleteOptions;
+
 export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookProps) {
   const [scriptLoaded, setScriptLoaded] = useState(false);
-  const [autocomplete, setAutocomplete] = useState<any | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [autocomplete, setAutocomplete] = useState<AutocompleteInstance | null>(null);
 
-  // Load the Google Maps Places API script
+  // Load the Google Maps script only once when apiKey is available
   useEffect(() => {
     if (!apiKey) return;
     
-    // Check if script element already exists
-    let scriptElement = document.getElementById('google-maps-script') as HTMLScriptElement;
-    
-    // If element doesn't exist, create it
-    if (!scriptElement) {
-      scriptElement = document.createElement('script');
-      scriptElement.id = 'google-maps-script';
-      scriptElement.async = true;
-      scriptElement.defer = true;
-      document.head.appendChild(scriptElement);
-    }
-    
-    // Only set the src if it's not already set
-    if (!scriptElement.src) {
-      scriptElement.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
-      scriptElement.onload = () => {
+    // Check if script is already in the document
+    const existingScript = document.getElementById('google-maps-script');
+    if (existingScript) {
+      // Script tag exists, check if Google Maps is loaded
+      if (window.google?.maps?.places) {
         setScriptLoaded(true);
-      };
-    } else if (window.google && window.google.maps && window.google.maps.places) {
-      // Script already loaded with src set
-      setScriptLoaded(true);
+      }
+      return;
     }
-
-    // Check if google maps is already loaded (e.g., from another instance)
-    if (window.google && window.google.maps && window.google.maps.places) {
-      setScriptLoaded(true);
-    }
-
-    return () => {
-      // Cleanup function - not removing the script because other components might use it
+    
+    // Create and add the script element
+    const script = document.createElement('script');
+    script.id = 'google-maps-script';
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`;
+    script.async = true;
+    script.defer = true;
+    
+    // Set up onload handler
+    script.onload = () => setScriptLoaded(true);
+    
+    // Handle load errors
+    script.onerror = () => {
+      console.error('Failed to load Google Maps script');
     };
+    
+    // Add to document
+    document.head.appendChild(script);
+    
+    // No cleanup needed for script tag as it should persist
   }, [apiKey]);
 
-  // Initialize autocomplete when the input reference is available and script is loaded
+  // Function to initialize autocomplete on an input element
   const initializeAutocomplete = useCallback(
     (inputElement: HTMLInputElement) => {
-      if (!window.google || !window.google.maps || !window.google.maps.places || !scriptLoaded) {
+      if (!scriptLoaded || !window.google?.maps?.places || !inputElement) {
         return;
       }
 
       try {
-        // Create the autocomplete instance
-        const options = {
+        // Configure autocomplete options
+        const options: AutocompleteOptions = {
           types: ['address'],
-          componentRestrictions: { country: 'us' } // Restrict to US addresses only
+          componentRestrictions: { country: 'us' } // Restrict to US addresses
         };
         
-        const autocompleteInstance = new window.google.maps.places.Autocomplete(
-          inputElement,
-          options
-        );
-
-        // Add listener for place_changed event
-        const listener = autocompleteInstance.addListener('place_changed', () => {
-          const place = autocompleteInstance.getPlace();
+        // Create autocomplete instance
+        const instance = new window.google.maps.places.Autocomplete(inputElement, options);
+        
+        // Add place_changed listener
+        instance.addListener('place_changed', () => {
+          const place = instance.getPlace();
           if (onPlaceSelected && place) {
             onPlaceSelected(place);
           }
         });
-
-        setAutocomplete(autocompleteInstance);
         
-        // Prevent form submission when Enter is pressed in the input field
-        const keydownHandler = (e: KeyboardEvent) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-          }
+        // Prevent form submission on Enter key
+        const preventSubmit = (e: KeyboardEvent) => {
+          if (e.key === 'Enter') e.preventDefault();
         };
         
-        inputElement.addEventListener('keydown', keydownHandler);
+        inputElement.addEventListener('keydown', preventSubmit);
+        setAutocomplete(instance);
         
         // Return cleanup function
         return () => {
-          // Note: Google Maps Autocomplete has its own cleanup
-          // We just need to clean up our keydown handler
-          if (inputElement) {
-            inputElement.removeEventListener('keydown', keydownHandler);
-          }
+          inputElement.removeEventListener('keydown', preventSubmit);
+          // Note: Google's Autocomplete doesn't need explicit cleanup
         };
       } catch (error) {
         console.error('Error initializing Google Places Autocomplete:', error);
-        return undefined;
       }
     },
     [scriptLoaded, onPlaceSelected]
   );
 
-  // Function to bind the input ref
+  // Function to bind an input ref to Google Places
   const bindInputRef = useCallback(
-    (ref: HTMLInputElement | null) => {
-      if (ref !== inputRef.current) {
-        inputRef.current = ref;
-        if (ref && scriptLoaded && window.google && window.google.maps && window.google.maps.places) {
-          initializeAutocomplete(ref);
-        }
+    (inputElement: HTMLInputElement | null) => {
+      if (!inputElement) return;
+      
+      if (scriptLoaded && window.google?.maps?.places) {
+        initializeAutocomplete(inputElement);
       }
     },
     [scriptLoaded, initializeAutocomplete]
   );
-
-  // Initialize when the script is loaded and input ref exists
-  useEffect(() => {
-    if (scriptLoaded && inputRef.current && window.google && window.google.maps && window.google.maps.places) {
-      const cleanup = initializeAutocomplete(inputRef.current);
-      return cleanup;
-    }
-  }, [scriptLoaded, initializeAutocomplete]);
 
   return {
     bindInputRef,
@@ -131,26 +114,34 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
 
 // Add TypeScript definitions for the Google Maps API
 declare global {
-  interface Window {
-    google?: {
-      maps?: {
-        places?: {
-          Autocomplete: new (input: HTMLInputElement, options?: object) => any;
-          PlacesService: any;
-          PlacesServiceStatus: {
-            OK: string;
-            ZERO_RESULTS: string;
-            OVER_QUERY_LIMIT: string;
-            REQUEST_DENIED: string;
-            INVALID_REQUEST: string;
-            UNKNOWN_ERROR: string;
-          };
+  namespace google.maps {
+    namespace places {
+      class Autocomplete {
+        constructor(inputElement: HTMLInputElement, options?: AutocompleteOptions);
+        addListener(eventName: string, handler: Function): any;
+        getPlace(): any;
+      }
+      
+      interface AutocompleteOptions {
+        types?: string[];
+        componentRestrictions?: {
+          country: string | string[];
         };
-        event?: {
-          removeListener: (listener: any) => void;
-        };
-        MapsEventListener?: any;
+      }
+      
+      class PlacesService {
+        constructor(attrContainer: Element);
+        findPlaceFromQuery(request: any, callback: (results: any, status: any) => void): void;
+      }
+      
+      const PlacesServiceStatus: {
+        OK: string;
+        ZERO_RESULTS: string;
+        OVER_QUERY_LIMIT: string;
+        REQUEST_DENIED: string;
+        INVALID_REQUEST: string;
+        UNKNOWN_ERROR: string;
       };
-    };
+    }
   }
 }
