@@ -9,6 +9,7 @@ import { ServiceCategory } from "@shared/schema";
 
 // Import all form components
 import RealEstateForm from "@/components/questionnaire/real-estate-form";
+import RealEstateInitialForm from "@/components/questionnaire/real-estate-initial-form";
 import MortgageForm from "@/components/questionnaire/mortgage-form";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
@@ -97,7 +98,6 @@ export default function ServiceQuestionnaire() {
       toast({
         title: "Submission successful",
         description: "Thank you for your submission. We'll be in touch soon.",
-        variant: "success",
       });
     } catch (error) {
       console.error("Error submitting questionnaire:", error);
@@ -116,11 +116,43 @@ export default function ServiceQuestionnaire() {
   const currentStep = currentServiceIndex + 1;
   const progressPercentage = (currentStep / totalSteps) * 100;
 
+  // Track which services have completed the initial form
+  const [initialFormCompleted, setInitialFormCompleted] = useState<Record<string, boolean>>({});
+  
+  // Handle initial form data for real estate
+  const handleRealEstateInitialSubmit = (data: any) => {
+    // Save the initial intent data
+    setFormData(prev => ({
+      ...prev,
+      realEstate: {
+        ...prev.realEstate,
+        intent: data.intent
+      }
+    }));
+    
+    // Mark real estate initial form as completed
+    setInitialFormCompleted(prev => ({
+      ...prev,
+      'real-estate': true
+    }));
+  };
+  
   // Render the appropriate form for the current service
   const renderServiceForm = (service: ServiceCategory) => {
     switch (service.id) {
       case 'real-estate':
-        return <RealEstateForm onSubmit={(data) => handleFormData('realEstate', data)} onBack={handleBack} />;
+        // Show initial form if not completed yet
+        if (!initialFormCompleted['real-estate']) {
+          return <RealEstateInitialForm 
+            onSubmit={handleRealEstateInitialSubmit} 
+            onBack={handleBack} 
+          />;
+        }
+        // Otherwise show the full form with the initial data pre-filled
+        return <RealEstateForm 
+          onSubmit={(data) => handleFormData('realEstate', data)} 
+          onBack={handleBack} 
+        />;
       case 'mortgage':
         return <MortgageForm onSubmit={(data) => handleFormData('mortgage', data)} onBack={handleBack} />;
       case 'insurance':
