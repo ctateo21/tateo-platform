@@ -16,16 +16,12 @@ export default function ServiceCard({ service }: ServiceCardProps) {
   const [location, navigate] = useLocation();
 
   const handleClick = () => {
-    // Clear any previous selection
+    // Toggle service selection instead of immediate navigation
     if (selected) {
       deselectService(service.id);
+    } else {
+      selectService(service);
     }
-    
-    // Select this service
-    selectService(service);
-    
-    // Immediately navigate to the service questionnaire
-    navigate("/service-questionnaire");
   };
   
   return (

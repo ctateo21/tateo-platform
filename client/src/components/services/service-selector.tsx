@@ -29,7 +29,8 @@ export default function ServiceSelector() {
       return;
     }
     
-    navigate("/questionnaire");
+    // Navigate to the new sequential service questionnaire
+    navigate("/service-questionnaire");
   };
 
   return (
@@ -47,16 +48,25 @@ export default function ServiceSelector() {
         
         {/* Service Selection */}
         <div className="mb-12">
-          <div className="flex justify-end mb-2">
-            {selectedServices.length > 0 && (
-              <Button
-                onClick={handleContinue}
-                className="bg-secondary hover:bg-secondary/90 text-white"
-              >
-                Continue <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            )}
-          </div>
+          {selectedServices.length > 0 && (
+            <div className="sticky top-0 z-10 bg-white shadow-md p-4 my-4 rounded-lg border border-gray-200 transition-all">
+              <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-primary">Selected Services: {selectedServices.length}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Click any service card to select or deselect. You can select multiple services.
+                  </p>
+                </div>
+                <Button
+                  onClick={handleContinue}
+                  className="bg-secondary hover:bg-secondary/90 text-white w-full md:w-auto"
+                  size="lg"
+                >
+                  Continue to Questionnaire <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          )}
           
           {/* Service Grid */}
           {isLoading ? (
