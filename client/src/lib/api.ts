@@ -20,8 +20,11 @@ export async function getSubmission(id: number) {
 }
 
 // Get Google Maps API key
-export async function getGoogleMapsApiKey() {
-  return apiRequest("GET", "/api/config/google-maps-api-key");
+export async function getGoogleMapsApiKey(): Promise<string> {
+  const response = await apiRequest("GET", "/api/config/google-maps-api-key");
+  const data = await response.json();
+  // Return the API key from the response or environment
+  return data.apiKey || process.env.GOOGLE_MAPS_API_KEY || "";
 }
 
 // Get insurance quote

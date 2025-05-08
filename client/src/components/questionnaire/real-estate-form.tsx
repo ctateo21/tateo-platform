@@ -2,9 +2,11 @@ import { z } from "zod";
 import { realEstateFormSchema } from "@shared/schema";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import QuestionnaireForm from "./questionnaire-form";
+import AddressInput from "./address-input";
+import CurrencyInput from "./currency-input";
+import { useState } from "react";
 
 interface RealEstateFormProps {
   onSubmit: (data: z.infer<typeof realEstateFormSchema>) => void;
@@ -12,12 +14,19 @@ interface RealEstateFormProps {
 }
 
 export default function RealEstateForm({ onSubmit, onBack }: RealEstateFormProps) {
+  const [selectedPlace, setSelectedPlace] = useState<any>(null);
+  
   const defaultValues = {
     intent: "buy" as const,
     propertyType: "residential" as const,
     location: "",
     priceRangeMin: "",
     priceRangeMax: "",
+  };
+
+  // Handle when a place is selected from Google Places API
+  const handlePlaceSelected = (place: any) => {
+    setSelectedPlace(place);
   };
 
   return (
@@ -38,7 +47,7 @@ export default function RealEstateForm({ onSubmit, onBack }: RealEstateFormProps
               <FormControl>
                 <RadioGroup
                   onValueChange={field.onChange}
-                  defaultValue={field.value}
+                  value={field.value}
                   className="flex flex-col space-y-2"
                 >
                   <FormItem className="flex items-center space-x-3 space-y-0">
@@ -71,7 +80,7 @@ export default function RealEstateForm({ onSubmit, onBack }: RealEstateFormProps
           render={({ field }) => (
             <FormItem>
               <FormLabel>Property type:</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value}>
                 <FormControl>
                   <SelectTrigger>
                     <SelectValue placeholder="Select property type" />
@@ -93,9 +102,14 @@ export default function RealEstateForm({ onSubmit, onBack }: RealEstateFormProps
           name="location"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Location:</FormLabel>
+              <FormLabel>Address or ZIP code:</FormLabel>
               <FormControl>
-                <Input placeholder="City, State, or ZIP" {...field} />
+                <AddressInput 
+                  value={field.value}
+                  onChange={field.onChange}
+                  onPlaceSelected={handlePlaceSelected}
+                  placeholder="Enter address or ZIP code"
+                />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -109,7 +123,11 @@ export default function RealEstateForm({ onSubmit, onBack }: RealEstateFormProps
               <FormItem>
                 <FormLabel>Minimum price range:</FormLabel>
                 <FormControl>
-                  <Input placeholder="$" {...field} />
+                  <CurrencyInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="$"
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -122,7 +140,11 @@ export default function RealEstateForm({ onSubmit, onBack }: RealEstateFormProps
               <FormItem>
                 <FormLabel>Maximum price range:</FormLabel>
                 <FormControl>
-                  <Input placeholder="$" {...field} />
+                  <CurrencyInput
+                    value={field.value}
+                    onChange={field.onChange}
+                    placeholder="$"
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>

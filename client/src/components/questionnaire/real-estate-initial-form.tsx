@@ -38,8 +38,15 @@ export default function RealEstateInitialForm({ onSubmit, onBack }: RealEstateIn
             <FormItem className="space-y-4">
               <FormControl>
                 <RadioGroup
-                  onValueChange={field.onChange}
-                  defaultValue={field.value}
+                  onValueChange={(value) => {
+                    field.onChange(value);
+                    // Submit the form after selection with a short delay to show the selection visually
+                    setTimeout(() => {
+                      const form = document.querySelector('form');
+                      if (form) form.requestSubmit();
+                    }, 300);
+                  }}
+                  value={field.value}
                   className="grid grid-cols-1 md:grid-cols-3 gap-4"
                 >
                   <FormItem>
