@@ -543,17 +543,17 @@ export default function Mortgage() {
   
   const resources = [
     {
-      title: "Refinance Guide",
-      description: "Learn all about the refinancing process, when to refinance, and how to secure the best terms.",
-      icon: <FileText className="h-10 w-10 text-primary" />,
-      cta: "Download Refinance Guide",
-      link: "#"
-    },
-    {
       title: "Purchase Guide",
       description: "Learn all about the home buying process, mortgage options, and how to secure the best terms.",
       icon: <FileText className="h-10 w-10 text-primary" />,
       cta: "Download Purchase Guide",
+      link: "#"
+    },
+    {
+      title: "Refinance Guide",
+      description: "Learn all about the refinancing process, when to refinance, and how to secure the best terms.",
+      icon: <FileText className="h-10 w-10 text-primary" />,
+      cta: "Download Refinance Guide",
       link: "#"
     }
   ];
