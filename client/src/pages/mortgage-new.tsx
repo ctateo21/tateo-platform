@@ -550,10 +550,10 @@ export default function Mortgage() {
       link: "#"
     },
     {
-      title: "Cash Out Guide",
-      description: "Understand how cash-out refinancing works and how to leverage your home equity responsibly.",
+      title: "Purchase Guide",
+      description: "Learn all about the home buying process, mortgage options, and how to secure the best terms.",
       icon: <FileText className="h-10 w-10 text-primary" />,
-      cta: "Download Cash Out Guide",
+      cta: "Download Purchase Guide",
       link: "#"
     }
   ];
