@@ -27,6 +27,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/services", async (req, res) => {
     res.json(serviceCategories);
   });
+  
+  // API Routes defined below
 
   // Submit questionnaire data
   app.post("/api/submit", async (req, res) => {

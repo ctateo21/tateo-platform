@@ -49,74 +49,128 @@ export default function RealEstateInitialForm({ onSubmit, onBack }: RealEstateIn
                   value={field.value}
                   className="grid grid-cols-1 md:grid-cols-3 gap-4"
                 >
-                  <FormItem>
+                  <FormItem className="contents">
                     <FormControl>
-                      <Card className={`cursor-pointer transition-all ${field.value === 'buy' ? 'border-primary ring-2 ring-primary/20' : 'border-gray-200 hover:border-primary/50'}`}>
-                        <CardContent className="p-6 text-center">
-                          <div className="flex items-center justify-center mb-4">
-                            <RadioGroupItem value="buy" className="sr-only" />
-                            <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-                                <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-                                <polyline points="9 22 9 12 15 12 15 22"></polyline>
-                              </svg>
+                      <label>
+                        <input 
+                          type="radio" 
+                          className="hidden" 
+                          checked={field.value === 'buy'} 
+                          onChange={() => field.onChange('buy')}
+                        />
+                        <Card 
+                          className={`cursor-pointer transition-all ${field.value === 'buy' ? 'border-primary ring-2 ring-primary/20' : 'border-gray-200 hover:border-primary/50'}`}
+                          onClick={() => {
+                            field.onChange('buy');
+                            // Submit form after a short delay to show selection
+                            setTimeout(() => {
+                              const form = document.querySelector('form');
+                              if (form) form.requestSubmit();
+                            }, 300);
+                          }}
+                        >
+                          <CardContent className="p-6 text-center">
+                            <div className="flex items-center justify-center mb-4">
+                              <RadioGroupItem value="buy" className="sr-only" />
+                              <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+                                  <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                                </svg>
+                              </div>
                             </div>
-                          </div>
-                          <FormLabel className="font-semibold text-lg block mb-2">Buy a Property</FormLabel>
-                          <p className="text-muted-foreground text-sm">
-                            Find your perfect home or investment with our expert buying services
-                          </p>
-                        </CardContent>
-                      </Card>
+                            <div className="font-semibold text-lg block mb-2">Buy a Property</div>
+                            <p className="text-muted-foreground text-sm">
+                              Find your perfect home or investment with our expert buying services
+                            </p>
+                          </CardContent>
+                        </Card>
+                      </label>
                     </FormControl>
                   </FormItem>
                   
-                  <FormItem>
+                  <FormItem className="contents">
                     <FormControl>
-                      <Card className={`cursor-pointer transition-all ${field.value === 'sell' ? 'border-primary ring-2 ring-primary/20' : 'border-gray-200 hover:border-primary/50'}`}>
-                        <CardContent className="p-6 text-center">
-                          <div className="flex items-center justify-center mb-4">
-                            <RadioGroupItem value="sell" className="sr-only" />
-                            <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-                                <path d="M11 4h10v10H11V4Z"></path>
-                                <path d="m3 20 8-8"></path>
-                                <path d="M11 12h4"></path>
-                                <path d="M11 16h7"></path>
-                                <path d="M11 20h10"></path>
-                                <path d="m5 8-3 3 3 3"></path>
-                              </svg>
+                      <label>
+                        <input 
+                          type="radio" 
+                          className="hidden" 
+                          checked={field.value === 'sell'} 
+                          onChange={() => field.onChange('sell')}
+                        />
+                        <Card 
+                          className={`cursor-pointer transition-all ${field.value === 'sell' ? 'border-primary ring-2 ring-primary/20' : 'border-gray-200 hover:border-primary/50'}`}
+                          onClick={() => {
+                            field.onChange('sell');
+                            // Submit form after a short delay to show selection
+                            setTimeout(() => {
+                              const form = document.querySelector('form');
+                              if (form) form.requestSubmit();
+                            }, 300);
+                          }}
+                        >
+                          <CardContent className="p-6 text-center">
+                            <div className="flex items-center justify-center mb-4">
+                              <RadioGroupItem value="sell" className="sr-only" />
+                              <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+                                  <path d="M11 4h10v10H11V4Z"></path>
+                                  <path d="m3 20 8-8"></path>
+                                  <path d="M11 12h4"></path>
+                                  <path d="M11 16h7"></path>
+                                  <path d="M11 20h10"></path>
+                                  <path d="m5 8-3 3 3 3"></path>
+                                </svg>
+                              </div>
                             </div>
-                          </div>
-                          <FormLabel className="font-semibold text-lg block mb-2">Sell a Property</FormLabel>
-                          <p className="text-muted-foreground text-sm">
-                            Maximize your home's value with our strategic selling approach
-                          </p>
-                        </CardContent>
-                      </Card>
+                            <div className="font-semibold text-lg block mb-2">Sell a Property</div>
+                            <p className="text-muted-foreground text-sm">
+                              Maximize your home's value with our strategic selling approach
+                            </p>
+                          </CardContent>
+                        </Card>
+                      </label>
                     </FormControl>
                   </FormItem>
                   
-                  <FormItem>
+                  <FormItem className="contents">
                     <FormControl>
-                      <Card className={`cursor-pointer transition-all ${field.value === 'both' ? 'border-primary ring-2 ring-primary/20' : 'border-gray-200 hover:border-primary/50'}`}>
-                        <CardContent className="p-6 text-center">
-                          <div className="flex items-center justify-center mb-4">
-                            <RadioGroupItem value="both" className="sr-only" />
-                            <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
-                              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
-                                <circle cx="12" cy="12" r="10"></circle>
-                                <path d="m16 8-4 4-4-4"></path>
-                                <path d="M8 16h8"></path>
-                              </svg>
+                      <label>
+                        <input 
+                          type="radio" 
+                          className="hidden" 
+                          checked={field.value === 'both'} 
+                          onChange={() => field.onChange('both')}
+                        />
+                        <Card 
+                          className={`cursor-pointer transition-all ${field.value === 'both' ? 'border-primary ring-2 ring-primary/20' : 'border-gray-200 hover:border-primary/50'}`}
+                          onClick={() => {
+                            field.onChange('both');
+                            // Submit form after a short delay to show selection
+                            setTimeout(() => {
+                              const form = document.querySelector('form');
+                              if (form) form.requestSubmit();
+                            }, 300);
+                          }}
+                        >
+                          <CardContent className="p-6 text-center">
+                            <div className="flex items-center justify-center mb-4">
+                              <RadioGroupItem value="both" className="sr-only" />
+                              <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+                                  <circle cx="12" cy="12" r="10"></circle>
+                                  <path d="m16 8-4 4-4-4"></path>
+                                  <path d="M8 16h8"></path>
+                                </svg>
+                              </div>
                             </div>
-                          </div>
-                          <FormLabel className="font-semibold text-lg block mb-2">Buy & Sell</FormLabel>
-                          <p className="text-muted-foreground text-sm">
-                            Seamlessly transition from your current home to your new one
-                          </p>
-                        </CardContent>
-                      </Card>
+                            <div className="font-semibold text-lg block mb-2">Buy & Sell</div>
+                            <p className="text-muted-foreground text-sm">
+                              Seamlessly transition from your current home to your new one
+                            </p>
+                          </CardContent>
+                        </Card>
+                      </label>
                     </FormControl>
                   </FormItem>
                 </RadioGroup>
