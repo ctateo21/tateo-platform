@@ -72,7 +72,7 @@ export const realEstateFormSchema = z.object({
 });
 
 export const mortgageFormSchema = z.object({
-  type: z.enum(["refinance", "cashout"]),
+  type: z.enum(["refinance", "purchase"]),
   propertyValue: z.string().min(1, "Property value is required"),
   mortgageBalance: z.string().min(1, "Mortgage balance is required"),
   creditScore: z.enum(["excellent", "good", "fair", "poor"]),
@@ -151,7 +151,7 @@ export const serviceCategories = [
     id: "mortgage",
     displayName: "Mortgage",
     description: "Get the best rates for new mortgages, refinancing, or cash-out options.",
-    options: ["Refinance", "Cash Out"],
+    options: ["Refinance", "Purchase"],
     imageUrl: "https://images.unsplash.com/photo-1589939705384-5185137a7f0f?ixlib=rb-4.0.3&ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1740&q=80"
   },
   {
