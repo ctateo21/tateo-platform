@@ -1,5 +1,5 @@
 import { ServiceCategory } from "@shared/schema";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { useServices } from "@/context/services-context";
 import { SquareCheck, Square, ArrowRight } from "lucide-react";
@@ -13,13 +13,19 @@ export default function ServiceCard({ service }: ServiceCardProps) {
   const { isServiceSelected, selectService, deselectService } = useServices();
   const selected = isServiceSelected(service.id);
 
+  const [location, navigate] = useLocation();
+
   const handleClick = () => {
-    // Keep the selection functionality for the questionnaire
+    // Clear any previous selection
     if (selected) {
       deselectService(service.id);
-    } else {
-      selectService(service);
     }
+    
+    // Select this service
+    selectService(service);
+    
+    // Immediately navigate to the service questionnaire
+    navigate("/service-questionnaire");
   };
   
   return (
