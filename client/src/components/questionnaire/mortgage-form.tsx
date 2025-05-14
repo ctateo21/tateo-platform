@@ -294,7 +294,7 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
                             </div>
                           )}
                           
-                          {!zipResult.loading && field.value.length >= 5 && (
+                          {!zipResult.loading && (
                             <div className="rounded-lg bg-muted/50 p-4">
                               {/* Show estimate if available */}
                               {zipResult.averagePrice && (
@@ -310,7 +310,7 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
                               <div className={`${zipResult.averagePrice ? "mt-4" : "mt-1"}`}>
                                 <FormField
                                   name="purchasePrice"
-                                  render={({ fieldPrice }) => (
+                                  render={({ field }) => (
                                     <FormItem>
                                       <FormLabel>
                                         {zipResult.averagePrice 
@@ -319,8 +319,8 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
                                       </FormLabel>
                                       <FormControl>
                                         <CurrencyInput
-                                          value={fieldPrice.value || String(zipResult.averagePrice || '')}
-                                          onChange={fieldPrice.onChange}
+                                          value={field.value || String(zipResult.averagePrice || '')}
+                                          onChange={field.onChange}
                                           placeholder="$"
                                         />
                                       </FormControl>
