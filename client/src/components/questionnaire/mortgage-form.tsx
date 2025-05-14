@@ -50,8 +50,7 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
     estimatedValue: "",
     purchasePrice: "",
     type: "purchase" as const,
-    mortgageBalance: "",
-    creditScore: "good" as const,
+    ownershipType: "primary" as const,
     propertyValue: "",
   };
   
@@ -349,41 +348,22 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
         />
 
         
-        {/* Mortgage Balance - Only show for refinance */}
+        {/* Ownership Type */}
         <FormField
-          name="mortgageBalance"
+          name="ownershipType"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Current mortgage balance:</FormLabel>
-              <FormControl>
-                <CurrencyInput
-                  value={field.value}
-                  onChange={field.onChange}
-                  placeholder="$"
-                />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        
-        {/* Credit Score */}
-        <FormField
-          name="creditScore"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Credit score range:</FormLabel>
+              <FormLabel>What type of ownership?</FormLabel>
               <Select onValueChange={field.onChange} value={field.value}>
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select credit score range" />
+                    <SelectValue placeholder="Select ownership type" />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value="excellent">Excellent (720+)</SelectItem>
-                  <SelectItem value="good">Good (680-719)</SelectItem>
-                  <SelectItem value="fair">Fair (620-679)</SelectItem>
-                  <SelectItem value="poor">Below 620</SelectItem>
+                  <SelectItem value="primary">Primary Residence</SelectItem>
+                  <SelectItem value="secondary">Secondary/Vacation Home</SelectItem>
+                  <SelectItem value="investment">Investment Property</SelectItem>
                 </SelectContent>
               </Select>
               <FormMessage />

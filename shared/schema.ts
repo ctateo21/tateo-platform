@@ -99,11 +99,12 @@ export const mortgageFormSchema = z.object({
   
   // Mortgage details
   type: z.enum(["purchase", "refinance"]),
-  mortgageBalance: z.string().optional(),
-  creditScore: z.enum(["excellent", "good", "fair", "poor"]),
+  ownershipType: z.enum(["primary", "secondary", "investment"]).optional(),
   
   // Original fields (for backward compatibility)
   propertyValue: z.string().optional(),
+  mortgageBalance: z.string().optional(),
+  creditScore: z.string().optional(),
 });
 
 export const insuranceFormSchema = z.object({
