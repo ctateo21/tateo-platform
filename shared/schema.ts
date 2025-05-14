@@ -88,10 +88,22 @@ export const realEstateFormSchema = z.object({
 });
 
 export const mortgageFormSchema = z.object({
+  // Address or ZIP
+  locationType: z.enum(["address", "zipcode"]),
+  propertyAddress: z.string().optional(),
+  zipCode: z.string().optional(),
+  
+  // Property value
+  estimatedValue: z.string().optional(),
+  purchasePrice: z.string().optional(),
+  
+  // Mortgage details
   type: z.enum(["purchase", "refinance"]),
-  propertyValue: z.string().min(1, "Property value is required"),
-  mortgageBalance: z.string().min(1, "Mortgage balance is required"),
+  mortgageBalance: z.string().optional(),
   creditScore: z.enum(["excellent", "good", "fair", "poor"]),
+  
+  // Original fields (for backward compatibility)
+  propertyValue: z.string().optional(),
 });
 
 export const insuranceFormSchema = z.object({
