@@ -123,6 +123,7 @@ export default function ServiceQuestionnaire() {
           break;
           
         case 'cash-purchase':
+        case 'mortgage':
           // Go back to purchase method
           setRealEstateFlowState(prev => ({
             ...prev,
@@ -262,12 +263,35 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
-    // If mortgage, go to mortgage service, otherwise collect cash purchase details
+    // If mortgage, go to mortgage form, otherwise collect cash purchase details
     setRealEstateFlowState(prev => ({
       ...prev,
-      step: purchaseMethod === 'cash' ? 'cash-purchase' : 'mortgage-redirect',
+      step: purchaseMethod === 'cash' ? 'cash-purchase' : 'mortgage',
       purchaseMethod
     }));
+  }
+  
+  // Handle mortgage form submission from within real estate flow
+  const handleMortgageSubmit = (data: any) => {
+    // Save the mortgage details
+    setFormData(prev => ({
+      ...prev,
+      realEstate: {
+        ...prev.realEstate,
+        mortgageDetails: data
+      },
+      // Also save to mortgage service if selected
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    // Complete the real estate service and move to next service
+    handleFormData('realEstate', {
+      ...formData.realEstate,
+      mortgageDetails: data
+    });
   };
   
   // Handle sell type selection for both buy & sell
@@ -400,8 +424,14 @@ export default function ServiceQuestionnaire() {
               onBack={handleBack}
             />;
             
+          case 'mortgage':
+            return <MortgageForm
+              onSubmit={handleMortgageSubmit}
+              onBack={handleBack}
+            />;
+            
           case 'mortgage-redirect':
-            // Immediately redirect to mortgage service
+            // For backward compatibility
             setTimeout(() => {
               handleMortgageRedirect();
             }, 0);
