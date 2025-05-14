@@ -107,6 +107,15 @@ export const mortgageFormSchema = z.object({
   creditScore: z.string().optional(),
 });
 
+export const mortgagePropertyTypeSchema = z.object({
+  // Basic info from previous form
+  type: z.enum(["purchase", "refinance"]),
+  ownershipType: z.enum(["primary", "secondary", "investment"]),
+  
+  // Property type - different options based on ownership type
+  propertyType: z.string(),
+});
+
 export const insuranceFormSchema = z.object({
   type: z.enum(["auto", "property", "other"]),
   currentProvider: z.string().optional(),

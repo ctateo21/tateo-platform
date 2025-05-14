@@ -16,6 +16,7 @@ import SellTypeForm from "@/components/questionnaire/sell-type-form";
 import CashPurchaseForm from "@/components/questionnaire/cash-purchase-form";
 import SellPropertyForm from "@/components/questionnaire/sell-property-form";
 import MortgageForm from "@/components/questionnaire/mortgage-form";
+import MortgagePropertyTypeForm from "@/components/questionnaire/mortgage-property-type-form";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
 import PropertyManagementForm from "@/components/questionnaire/property-management-form";
@@ -164,8 +165,37 @@ export default function ServiceQuestionnaire() {
             step: 'initial'
           }));
       }
+    } 
+    // If we're in the mortgage flow, handle back navigation within the flow
+    else if (currentService?.id === 'mortgage') {
+      switch (mortgageFlowState.step) {
+        case 'initial':
+          // If at the initial step, go back to previous service or home
+          if (currentServiceIndex > 0) {
+            setCurrentServiceIndex(currentServiceIndex - 1);
+          } else {
+            navigate("/");
+          }
+          break;
+          
+        case 'property-type':
+          // Go back to initial mortgage form
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'initial'
+          }));
+          break;
+          
+        default:
+          // Default to initial
+          setMortgageFlowState({
+            step: 'initial',
+            type: 'purchase',
+            ownershipType: 'primary'
+          });
+      }
     } else if (currentServiceIndex > 0) {
-      // If we're not in the real estate flow, go back to previous service
+      // If we're not in a multi-step flow, go back to previous service
       setCurrentServiceIndex(currentServiceIndex - 1);
       
       // If the previous service is real-estate, reset its flow state
@@ -176,6 +206,15 @@ export default function ServiceQuestionnaire() {
           purchaseMethod: '',
           sellType: '',
           buyType: ''
+        });
+      }
+      
+      // If the previous service is mortgage, reset its flow state
+      if (selectedServices[currentServiceIndex - 1]?.id === 'mortgage') {
+        setMortgageFlowState({
+          step: 'initial',
+          type: 'purchase',
+          ownershipType: 'primary' 
         });
       }
     } else {
@@ -229,6 +268,13 @@ export default function ServiceQuestionnaire() {
     purchaseMethod: '', // cash, mortgage
     sellType: '',    // primary, 1031exchange
     buyType: ''      // primary, other
+  });
+  
+  // Track mortgage flow
+  const [mortgageFlowState, setMortgageFlowState] = useState({
+    step: 'initial', // initial, property-type
+    type: 'purchase', // purchase, refinance
+    ownershipType: 'primary', // primary, secondary, investment
   });
   
   // Handle initial form data for real estate
@@ -382,6 +428,53 @@ export default function ServiceQuestionnaire() {
     }
   };
   
+  // Handle initial mortgage form submission
+  const handleMortgageInitialSubmit = (data: any) => {
+    const { type, ownershipType } = data;
+    
+    // Save the form data
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    // Update mortgage flow state to go to property type form
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'property-type',
+      type,
+      ownershipType: ownershipType || 'primary'
+    }));
+  };
+  
+  // Handle mortgage property type form submission
+  const handleMortgagePropertyTypeSubmit = (data: any) => {
+    // Save the full data and move to the next service
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    // Complete the mortgage service and move to next service
+    handleFormData('mortgage', {
+      ...formData.mortgage,
+      ...data
+    });
+    
+    // Reset mortgage flow for next time
+    setMortgageFlowState({
+      step: 'initial',
+      type: 'purchase',
+      ownershipType: 'primary'
+    });
+  };
+  
   // Render the appropriate form for the current service
   const renderServiceForm = (service: ServiceCategory) => {
     switch (service.id) {
@@ -444,7 +537,27 @@ export default function ServiceQuestionnaire() {
         }
         
       case 'mortgage':
-        return <MortgageForm onSubmit={(data) => handleFormData('mortgage', data)} onBack={handleBack} />;
+        // Handle mortgage flow based on the current step
+        switch (mortgageFlowState.step) {
+          case 'initial':
+            return <MortgageForm 
+              onSubmit={handleMortgageInitialSubmit} 
+              onBack={handleBack} 
+            />;
+            
+          case 'property-type':
+            return <MortgagePropertyTypeForm
+              initialData={{
+                type: mortgageFlowState.type as "purchase" | "refinance",
+                ownershipType: mortgageFlowState.ownershipType as "primary" | "secondary" | "investment"
+              }}
+              onSubmit={handleMortgagePropertyTypeSubmit}
+              onBack={handleBack}
+            />;
+            
+          default:
+            return <div>Unknown mortgage step</div>;
+        }
         
       case 'insurance':
         return <InsuranceForm onSubmit={(data) => handleFormData('insurance', data)} onBack={handleBack} />;
