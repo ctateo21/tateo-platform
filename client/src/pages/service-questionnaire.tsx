@@ -10,6 +10,11 @@ import { ServiceCategory } from "@shared/schema";
 // Import all form components
 import RealEstateForm from "@/components/questionnaire/real-estate-form";
 import RealEstateInitialForm from "@/components/questionnaire/real-estate-initial-form";
+import PurchaseMethodForm from "@/components/questionnaire/purchase-method-form";
+import BuyTypeForm from "@/components/questionnaire/buy-type-form";
+import SellTypeForm from "@/components/questionnaire/sell-type-form";
+import CashPurchaseForm from "@/components/questionnaire/cash-purchase-form";
+import SellPropertyForm from "@/components/questionnaire/sell-property-form";
 import MortgageForm from "@/components/questionnaire/mortgage-form";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
@@ -116,53 +121,213 @@ export default function ServiceQuestionnaire() {
   const currentStep = currentServiceIndex + 1;
   const progressPercentage = (currentStep / totalSteps) * 100;
 
-  // Track which services have completed the initial form
-  const [initialFormCompleted, setInitialFormCompleted] = useState<Record<string, boolean>>({});
+  // Track real estate flow
+  const [realEstateFlowState, setRealEstateFlowState] = useState({
+    step: 'initial', // initial, purchase-method, buy-type, sell-type, cash-purchase, sell-property, mortgage
+    intent: '',      // buy, sell, both
+    purchaseMethod: '', // cash, mortgage
+    sellType: '',    // primary, 1031exchange
+    buyType: ''      // primary, other
+  });
   
   // Handle initial form data for real estate
   const handleRealEstateInitialSubmit = (data: any) => {
-    // Save the initial intent data
+    // Save the initial intent data and set next step
+    const { intent } = data;
     setFormData(prev => ({
       ...prev,
       realEstate: {
         ...prev.realEstate,
-        intent: data.intent
+        intent
       }
     }));
     
-    // Mark real estate initial form as completed
-    setInitialFormCompleted(prev => ({
+    setRealEstateFlowState(prev => ({
       ...prev,
-      'real-estate': true
+      step: intent === 'buy' ? 'purchase-method' : 
+            intent === 'sell' ? 'sell-property' : 
+            'sell-type', // for 'both'
+      intent
     }));
+  };
+  
+  // Handle purchase method selection
+  const handlePurchaseMethodSubmit = (data: any) => {
+    const { purchaseMethod } = data;
+    setFormData(prev => ({
+      ...prev,
+      realEstate: {
+        ...prev.realEstate,
+        purchaseMethod
+      }
+    }));
+    
+    // If mortgage, go to mortgage service, otherwise collect cash purchase details
+    setRealEstateFlowState(prev => ({
+      ...prev,
+      step: purchaseMethod === 'cash' ? 'cash-purchase' : 'mortgage-redirect',
+      purchaseMethod
+    }));
+  };
+  
+  // Handle sell type selection for both buy & sell
+  const handleSellTypeSubmit = (data: any) => {
+    const { sellType } = data;
+    setFormData(prev => ({
+      ...prev,
+      realEstate: {
+        ...prev.realEstate,
+        sellType
+      }
+    }));
+    
+    // After selecting sell type, we need to know what they're buying
+    setRealEstateFlowState(prev => ({
+      ...prev,
+      step: sellType === 'primary' ? 'buy-type' : 'purchase-method', // 1031 exchange goes directly to purchase method
+      sellType
+    }));
+  };
+  
+  // Handle buy type selection
+  const handleBuyTypeSubmit = (data: any) => {
+    const { buyType } = data;
+    setFormData(prev => ({
+      ...prev,
+      realEstate: {
+        ...prev.realEstate,
+        buyType
+      }
+    }));
+    
+    // After selecting buy type, go to purchase method
+    setRealEstateFlowState(prev => ({
+      ...prev,
+      step: 'purchase-method',
+      buyType
+    }));
+  };
+  
+  // Handle cash purchase form
+  const handleCashPurchaseSubmit = (data: any) => {
+    // Save the cash purchase details
+    setFormData(prev => ({
+      ...prev,
+      realEstate: {
+        ...prev.realEstate,
+        ...data
+      }
+    }));
+    
+    // Complete the real estate service and move to next service
+    handleFormData('realEstate', {
+      ...formData.realEstate,
+      ...data
+    });
+  };
+  
+  // Handle sell property form
+  const handleSellPropertySubmit = (data: any) => {
+    // Save the selling details
+    setFormData(prev => ({
+      ...prev,
+      realEstate: {
+        ...prev.realEstate,
+        ...data
+      }
+    }));
+    
+    // Complete the real estate service and move to next service
+    handleFormData('realEstate', {
+      ...formData.realEstate,
+      ...data
+    });
+  };
+  
+  // Redirect to mortgage service
+  const handleMortgageRedirect = () => {
+    // Find mortgage service index if it exists in selected services
+    const mortgageIndex = selectedServices.findIndex(s => s.id === 'mortgage');
+    
+    if (mortgageIndex !== -1) {
+      // If mortgage is already in selected services, move to that index
+      setCurrentServiceIndex(mortgageIndex);
+    } else {
+      // Otherwise, complete real estate service
+      handleFormData('realEstate', formData.realEstate);
+    }
   };
   
   // Render the appropriate form for the current service
   const renderServiceForm = (service: ServiceCategory) => {
     switch (service.id) {
       case 'real-estate':
-        // Show initial form if not completed yet
-        if (!initialFormCompleted['real-estate']) {
-          return <RealEstateInitialForm 
-            onSubmit={handleRealEstateInitialSubmit} 
-            onBack={handleBack} 
-          />;
+        // Handle real estate flow based on the current step
+        switch (realEstateFlowState.step) {
+          case 'initial':
+            return <RealEstateInitialForm 
+              onSubmit={handleRealEstateInitialSubmit} 
+              onBack={handleBack} 
+            />;
+            
+          case 'purchase-method':
+            return <PurchaseMethodForm
+              onSubmit={handlePurchaseMethodSubmit}
+              onBack={handleBack}
+            />;
+            
+          case 'buy-type':
+            return <BuyTypeForm
+              onSubmit={handleBuyTypeSubmit}
+              onBack={handleBack}
+            />;
+            
+          case 'sell-type':
+            return <SellTypeForm
+              onSubmit={handleSellTypeSubmit}
+              onBack={handleBack}
+            />;
+            
+          case 'cash-purchase':
+            return <CashPurchaseForm
+              onSubmit={handleCashPurchaseSubmit}
+              onBack={handleBack}
+            />;
+            
+          case 'sell-property':
+            return <SellPropertyForm
+              onSubmit={handleSellPropertySubmit}
+              onBack={handleBack}
+            />;
+            
+          case 'mortgage-redirect':
+            // Immediately redirect to mortgage service
+            setTimeout(() => {
+              handleMortgageRedirect();
+            }, 0);
+            return <div className="text-center py-8">
+              <p>Redirecting to mortgage questionnaire...</p>
+            </div>;
+            
+          default:
+            return <div>Unknown real estate step</div>;
         }
-        // Otherwise show the full form with the initial data pre-filled
-        return <RealEstateForm 
-          onSubmit={(data) => handleFormData('realEstate', data)} 
-          onBack={handleBack} 
-        />;
+        
       case 'mortgage':
         return <MortgageForm onSubmit={(data) => handleFormData('mortgage', data)} onBack={handleBack} />;
+        
       case 'insurance':
         return <InsuranceForm onSubmit={(data) => handleFormData('insurance', data)} onBack={handleBack} />;
+        
       case 'construction':
         return <ConstructionForm onSubmit={(data) => handleFormData('construction', data)} onBack={handleBack} />;
+        
       case 'property-management':
         return <PropertyManagementForm onSubmit={(data) => handleFormData('propertyManagement', data)} onBack={handleBack} />;
+        
       case 'home-services':
         return <HomeServicesForm onSubmit={(data) => handleFormData('homeServices', data)} onBack={handleBack} />;
+        
       default:
         return <div>Service form not found</div>;
     }
