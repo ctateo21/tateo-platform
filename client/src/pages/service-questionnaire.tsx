@@ -74,11 +74,111 @@ export default function ServiceQuestionnaire() {
     // Implementation will be added later
   };
   
-  // Go back to previous service or home
+  // Go back to previous step or previous service
   const handleBack = () => {
-    if (currentServiceIndex > 0) {
+    // If we're in the real estate flow, handle back navigation within the flow
+    if (currentService?.id === 'real-estate') {
+      switch (realEstateFlowState.step) {
+        case 'initial':
+          // If at the initial step, go back to home
+          navigate("/");
+          break;
+          
+        case 'purchase-method':
+          // If we got here from a 'buy' intent, go back to initial
+          // If we got here from 'both' -> sell-type -> buy-type, go back to buy-type
+          // If we got here from 'both' -> sell-type (1031exchange), go back to sell-type
+          if (realEstateFlowState.intent === 'buy') {
+            setRealEstateFlowState(prev => ({
+              ...prev,
+              step: 'initial'
+            }));
+          } else if (realEstateFlowState.buyType) {
+            setRealEstateFlowState(prev => ({
+              ...prev,
+              step: 'buy-type'
+            }));
+          } else if (realEstateFlowState.sellType) {
+            setRealEstateFlowState(prev => ({
+              ...prev,
+              step: 'sell-type'
+            }));
+          }
+          break;
+          
+        case 'buy-type':
+          // If we're at buy-type, we got here from sell-type
+          setRealEstateFlowState(prev => ({
+            ...prev,
+            step: 'sell-type'
+          }));
+          break;
+          
+        case 'sell-type':
+          // If we're at sell-type, we got here from initial
+          setRealEstateFlowState(prev => ({
+            ...prev,
+            step: 'initial'
+          }));
+          break;
+          
+        case 'cash-purchase':
+          // Go back to purchase method
+          setRealEstateFlowState(prev => ({
+            ...prev,
+            step: 'purchase-method'
+          }));
+          break;
+          
+        case 'sell-property':
+          // If from initial sell, go back to initial
+          if (realEstateFlowState.intent === 'sell') {
+            setRealEstateFlowState(prev => ({
+              ...prev,
+              step: 'initial'
+            }));
+          } else {
+            // Otherwise from complex flow, determine the step
+            setRealEstateFlowState(prev => ({
+              ...prev,
+              step: prev.buyType ? 'buy-type' : 
+                    prev.sellType ? 'sell-type' : 
+                    'initial'
+            }));
+          }
+          break;
+          
+        case 'mortgage-redirect':
+          // Go back to purchase method
+          setRealEstateFlowState(prev => ({
+            ...prev,
+            step: 'purchase-method'
+          }));
+          break;
+          
+        default:
+          // Default to initial
+          setRealEstateFlowState(prev => ({
+            ...prev,
+            step: 'initial'
+          }));
+      }
+    } else if (currentServiceIndex > 0) {
+      // If we're not in the real estate flow, go back to previous service
       setCurrentServiceIndex(currentServiceIndex - 1);
+      
+      // If the previous service is real-estate, reset its flow state
+      if (selectedServices[currentServiceIndex - 1]?.id === 'real-estate') {
+        setRealEstateFlowState({
+          step: 'initial',
+          intent: '',
+          purchaseMethod: '',
+          sellType: '',
+          buyType: ''
+        });
+      }
     } else {
+      // If at the first service, go back to home
       navigate("/");
     }
   };

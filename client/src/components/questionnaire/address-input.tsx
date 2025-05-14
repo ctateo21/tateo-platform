@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, useCallback } from "react";
 import { useGooglePlaces } from "@/hooks/use-google-places";
 import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
@@ -54,14 +54,14 @@ export default function AddressInput({
   }, []);
 
   // Handle place selection
-  const handlePlaceSelected = (place: any) => {
+  const handlePlaceSelected = useCallback((place: any) => {
     if (place && place.formatted_address) {
       onChange(place.formatted_address);
       if (onPlaceSelected) {
         onPlaceSelected(place);
       }
     }
-  };
+  }, [onChange, onPlaceSelected]);
 
   // Initialize Google Places
   const { bindInputRef, isLoaded } = useGooglePlaces({
