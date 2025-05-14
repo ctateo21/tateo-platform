@@ -270,11 +270,15 @@ export default function ServiceQuestionnaire() {
     buyType: ''      // primary, other
   });
   
-  // Track mortgage flow
-  const [mortgageFlowState, setMortgageFlowState] = useState({
-    step: 'initial', // initial, property-type
-    type: 'purchase', // purchase, refinance
-    ownershipType: 'primary', // primary, secondary, investment
+  // Track mortgage flow with proper typing
+  const [mortgageFlowState, setMortgageFlowState] = useState<{
+    step: 'initial' | 'property-type';
+    type: 'purchase' | 'refinance';
+    ownershipType: 'primary' | 'secondary' | 'investment';
+  }>({
+    step: 'initial',
+    type: 'purchase',
+    ownershipType: 'primary',
   });
   
   // Handle initial form data for real estate
@@ -548,8 +552,8 @@ export default function ServiceQuestionnaire() {
           case 'property-type':
             return <MortgagePropertyTypeForm
               initialData={{
-                type: mortgageFlowState.type as "purchase" | "refinance",
-                ownershipType: mortgageFlowState.ownershipType as "primary" | "secondary" | "investment"
+                type: mortgageFlowState.type,
+                ownershipType: mortgageFlowState.ownershipType
               }}
               onSubmit={handleMortgagePropertyTypeSubmit}
               onBack={handleBack}
