@@ -106,9 +106,40 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
       onBack={onBack}
     >
       <h3 className="text-2xl font-semibold mb-2 text-primary">Mortgage Information</h3>
-      <p className="text-muted-foreground mb-6">Let's start with the property location and value</p>
+      <p className="text-muted-foreground mb-6">Tell us about your mortgage needs</p>
       
       <div className="space-y-6">
+        {/* Mortgage Type - First Question */}
+        <FormField
+          name="type"
+          render={({ field }) => (
+            <FormItem className="space-y-3 mb-8">
+              <FormLabel>I am interested in:</FormLabel>
+              <FormControl>
+                <RadioGroup
+                  onValueChange={field.onChange}
+                  value={field.value}
+                  className="flex flex-col space-y-2"
+                >
+                  <FormItem className="flex items-center space-x-3 space-y-0">
+                    <FormControl>
+                      <RadioGroupItem value="purchase" />
+                    </FormControl>
+                    <FormLabel className="font-normal cursor-pointer">Purchasing a new property</FormLabel>
+                  </FormItem>
+                  <FormItem className="flex items-center space-x-3 space-y-0">
+                    <FormControl>
+                      <RadioGroupItem value="refinance" />
+                    </FormControl>
+                    <FormLabel className="font-normal cursor-pointer">Refinancing my current mortgage</FormLabel>
+                  </FormItem>
+                </RadioGroup>
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      
         {/* Location Type Selector */}
         <FormField
           name="locationType"
@@ -173,19 +204,29 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
                             </div>
                           )}
                           
-                          {(addressResult.zestimate || addressResult.averagePrice) && !addressResult.loading && (
+                          {!addressResult.loading && (
                             <div className="rounded-lg bg-muted/50 p-4">
-                              <h4 className="font-medium mb-2">Estimated Property Value</h4>
-                              <div className="text-xl font-bold text-primary">
-                                {formatPrice(addressResult.zestimate || addressResult.averagePrice)}
-                              </div>
+                              {/* Show estimate if available */}
+                              {(addressResult.zestimate || addressResult.averagePrice) && (
+                                <>
+                                  <h4 className="font-medium mb-2">Estimated Property Value</h4>
+                                  <div className="text-xl font-bold text-primary">
+                                    {formatPrice(addressResult.zestimate || addressResult.averagePrice)}
+                                  </div>
+                                </>
+                              )}
                               
-                              <div className="mt-4">
+                              {/* Always show purchase price field */}
+                              <div className={`${(addressResult.zestimate || addressResult.averagePrice) ? "mt-4" : "mt-1"}`}>
                                 <FormField
                                   name="purchasePrice"
                                   render={({ field }) => (
                                     <FormItem>
-                                      <FormLabel>Purchase Price (you can adjust if needed)</FormLabel>
+                                      <FormLabel>
+                                        {(addressResult.zestimate || addressResult.averagePrice) 
+                                          ? "Purchase Price (you can adjust if needed)" 
+                                          : "Enter Purchase Price"}
+                                      </FormLabel>
                                       <FormControl>
                                         <CurrencyInput
                                           value={field.value || String(addressResult.zestimate || addressResult.averagePrice || '')}
@@ -253,23 +294,33 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
                             </div>
                           )}
                           
-                          {zipResult.averagePrice && !zipResult.loading && (
+                          {!zipResult.loading && field.value.length >= 5 && (
                             <div className="rounded-lg bg-muted/50 p-4">
-                              <h4 className="font-medium mb-2">Average Home Price in This Area</h4>
-                              <div className="text-xl font-bold text-primary">
-                                {formatPrice(zipResult.averagePrice)}
-                              </div>
+                              {/* Show estimate if available */}
+                              {zipResult.averagePrice && (
+                                <>
+                                  <h4 className="font-medium mb-2">Average Home Price in This Area</h4>
+                                  <div className="text-xl font-bold text-primary">
+                                    {formatPrice(zipResult.averagePrice)}
+                                  </div>
+                                </>
+                              )}
                               
-                              <div className="mt-4">
+                              {/* Always show purchase price field */}
+                              <div className={`${zipResult.averagePrice ? "mt-4" : "mt-1"}`}>
                                 <FormField
                                   name="purchasePrice"
-                                  render={({ field }) => (
+                                  render={({ fieldPrice }) => (
                                     <FormItem>
-                                      <FormLabel>Your Expected Purchase Price</FormLabel>
+                                      <FormLabel>
+                                        {zipResult.averagePrice 
+                                          ? "Your Expected Purchase Price"
+                                          : "Enter Purchase Price"}
+                                      </FormLabel>
                                       <FormControl>
                                         <CurrencyInput
-                                          value={field.value || String(zipResult.averagePrice || '')}
-                                          onChange={field.onChange}
+                                          value={fieldPrice.value || String(zipResult.averagePrice || '')}
+                                          onChange={fieldPrice.onChange}
                                           placeholder="$"
                                         />
                                       </FormControl>
@@ -296,37 +347,7 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
             </FormItem>
           )}
         />
-        
-        {/* Mortgage Type */}
-        <FormField
-          name="type"
-          render={({ field }) => (
-            <FormItem className="space-y-3">
-              <FormLabel>I am interested in:</FormLabel>
-              <FormControl>
-                <RadioGroup
-                  onValueChange={field.onChange}
-                  value={field.value}
-                  className="flex flex-col space-y-2"
-                >
-                  <FormItem className="flex items-center space-x-3 space-y-0">
-                    <FormControl>
-                      <RadioGroupItem value="purchase" />
-                    </FormControl>
-                    <FormLabel className="font-normal cursor-pointer">Purchasing a new property</FormLabel>
-                  </FormItem>
-                  <FormItem className="flex items-center space-x-3 space-y-0">
-                    <FormControl>
-                      <RadioGroupItem value="refinance" />
-                    </FormControl>
-                    <FormLabel className="font-normal cursor-pointer">Refinancing my current mortgage</FormLabel>
-                  </FormItem>
-                </RadioGroup>
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
+
         
         {/* Mortgage Balance - Only show for refinance */}
         <FormField
