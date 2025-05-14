@@ -64,9 +64,25 @@ export const insertIntegrationRequestSchema = createInsertSchema(integrationRequ
 
 // Define form validation schemas
 export const realEstateFormSchema = z.object({
+  // Common fields
   intent: z.enum(["buy", "sell", "both"]),
-  propertyType: z.enum(["residential", "commercial", "industrial", "land"]),
-  location: z.string().min(1, "Location is required"),
+  propertyType: z.enum(["residential", "commercial", "industrial", "land"]).optional(),
+  
+  // For Buy intent
+  purchaseMethod: z.enum(["cash", "mortgage"]).optional(),
+  purchasePrice: z.string().optional(),
+  propertyAddress: z.string().optional(),
+  
+  // For Sell intent
+  sellingPrice: z.string().optional(),
+  sellingAddress: z.string().optional(),
+  
+  // For Both intent (Buy & Sell)
+  sellType: z.enum(["primary", "1031exchange"]).optional(),
+  buyType: z.enum(["primary", "other"]).optional(),
+  
+  // Legacy fields
+  location: z.string().optional(),
   priceRangeMin: z.string().optional(),
   priceRangeMax: z.string().optional(),
 });
