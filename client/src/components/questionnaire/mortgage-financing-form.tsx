@@ -46,7 +46,12 @@ export function MortgageFinancingForm({
   
   const getFormTitle = () => {
     const typeText = initialData?.type === "purchase" ? "Purchase" : "Refinance";
-    const ownershipText = initialData?.ownershipType?.charAt(0).toUpperCase() + initialData?.ownershipType?.slice(1);
+    let ownershipText = "Property";
+    
+    if (initialData?.ownershipType) {
+      ownershipText = initialData.ownershipType.charAt(0).toUpperCase() + initialData.ownershipType.slice(1);
+    }
+    
     return `${ownershipText} ${typeText} Financing`;
   };
   

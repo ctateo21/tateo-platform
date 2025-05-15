@@ -17,6 +17,7 @@ import CashPurchaseForm from "@/components/questionnaire/cash-purchase-form";
 import SellPropertyForm from "@/components/questionnaire/sell-property-form";
 import MortgageForm from "@/components/questionnaire/mortgage-form";
 import MortgagePropertyTypeForm from "@/components/questionnaire/mortgage-property-type-form";
+import { MortgageFinancingForm } from "@/components/questionnaire/mortgage-financing-form";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
 import PropertyManagementForm from "@/components/questionnaire/property-management-form";
