@@ -186,6 +186,14 @@ export default function ServiceQuestionnaire() {
           }));
           break;
           
+        case 'financing':
+          // Go back to property type form
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'property-type'
+          }));
+          break;
+          
         default:
           // Default to initial
           setMortgageFlowState({
@@ -272,9 +280,13 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'initial' | 'property-type';
+    step: 'initial' | 'property-type' | 'financing';
     type: 'purchase' | 'refinance';
     ownershipType: 'primary' | 'secondary' | 'investment';
+    propertyType?: string;
+    creditScore?: string;
+    loanType?: string;
+    nonQMType?: string;
   }>({
     step: 'initial',
     type: 'purchase',
@@ -456,7 +468,26 @@ export default function ServiceQuestionnaire() {
   
   // Handle mortgage property type form submission
   const handleMortgagePropertyTypeSubmit = (data: any) => {
-    // Save the full data and move to the next service
+    // Save the form data
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    // Update mortgage flow state to go to financing form
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'financing',
+      propertyType: data.propertyType
+    }));
+  };
+  
+  // Handle mortgage financing form submission
+  const handleMortgageFinancingSubmit = (data: any) => {
+    // Save the full data
     setFormData(prev => ({
       ...prev,
       mortgage: {
@@ -556,6 +587,17 @@ export default function ServiceQuestionnaire() {
                 ownershipType: mortgageFlowState.ownershipType
               }}
               onSubmit={handleMortgagePropertyTypeSubmit}
+              onBack={handleBack}
+            />;
+            
+          case 'financing':
+            return <MortgageFinancingForm
+              initialData={{
+                type: mortgageFlowState.type,
+                ownershipType: mortgageFlowState.ownershipType,
+                propertyType: mortgageFlowState.propertyType
+              }}
+              onSubmit={handleMortgageFinancingSubmit}
               onBack={handleBack}
             />;
             

@@ -116,6 +116,30 @@ export const mortgagePropertyTypeSchema = z.object({
   propertyType: z.string(),
 });
 
+export const mortgageFinancingSchema = z.object({
+  // Credit score range
+  creditScore: z.enum([
+    "780+",
+    "760-779",
+    "740-759",
+    "720-739",
+    "700-719",
+    "680-699",
+    "660-679",
+    "640-659",
+    "620-639",
+    "600-619",
+    "580-599",
+    "580 and below"
+  ]),
+  
+  // Loan type - changes based on ownership type
+  loanType: z.string(),
+  
+  // Optional Non-QM specific fields
+  nonQMType: z.string().optional(),
+});
+
 export const insuranceFormSchema = z.object({
   type: z.enum(["auto", "property", "other"]),
   currentProvider: z.string().optional(),
@@ -170,6 +194,8 @@ export type IntegrationRequest = typeof integrationRequests.$inferSelect;
 
 export type RealEstateFormData = z.infer<typeof realEstateFormSchema>;
 export type MortgageFormData = z.infer<typeof mortgageFormSchema>;
+export type MortgagePropertyTypeData = z.infer<typeof mortgagePropertyTypeSchema>;
+export type MortgageFinancingData = z.infer<typeof mortgageFinancingSchema>;
 export type InsuranceFormData = z.infer<typeof insuranceFormSchema>;
 export type ConstructionFormData = z.infer<typeof constructionFormSchema>;
 export type PropertyManagementFormData = z.infer<typeof propertyManagementFormSchema>;
