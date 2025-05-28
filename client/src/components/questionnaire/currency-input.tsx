@@ -26,12 +26,13 @@ export default function CurrencyInput({
         // Format the numeric value
         const numericValue = parseFloat(value);
         if (!isNaN(numericValue)) {
-          setDisplayValue(formatCurrency(numericValue));
+          setDisplayValue(formatCurrency(Math.round(numericValue)));
         } else {
           setDisplayValue(value);
         }
       }
     } else {
+      // Default to showing $ placeholder
       setDisplayValue("");
     }
   }, [value]);

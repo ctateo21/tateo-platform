@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { ArrowLeft, Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
+import CurrencyInput from "@/components/questionnaire/currency-input";
 
 interface MortgageIncomeFormProps {
   initialData?: {
@@ -203,10 +204,10 @@ export function MortgageIncomeForm({
                     <FormItem>
                       <FormLabel>What is your base salary amount?</FormLabel>
                       <FormControl>
-                        <Input 
-                          {...field} 
-                          placeholder="Enter your base salary"
-                          type="text"
+                        <CurrencyInput 
+                          value={field.value || ""}
+                          onChange={field.onChange}
+                          placeholder="$75,000"
                         />
                       </FormControl>
                       <FormMessage />
@@ -222,10 +223,10 @@ export function MortgageIncomeForm({
                       <FormItem>
                         <FormLabel>What is your 2-year average on your commission?</FormLabel>
                         <FormControl>
-                          <Input 
-                            {...field} 
-                            placeholder="Enter commission amount"
-                            type="text"
+                          <CurrencyInput 
+                            value={field.value || ""}
+                            onChange={field.onChange}
+                            placeholder="$25,000"
                           />
                         </FormControl>
                         <FormDescription>
@@ -245,10 +246,10 @@ export function MortgageIncomeForm({
                       <FormItem>
                         <FormLabel>What is your 2-year average on your bonus?</FormLabel>
                         <FormControl>
-                          <Input 
-                            {...field} 
-                            placeholder="Enter bonus amount"
-                            type="text"
+                          <CurrencyInput 
+                            value={field.value || ""}
+                            onChange={field.onChange}
+                            placeholder="$15,000"
                           />
                         </FormControl>
                         <FormDescription>
@@ -269,10 +270,10 @@ export function MortgageIncomeForm({
                         <FormItem>
                           <FormLabel>What is your total VESTED RSU balance?</FormLabel>
                           <FormControl>
-                            <Input 
-                              {...field} 
-                              placeholder="Enter vested RSU balance"
-                              type="text"
+                            <CurrencyInput 
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              placeholder="$100,000"
                             />
                           </FormControl>
                           <FormMessage />
