@@ -6,6 +6,7 @@ interface CurrencyInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  showCents?: boolean;
 }
 
 export default function CurrencyInput({
@@ -13,6 +14,7 @@ export default function CurrencyInput({
   onChange,
   placeholder = "$",
   className = "",
+  showCents = false,
 }: CurrencyInputProps) {
   const [displayValue, setDisplayValue] = useState("");
 
@@ -53,8 +55,8 @@ export default function CurrencyInput({
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0,
+      minimumFractionDigits: showCents ? 2 : 0,
+      maximumFractionDigits: showCents ? 2 : 0,
     }).format(num);
   };
 

@@ -83,6 +83,80 @@ export function MortgageIncomeForm({
     onSubmit(data);
   };
   
+  // Calculate monthly income based on form data
+  const calculateMonthlyIncome = () => {
+    const formData = form.getValues();
+    let monthlyIncome = 0;
+    
+    if (selectedIncomeType === "salary-w2") {
+      // Base salary
+      const baseSalary = parseFloat(formData.baseSalary?.replace(/[$,]/g, "") || "0");
+      monthlyIncome += baseSalary / 12;
+      
+      // Additional income based on salary type
+      if (selectedSalaryType === "salary-commission") {
+        const commission = parseFloat(formData.commissionAverage?.replace(/[$,]/g, "") || "0");
+        monthlyIncome += commission / 12;
+      } else if (selectedSalaryType === "salary-bonus") {
+        const bonus = parseFloat(formData.bonusAverage?.replace(/[$,]/g, "") || "0");
+        monthlyIncome += bonus / 12;
+      } else if (selectedSalaryType === "salary-rsu") {
+        // RSUs are typically calculated differently for lending
+        const rsu = parseFloat(formData.vestedRsuBalance?.replace(/[$,]/g, "") || "0");
+        monthlyIncome += (rsu * 0.25) / 12; // 25% of vested balance annually
+      }
+    } else if (selectedIncomeType === "hourly") {
+      const hourlyRate = parseFloat(formData.hourlyRate?.replace(/[$,]/g, "") || "0");
+      const hoursPerWeek = parseFloat(formData.hoursPerWeek || "0");
+      monthlyIncome = (hourlyRate * hoursPerWeek * 52) / 12; // Annual to monthly
+    } else if (selectedIncomeType === "self-employed") {
+      if (selectedBusinessType === "1099-personal" || selectedBusinessType === "1099-business") {
+        const netIncome = parseFloat(formData.netIncome?.replace(/[$,]/g, "") || "0");
+        monthlyIncome = netIncome / 12;
+      } else if (selectedBusinessType === "s-corp") {
+        const w2Income = parseFloat(formData.w2Income?.replace(/[$,]/g, "") || "0");
+        const k1Amount = parseFloat(formData.k1Amount?.replace(/[$,]/g, "") || "0");
+        monthlyIncome = (w2Income + k1Amount) / 12;
+      } else if (selectedBusinessType === "c-corp") {
+        const w2Income = parseFloat(formData.w2Income?.replace(/[$,]/g, "") || "0");
+        const cCorpProfit = parseFloat(formData.cCorpNetProfit?.replace(/[$,]/g, "") || "0");
+        monthlyIncome = (w2Income + cCorpProfit) / 12;
+      }
+    } else if (selectedIncomeType === "retired") {
+      // Social Security with multiplier
+      if (retiredIncomeTypes.includes("social-security")) {
+        const ssIncome = parseFloat(formData.socialSecurityIncome?.replace(/[$,]/g, "") || "0");
+        const multiplier = getIncomeMultiplier("social-security");
+        const factor = multiplier === "1.25x" ? 1.25 : 1.15;
+        monthlyIncome += ssIncome * factor;
+      }
+      
+      // Disability with multiplier
+      if (retiredIncomeTypes.includes("disability")) {
+        const disabilityIncome = parseFloat(formData.disabilityIncome?.replace(/[$,]/g, "") || "0");
+        const multiplier = getIncomeMultiplier("disability");
+        const factor = multiplier === "1.25x" ? 1.25 : 1.15;
+        monthlyIncome += disabilityIncome * factor;
+      }
+      
+      // Pension income
+      if (retiredIncomeTypes.includes("pension")) {
+        const pensionIncome = parseFloat(formData.pensionIncome?.replace(/[$,]/g, "") || "0");
+        monthlyIncome += pensionIncome;
+      }
+      
+      // RMD income
+      if (retiredIncomeTypes.includes("rmd")) {
+        const rmdIncome = parseFloat(formData.rmdIncome?.replace(/[$,]/g, "") || "0");
+        monthlyIncome += rmdIncome;
+      }
+    }
+    
+    return Math.round(monthlyIncome);
+  };
+  
+  const monthlyIncome = calculateMonthlyIncome();
+  
   const getIncomeMultiplier = (incomeType: string) => {
     const loanType = initialData?.loanType?.toLowerCase();
     
@@ -207,7 +281,7 @@ export function MortgageIncomeForm({
                         <CurrencyInput 
                           value={field.value || ""}
                           onChange={field.onChange}
-                          placeholder="$75,000"
+                          placeholder=""
                         />
                       </FormControl>
                       <FormMessage />
@@ -226,7 +300,7 @@ export function MortgageIncomeForm({
                           <CurrencyInput 
                             value={field.value || ""}
                             onChange={field.onChange}
-                            placeholder="$25,000"
+                            placeholder=""
                           />
                         </FormControl>
                         <FormDescription>
@@ -249,7 +323,7 @@ export function MortgageIncomeForm({
                           <CurrencyInput 
                             value={field.value || ""}
                             onChange={field.onChange}
-                            placeholder="$15,000"
+                            placeholder=""
                           />
                         </FormControl>
                         <FormDescription>
@@ -386,10 +460,10 @@ export function MortgageIncomeForm({
                         <FormItem>
                           <FormLabel>What is your 2-year gross average?</FormLabel>
                           <FormControl>
-                            <Input 
-                              {...field} 
-                              placeholder="Enter gross average"
-                              type="text"
+                            <CurrencyInput 
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              placeholder="$120,000"
                             />
                           </FormControl>
                           <FormDescription>
@@ -682,6 +756,23 @@ export function MortgageIncomeForm({
             )}
           </form>
         </Form>
+        
+        {/* Monthly Income Calculation Display */}
+        {monthlyIncome > 0 && (
+          <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="text-center">
+              <h3 className="text-lg font-semibold text-green-800 mb-2">
+                Calculated Monthly Income
+              </h3>
+              <div className="text-3xl font-bold text-green-700">
+                ${monthlyIncome.toLocaleString()}
+              </div>
+              <p className="text-sm text-green-600 mt-1">
+                This is your qualifying monthly income for loan purposes
+              </p>
+            </div>
+          </div>
+        )}
       </CardContent>
       
       <CardFooter className="flex flex-col sm:flex-row gap-4 sm:justify-between">
