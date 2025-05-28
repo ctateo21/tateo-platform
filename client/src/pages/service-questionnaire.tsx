@@ -243,13 +243,14 @@ export default function ServiceQuestionnaire() {
         });
       }
       
-      // If the previous service is mortgage, reset its flow state
+      // If the previous service is mortgage, reset its flow state but keep the data
       if (selectedServices[currentServiceIndex - 1]?.id === 'mortgage') {
         setMortgageFlowState({
           step: 'initial',
           type: 'purchase',
           ownershipType: 'primary' 
         });
+        // Don't clear the formData here - keep the saved answers
       }
     } else {
       // If at the first service, go back to home
