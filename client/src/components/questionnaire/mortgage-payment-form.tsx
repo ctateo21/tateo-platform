@@ -171,7 +171,7 @@ export function MortgagePaymentForm({
                   <span className="font-medium text-blue-900">{propertyInfo.address}</span>
                 </div>
               )}
-              {propertyInfo.zipCode && (
+              {!propertyInfo.address && propertyInfo.zipCode && (
                 <div className="flex justify-between">
                   <span className="text-blue-800">Zip Code:</span>
                   <span className="font-medium text-blue-900">{propertyInfo.zipCode}</span>
