@@ -37,14 +37,7 @@ export default function ServiceQuestionnaire() {
   
   // State for tracking current service being worked on
   const [currentServiceIndex, setCurrentServiceIndex] = useState(0);
-  const [formData, setFormData] = useState<Record<string, any>>({
-    'real-estate': {},
-    'mortgage': {},
-    'insurance': {},
-    'construction': {},
-    'property-management': {},
-    'home-services': {}
-  });
+  const [formData, setFormData] = useState<Record<string, any>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
@@ -191,6 +184,7 @@ export default function ServiceQuestionnaire() {
           // If at the initial step, go back to previous service or home
           if (currentServiceIndex > 0) {
             setCurrentServiceIndex(currentServiceIndex - 1);
+            // IMPORTANT: Don't clear the mortgage form data when going back
           } else {
             navigate("/");
           }
@@ -519,17 +513,23 @@ export default function ServiceQuestionnaire() {
   const handleMortgageInitialSubmit = (data: any) => {
     const { type, ownershipType } = data;
     
+    console.log('Saving mortgage data:', data); // Debug log
+    
     // Scroll to top of page
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
     // Save the form data
-    setFormData(prev => ({
-      ...prev,
-      mortgage: {
-        ...prev.mortgage,
-        ...data
-      }
-    }));
+    setFormData(prev => {
+      const newData = {
+        ...prev,
+        mortgage: {
+          ...prev.mortgage,
+          ...data
+        }
+      };
+      console.log('Updated formData:', newData); // Debug log
+      return newData;
+    });
     
     // Update mortgage flow state to go to property type form
     setMortgageFlowState(prev => ({
@@ -678,7 +678,7 @@ export default function ServiceQuestionnaire() {
           case 'initial':
             console.log('Mortgage form data:', formData.mortgage); // Debug log
             return <MortgageForm 
-              defaultValues={formData.mortgage}
+              defaultValues={formData.mortgage || {}}
               onSubmit={handleMortgageInitialSubmit} 
               onBack={handleBack} 
             />;
