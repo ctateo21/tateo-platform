@@ -63,6 +63,9 @@ export default function ServiceQuestionnaire() {
       [serviceId]: data
     }));
     
+    // Scroll to top of page smoothly
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
     // Move to next service if available
     if (currentServiceIndex < selectedServices.length - 1) {
       setCurrentServiceIndex(currentServiceIndex + 1);
@@ -79,6 +82,9 @@ export default function ServiceQuestionnaire() {
   
   // Go back to previous step or previous service
   const handleBack = () => {
+    // Scroll to top of page smoothly
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
     // If we're in the real estate flow, handle back navigation within the flow
     if (currentService?.id === 'real-estate') {
       switch (realEstateFlowState.step) {
@@ -274,9 +280,56 @@ export default function ServiceQuestionnaire() {
     }
   };
   
-  // Calculate progress
-  const totalSteps = selectedServices.length + 1; // +1 for contact form
-  const currentStep = currentServiceIndex + 1;
+  // Calculate progress - accounting for multi-step flows
+  const calculateTotalSteps = () => {
+    let total = 0;
+    selectedServices.forEach(service => {
+      if (service.id === 'mortgage') {
+        total += 4; // initial, property-type, financing, income
+      } else if (service.id === 'real-estate') {
+        // Variable steps based on selections, but estimate 2-3 steps average
+        total += 3;
+      } else {
+        total += 1; // Other services are single step
+      }
+    });
+    total += 1; // +1 for contact form
+    return total;
+  };
+
+  const calculateCurrentStep = () => {
+    let step = 0;
+    
+    // Count completed services
+    for (let i = 0; i < currentServiceIndex; i++) {
+      const service = selectedServices[i];
+      if (service.id === 'mortgage') {
+        step += 4;
+      } else if (service.id === 'real-estate') {
+        step += 3;
+      } else {
+        step += 1;
+      }
+    }
+    
+    // Add current service progress
+    if (currentService) {
+      if (currentService.id === 'mortgage') {
+        const mortgageSteps = { 'initial': 1, 'property-type': 2, 'financing': 3, 'income': 4 };
+        step += mortgageSteps[mortgageFlowState.step] || 1;
+      } else if (currentService.id === 'real-estate') {
+        // Simplified for real estate - could be more detailed
+        step += 1;
+      } else {
+        step += 1;
+      }
+    }
+    
+    return step;
+  };
+
+  const totalSteps = calculateTotalSteps();
+  const currentStep = calculateCurrentStep();
   const progressPercentage = (currentStep / totalSteps) * 100;
 
   // Track real estate flow
@@ -608,6 +661,7 @@ export default function ServiceQuestionnaire() {
         switch (mortgageFlowState.step) {
           case 'initial':
             return <MortgageForm 
+              formData={formData.mortgage}
               onSubmit={handleMortgageInitialSubmit} 
               onBack={handleBack} 
             />;
@@ -618,6 +672,7 @@ export default function ServiceQuestionnaire() {
                 type: mortgageFlowState.type,
                 ownershipType: mortgageFlowState.ownershipType
               }}
+              formData={formData.mortgage}
               onSubmit={handleMortgagePropertyTypeSubmit}
               onBack={handleBack}
             />;
