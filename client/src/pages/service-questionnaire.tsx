@@ -20,6 +20,7 @@ import MortgagePropertyTypeForm from "@/components/questionnaire/mortgage-proper
 import { MortgageFinancingForm } from "@/components/questionnaire/mortgage-financing-form";
 import { MortgageIncomeForm } from "@/components/questionnaire/mortgage-income-form";
 import { MortgageLiabilitiesForm } from "@/components/questionnaire/mortgage-liabilities-form";
+import { MortgagePaymentForm } from "@/components/questionnaire/mortgage-payment-form";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
 import PropertyManagementForm from "@/components/questionnaire/property-management-form";
@@ -308,7 +309,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'initial' | 'property-type' | 'financing' | 'income' | 'liabilities';
+    step: 'initial' | 'property-type' | 'financing' | 'income' | 'liabilities' | 'payment';
     type: 'purchase' | 'refinance';
     ownershipType: 'primary' | 'secondary' | 'investment';
     propertyType?: string;
@@ -327,7 +328,7 @@ export default function ServiceQuestionnaire() {
     let total = 0;
     selectedServices.forEach(service => {
       if (service.id === 'mortgage') {
-        total += 5; // initial, property-type, financing, income, liabilities
+        total += 6; // initial, property-type, financing, income, liabilities, payment
       } else if (service.id === 'real-estate') {
         total += 3;
       } else {
@@ -345,7 +346,7 @@ export default function ServiceQuestionnaire() {
     for (let i = 0; i < currentServiceIndex; i++) {
       const service = selectedServices[i];
       if (service.id === 'mortgage') {
-        step += 5;
+        step += 6;
       } else if (service.id === 'real-estate') {
         step += 3;
       } else {
@@ -361,7 +362,8 @@ export default function ServiceQuestionnaire() {
           'property-type': 2, 
           'financing': 3, 
           'income': 4,
-          'liabilities': 5
+          'liabilities': 5,
+          'payment': 6
         };
         step += mortgageSteps[mortgageFlowState.step] || 1;
       } else {
@@ -631,6 +633,27 @@ export default function ServiceQuestionnaire() {
     // Scroll to top of page
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
+    // Save the form data
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    // Update mortgage flow state to go to payment calculation
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'payment'
+    }));
+  };
+
+  // Handle mortgage payment form submission
+  const handleMortgagePaymentSubmit = (data: any) => {
+    // Scroll to top of page
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
     // Save the full data
     setFormData(prev => ({
       ...prev,
@@ -786,6 +809,54 @@ export default function ServiceQuestionnaire() {
               onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'income' }))}
               defaultValues={formData.mortgage}
               monthlyIncome={calculatedMonthlyIncome}
+            />;
+
+          case 'payment':
+            // Calculate values for payment form
+            const mortgageData = formData.mortgage || {};
+            let monthlyIncome = 0;
+            let monthlyDebts = 0;
+            
+            // Calculate monthly income
+            if (mortgageData.incomeType === 'salary-w2') {
+              const baseSalary = parseFloat(mortgageData.baseSalary?.replace(/[$,]/g, '') || '0');
+              const commission = parseFloat(mortgageData.commissionAverage?.replace(/[$,]/g, '') || '0');
+              const bonus = parseFloat(mortgageData.bonusAverage?.replace(/[$,]/g, '') || '0');
+              const overtime = parseFloat(mortgageData.overtimeAverage?.replace(/[$,]/g, '') || '0');
+              monthlyIncome = (baseSalary + commission + bonus + overtime) / 12;
+            } else if (mortgageData.incomeType === 'hourly-w2') {
+              const hourlyWage = parseFloat(mortgageData.hourlyWage?.replace(/[$,]/g, '') || '0');
+              const hoursPerWeek = parseFloat(mortgageData.hoursPerWeek || '0');
+              monthlyIncome = (hourlyWage * hoursPerWeek * 52) / 12;
+            } else if (mortgageData.incomeType === 'self-employed') {
+              const businessIncome = parseFloat(mortgageData.businessIncome?.replace(/[$,]/g, '') || '0');
+              const ownershipPercentage = parseFloat(mortgageData.ownershipPercentage || '100') / 100;
+              monthlyIncome = (businessIncome * ownershipPercentage) / 12;
+            }
+
+            // Calculate monthly debts
+            if (mortgageData.inputMethod === 'manual' && mortgageData.manualDebts) {
+              monthlyDebts = mortgageData.manualDebts.reduce((sum: number, debt: any) => {
+                const payment = parseFloat(debt.monthlyPayment?.replace(/[$,]/g, '') || '0');
+                return sum + payment;
+              }, 0);
+            } else if (mortgageData.plaidConnected) {
+              monthlyDebts = 810; // Simulated Plaid data
+            }
+            
+            return <MortgagePaymentForm
+              onSubmit={handleMortgagePaymentSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'liabilities' }))}
+              defaultValues={formData.mortgage}
+              propertyInfo={{
+                address: mortgageData.propertyAddress,
+                zipCode: mortgageData.zipCode,
+                purchasePrice: mortgageData.purchasePrice,
+                estimatedValue: mortgageData.estimatedValue,
+                propertyValue: mortgageData.propertyValue
+              }}
+              monthlyIncome={monthlyIncome}
+              monthlyDebts={monthlyDebts}
             />;
             
           default:
