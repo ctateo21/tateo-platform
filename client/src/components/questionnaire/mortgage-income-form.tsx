@@ -11,6 +11,7 @@ import { ArrowLeft, Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import CurrencyInput from "@/components/questionnaire/currency-input";
+import NumberInput from "@/components/questionnaire/number-input";
 
 interface MortgageIncomeFormProps {
   initialData?: {

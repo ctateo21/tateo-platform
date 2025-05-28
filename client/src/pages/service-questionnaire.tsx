@@ -640,6 +640,7 @@ export default function ServiceQuestionnaire() {
                 ownershipType: mortgageFlowState.ownershipType,
                 loanType: mortgageFlowState.loanType
               }}
+              formData={formData.mortgage}
               onSubmit={handleMortgageIncomeSubmit}
               onBack={handleBack}
             />;
