@@ -56,6 +56,7 @@ export function MortgagePaymentForm({
 
   // Determine property value from available data
   const getPropertyValue = () => {
+    console.log('Getting property value from:', propertyInfo); // Debug log
     if (propertyInfo.purchasePrice) {
       return parseFloat(propertyInfo.purchasePrice.replace(/[$,]/g, '')) || 0;
     }

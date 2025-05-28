@@ -814,6 +814,7 @@ export default function ServiceQuestionnaire() {
           case 'payment':
             // Calculate values for payment form
             const mortgageData = formData.mortgage || {};
+            console.log('Payment step - mortgage data:', mortgageData); // Debug log
             let monthlyIncome = 0;
             let monthlyDebts = 0;
             
