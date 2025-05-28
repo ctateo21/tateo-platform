@@ -191,11 +191,12 @@ export default function ServiceQuestionnaire() {
           break;
           
         case 'property-type':
-          // Go back to initial mortgage form
+          // Go back to initial mortgage form - don't lose the saved data
           setMortgageFlowState(prev => ({
             ...prev,
             step: 'initial'
           }));
+          // The formData should persist automatically
           break;
           
         case 'financing':
@@ -676,6 +677,7 @@ export default function ServiceQuestionnaire() {
         // Handle mortgage flow based on the current step
         switch (mortgageFlowState.step) {
           case 'initial':
+            console.log('All formData:', formData); // Debug log
             console.log('Mortgage form data:', formData.mortgage); // Debug log
             return <MortgageForm 
               defaultValues={formData.mortgage || {}}
