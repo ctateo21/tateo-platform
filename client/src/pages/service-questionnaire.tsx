@@ -508,6 +508,9 @@ export default function ServiceQuestionnaire() {
   const handleMortgageInitialSubmit = (data: any) => {
     const { type, ownershipType } = data;
     
+    // Scroll to top of page
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
     // Save the form data
     setFormData(prev => ({
       ...prev,
@@ -528,6 +531,9 @@ export default function ServiceQuestionnaire() {
   
   // Handle mortgage property type form submission
   const handleMortgagePropertyTypeSubmit = (data: any) => {
+    // Scroll to top of page
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
     // Save the form data
     setFormData(prev => ({
       ...prev,
@@ -547,6 +553,9 @@ export default function ServiceQuestionnaire() {
   
   // Handle mortgage financing form submission
   const handleMortgageFinancingSubmit = (data: any) => {
+    // Scroll to top of page
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
     // Save the form data
     setFormData(prev => ({
       ...prev,
@@ -668,7 +677,6 @@ export default function ServiceQuestionnaire() {
                 type: mortgageFlowState.type,
                 ownershipType: mortgageFlowState.ownershipType
               }}
-              defaultValues={formData.mortgage}
               onSubmit={handleMortgagePropertyTypeSubmit}
               onBack={handleBack}
             />;

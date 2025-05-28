@@ -19,7 +19,7 @@ interface MortgageFormProps {
   defaultValues?: any;
 }
 
-export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
+export default function MortgageForm({ onSubmit, onBack, defaultValues: savedValues }: MortgageFormProps) {
   // State for address/zip results
   const [addressResult, setAddressResult] = useState<{
     zestimate?: number;
@@ -43,7 +43,7 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
   // Selected place from Google Maps Places API
   const [selectedPlace, setSelectedPlace] = useState<any>(null);
   
-  // Form default values
+  // Form default values - merge saved values with defaults
   const defaultValues = {
     locationType: "address" as const,
     propertyAddress: "",
@@ -53,6 +53,7 @@ export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {
     type: "purchase" as const,
     ownershipType: "primary" as const,
     propertyValue: "",
+    ...savedValues, // Override with any saved values
   };
   
   // Handle place selection from address input
