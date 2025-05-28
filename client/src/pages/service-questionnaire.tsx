@@ -280,6 +280,31 @@ export default function ServiceQuestionnaire() {
     }
   };
   
+  // Track real estate flow
+  const [realEstateFlowState, setRealEstateFlowState] = useState({
+    step: 'initial', // initial, purchase-method, buy-type, sell-type, cash-purchase, sell-property, mortgage
+    intent: '',      // buy, sell, both
+    purchaseMethod: '', // cash, mortgage
+    sellType: '',    // primary, 1031exchange
+    buyType: ''      // primary, other
+  });
+  
+  // Track mortgage flow with proper typing
+  const [mortgageFlowState, setMortgageFlowState] = useState<{
+    step: 'initial' | 'property-type' | 'financing' | 'income';
+    type: 'purchase' | 'refinance';
+    ownershipType: 'primary' | 'secondary' | 'investment';
+    propertyType?: string;
+    creditScore?: string;
+    loanType?: string;
+    nonQMType?: string;
+    incomeType?: string;
+  }>({
+    step: 'initial',
+    type: 'purchase',
+    ownershipType: 'primary',
+  });
+
   // Calculate progress - accounting for multi-step flows
   const calculateTotalSteps = () => {
     let total = 0;
@@ -287,10 +312,9 @@ export default function ServiceQuestionnaire() {
       if (service.id === 'mortgage') {
         total += 4; // initial, property-type, financing, income
       } else if (service.id === 'real-estate') {
-        // Variable steps based on selections, but estimate 2-3 steps average
         total += 3;
       } else {
-        total += 1; // Other services are single step
+        total += 1;
       }
     });
     total += 1; // +1 for contact form
@@ -317,9 +341,6 @@ export default function ServiceQuestionnaire() {
       if (currentService.id === 'mortgage') {
         const mortgageSteps = { 'initial': 1, 'property-type': 2, 'financing': 3, 'income': 4 };
         step += mortgageSteps[mortgageFlowState.step] || 1;
-      } else if (currentService.id === 'real-estate') {
-        // Simplified for real estate - could be more detailed
-        step += 1;
       } else {
         step += 1;
       }
@@ -331,31 +352,6 @@ export default function ServiceQuestionnaire() {
   const totalSteps = calculateTotalSteps();
   const currentStep = calculateCurrentStep();
   const progressPercentage = (currentStep / totalSteps) * 100;
-
-  // Track real estate flow
-  const [realEstateFlowState, setRealEstateFlowState] = useState({
-    step: 'initial', // initial, purchase-method, buy-type, sell-type, cash-purchase, sell-property, mortgage
-    intent: '',      // buy, sell, both
-    purchaseMethod: '', // cash, mortgage
-    sellType: '',    // primary, 1031exchange
-    buyType: ''      // primary, other
-  });
-  
-  // Track mortgage flow with proper typing
-  const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'initial' | 'property-type' | 'financing' | 'income';
-    type: 'purchase' | 'refinance';
-    ownershipType: 'primary' | 'secondary' | 'investment';
-    propertyType?: string;
-    creditScore?: string;
-    loanType?: string;
-    nonQMType?: string;
-    incomeType?: string;
-  }>({
-    step: 'initial',
-    type: 'purchase',
-    ownershipType: 'primary',
-  });
   
   // Handle initial form data for real estate
   const handleRealEstateInitialSubmit = (data: any) => {
@@ -661,7 +657,6 @@ export default function ServiceQuestionnaire() {
         switch (mortgageFlowState.step) {
           case 'initial':
             return <MortgageForm 
-              formData={formData.mortgage}
               onSubmit={handleMortgageInitialSubmit} 
               onBack={handleBack} 
             />;
@@ -672,7 +667,6 @@ export default function ServiceQuestionnaire() {
                 type: mortgageFlowState.type,
                 ownershipType: mortgageFlowState.ownershipType
               }}
-              formData={formData.mortgage}
               onSubmit={handleMortgagePropertyTypeSubmit}
               onBack={handleBack}
             />;
