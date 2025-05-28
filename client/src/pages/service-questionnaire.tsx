@@ -45,6 +45,9 @@ export default function ServiceQuestionnaire() {
   const currentService = selectedServices[currentServiceIndex];
   
   useEffect(() => {
+    // Scroll to top when component mounts (when starting questionnaire)
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
     // Redirect if no services selected
     if (selectedServices.length === 0 && !submitting && !submitSuccess) {
       navigate("/");

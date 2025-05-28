@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -29,6 +29,13 @@ export default function QuestionnaireForm<T extends z.ZodType>({
     resolver: zodResolver(schema),
     defaultValues,
   });
+
+  // Update form values when defaultValues change (for back button functionality)
+  useEffect(() => {
+    if (defaultValues) {
+      form.reset(defaultValues);
+    }
+  }, [defaultValues, form]);
 
   return (
     <Form {...form}>
