@@ -140,6 +140,37 @@ export const mortgageFinancingSchema = z.object({
   nonQMType: z.string().optional(),
 });
 
+export const mortgageIncomeSchema = z.object({
+  // Main income type
+  incomeType: z.enum(["salary-w2", "hourly", "self-employed", "retired"]),
+  
+  // Salary/W2 specific fields
+  salaryType: z.enum(["salary-only", "salary-commission", "salary-bonus", "salary-rsu"]).optional(),
+  baseSalary: z.string().optional(),
+  commissionAverage: z.string().optional(),
+  bonusAverage: z.string().optional(),
+  vestedRsuBalance: z.string().optional(),
+  
+  // Hourly specific fields
+  hourlyRate: z.string().optional(),
+  hoursPerWeek: z.string().optional(),
+  
+  // Self-employed specific fields
+  businessType: z.enum(["1099-personal", "1099-business", "s-corp", "c-corp"]).optional(),
+  grossAverage: z.string().optional(),
+  netIncome: z.string().optional(),
+  w2Income: z.string().optional(),
+  k1Amount: z.string().optional(),
+  cCorpNetProfit: z.string().optional(),
+  
+  // Retired specific fields (can select multiple)
+  socialSecurityIncome: z.string().optional(),
+  disabilityIncome: z.string().optional(),
+  disabilityType: z.enum(["social-security", "va", "other"]).optional(),
+  pensionIncome: z.string().optional(),
+  rmdIncome: z.string().optional(),
+});
+
 export const insuranceFormSchema = z.object({
   type: z.enum(["auto", "property", "other"]),
   currentProvider: z.string().optional(),
@@ -196,6 +227,7 @@ export type RealEstateFormData = z.infer<typeof realEstateFormSchema>;
 export type MortgageFormData = z.infer<typeof mortgageFormSchema>;
 export type MortgagePropertyTypeData = z.infer<typeof mortgagePropertyTypeSchema>;
 export type MortgageFinancingData = z.infer<typeof mortgageFinancingSchema>;
+export type MortgageIncomeData = z.infer<typeof mortgageIncomeSchema>;
 export type InsuranceFormData = z.infer<typeof insuranceFormSchema>;
 export type ConstructionFormData = z.infer<typeof constructionFormSchema>;
 export type PropertyManagementFormData = z.infer<typeof propertyManagementFormSchema>;

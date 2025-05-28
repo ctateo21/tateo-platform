@@ -1,0 +1,659 @@
+import { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { mortgageIncomeSchema, type MortgageIncomeData } from "@shared/schema";
+import { Button } from "@/components/ui/button";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { ArrowLeft, Info } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
+
+interface MortgageIncomeFormProps {
+  initialData?: {
+    type: "purchase" | "refinance";
+    ownershipType: "primary" | "secondary" | "investment";
+    loanType?: string;
+  };
+  onSubmit: (data: MortgageIncomeData) => void;
+  onBack: () => void;
+}
+
+export function MortgageIncomeForm({
+  initialData,
+  onSubmit,
+  onBack
+}: MortgageIncomeFormProps) {
+  const [selectedIncomeType, setSelectedIncomeType] = useState<string>("");
+  const [selectedSalaryType, setSelectedSalaryType] = useState<string>("");
+  const [selectedBusinessType, setSelectedBusinessType] = useState<string>("");
+  const [selectedDisabilityType, setSelectedDisabilityType] = useState<string>("");
+  const [retiredIncomeTypes, setRetiredIncomeTypes] = useState<string[]>([]);
+  
+  const form = useForm<MortgageIncomeData>({
+    resolver: zodResolver(mortgageIncomeSchema),
+    defaultValues: {
+      incomeType: undefined,
+      salaryType: undefined,
+      baseSalary: undefined,
+      commissionAverage: undefined,
+      bonusAverage: undefined,
+      vestedRsuBalance: undefined,
+      hourlyRate: undefined,
+      hoursPerWeek: undefined,
+      businessType: undefined,
+      grossAverage: undefined,
+      netIncome: undefined,
+      w2Income: undefined,
+      k1Amount: undefined,
+      cCorpNetProfit: undefined,
+      socialSecurityIncome: undefined,
+      disabilityIncome: undefined,
+      disabilityType: undefined,
+      pensionIncome: undefined,
+      rmdIncome: undefined,
+    }
+  });
+  
+  const watchIncomeType = form.watch("incomeType");
+  const watchSalaryType = form.watch("salaryType");
+  const watchBusinessType = form.watch("businessType");
+  const watchDisabilityType = form.watch("disabilityType");
+  
+  useEffect(() => {
+    setSelectedIncomeType(watchIncomeType);
+  }, [watchIncomeType]);
+  
+  useEffect(() => {
+    setSelectedSalaryType(watchSalaryType || "");
+  }, [watchSalaryType]);
+  
+  useEffect(() => {
+    setSelectedBusinessType(watchBusinessType || "");
+  }, [watchBusinessType]);
+  
+  useEffect(() => {
+    setSelectedDisabilityType(watchDisabilityType || "");
+  }, [watchDisabilityType]);
+  
+  const handleSubmit = (data: MortgageIncomeData) => {
+    onSubmit(data);
+  };
+  
+  const getIncomeMultiplier = (incomeType: string) => {
+    const loanType = initialData?.loanType?.toLowerCase();
+    
+    if (incomeType === "social-security" || incomeType === "disability") {
+      if (loanType === "conventional" || loanType === "usda") {
+        return "1.25x";
+      } else if (loanType === "fha" || loanType === "va") {
+        return "1.15x";
+      } else {
+        return "1.15x";
+      }
+    }
+    return null;
+  };
+  
+  const getFormTitle = () => {
+    const typeText = initialData?.type === "purchase" ? "Purchase" : "Refinance";
+    let ownershipText = "Property";
+    
+    if (initialData?.ownershipType) {
+      ownershipText = initialData.ownershipType.charAt(0).toUpperCase() + initialData.ownershipType.slice(1);
+    }
+    
+    return `${ownershipText} ${typeText} - Income Information`;
+  };
+  
+  const toggleRetiredIncomeType = (incomeType: string) => {
+    setRetiredIncomeTypes(prev => {
+      if (prev.includes(incomeType)) {
+        return prev.filter(type => type !== incomeType);
+      } else {
+        return [...prev, incomeType];
+      }
+    });
+  };
+  
+  return (
+    <Card className="w-full max-w-4xl mx-auto">
+      <CardHeader>
+        <CardTitle className="text-2xl font-bold">{getFormTitle()}</CardTitle>
+        <CardDescription>
+          Tell us about your income to help us find the best loan options.
+        </CardDescription>
+      </CardHeader>
+      
+      <CardContent>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-6">
+            <FormField
+              control={form.control}
+              name="incomeType"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>What type of income do you receive?</FormLabel>
+                  <Select 
+                    onValueChange={field.onChange} 
+                    defaultValue={field.value}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select your income type" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="salary-w2">Salary or W2</SelectItem>
+                      <SelectItem value="hourly">Hourly</SelectItem>
+                      <SelectItem value="self-employed">Self Employed</SelectItem>
+                      <SelectItem value="retired">Retired</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
+            {/* Salary/W2 Income Section */}
+            {selectedIncomeType === "salary-w2" && (
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="salaryType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>What type of salary income?</FormLabel>
+                      <Select 
+                        onValueChange={field.onChange} 
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select salary type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="salary-only">Salary only</SelectItem>
+                          <SelectItem value="salary-commission">Salary plus commission</SelectItem>
+                          <SelectItem value="salary-bonus">Salary plus bonus</SelectItem>
+                          <SelectItem value="salary-rsu">Salary plus RSUs</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                {selectedSalaryType === "salary-commission" && (
+                  <FormField
+                    control={form.control}
+                    name="commissionAverage"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>What is your 2-year average on your commission?</FormLabel>
+                        <FormControl>
+                          <Input 
+                            {...field} 
+                            placeholder="Enter commission amount"
+                            type="text"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          If the last year is lower than 2 years ago, use only the monthly average for last year.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+                
+                {selectedSalaryType === "salary-bonus" && (
+                  <FormField
+                    control={form.control}
+                    name="bonusAverage"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>What is your 2-year average on your bonus?</FormLabel>
+                        <FormControl>
+                          <Input 
+                            {...field} 
+                            placeholder="Enter bonus amount"
+                            type="text"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          If the last year is lower than 2 years ago, use only the monthly average for last year.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+                
+                {selectedSalaryType === "salary-rsu" && (
+                  <FormField
+                    control={form.control}
+                    name="vestedRsuBalance"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>What is your total VESTED RSU balance?</FormLabel>
+                        <FormControl>
+                          <Input 
+                            {...field} 
+                            placeholder="Enter vested RSU balance"
+                            type="text"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
+              </div>
+            )}
+            
+            {/* Hourly Income Section */}
+            {selectedIncomeType === "hourly" && (
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="hourlyRate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>What is your hourly rate?</FormLabel>
+                      <FormControl>
+                        <Input 
+                          {...field} 
+                          placeholder="Enter hourly rate"
+                          type="text"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={form.control}
+                  name="hoursPerWeek"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>How many hours per week?</FormLabel>
+                      <FormControl>
+                        <Input 
+                          {...field} 
+                          placeholder="Enter hours per week"
+                          type="text"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Note: Less than 35 hours is part time. Over 35 is full time.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
+            
+            {/* Self-Employed Income Section */}
+            {selectedIncomeType === "self-employed" && (
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="businessType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>What type of business structure?</FormLabel>
+                      <Select 
+                        onValueChange={field.onChange} 
+                        defaultValue={field.value}
+                      >
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select business type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="1099-personal">1099 or Schedule C in Personal name</SelectItem>
+                          <SelectItem value="1099-business">1099 or Schedule C in Business name</SelectItem>
+                          <SelectItem value="s-corp">S Corp</SelectItem>
+                          <SelectItem value="c-corp">C Corp</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                {(selectedBusinessType === "1099-personal" || selectedBusinessType === "1099-business") && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="grossAverage"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>What is your 2-year gross average?</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              placeholder="Enter gross average"
+                              type="text"
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            If the last year is lower than 2 years ago, use only the monthly average for last year.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    
+                    <FormField
+                      control={form.control}
+                      name="netIncome"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>What is the NET on your schedule C tax return (Schedule C line 31)?</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              placeholder="Enter net income"
+                              type="text"
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            If the last year is lower than 2 years ago, use only the monthly average for last year. We are using 100% ownership in the business.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+                
+                {selectedBusinessType === "s-corp" && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="w2Income"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>What is your W2 income from S Corp (line 7 from 1120-S tax form)?</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              placeholder="Enter W2 income"
+                              type="text"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    
+                    <FormField
+                      control={form.control}
+                      name="k1Amount"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>What is your K1 amount?</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              placeholder="Enter K1 amount"
+                              type="text"
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            We are using 100% ownership in the business.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+                
+                {selectedBusinessType === "c-corp" && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="w2Income"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>What is your W2 income from C Corp?</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              placeholder="Enter W2 income"
+                              type="text"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    
+                    <FormField
+                      control={form.control}
+                      name="cCorpNetProfit"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>What is the C Corp net profit (line 30 from 1120 tax form)?</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              placeholder="Enter C Corp net profit"
+                              type="text"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+              </div>
+            )}
+            
+            {/* Retired Income Section */}
+            {selectedIncomeType === "retired" && (
+              <div className="space-y-4">
+                <div className="space-y-3">
+                  <FormLabel>Select all that apply (you can choose more than one):</FormLabel>
+                  
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="social-security"
+                        checked={retiredIncomeTypes.includes("social-security")}
+                        onCheckedChange={() => toggleRetiredIncomeType("social-security")}
+                      />
+                      <label htmlFor="social-security" className="text-sm font-medium">
+                        Social Security Income
+                      </label>
+                    </div>
+                    
+                    {retiredIncomeTypes.includes("social-security") && (
+                      <FormField
+                        control={form.control}
+                        name="socialSecurityIncome"
+                        render={({ field }) => (
+                          <FormItem className="ml-6">
+                            <FormLabel>Social Security Income Amount</FormLabel>
+                            <FormControl>
+                              <Input 
+                                {...field} 
+                                placeholder="Enter social security income"
+                                type="text"
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {getIncomeMultiplier("social-security") && (
+                                <>Income will be increased by {getIncomeMultiplier("social-security")} for loan qualification.</>
+                              )}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                    
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="disability"
+                        checked={retiredIncomeTypes.includes("disability")}
+                        onCheckedChange={() => toggleRetiredIncomeType("disability")}
+                      />
+                      <label htmlFor="disability" className="text-sm font-medium">
+                        Disability Income
+                      </label>
+                    </div>
+                    
+                    {retiredIncomeTypes.includes("disability") && (
+                      <>
+                        <FormField
+                          control={form.control}
+                          name="disabilityType"
+                          render={({ field }) => (
+                            <FormItem className="ml-6">
+                              <FormLabel>What type of disability income?</FormLabel>
+                              <Select 
+                                onValueChange={field.onChange} 
+                                defaultValue={field.value}
+                              >
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select disability type" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="social-security">Social Security Disability</SelectItem>
+                                  <SelectItem value="va">VA Disability</SelectItem>
+                                  <SelectItem value="other">Other</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        
+                        <FormField
+                          control={form.control}
+                          name="disabilityIncome"
+                          render={({ field }) => (
+                            <FormItem className="ml-6">
+                              <FormLabel>Disability Income Amount</FormLabel>
+                              <FormControl>
+                                <Input 
+                                  {...field} 
+                                  placeholder="Enter disability income"
+                                  type="text"
+                                />
+                              </FormControl>
+                              <FormDescription>
+                                {getIncomeMultiplier("disability") && (
+                                  <>Income will be increased by {getIncomeMultiplier("disability")} for loan qualification.</>
+                                )}
+                              </FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </>
+                    )}
+                    
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="pension"
+                        checked={retiredIncomeTypes.includes("pension")}
+                        onCheckedChange={() => toggleRetiredIncomeType("pension")}
+                      />
+                      <label htmlFor="pension" className="text-sm font-medium">
+                        Pension Income
+                      </label>
+                    </div>
+                    
+                    {retiredIncomeTypes.includes("pension") && (
+                      <FormField
+                        control={form.control}
+                        name="pensionIncome"
+                        render={({ field }) => (
+                          <FormItem className="ml-6">
+                            <FormLabel>Pension Income Amount</FormLabel>
+                            <FormControl>
+                              <Input 
+                                {...field} 
+                                placeholder="Enter pension income"
+                                type="text"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                    
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="rmd"
+                        checked={retiredIncomeTypes.includes("rmd")}
+                        onCheckedChange={() => toggleRetiredIncomeType("rmd")}
+                      />
+                      <label htmlFor="rmd" className="text-sm font-medium">
+                        Required Minimum Distribution from Retirement Accounts
+                      </label>
+                    </div>
+                    
+                    {retiredIncomeTypes.includes("rmd") && (
+                      <FormField
+                        control={form.control}
+                        name="rmdIncome"
+                        render={({ field }) => (
+                          <FormItem className="ml-6">
+                            <FormLabel>RMD Income Amount</FormLabel>
+                            <FormControl>
+                              <Input 
+                                {...field} 
+                                placeholder="Enter RMD income"
+                                type="text"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </form>
+        </Form>
+      </CardContent>
+      
+      <CardFooter className="flex flex-col sm:flex-row gap-4 sm:justify-between">
+        <Button 
+          variant="outline" 
+          type="button"
+          onClick={onBack}
+          className="w-full sm:w-auto"
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" /> Back
+        </Button>
+        
+        <Button 
+          type="button"
+          onClick={form.handleSubmit(handleSubmit)}
+          className="w-full sm:w-auto"
+        >
+          Continue
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}

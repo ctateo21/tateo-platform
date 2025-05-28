@@ -18,6 +18,7 @@ import SellPropertyForm from "@/components/questionnaire/sell-property-form";
 import MortgageForm from "@/components/questionnaire/mortgage-form";
 import MortgagePropertyTypeForm from "@/components/questionnaire/mortgage-property-type-form";
 import { MortgageFinancingForm } from "@/components/questionnaire/mortgage-financing-form";
+import { MortgageIncomeForm } from "@/components/questionnaire/mortgage-income-form";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
 import PropertyManagementForm from "@/components/questionnaire/property-management-form";
@@ -195,6 +196,14 @@ export default function ServiceQuestionnaire() {
           }));
           break;
           
+        case 'income':
+          // Go back to financing form
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'financing'
+          }));
+          break;
+          
         default:
           // Default to initial
           setMortgageFlowState({
@@ -281,13 +290,14 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'initial' | 'property-type' | 'financing';
+    step: 'initial' | 'property-type' | 'financing' | 'income';
     type: 'purchase' | 'refinance';
     ownershipType: 'primary' | 'secondary' | 'investment';
     propertyType?: string;
     creditScore?: string;
     loanType?: string;
     nonQMType?: string;
+    incomeType?: string;
   }>({
     step: 'initial',
     type: 'purchase',
@@ -488,6 +498,27 @@ export default function ServiceQuestionnaire() {
   
   // Handle mortgage financing form submission
   const handleMortgageFinancingSubmit = (data: any) => {
+    // Save the form data
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    // Update mortgage flow state to go to income form
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'income',
+      creditScore: data.creditScore,
+      loanType: data.loanType,
+      nonQMType: data.nonQMType
+    }));
+  };
+  
+  // Handle mortgage income form submission
+  const handleMortgageIncomeSubmit = (data: any) => {
     // Save the full data
     setFormData(prev => ({
       ...prev,
@@ -599,6 +630,17 @@ export default function ServiceQuestionnaire() {
                 propertyType: mortgageFlowState.propertyType
               }}
               onSubmit={handleMortgageFinancingSubmit}
+              onBack={handleBack}
+            />;
+            
+          case 'income':
+            return <MortgageIncomeForm
+              initialData={{
+                type: mortgageFlowState.type,
+                ownershipType: mortgageFlowState.ownershipType,
+                loanType: mortgageFlowState.loanType
+              }}
+              onSubmit={handleMortgageIncomeSubmit}
               onBack={handleBack}
             />;
             
