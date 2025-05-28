@@ -576,10 +576,11 @@ export function MortgageIncomeForm({
                         <FormItem>
                           <FormLabel>What is your W2 income from C Corp?</FormLabel>
                           <FormControl>
-                            <Input 
-                              {...field} 
-                              placeholder="Enter W2 income"
-                              type="text"
+                            <CurrencyInput 
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              placeholder="$85,000"
+                              showCents={false}
                             />
                           </FormControl>
                           <FormMessage />
@@ -594,10 +595,11 @@ export function MortgageIncomeForm({
                         <FormItem>
                           <FormLabel>What is the C Corp net profit (line 30 from 1120 tax form)?</FormLabel>
                           <FormControl>
-                            <Input 
-                              {...field} 
-                              placeholder="Enter C Corp net profit"
-                              type="text"
+                            <CurrencyInput 
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              placeholder="$25,000"
+                              showCents={false}
                             />
                           </FormControl>
                           <FormMessage />
@@ -635,10 +637,11 @@ export function MortgageIncomeForm({
                           <FormItem className="ml-6">
                             <FormLabel>Social Security Income Amount</FormLabel>
                             <FormControl>
-                              <Input 
-                                {...field} 
-                                placeholder="Enter social security income"
-                                type="text"
+                              <CurrencyInput 
+                                value={field.value || ""}
+                                onChange={field.onChange}
+                                placeholder="$2,500"
+                                showCents={false}
                               />
                             </FormControl>
                             <FormDescription>
@@ -698,10 +701,11 @@ export function MortgageIncomeForm({
                             <FormItem className="ml-6">
                               <FormLabel>Disability Income Amount</FormLabel>
                               <FormControl>
-                                <Input 
-                                  {...field} 
-                                  placeholder="Enter disability income"
-                                  type="text"
+                                <CurrencyInput 
+                                  value={field.value || ""}
+                                  onChange={field.onChange}
+                                  placeholder="$1,800"
+                                  showCents={false}
                                 />
                               </FormControl>
                               <FormDescription>
@@ -735,10 +739,11 @@ export function MortgageIncomeForm({
                           <FormItem className="ml-6">
                             <FormLabel>Pension Income Amount</FormLabel>
                             <FormControl>
-                              <Input 
-                                {...field} 
-                                placeholder="Enter pension income"
-                                type="text"
+                              <CurrencyInput 
+                                value={field.value || ""}
+                                onChange={field.onChange}
+                                placeholder="$3,200"
+                                showCents={false}
                               />
                             </FormControl>
                             <FormMessage />
@@ -766,10 +771,11 @@ export function MortgageIncomeForm({
                           <FormItem className="ml-6">
                             <FormLabel>RMD Income Amount</FormLabel>
                             <FormControl>
-                              <Input 
-                                {...field} 
-                                placeholder="Enter RMD income"
-                                type="text"
+                              <CurrencyInput 
+                                value={field.value || ""}
+                                onChange={field.onChange}
+                                placeholder="$4,500"
+                                showCents={false}
                               />
                             </FormControl>
                             <FormMessage />
