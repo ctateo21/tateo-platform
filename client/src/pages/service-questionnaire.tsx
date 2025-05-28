@@ -19,6 +19,7 @@ import MortgageForm from "@/components/questionnaire/mortgage-form";
 import MortgagePropertyTypeForm from "@/components/questionnaire/mortgage-property-type-form";
 import { MortgageFinancingForm } from "@/components/questionnaire/mortgage-financing-form";
 import { MortgageIncomeForm } from "@/components/questionnaire/mortgage-income-form";
+import { MortgageLiabilitiesForm } from "@/components/questionnaire/mortgage-liabilities-form";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
 import PropertyManagementForm from "@/components/questionnaire/property-management-form";
@@ -307,7 +308,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'initial' | 'property-type' | 'financing' | 'income';
+    step: 'initial' | 'property-type' | 'financing' | 'income' | 'liabilities';
     type: 'purchase' | 'refinance';
     ownershipType: 'primary' | 'secondary' | 'investment';
     propertyType?: string;
@@ -326,7 +327,7 @@ export default function ServiceQuestionnaire() {
     let total = 0;
     selectedServices.forEach(service => {
       if (service.id === 'mortgage') {
-        total += 4; // initial, property-type, financing, income
+        total += 5; // initial, property-type, financing, income, liabilities
       } else if (service.id === 'real-estate') {
         total += 3;
       } else {
@@ -344,7 +345,7 @@ export default function ServiceQuestionnaire() {
     for (let i = 0; i < currentServiceIndex; i++) {
       const service = selectedServices[i];
       if (service.id === 'mortgage') {
-        step += 4;
+        step += 5;
       } else if (service.id === 'real-estate') {
         step += 3;
       } else {
@@ -355,7 +356,13 @@ export default function ServiceQuestionnaire() {
     // Add current service progress
     if (currentService) {
       if (currentService.id === 'mortgage') {
-        const mortgageSteps = { 'initial': 1, 'property-type': 2, 'financing': 3, 'income': 4 };
+        const mortgageSteps = { 
+          'initial': 1, 
+          'property-type': 2, 
+          'financing': 3, 
+          'income': 4,
+          'liabilities': 5
+        };
         step += mortgageSteps[mortgageFlowState.step] || 1;
       } else {
         step += 1;
@@ -599,6 +606,31 @@ export default function ServiceQuestionnaire() {
   
   // Handle mortgage income form submission
   const handleMortgageIncomeSubmit = (data: any) => {
+    // Scroll to top of page
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Save the form data
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    // Update mortgage flow state to go to liabilities form
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'liabilities',
+      incomeType: data.incomeType
+    }));
+  };
+
+  // Handle mortgage liabilities form submission
+  const handleMortgageLiabilitiesSubmit = (data: any) => {
+    // Scroll to top of page
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
     // Save the full data
     setFormData(prev => ({
       ...prev,
@@ -726,6 +758,13 @@ export default function ServiceQuestionnaire() {
               formData={formData.mortgage}
               onSubmit={handleMortgageIncomeSubmit}
               onBack={handleBack}
+            />;
+            
+          case 'liabilities':
+            return <MortgageLiabilitiesForm
+              onSubmit={handleMortgageLiabilitiesSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'income' }))}
+              defaultValues={formData.mortgage}
             />;
             
           default:
