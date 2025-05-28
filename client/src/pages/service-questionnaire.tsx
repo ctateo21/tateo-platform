@@ -675,6 +675,7 @@ export default function ServiceQuestionnaire() {
         // Handle mortgage flow based on the current step
         switch (mortgageFlowState.step) {
           case 'initial':
+            console.log('Mortgage form data:', formData.mortgage); // Debug log
             return <MortgageForm 
               defaultValues={formData.mortgage}
               onSubmit={handleMortgageInitialSubmit} 

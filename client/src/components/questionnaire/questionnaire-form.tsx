@@ -32,8 +32,11 @@ export default function QuestionnaireForm<T extends z.ZodType>({
 
   // Update form values when defaultValues change (for back button functionality)
   useEffect(() => {
-    if (defaultValues) {
-      form.reset(defaultValues);
+    if (defaultValues && Object.keys(defaultValues).length > 0) {
+      // Use setTimeout to ensure the form is ready
+      setTimeout(() => {
+        form.reset(defaultValues);
+      }, 0);
     }
   }, [defaultValues, form]);
 
