@@ -215,16 +215,21 @@ export function MortgagePaymentForm({
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {propertyInfo.address && propertyInfo.address.trim() && (
+              {/* Show address from previous steps - check all possible sources */}
+              {(propertyInfo.address && propertyInfo.address.trim()) ? (
                 <div className="flex justify-between">
                   <span className="text-blue-800">Address:</span>
                   <span className="font-medium text-blue-900">{propertyInfo.address}</span>
                 </div>
-              )}
-              {(!propertyInfo.address || !propertyInfo.address.trim()) && propertyInfo.zipCode && propertyInfo.zipCode.trim() && (
+              ) : (propertyInfo.zipCode && propertyInfo.zipCode.trim()) ? (
                 <div className="flex justify-between">
                   <span className="text-blue-800">Zip Code:</span>
                   <span className="font-medium text-blue-900">{propertyInfo.zipCode}</span>
+                </div>
+              ) : (
+                <div className="flex justify-between">
+                  <span className="text-blue-800">Location:</span>
+                  <span className="font-medium text-blue-900 text-red-600">Address not captured from previous step</span>
                 </div>
               )}
               <div className="flex justify-between">
