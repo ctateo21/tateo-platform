@@ -179,9 +179,17 @@ export function MortgageIncomeForm({
                           <SelectItem value="salary-only">Salary only</SelectItem>
                           <SelectItem value="salary-commission">Salary plus commission</SelectItem>
                           <SelectItem value="salary-bonus">Salary plus bonus</SelectItem>
-                          <SelectItem value="salary-rsu">Salary plus RSUs</SelectItem>
+                          <SelectItem value="salary-rsu">Salary plus Restricted Stock Units</SelectItem>
                         </SelectContent>
                       </Select>
+                      {selectedSalaryType === "salary-rsu" && (
+                        <Alert className="mt-2">
+                          <Info className="h-4 w-4" />
+                          <AlertDescription>
+                            RSUs can only be used if the company is public. If it is private, please choose another income type.
+                          </AlertDescription>
+                        </Alert>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}
@@ -234,23 +242,43 @@ export function MortgageIncomeForm({
                 )}
                 
                 {selectedSalaryType === "salary-rsu" && (
-                  <FormField
-                    control={form.control}
-                    name="vestedRsuBalance"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>What is your total VESTED RSU balance?</FormLabel>
-                        <FormControl>
-                          <Input 
-                            {...field} 
-                            placeholder="Enter vested RSU balance"
-                            type="text"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="vestedRsuBalance"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>What is your total VESTED RSU balance?</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              placeholder="Enter vested RSU balance"
+                              type="text"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    
+                    <FormField
+                      control={form.control}
+                      name="companyTickerSymbol"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>What is the company ticker symbol?</FormLabel>
+                          <FormControl>
+                            <Input 
+                              {...field} 
+                              placeholder="Enter company ticker symbol (e.g., AAPL, MSFT)"
+                              type="text"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
                 )}
               </div>
             )}

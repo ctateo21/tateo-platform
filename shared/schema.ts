@@ -150,6 +150,7 @@ export const mortgageIncomeSchema = z.object({
   commissionAverage: z.string().optional(),
   bonusAverage: z.string().optional(),
   vestedRsuBalance: z.string().optional(),
+  companyTickerSymbol: z.string().optional(),
   
   // Hourly specific fields
   hourlyRate: z.string().optional(),
