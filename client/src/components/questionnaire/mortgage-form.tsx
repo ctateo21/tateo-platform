@@ -202,7 +202,13 @@ export default function MortgageForm({ onSubmit, onBack, defaultValues: savedVal
                                         setAddressResult({ loading: false });
                                       }
                                     }}
-                                    onPlaceSelected={handlePlaceSelected}
+                                    onPlaceSelected={(place) => {
+                                      handlePlaceSelected(place);
+                                      // Update the form field immediately
+                                      if (place?.formatted_address) {
+                                        field.onChange(place.formatted_address);
+                                      }
+                                    }}
                                     placeholder="Enter the property address"
                                   />
                                 </FormControl>
@@ -244,11 +250,7 @@ export default function MortgageForm({ onSubmit, onBack, defaultValues: savedVal
                                       <FormControl>
                                         <CurrencyInput
                                           value={field.value || String(addressResult.zestimate || addressResult.averagePrice || '')}
-                                          onChange={(value) => {
-                                            field.onChange(value);
-                                            // Also update propertyValue field for consistency
-                                            form.setValue('propertyValue', value);
-                                          }}
+                                          onChange={field.onChange}
                                           placeholder="$"
                                         />
                                       </FormControl>
