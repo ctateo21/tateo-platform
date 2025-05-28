@@ -163,6 +163,7 @@ export const mortgageIncomeSchema = z.object({
   w2Income: z.string().optional(),
   k1Amount: z.string().optional(),
   cCorpNetProfit: z.string().optional(),
+  businessOwnershipPercentage: z.string().optional(),
   
   // Retired specific fields (can select multiple)
   socialSecurityIncome: z.string().optional(),

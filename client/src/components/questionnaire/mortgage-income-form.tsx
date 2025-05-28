@@ -487,7 +487,7 @@ export function MortgageIncomeForm({
                             <CurrencyInput 
                               value={field.value || ""}
                               onChange={field.onChange}
-                              placeholder="$120,000"
+                              placeholder=""
                             />
                           </FormControl>
                           <FormDescription>
@@ -508,7 +508,7 @@ export function MortgageIncomeForm({
                             <CurrencyInput 
                               value={field.value || ""}
                               onChange={field.onChange}
-                              placeholder="$35,000"
+                              placeholder=""
                               showCents={false}
                             />
                           </FormControl>
@@ -534,7 +534,7 @@ export function MortgageIncomeForm({
                             <CurrencyInput 
                               value={field.value || ""}
                               onChange={field.onChange}
-                              placeholder="$75,000"
+                              placeholder=""
                               showCents={false}
                             />
                           </FormControl>
@@ -553,7 +553,7 @@ export function MortgageIncomeForm({
                             <CurrencyInput 
                               value={field.value || ""}
                               onChange={field.onChange}
-                              placeholder="$45,000"
+                              placeholder=""
                               showCents={false}
                             />
                           </FormControl>
@@ -579,7 +579,7 @@ export function MortgageIncomeForm({
                             <CurrencyInput 
                               value={field.value || ""}
                               onChange={field.onChange}
-                              placeholder="$85,000"
+                              placeholder=""
                               showCents={false}
                             />
                           </FormControl>
@@ -598,7 +598,7 @@ export function MortgageIncomeForm({
                             <CurrencyInput 
                               value={field.value || ""}
                               onChange={field.onChange}
-                              placeholder="$25,000"
+                              placeholder=""
                               showCents={false}
                             />
                           </FormControl>
@@ -640,7 +640,7 @@ export function MortgageIncomeForm({
                               <CurrencyInput 
                                 value={field.value || ""}
                                 onChange={field.onChange}
-                                placeholder="$2,500"
+                                placeholder=""
                                 showCents={false}
                               />
                             </FormControl>
@@ -704,7 +704,7 @@ export function MortgageIncomeForm({
                                 <CurrencyInput 
                                   value={field.value || ""}
                                   onChange={field.onChange}
-                                  placeholder="$1,800"
+                                  placeholder=""
                                   showCents={false}
                                 />
                               </FormControl>
@@ -742,7 +742,7 @@ export function MortgageIncomeForm({
                               <CurrencyInput 
                                 value={field.value || ""}
                                 onChange={field.onChange}
-                                placeholder="$3,200"
+                                placeholder=""
                                 showCents={false}
                               />
                             </FormControl>
@@ -774,7 +774,7 @@ export function MortgageIncomeForm({
                               <CurrencyInput 
                                 value={field.value || ""}
                                 onChange={field.onChange}
-                                placeholder="$4,500"
+                                placeholder=""
                                 showCents={false}
                               />
                             </FormControl>
