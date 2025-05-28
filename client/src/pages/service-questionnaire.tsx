@@ -37,9 +37,18 @@ export default function ServiceQuestionnaire() {
   
   // State for tracking current service being worked on
   const [currentServiceIndex, setCurrentServiceIndex] = useState(0);
-  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<Record<string, any>>(() => {
+    // Load saved data from localStorage on initial render
+    const saved = localStorage.getItem('questionnaire-form-data');
+    return saved ? JSON.parse(saved) : {};
+  });
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
+
+  // Save form data to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('questionnaire-form-data', JSON.stringify(formData));
+  }, [formData]);
 
   // Get current service
   const currentService = selectedServices[currentServiceIndex];
@@ -270,6 +279,7 @@ export default function ServiceQuestionnaire() {
       
       setSubmitSuccess(true);
       clearSelectedServices(); // Clear selections after successful submission
+      localStorage.removeItem('questionnaire-form-data'); // Clear saved data after successful submission
       toast({
         title: "Submission successful",
         description: "Thank you for your submission. We'll be in touch soon.",
