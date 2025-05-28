@@ -244,7 +244,11 @@ export default function MortgageForm({ onSubmit, onBack, defaultValues: savedVal
                                       <FormControl>
                                         <CurrencyInput
                                           value={field.value || String(addressResult.zestimate || addressResult.averagePrice || '')}
-                                          onChange={field.onChange}
+                                          onChange={(value) => {
+                                            field.onChange(value);
+                                            // Also update propertyValue field for consistency
+                                            form.setValue('propertyValue', value);
+                                          }}
                                           placeholder="$"
                                         />
                                       </FormControl>
