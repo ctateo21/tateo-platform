@@ -761,10 +761,31 @@ export default function ServiceQuestionnaire() {
             />;
             
           case 'liabilities':
+            // Calculate monthly income from saved data
+            const savedMortgageData = formData.mortgage || {};
+            let calculatedMonthlyIncome = 0;
+            
+            if (savedMortgageData.incomeType === 'salary-w2') {
+              const baseSalary = parseFloat(savedMortgageData.baseSalary?.replace(/[$,]/g, '') || '0');
+              const commission = parseFloat(savedMortgageData.commissionAverage?.replace(/[$,]/g, '') || '0');
+              const bonus = parseFloat(savedMortgageData.bonusAverage?.replace(/[$,]/g, '') || '0');
+              const overtime = parseFloat(savedMortgageData.overtimeAverage?.replace(/[$,]/g, '') || '0');
+              calculatedMonthlyIncome = (baseSalary + commission + bonus + overtime) / 12;
+            } else if (savedMortgageData.incomeType === 'hourly-w2') {
+              const hourlyWage = parseFloat(savedMortgageData.hourlyWage?.replace(/[$,]/g, '') || '0');
+              const hoursPerWeek = parseFloat(savedMortgageData.hoursPerWeek || '0');
+              calculatedMonthlyIncome = (hourlyWage * hoursPerWeek * 52) / 12;
+            } else if (savedMortgageData.incomeType === 'self-employed') {
+              const businessIncome = parseFloat(savedMortgageData.businessIncome?.replace(/[$,]/g, '') || '0');
+              const ownershipPercentage = parseFloat(savedMortgageData.ownershipPercentage || '100') / 100;
+              calculatedMonthlyIncome = (businessIncome * ownershipPercentage) / 12;
+            }
+            
             return <MortgageLiabilitiesForm
               onSubmit={handleMortgageLiabilitiesSubmit}
               onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'income' }))}
               defaultValues={formData.mortgage}
+              monthlyIncome={calculatedMonthlyIncome}
             />;
             
           default:

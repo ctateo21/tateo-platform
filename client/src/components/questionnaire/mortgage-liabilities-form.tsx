@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { z } from "zod";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -15,9 +15,7 @@ const liabilitiesFormSchema = z.object({
   inputMethod: z.enum(["manual", "plaid"]),
   manualDebts: z.array(z.object({
     type: z.string(),
-    creditor: z.string(),
     monthlyPayment: z.string(),
-    remainingBalance: z.string().optional(),
   })).optional(),
   plaidConnected: z.boolean().optional(),
 });
@@ -26,6 +24,7 @@ interface MortgageLiabilitiesFormProps {
   onSubmit: (data: z.infer<typeof liabilitiesFormSchema>) => void;
   onBack: () => void;
   defaultValues?: any;
+  monthlyIncome?: number; // Pass monthly income from previous step
 }
 
 const debtTypes = [
@@ -37,20 +36,38 @@ const debtTypes = [
   { value: "other", label: "Other Debt", icon: CreditCard },
 ];
 
-export function MortgageLiabilitiesForm({ onSubmit, onBack, defaultValues }: MortgageLiabilitiesFormProps) {
+export function MortgageLiabilitiesForm({ onSubmit, onBack, defaultValues, monthlyIncome = 0 }: MortgageLiabilitiesFormProps) {
   const [inputMethod, setInputMethod] = useState<"manual" | "plaid">("manual");
   const [manualDebts, setManualDebts] = useState([
-    { type: "", creditor: "", monthlyPayment: "", remainingBalance: "" }
+    { type: "", monthlyPayment: "" }
   ]);
   const [plaidConnected, setPlaidConnected] = useState(false);
+  const [totalMonthlyDebts, setTotalMonthlyDebts] = useState(0);
+
+  // Calculate total monthly debts
+  useEffect(() => {
+    if (inputMethod === "manual") {
+      const total = manualDebts.reduce((sum, debt) => {
+        const payment = parseFloat(debt.monthlyPayment.replace(/[$,]/g, '')) || 0;
+        return sum + payment;
+      }, 0);
+      setTotalMonthlyDebts(total);
+    } else if (plaidConnected) {
+      // Simulated Plaid data
+      setTotalMonthlyDebts(810); // $275 + $385 + $150
+    }
+  }, [manualDebts, inputMethod, plaidConnected]);
 
   // Form default values
   const formDefaults = {
     inputMethod: "manual" as const,
-    manualDebts: [{ type: "", creditor: "", monthlyPayment: "", remainingBalance: "" }],
+    manualDebts: [{ type: "", monthlyPayment: "" }],
     plaidConnected: false,
     ...defaultValues,
   };
+
+  // Calculate debt-to-income ratio
+  const debtToIncomeRatio = monthlyIncome > 0 ? (totalMonthlyDebts / monthlyIncome) * 100 : 0;
 
   const handleSubmit = (data: any) => {
     const submissionData = {
@@ -63,7 +80,7 @@ export function MortgageLiabilitiesForm({ onSubmit, onBack, defaultValues }: Mor
   };
 
   const addDebt = () => {
-    setManualDebts([...manualDebts, { type: "", creditor: "", monthlyPayment: "", remainingBalance: "" }]);
+    setManualDebts([...manualDebts, { type: "", monthlyPayment: "" }]);
   };
 
   const removeDebt = (index: number) => {
@@ -168,32 +185,12 @@ export function MortgageLiabilitiesForm({ onSubmit, onBack, defaultValues }: Mor
                       </Select>
                     </div>
 
-                    {/* Creditor Name */}
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Creditor/Lender Name</label>
-                      <Input
-                        value={debt.creditor}
-                        onChange={(e) => updateDebt(index, "creditor", e.target.value)}
-                        placeholder="e.g., Chase, Wells Fargo"
-                      />
-                    </div>
-
                     {/* Monthly Payment */}
                     <div>
                       <label className="text-sm font-medium mb-2 block">Monthly Payment *</label>
                       <CurrencyInput
                         value={debt.monthlyPayment}
                         onChange={(value) => updateDebt(index, "monthlyPayment", value)}
-                        placeholder="$0"
-                      />
-                    </div>
-
-                    {/* Remaining Balance (Optional) */}
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Remaining Balance (Optional)</label>
-                      <CurrencyInput
-                        value={debt.remainingBalance}
-                        onChange={(value) => updateDebt(index, "remainingBalance", value)}
                         placeholder="$0"
                       />
                     </div>
@@ -222,6 +219,58 @@ export function MortgageLiabilitiesForm({ onSubmit, onBack, defaultValues }: Mor
               <p>* Only include debts that will show on your credit report</p>
               <p>* Don't include utilities, insurance, or monthly subscriptions</p>
             </div>
+          </div>
+        )}
+
+        {/* Income and Debt Summary */}
+        {(inputMethod === "manual" || plaidConnected) && (
+          <div className="space-y-4 mt-8 pt-6 border-t">
+            <h4 className="text-lg font-medium">Financial Summary</h4>
+            
+            {/* Monthly Income */}
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div className="flex justify-between items-center">
+                <span className="text-green-800 font-medium">Monthly Income</span>
+                <span className="text-green-900 font-bold text-xl">
+                  ${monthlyIncome.toLocaleString()}
+                </span>
+              </div>
+            </div>
+
+            {/* Monthly Debts */}
+            {totalMonthlyDebts > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-red-800 font-medium">Monthly Debts</span>
+                  <span className="text-red-900 font-bold text-xl">
+                    ${totalMonthlyDebts.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Debt-to-Income Ratio */}
+            {monthlyIncome > 0 && totalMonthlyDebts > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-blue-800 font-medium">
+                    Debt-to-Income Ratio (without housing payment)
+                  </span>
+                  <span className="text-blue-900 font-bold text-xl">
+                    {debtToIncomeRatio.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="mt-2 text-sm text-blue-700">
+                  {debtToIncomeRatio <= 36 ? (
+                    <span className="text-green-700">✓ Excellent - Most lenders prefer this ratio</span>
+                  ) : debtToIncomeRatio <= 43 ? (
+                    <span className="text-yellow-700">⚠ Good - Some loan programs may apply</span>
+                  ) : (
+                    <span className="text-red-700">⚠ High - May limit loan options</span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
