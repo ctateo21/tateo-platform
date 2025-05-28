@@ -505,10 +505,11 @@ export function MortgageIncomeForm({
                         <FormItem>
                           <FormLabel>What is the NET on your schedule C tax return (Schedule C line 31)?</FormLabel>
                           <FormControl>
-                            <Input 
-                              {...field} 
-                              placeholder="Enter net income"
-                              type="text"
+                            <CurrencyInput 
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              placeholder="$35,000"
+                              showCents={false}
                             />
                           </FormControl>
                           <FormDescription>
@@ -530,10 +531,11 @@ export function MortgageIncomeForm({
                         <FormItem>
                           <FormLabel>What is your W2 income from S Corp (line 7 from 1120-S tax form)?</FormLabel>
                           <FormControl>
-                            <Input 
-                              {...field} 
-                              placeholder="Enter W2 income"
-                              type="text"
+                            <CurrencyInput 
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              placeholder="$75,000"
+                              showCents={false}
                             />
                           </FormControl>
                           <FormMessage />
@@ -548,10 +550,11 @@ export function MortgageIncomeForm({
                         <FormItem>
                           <FormLabel>What is your K1 amount?</FormLabel>
                           <FormControl>
-                            <Input 
-                              {...field} 
-                              placeholder="Enter K1 amount"
-                              type="text"
+                            <CurrencyInput 
+                              value={field.value || ""}
+                              onChange={field.onChange}
+                              placeholder="$45,000"
+                              showCents={false}
                             />
                           </FormControl>
                           <FormDescription>
