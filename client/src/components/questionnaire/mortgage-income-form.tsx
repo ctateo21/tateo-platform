@@ -53,6 +53,7 @@ export function MortgageIncomeForm({
       w2Income: undefined,
       k1Amount: undefined,
       cCorpNetProfit: undefined,
+      businessOwnershipPercentage: undefined,
       socialSecurityIncome: undefined,
       disabilityIncome: undefined,
       disabilityType: undefined,
@@ -607,6 +608,32 @@ export function MortgageIncomeForm({
                       )}
                     />
                   </>
+                )}
+                
+                {/* Business Ownership Percentage - applies to all self-employed types */}
+                {selectedBusinessType && (
+                  <FormField
+                    control={form.control}
+                    name="businessOwnershipPercentage"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>What percentage of the business do you own?</FormLabel>
+                        <FormControl>
+                          <Input 
+                            {...field} 
+                            placeholder="100"
+                            type="number"
+                            min="1"
+                            max="100"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          Enter the percentage (1-100) of business ownership.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 )}
               </div>
             )}
