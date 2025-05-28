@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { mortgageIncomeSchema, type MortgageIncomeData } from "@shared/schema";
@@ -63,6 +63,23 @@ export function MortgageIncomeForm({
   const watchBusinessType = form.watch("businessType");
   const watchDisabilityType = form.watch("disabilityType");
   
+  // Watch all monetary fields to trigger recalculation
+  const watchBaseSalary = form.watch("baseSalary");
+  const watchCommission = form.watch("commissionAverage");
+  const watchBonus = form.watch("bonusAverage");
+  const watchRSU = form.watch("vestedRsuBalance");
+  const watchHourlyRate = form.watch("hourlyRate");
+  const watchHoursPerWeek = form.watch("hoursPerWeek");
+  const watchGrossAverage = form.watch("grossAverage");
+  const watchNetIncome = form.watch("netIncome");
+  const watchW2Income = form.watch("w2Income");
+  const watchK1Amount = form.watch("k1Amount");
+  const watchCCorpProfit = form.watch("cCorpNetProfit");
+  const watchSSIncome = form.watch("socialSecurityIncome");
+  const watchDisabilityIncome = form.watch("disabilityIncome");
+  const watchPensionIncome = form.watch("pensionIncome");
+  const watchRMDIncome = form.watch("rmdIncome");
+  
   useEffect(() => {
     setSelectedIncomeType(watchIncomeType);
   }, [watchIncomeType]);
@@ -83,79 +100,83 @@ export function MortgageIncomeForm({
     onSubmit(data);
   };
   
-  // Calculate monthly income based on form data
-  const calculateMonthlyIncome = () => {
-    const formData = form.getValues();
-    let monthlyIncome = 0;
+  // Calculate monthly income based on form data - automatically recalculates when any value changes
+  const monthlyIncome = useMemo(() => {
+    let income = 0;
     
     if (selectedIncomeType === "salary-w2") {
       // Base salary
-      const baseSalary = parseFloat(formData.baseSalary?.replace(/[$,]/g, "") || "0");
-      monthlyIncome += baseSalary / 12;
+      const baseSalary = parseFloat(watchBaseSalary?.replace(/[$,]/g, "") || "0");
+      income += baseSalary / 12;
       
       // Additional income based on salary type
       if (selectedSalaryType === "salary-commission") {
-        const commission = parseFloat(formData.commissionAverage?.replace(/[$,]/g, "") || "0");
-        monthlyIncome += commission / 12;
+        const commission = parseFloat(watchCommission?.replace(/[$,]/g, "") || "0");
+        income += commission / 12;
       } else if (selectedSalaryType === "salary-bonus") {
-        const bonus = parseFloat(formData.bonusAverage?.replace(/[$,]/g, "") || "0");
-        monthlyIncome += bonus / 12;
+        const bonus = parseFloat(watchBonus?.replace(/[$,]/g, "") || "0");
+        income += bonus / 12;
       } else if (selectedSalaryType === "salary-rsu") {
         // RSUs are typically calculated differently for lending
-        const rsu = parseFloat(formData.vestedRsuBalance?.replace(/[$,]/g, "") || "0");
-        monthlyIncome += (rsu * 0.25) / 12; // 25% of vested balance annually
+        const rsu = parseFloat(watchRSU?.replace(/[$,]/g, "") || "0");
+        income += (rsu * 0.25) / 12; // 25% of vested balance annually
       }
     } else if (selectedIncomeType === "hourly") {
-      const hourlyRate = parseFloat(formData.hourlyRate?.replace(/[$,]/g, "") || "0");
-      const hoursPerWeek = parseFloat(formData.hoursPerWeek || "0");
-      monthlyIncome = (hourlyRate * hoursPerWeek * 52) / 12; // Annual to monthly
+      const hourlyRate = parseFloat(watchHourlyRate?.replace(/[$,]/g, "") || "0");
+      const hoursPerWeek = parseFloat(watchHoursPerWeek || "0");
+      income = (hourlyRate * hoursPerWeek * 52) / 12; // Annual to monthly
     } else if (selectedIncomeType === "self-employed") {
       if (selectedBusinessType === "1099-personal" || selectedBusinessType === "1099-business") {
-        const netIncome = parseFloat(formData.netIncome?.replace(/[$,]/g, "") || "0");
-        monthlyIncome = netIncome / 12;
+        const netIncome = parseFloat(watchNetIncome?.replace(/[$,]/g, "") || "0");
+        income = netIncome / 12;
       } else if (selectedBusinessType === "s-corp") {
-        const w2Income = parseFloat(formData.w2Income?.replace(/[$,]/g, "") || "0");
-        const k1Amount = parseFloat(formData.k1Amount?.replace(/[$,]/g, "") || "0");
-        monthlyIncome = (w2Income + k1Amount) / 12;
+        const w2Income = parseFloat(watchW2Income?.replace(/[$,]/g, "") || "0");
+        const k1Amount = parseFloat(watchK1Amount?.replace(/[$,]/g, "") || "0");
+        income = (w2Income + k1Amount) / 12;
       } else if (selectedBusinessType === "c-corp") {
-        const w2Income = parseFloat(formData.w2Income?.replace(/[$,]/g, "") || "0");
-        const cCorpProfit = parseFloat(formData.cCorpNetProfit?.replace(/[$,]/g, "") || "0");
-        monthlyIncome = (w2Income + cCorpProfit) / 12;
+        const w2Income = parseFloat(watchW2Income?.replace(/[$,]/g, "") || "0");
+        const cCorpProfit = parseFloat(watchCCorpProfit?.replace(/[$,]/g, "") || "0");
+        income = (w2Income + cCorpProfit) / 12;
       }
     } else if (selectedIncomeType === "retired") {
       // Social Security with multiplier
       if (retiredIncomeTypes.includes("social-security")) {
-        const ssIncome = parseFloat(formData.socialSecurityIncome?.replace(/[$,]/g, "") || "0");
+        const ssIncome = parseFloat(watchSSIncome?.replace(/[$,]/g, "") || "0");
         const multiplier = getIncomeMultiplier("social-security");
         const factor = multiplier === "1.25x" ? 1.25 : 1.15;
-        monthlyIncome += ssIncome * factor;
+        income += ssIncome * factor;
       }
       
       // Disability with multiplier
       if (retiredIncomeTypes.includes("disability")) {
-        const disabilityIncome = parseFloat(formData.disabilityIncome?.replace(/[$,]/g, "") || "0");
+        const disabilityIncome = parseFloat(watchDisabilityIncome?.replace(/[$,]/g, "") || "0");
         const multiplier = getIncomeMultiplier("disability");
         const factor = multiplier === "1.25x" ? 1.25 : 1.15;
-        monthlyIncome += disabilityIncome * factor;
+        income += disabilityIncome * factor;
       }
       
       // Pension income
       if (retiredIncomeTypes.includes("pension")) {
-        const pensionIncome = parseFloat(formData.pensionIncome?.replace(/[$,]/g, "") || "0");
-        monthlyIncome += pensionIncome;
+        const pensionIncome = parseFloat(watchPensionIncome?.replace(/[$,]/g, "") || "0");
+        income += pensionIncome;
       }
       
       // RMD income
       if (retiredIncomeTypes.includes("rmd")) {
-        const rmdIncome = parseFloat(formData.rmdIncome?.replace(/[$,]/g, "") || "0");
-        monthlyIncome += rmdIncome;
+        const rmdIncome = parseFloat(watchRMDIncome?.replace(/[$,]/g, "") || "0");
+        income += rmdIncome;
       }
     }
     
-    return Math.round(monthlyIncome);
-  };
-  
-  const monthlyIncome = calculateMonthlyIncome();
+    return Math.round(income);
+  }, [
+    selectedIncomeType, selectedSalaryType, selectedBusinessType, retiredIncomeTypes,
+    watchBaseSalary, watchCommission, watchBonus, watchRSU,
+    watchHourlyRate, watchHoursPerWeek,
+    watchGrossAverage, watchNetIncome, watchW2Income, watchK1Amount, watchCCorpProfit,
+    watchSSIncome, watchDisabilityIncome, watchPensionIncome, watchRMDIncome,
+    initialData?.loanType
+  ]);
   
   const getIncomeMultiplier = (incomeType: string) => {
     const loanType = initialData?.loanType?.toLowerCase();
