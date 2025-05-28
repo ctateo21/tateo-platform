@@ -44,7 +44,7 @@ export default function MortgageForm({ onSubmit, onBack, defaultValues: savedVal
   const [selectedPlace, setSelectedPlace] = useState<any>(null);
   
   // Form default values - merge saved values with defaults
-  const defaultValues = {
+  const baseDefaults = {
     locationType: "address" as const,
     propertyAddress: "",
     zipCode: "",
@@ -53,8 +53,21 @@ export default function MortgageForm({ onSubmit, onBack, defaultValues: savedVal
     type: "purchase" as const,
     ownershipType: "primary" as const,
     propertyValue: "",
-    ...savedValues, // Override with any saved values
   };
+  
+  // Only use saved values that match our form fields
+  const filteredSavedValues = savedValues ? {
+    locationType: savedValues.locationType || baseDefaults.locationType,
+    propertyAddress: savedValues.propertyAddress || baseDefaults.propertyAddress,
+    zipCode: savedValues.zipCode || baseDefaults.zipCode,
+    estimatedValue: savedValues.estimatedValue || baseDefaults.estimatedValue,
+    purchasePrice: savedValues.purchasePrice || baseDefaults.purchasePrice,
+    type: savedValues.type || baseDefaults.type,
+    ownershipType: savedValues.ownershipType || baseDefaults.ownershipType,
+    propertyValue: savedValues.propertyValue || baseDefaults.propertyValue,
+  } : baseDefaults;
+  
+  const defaultValues = filteredSavedValues;
   
   // Handle place selection from address input
   const handlePlaceSelected = async (place: any) => {

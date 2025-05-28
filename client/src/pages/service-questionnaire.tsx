@@ -37,7 +37,14 @@ export default function ServiceQuestionnaire() {
   
   // State for tracking current service being worked on
   const [currentServiceIndex, setCurrentServiceIndex] = useState(0);
-  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<Record<string, any>>({
+    'real-estate': {},
+    'mortgage': {},
+    'insurance': {},
+    'construction': {},
+    'property-management': {},
+    'home-services': {}
+  });
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
 
