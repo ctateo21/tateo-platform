@@ -16,6 +16,7 @@ import { getZestimate, getZipCodeAverage, formatPrice } from "@/lib/zillow";
 interface MortgageFormProps {
   onSubmit: (data: z.infer<typeof mortgageFormSchema>) => void;
   onBack: () => void;
+  defaultValues?: any;
 }
 
 export default function MortgageForm({ onSubmit, onBack }: MortgageFormProps) {

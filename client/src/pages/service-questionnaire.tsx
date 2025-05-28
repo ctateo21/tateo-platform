@@ -657,6 +657,7 @@ export default function ServiceQuestionnaire() {
         switch (mortgageFlowState.step) {
           case 'initial':
             return <MortgageForm 
+              defaultValues={formData.mortgage}
               onSubmit={handleMortgageInitialSubmit} 
               onBack={handleBack} 
             />;
@@ -667,6 +668,7 @@ export default function ServiceQuestionnaire() {
                 type: mortgageFlowState.type,
                 ownershipType: mortgageFlowState.ownershipType
               }}
+              defaultValues={formData.mortgage}
               onSubmit={handleMortgagePropertyTypeSubmit}
               onBack={handleBack}
             />;
