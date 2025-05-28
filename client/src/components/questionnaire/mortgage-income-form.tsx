@@ -195,6 +195,25 @@ export function MortgageIncomeForm({
                   )}
                 />
                 
+                {/* Base Salary Field - Always show for salary/W2 income */}
+                <FormField
+                  control={form.control}
+                  name="baseSalary"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>What is your base salary amount?</FormLabel>
+                      <FormControl>
+                        <Input 
+                          {...field} 
+                          placeholder="Enter your base salary"
+                          type="text"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
                 {selectedSalaryType === "salary-commission" && (
                   <FormField
                     control={form.control}
