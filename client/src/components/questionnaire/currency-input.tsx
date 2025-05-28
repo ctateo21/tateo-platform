@@ -28,13 +28,12 @@ export default function CurrencyInput({
         // Format the numeric value
         const numericValue = parseFloat(value);
         if (!isNaN(numericValue)) {
-          setDisplayValue(formatCurrency(Math.round(numericValue)));
+          setDisplayValue(formatCurrency(numericValue));
         } else {
           setDisplayValue(value);
         }
       }
     } else {
-      // Default to showing $ placeholder
       setDisplayValue("");
     }
   }, [value]);
@@ -50,6 +49,25 @@ export default function CurrencyInput({
     onChange(numericValue);
   };
 
+  const handleBlur = () => {
+    // Auto-format as currency when user finishes typing
+    const numericValue = displayValue.replace(/[$,]/g, "");
+    if (numericValue && !isNaN(parseFloat(numericValue))) {
+      const parsedValue = parseFloat(numericValue);
+      if (showCents) {
+        // Round to nearest penny for hourly rates
+        const rounded = Math.round(parsedValue * 100) / 100;
+        setDisplayValue(formatCurrency(rounded));
+        onChange(rounded.toString());
+      } else {
+        // Round to whole number for other currency amounts
+        const rounded = Math.round(parsedValue);
+        setDisplayValue(formatCurrency(rounded));
+        onChange(rounded.toString());
+      }
+    }
+  };
+
   // Format number as currency
   const formatCurrency = (num: number): string => {
     return new Intl.NumberFormat("en-US", {
@@ -58,19 +76,6 @@ export default function CurrencyInput({
       minimumFractionDigits: showCents ? 2 : 0,
       maximumFractionDigits: showCents ? 2 : 0,
     }).format(num);
-  };
-
-  // When input loses focus, format the value
-  const handleBlur = () => {
-    if (displayValue) {
-      // Remove existing formatting
-      const numericValue = displayValue.replace(/[$,]/g, "");
-      const parsedValue = parseFloat(numericValue);
-      
-      if (!isNaN(parsedValue)) {
-        setDisplayValue(formatCurrency(parsedValue));
-      }
-    }
   };
 
   return (

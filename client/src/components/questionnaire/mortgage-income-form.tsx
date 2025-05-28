@@ -18,12 +18,14 @@ interface MortgageIncomeFormProps {
     ownershipType: "primary" | "secondary" | "investment";
     loanType?: string;
   };
+  formData?: Partial<MortgageIncomeData>;
   onSubmit: (data: MortgageIncomeData) => void;
   onBack: () => void;
 }
 
 export function MortgageIncomeForm({
   initialData,
+  formData,
   onSubmit,
   onBack
 }: MortgageIncomeFormProps) {
@@ -98,6 +100,21 @@ export function MortgageIncomeForm({
   
   const handleSubmit = (data: MortgageIncomeData) => {
     onSubmit(data);
+  };
+  
+  const getIncomeMultiplier = (incomeType: string) => {
+    const loanType = initialData?.loanType?.toLowerCase();
+    
+    if (incomeType === "social-security" || incomeType === "disability") {
+      if (loanType === "conventional" || loanType === "usda") {
+        return "1.25x";
+      } else if (loanType === "fha" || loanType === "va") {
+        return "1.15x";
+      } else {
+        return "1.15x";
+      }
+    }
+    return null;
   };
   
   // Calculate monthly income based on form data - automatically recalculates when any value changes
@@ -177,21 +194,6 @@ export function MortgageIncomeForm({
     watchSSIncome, watchDisabilityIncome, watchPensionIncome, watchRMDIncome,
     initialData?.loanType
   ]);
-  
-  const getIncomeMultiplier = (incomeType: string) => {
-    const loanType = initialData?.loanType?.toLowerCase();
-    
-    if (incomeType === "social-security" || incomeType === "disability") {
-      if (loanType === "conventional" || loanType === "usda") {
-        return "1.25x";
-      } else if (loanType === "fha" || loanType === "va") {
-        return "1.15x";
-      } else {
-        return "1.15x";
-      }
-    }
-    return null;
-  };
   
   const getFormTitle = () => {
     const typeText = initialData?.type === "purchase" ? "Purchase" : "Refinance";
