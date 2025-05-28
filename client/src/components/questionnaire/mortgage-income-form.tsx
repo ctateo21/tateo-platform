@@ -79,6 +79,7 @@ export function MortgageIncomeForm({
   const watchW2Income = form.watch("w2Income");
   const watchK1Amount = form.watch("k1Amount");
   const watchCCorpProfit = form.watch("cCorpNetProfit");
+  const watchBusinessOwnership = form.watch("businessOwnershipPercentage");
   const watchSSIncome = form.watch("socialSecurityIncome");
   const watchDisabilityIncome = form.watch("disabilityIncome");
   const watchPensionIncome = form.watch("pensionIncome");
@@ -145,17 +146,21 @@ export function MortgageIncomeForm({
       const hoursPerWeek = parseFloat(watchHoursPerWeek || "0");
       income = (hourlyRate * hoursPerWeek * 52) / 12; // Annual to monthly
     } else if (selectedIncomeType === "self-employed") {
+      const ownershipPercentage = parseFloat(watchBusinessOwnership || "100") / 100; // Convert to decimal
+      
       if (selectedBusinessType === "1099-personal" || selectedBusinessType === "1099-business") {
         const netIncome = parseFloat(watchNetIncome?.replace(/[$,]/g, "") || "0");
-        income = netIncome / 12;
+        income = (netIncome * ownershipPercentage) / 12;
       } else if (selectedBusinessType === "s-corp") {
         const w2Income = parseFloat(watchW2Income?.replace(/[$,]/g, "") || "0");
         const k1Amount = parseFloat(watchK1Amount?.replace(/[$,]/g, "") || "0");
-        income = (w2Income + k1Amount) / 12;
+        // W2 income is not affected by ownership percentage, but K1 is
+        income = (w2Income + (k1Amount * ownershipPercentage)) / 12;
       } else if (selectedBusinessType === "c-corp") {
         const w2Income = parseFloat(watchW2Income?.replace(/[$,]/g, "") || "0");
         const cCorpProfit = parseFloat(watchCCorpProfit?.replace(/[$,]/g, "") || "0");
-        income = (w2Income + cCorpProfit) / 12;
+        // W2 income is not affected by ownership percentage, but C Corp profit is
+        income = (w2Income + (cCorpProfit * ownershipPercentage)) / 12;
       }
     } else if (selectedIncomeType === "retired") {
       // Social Security with multiplier
@@ -192,7 +197,7 @@ export function MortgageIncomeForm({
     selectedIncomeType, selectedSalaryType, selectedBusinessType, retiredIncomeTypes,
     watchBaseSalary, watchCommission, watchBonus, watchRSU,
     watchHourlyRate, watchHoursPerWeek,
-    watchGrossAverage, watchNetIncome, watchW2Income, watchK1Amount, watchCCorpProfit,
+    watchGrossAverage, watchNetIncome, watchW2Income, watchK1Amount, watchCCorpProfit, watchBusinessOwnership,
     watchSSIncome, watchDisabilityIncome, watchPensionIncome, watchRMDIncome,
     initialData?.loanType
   ]);
