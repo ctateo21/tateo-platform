@@ -34,6 +34,7 @@ interface MortgagePaymentFormProps {
   };
   monthlyIncome?: number;
   monthlyDebts?: number;
+  ownershipType?: 'primary' | 'secondary' | 'investment';
 }
 
 export function MortgagePaymentForm({ 
@@ -42,12 +43,60 @@ export function MortgagePaymentForm({
   defaultValues,
   propertyInfo = {},
   monthlyIncome = 0,
-  monthlyDebts = 0
+  monthlyDebts = 0,
+  ownershipType = 'primary'
 }: MortgagePaymentFormProps) {
   const [loanAmount, setLoanAmount] = useState("");
   const [interestRate, setInterestRate] = useState("7.25"); // Current market rate
   const [loanTerm, setLoanTerm] = useState("30");
-  const [downPayment, setDownPayment] = useState("20");
+  const [downPayment, setDownPayment] = useState(() => {
+    // Set default down payment based on ownership type
+    if (ownershipType === 'primary') return "3.5";
+    if (ownershipType === 'secondary') return "10";
+    if (ownershipType === 'investment') return "20";
+    return "20";
+  });
+
+  // Get down payment options based on ownership type
+  const getDownPaymentOptions = () => {
+    if (ownershipType === 'primary') {
+      return [
+        { value: "0-va", label: "0% (VA or USDA)" },
+        { value: "0-fha", label: "0% (FHA Down Payment Assistance)" },
+        { value: "0-conv", label: "0% (Conventional Down Payment Assistance)" },
+        { value: "3", label: "3% (Conventional First Time Home Buyer)" },
+        { value: "3.5", label: "3.5% (FHA)" },
+        { value: "5", label: "5% (Conventional not First Time Home Buyer)" },
+        { value: "10", label: "10%" },
+        { value: "15", label: "15%" },
+        { value: "20", label: "20% (No PMI)" },
+        { value: "25", label: "25%" },
+      ];
+    } else if (ownershipType === 'secondary') {
+      return [
+        { value: "10", label: "10% (Minimum)" },
+        { value: "15", label: "15%" },
+        { value: "20", label: "20%" },
+        { value: "25", label: "25%" },
+        { value: "30", label: "30%" },
+      ];
+    } else if (ownershipType === 'investment') {
+      return [
+        { value: "20", label: "20% (Minimum)" },
+        { value: "25", label: "25%" },
+        { value: "30", label: "30%" },
+        { value: "35", label: "35%" },
+        { value: "40", label: "40%" },
+      ];
+    }
+    return [{ value: "20", label: "20%" }];
+  };
+
+  // Extract numeric value from down payment for calculations
+  const getDownPaymentPercent = () => {
+    const value = downPayment.replace(/[^0-9.]/g, '');
+    return parseFloat(value) || 0;
+  };
   const [monthlyPayment, setMonthlyPayment] = useState(0);
   const [propertyTax, setPropertyTax] = useState(0);
   const [insurance, setInsurance] = useState(0);
@@ -73,7 +122,7 @@ export function MortgagePaymentForm({
 
   // Initialize loan amount based on down payment
   useEffect(() => {
-    const downPaymentPercent = parseFloat(downPayment) || 20;
+    const downPaymentPercent = getDownPaymentPercent();
     const calculatedLoanAmount = propertyValue * (1 - downPaymentPercent / 100);
     setLoanAmount(calculatedLoanAmount.toString());
   }, [propertyValue, downPayment]);
@@ -166,13 +215,13 @@ export function MortgagePaymentForm({
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {propertyInfo.address && (
+              {propertyInfo.address && propertyInfo.address.trim() && (
                 <div className="flex justify-between">
                   <span className="text-blue-800">Address:</span>
                   <span className="font-medium text-blue-900">{propertyInfo.address}</span>
                 </div>
               )}
-              {!propertyInfo.address && propertyInfo.zipCode && (
+              {(!propertyInfo.address || !propertyInfo.address.trim()) && propertyInfo.zipCode && propertyInfo.zipCode.trim() && (
                 <div className="flex justify-between">
                   <span className="text-blue-800">Zip Code:</span>
                   <span className="font-medium text-blue-900">{propertyInfo.zipCode}</span>
@@ -189,18 +238,19 @@ export function MortgagePaymentForm({
         {/* Loan Parameters */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="text-sm font-medium mb-2 block">Down Payment (%)</label>
+            <label className="text-sm font-medium mb-2 block">
+              Down Payment (%) - {ownershipType.charAt(0).toUpperCase() + ownershipType.slice(1)} Residence
+            </label>
             <Select value={downPayment} onValueChange={setDownPayment}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="3">3% (FHA/Conventional)</SelectItem>
-                <SelectItem value="5">5%</SelectItem>
-                <SelectItem value="10">10%</SelectItem>
-                <SelectItem value="15">15%</SelectItem>
-                <SelectItem value="20">20% (No PMI)</SelectItem>
-                <SelectItem value="25">25%</SelectItem>
+                {getDownPaymentOptions().map((option, index) => (
+                  <SelectItem key={`${option.value}-${index}`} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>

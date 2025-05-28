@@ -858,6 +858,7 @@ export default function ServiceQuestionnaire() {
               }}
               monthlyIncome={monthlyIncome}
               monthlyDebts={monthlyDebts}
+              ownershipType={mortgageFlowState.ownershipType}
             />;
             
           default:
