@@ -1,4 +1,4 @@
-import { users, submissions, integrationRequests, type User, type InsertUser, type Submission, type InsertSubmission, type IntegrationRequest, type InsertIntegrationRequest } from "@shared/schema";
+import { users, submissions, integrationRequests, questionnaireResponses, type User, type InsertUser, type Submission, type InsertSubmission, type IntegrationRequest, type InsertIntegrationRequest, type QuestionnaireResponse, type InsertQuestionnaireResponse } from "@shared/schema";
 
 // Storage interface for the real estate services platform
 export interface IStorage {
@@ -19,6 +19,12 @@ export interface IStorage {
   getIntegrationRequest(id: number): Promise<IntegrationRequest | undefined>;
   updateIntegrationRequest(id: number, status: string, responseData: any): Promise<IntegrationRequest | undefined>;
   getIntegrationRequestsBySubmissionId(submissionId: number): Promise<IntegrationRequest[]>;
+  
+  // Questionnaire response operations
+  saveQuestionnaireResponse(response: InsertQuestionnaireResponse): Promise<QuestionnaireResponse>;
+  getQuestionnaireResponse(sessionId: string, serviceType: string, stepName: string): Promise<QuestionnaireResponse | undefined>;
+  getQuestionnaireResponsesBySession(sessionId: string): Promise<QuestionnaireResponse[]>;
+  updateQuestionnaireResponse(sessionId: string, serviceType: string, stepName: string, responseData: any, isCompleted?: boolean): Promise<QuestionnaireResponse | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -125,7 +131,7 @@ export class MemStorage implements IStorage {
 }
 
 // Use DatabaseStorage for persistent storage with PostgreSQL
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "./db";
 
 export class DatabaseStorage implements IStorage {
@@ -212,6 +218,65 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(integrationRequests)
       .where(eq(integrationRequests.submissionId, submissionId));
+  }
+
+  // Questionnaire response operations
+  async saveQuestionnaireResponse(response: InsertQuestionnaireResponse): Promise<QuestionnaireResponse> {
+    const [saved] = await db
+      .insert(questionnaireResponses)
+      .values(response)
+      .onConflictDoUpdate({
+        target: [questionnaireResponses.sessionId, questionnaireResponses.serviceType, questionnaireResponses.stepName],
+        set: {
+          responseData: response.responseData,
+          isCompleted: response.isCompleted,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return saved;
+  }
+
+  async getQuestionnaireResponse(sessionId: string, serviceType: string, stepName: string): Promise<QuestionnaireResponse | undefined> {
+    const [result] = await db
+      .select()
+      .from(questionnaireResponses)
+      .where(
+        and(
+          eq(questionnaireResponses.sessionId, sessionId),
+          eq(questionnaireResponses.serviceType, serviceType),
+          eq(questionnaireResponses.stepName, stepName)
+        )
+      );
+    return result;
+  }
+
+  async getQuestionnaireResponsesBySession(sessionId: string): Promise<QuestionnaireResponse[]> {
+    const results = await db
+      .select()
+      .from(questionnaireResponses)
+      .where(eq(questionnaireResponses.sessionId, sessionId))
+      .orderBy(questionnaireResponses.createdAt);
+    return results;
+  }
+
+  async updateQuestionnaireResponse(sessionId: string, serviceType: string, stepName: string, responseData: any, isCompleted?: boolean): Promise<QuestionnaireResponse | undefined> {
+    const [updated] = await db
+      .update(questionnaireResponses)
+      .set({
+        responseData,
+        isCompleted: isCompleted ?? false,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(questionnaireResponses.sessionId, sessionId),
+          eq(questionnaireResponses.serviceType, serviceType),
+          eq(questionnaireResponses.stepName, stepName)
+        )
+      )
+      .returning();
+    return updated;
   }
 }
 
