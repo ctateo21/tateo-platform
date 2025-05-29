@@ -35,6 +35,7 @@ interface MortgagePaymentFormProps {
   monthlyIncome?: number;
   monthlyDebts?: number;
   ownershipType?: 'primary' | 'secondary' | 'investment';
+  mortgageData?: any;
 }
 
 export function MortgagePaymentForm({ 
@@ -44,7 +45,8 @@ export function MortgagePaymentForm({
   propertyInfo = {},
   monthlyIncome = 0,
   monthlyDebts = 0,
-  ownershipType = 'primary'
+  ownershipType = 'primary',
+  mortgageData = {}
 }: MortgagePaymentFormProps) {
   const [loanAmount, setLoanAmount] = useState("");
   const [interestRate, setInterestRate] = useState("7.25"); // Current market rate
@@ -145,20 +147,45 @@ export function MortgagePaymentForm({
       // Estimate homeowners insurance ($1,200 annually average)
       setInsurance(1200 / 12);
 
-      // Calculate PMI if down payment is less than 20%
+      // Calculate PMI based on loan type and credit score
       const downPaymentPercent = parseFloat(downPayment) || 20;
       if (downPaymentPercent < 20) {
-        // PMI is typically 0.5% to 1% of loan amount annually
-        setPmiAmount((principal * 0.007) / 12);
+        let annualPMIRate = 0;
+        
+        if (mortgageData.loanType === 'FHA') {
+          // FHA loans: 0.55% for any credit score
+          annualPMIRate = 0.0055;
+        } else if (mortgageData.loanType === 'Conventional') {
+          // Conventional loans: PMI based on credit score
+          const creditScore = mortgageData.creditScore;
+          if (creditScore === '780+') {
+            annualPMIRate = 0.0031; // Average of 0.22% - 0.40%
+          } else if (creditScore === '760-779') {
+            annualPMIRate = 0.00375; // Average of 0.30% - 0.45%
+          } else if (creditScore === '740-759') {
+            annualPMIRate = 0.00425; // Average of 0.35% - 0.50%
+          } else if (creditScore === '720-739') {
+            annualPMIRate = 0.006; // Average of 0.45% - 0.75%
+          } else if (creditScore === '700-719') {
+            annualPMIRate = 0.009; // Average of 0.70% - 1.10%
+          } else if (creditScore === '680-699') {
+            annualPMIRate = 0.012; // Average of 0.90% - 1.50%
+          } else {
+            annualPMIRate = 0.01875; // Average of 1.50% - 2.25%
+          }
+        }
+        
+        setPmiAmount((principal * annualPMIRate) / 12);
       } else {
         setPmiAmount(0);
       }
 
-      // Calculate total monthly payment
-      const total = monthlyPI + (annualPropertyTax / 12) + (1200 / 12) + ((downPaymentPercent < 20) ? (principal * 0.007) / 12 : 0);
+      // Calculate total monthly payment using the correct PMI amount
+      const currentPMI = (downPaymentPercent < 20) ? (principal * (mortgageData.loanType === 'FHA' ? 0.0055 : (mortgageData.creditScore === '780+' ? 0.0031 : 0.006))) / 12 : 0;
+      const total = monthlyPI + (annualPropertyTax / 12) + (1200 / 12) + currentPMI;
       setTotalMonthlyPayment(total);
     }
-  }, [loanAmount, interestRate, loanTerm, downPayment, propertyValue]);
+  }, [loanAmount, interestRate, loanTerm, downPayment, propertyValue, mortgageData]);
 
   // Form default values
   const formDefaults = {
