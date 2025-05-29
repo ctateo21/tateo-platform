@@ -158,20 +158,20 @@ export function MortgagePaymentForm({
         } else if (mortgageData.loanType === 'Conventional') {
           // Conventional loans: PMI based on credit score
           const creditScore = mortgageData.creditScore;
-          if (creditScore === '780+') {
-            annualPMIRate = 0.0031; // Average of 0.22% - 0.40%
-          } else if (creditScore === '760-779') {
-            annualPMIRate = 0.00375; // Average of 0.30% - 0.45%
+          if (creditScore === '780+' || creditScore === '760-779') {
+            annualPMIRate = 0.0022; // 760+ = 0.22%
           } else if (creditScore === '740-759') {
-            annualPMIRate = 0.00425; // Average of 0.35% - 0.50%
+            annualPMIRate = 0.003; // 740-759 = 0.30%
           } else if (creditScore === '720-739') {
-            annualPMIRate = 0.006; // Average of 0.45% - 0.75%
+            annualPMIRate = 0.0035; // 720-739 = 0.35%
           } else if (creditScore === '700-719') {
-            annualPMIRate = 0.009; // Average of 0.70% - 1.10%
+            annualPMIRate = 0.0045; // 700-719 = 0.45%
           } else if (creditScore === '680-699') {
-            annualPMIRate = 0.012; // Average of 0.90% - 1.50%
+            annualPMIRate = 0.007; // 680-699 = 0.70%
+          } else if (creditScore === '660-679') {
+            annualPMIRate = 0.009; // 660-679 = 0.90%
           } else {
-            annualPMIRate = 0.01875; // Average of 1.50% - 2.25%
+            annualPMIRate = 0.016; // 660 and below = 1.60%
           }
         }
         

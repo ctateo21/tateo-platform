@@ -81,7 +81,7 @@ export default function AddressInput({
       <Input
         ref={inputRef}
         type="text"
-        defaultValue={value}
+        value={value}
         onChange={(e) => onChange(e.target.value)}
         className={className}
         placeholder={placeholder}
