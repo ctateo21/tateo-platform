@@ -41,9 +41,11 @@ export class MemStorage implements IStorage {
     this.users = new Map();
     this.submissions = new Map();
     this.integrationRequests = new Map();
+    this.questionnaireResponses = new Map();
     this.userIdCounter = 1;
     this.submissionIdCounter = 1;
     this.integrationRequestIdCounter = 1;
+    this.questionnaireResponseIdCounter = 1;
   }
 
   // User operations
@@ -129,6 +131,54 @@ export class MemStorage implements IStorage {
     return Array.from(this.integrationRequests.values()).filter(
       (request) => request.submissionId === submissionId,
     );
+  }
+
+  // Questionnaire response operations
+  async saveQuestionnaireResponse(response: InsertQuestionnaireResponse): Promise<QuestionnaireResponse> {
+    const id = this.questionnaireResponseIdCounter++;
+    const createdAt = new Date();
+    const questionnaireResponse: QuestionnaireResponse = { 
+      ...response, 
+      id, 
+      createdAt,
+      updatedAt: createdAt
+    };
+    
+    const key = `${response.sessionId}-${response.serviceType}-${response.stepName}`;
+    this.questionnaireResponses.set(key, questionnaireResponse);
+    return questionnaireResponse;
+  }
+
+  async getQuestionnaireResponse(sessionId: string, serviceType: string, stepName: string): Promise<QuestionnaireResponse | undefined> {
+    const key = `${sessionId}-${serviceType}-${stepName}`;
+    return this.questionnaireResponses.get(key);
+  }
+
+  async getQuestionnaireResponsesBySession(sessionId: string): Promise<QuestionnaireResponse[]> {
+    return Array.from(this.questionnaireResponses.values()).filter(
+      (response) => response.sessionId === sessionId,
+    );
+  }
+
+  async updateQuestionnaireResponse(
+    sessionId: string, 
+    serviceType: string, 
+    stepName: string, 
+    responseData: any, 
+    isCompleted?: boolean
+  ): Promise<QuestionnaireResponse | undefined> {
+    const key = `${sessionId}-${serviceType}-${stepName}`;
+    const existing = this.questionnaireResponses.get(key);
+    if (!existing) return undefined;
+    
+    const updated = { 
+      ...existing, 
+      responseData, 
+      isCompleted: isCompleted ?? existing.isCompleted,
+      updatedAt: new Date()
+    };
+    this.questionnaireResponses.set(key, updated);
+    return updated;
   }
 }
 
