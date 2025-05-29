@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, json, date, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, json, date, timestamp, varchar, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -41,6 +41,18 @@ export const integrationRequests = pgTable("integration_requests", {
   responseData: json("response_data"),
   status: text("status").default("pending"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Questionnaire responses table for tracking user progress
+export const questionnaireResponses = pgTable("questionnaire_responses", {
+  id: serial("id").primaryKey(),
+  sessionId: text("session_id").notNull(), // Unique session identifier
+  serviceType: text("service_type").notNull(), // mortgage, realEstate, insurance, etc.
+  stepName: text("step_name").notNull(), // initial, property-type, financing, etc.
+  responseData: json("response_data").notNull(), // The actual form data
+  isCompleted: boolean("is_completed").default(false), // Whether this step is completed
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 // Schema for user input validation
@@ -283,3 +295,14 @@ export const serviceCategories = [
 ];
 
 export type ServiceCategory = typeof serviceCategories[0];
+
+// Insert and select types for questionnaire responses
+export const insertQuestionnaireResponseSchema = createInsertSchema(questionnaireResponses)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+  });
+
+export type InsertQuestionnaireResponse = z.infer<typeof insertQuestionnaireResponseSchema>;
+export type QuestionnaireResponse = typeof questionnaireResponses.$inferSelect;
