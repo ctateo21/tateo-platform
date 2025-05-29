@@ -184,6 +184,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(submission);
   });
 
+  // Questionnaire step saving endpoints
+  
+  // Save questionnaire step response
+  app.post("/api/questionnaire/save-step", async (req, res) => {
+    try {
+      const { sessionId, serviceType, stepName, responseData, isCompleted } = req.body;
+      
+      if (!sessionId || !serviceType || !stepName || !responseData) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "Missing required fields" 
+        });
+      }
+      
+      const response = await storage.saveQuestionnaireResponse({
+        sessionId,
+        serviceType,
+        stepName,
+        responseData,
+        isCompleted: isCompleted || false,
+      });
+      
+      res.json({ 
+        success: true, 
+        response,
+        message: "Step saved successfully" 
+      });
+    } catch (error) {
+      console.error("Error saving questionnaire step:", error);
+      res.status(500).json({ 
+        success: false, 
+        error: "Failed to save step" 
+      });
+    }
+  });
+
+  // Get questionnaire responses for a session
+  app.get("/api/questionnaire/session/:sessionId", async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      
+      const responses = await storage.getQuestionnaireResponsesBySession(sessionId);
+      
+      res.json({ 
+        success: true, 
+        responses,
+        sessionId 
+      });
+    } catch (error) {
+      console.error("Error getting questionnaire responses:", error);
+      res.status(500).json({ 
+        success: false, 
+        error: "Failed to get responses" 
+      });
+    }
+  });
+
   // API keys endpoints
   
   // Get configuration for Zillow API integration

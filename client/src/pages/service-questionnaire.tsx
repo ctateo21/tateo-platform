@@ -4,6 +4,7 @@ import { Helmet } from "react-helmet";
 import { Progress } from "@/components/ui/progress";
 import { useServices } from "@/context/services-context";
 import { useToast } from "@/hooks/use-toast";
+import { useQuestionnaireStorage } from "@/hooks/use-questionnaire-storage";
 import { submitQuestionnaire } from "@/lib/api";
 import { ServiceCategory } from "@shared/schema";
 

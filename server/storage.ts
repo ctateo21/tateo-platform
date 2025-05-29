@@ -31,9 +31,11 @@ export class MemStorage implements IStorage {
   private users: Map<number, User>;
   private submissions: Map<number, Submission>;
   private integrationRequests: Map<number, IntegrationRequest>;
+  private questionnaireResponses: Map<string, QuestionnaireResponse>;
   private userIdCounter: number;
   private submissionIdCounter: number;
   private integrationRequestIdCounter: number;
+  private questionnaireResponseIdCounter: number;
 
   constructor() {
     this.users = new Map();
