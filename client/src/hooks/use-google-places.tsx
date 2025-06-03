@@ -56,6 +56,11 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
       }
 
       try {
+        // Skip if autocomplete is already initialized
+        if ((inputElement as any).__googleAutocomplete) {
+          return;
+        }
+
         // Configure autocomplete options
         const options: AutocompleteOptions = {
           types: ['address'],
@@ -65,10 +70,20 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
         // Create autocomplete instance
         const instance = new window.google.maps.places.Autocomplete(inputElement, options);
         
+        // Prevent autocomplete from interfering with React's controlled input
+        // Store original value setter
+        const originalSetValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        
         // Add place_changed listener
         instance.addListener('place_changed', () => {
           const place = instance.getPlace();
           if (onPlaceSelected && place && place.formatted_address) {
+            // Manually trigger React's onChange
+            if (originalSetValue) {
+              originalSetValue.call(inputElement, place.formatted_address);
+              const event = new Event('input', { bubbles: true });
+              inputElement.dispatchEvent(event);
+            }
             onPlaceSelected(place);
           }
         });

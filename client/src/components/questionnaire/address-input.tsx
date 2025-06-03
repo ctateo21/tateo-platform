@@ -76,17 +76,24 @@ export default function AddressInput({
     }
   }, [bindInputRef, isLoaded]);
 
+  // Handle manual input changes
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = e.target.value;
+    onChange(newValue);
+  };
+
   return (
     <div className="relative">
       <Input
         ref={inputRef}
         type="text"
         value={value}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={handleInputChange}
         className={className}
         placeholder={placeholder}
         id={id}
         name={name}
+        autoComplete="off"
       />
       {loading && (
         <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
