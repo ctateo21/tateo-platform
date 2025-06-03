@@ -313,7 +313,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'initial' | 'property-type' | 'financing' | 'income' | 'liabilities' | 'payment';
+    step: 'type' | 'location' | 'ownership' | 'property-type' | 'financing' | 'income' | 'liabilities' | 'payment';
     type: 'purchase' | 'refinance';
     ownershipType: 'primary' | 'secondary' | 'investment';
     propertyType?: string;
@@ -322,7 +322,7 @@ export default function ServiceQuestionnaire() {
     nonQMType?: string;
     incomeType?: string;
   }>({
-    step: 'initial',
+    step: 'type',
     type: 'purchase',
     ownershipType: 'primary',
   });
@@ -332,7 +332,7 @@ export default function ServiceQuestionnaire() {
     let total = 0;
     selectedServices.forEach(service => {
       if (service.id === 'mortgage') {
-        total += 6; // initial, property-type, financing, income, liabilities, payment
+        total += 8; // type, location, ownership, property-type, financing, income, liabilities, payment
       } else if (service.id === 'real-estate') {
         total += 3;
       } else {
@@ -350,7 +350,7 @@ export default function ServiceQuestionnaire() {
     for (let i = 0; i < currentServiceIndex; i++) {
       const service = selectedServices[i];
       if (service.id === 'mortgage') {
-        step += 6;
+        step += 8;
       } else if (service.id === 'real-estate') {
         step += 3;
       } else {
@@ -362,12 +362,14 @@ export default function ServiceQuestionnaire() {
     if (currentService) {
       if (currentService.id === 'mortgage') {
         const mortgageSteps = { 
-          'initial': 1, 
-          'property-type': 2, 
-          'financing': 3, 
-          'income': 4,
-          'liabilities': 5,
-          'payment': 6
+          'type': 1,
+          'location': 2,
+          'ownership': 3,
+          'property-type': 4, 
+          'financing': 5, 
+          'income': 6,
+          'liabilities': 7,
+          'payment': 8
         };
         step += mortgageSteps[mortgageFlowState.step] || 1;
       } else {
