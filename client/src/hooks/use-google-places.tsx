@@ -77,14 +77,30 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
         // Add place_changed listener
         instance.addListener('place_changed', () => {
           const place = instance.getPlace();
-          if (onPlaceSelected && place && place.formatted_address) {
-            // Manually trigger React's onChange
-            if (originalSetValue) {
-              originalSetValue.call(inputElement, place.formatted_address);
-              const event = new Event('input', { bubbles: true });
-              inputElement.dispatchEvent(event);
+          if (place && place.formatted_address) {
+            // Update the input value directly
+            inputElement.value = place.formatted_address;
+            
+            // Trigger React's onChange event properly
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+            if (nativeInputValueSetter) {
+              nativeInputValueSetter.call(inputElement, place.formatted_address);
             }
-            onPlaceSelected(place);
+            
+            // Create and dispatch a proper input event that React will recognize
+            const inputEvent = new Event('input', { bubbles: true });
+            Object.defineProperty(inputEvent, 'target', { writable: false, value: inputElement });
+            inputElement.dispatchEvent(inputEvent);
+            
+            // Also dispatch change event for good measure
+            const changeEvent = new Event('change', { bubbles: true });
+            Object.defineProperty(changeEvent, 'target', { writable: false, value: inputElement });
+            inputElement.dispatchEvent(changeEvent);
+            
+            // Call the onPlaceSelected callback
+            if (onPlaceSelected) {
+              onPlaceSelected(place);
+            }
           }
         });
         
