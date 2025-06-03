@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, MapPin, Home } from "lucide-react";
 import QuestionnaireForm from "./questionnaire-form";
-import AddressInputFixed from "./address-input-fixed";
+import SimpleAddressInput from "./simple-address-input";
 import CurrencyInput from "./currency-input";
 import { getZestimate, getZipCodeAverage, formatPrice } from "@/lib/zillow";
 
@@ -251,7 +251,7 @@ export default function PropertyLocationStep({ onSubmit, onBack, defaultValues, 
                     <FormItem>
                       <FormLabel>Property Address</FormLabel>
                       <FormControl>
-                        <AddressInputFixed
+                        <SimpleAddressInput
                           value={field.value}
                           onChange={field.onChange}
                           onPlaceSelected={(place) => handleAddressSelect(place, form)}

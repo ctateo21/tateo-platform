@@ -13,7 +13,7 @@ interface AddressInputProps {
   name?: string;
 }
 
-export default function AddressInputFixed({
+export default function SimpleAddressInput({
   value,
   onChange,
   onPlaceSelected,
@@ -23,7 +23,7 @@ export default function AddressInputFixed({
   name,
 }: AddressInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
+  const autocompleteRef = useRef<any>(null);
   const [apiKey, setApiKey] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,10 +55,23 @@ export default function AddressInputFixed({
   useEffect(() => {
     if (!apiKey) return;
 
+    // Check if Google Maps is already loaded
+    if ((window as any).google?.maps?.places) {
+      setScriptLoaded(true);
+      return;
+    }
+
     // Check if script already exists
     const existingScript = document.querySelector(`script[src*="maps.googleapis.com"]`);
-    if (existingScript || window.google?.maps?.places) {
-      setScriptLoaded(true);
+    if (existingScript) {
+      const checkLoaded = () => {
+        if ((window as any).google?.maps?.places) {
+          setScriptLoaded(true);
+        } else {
+          setTimeout(checkLoaded, 100);
+        }
+      };
+      checkLoaded();
       return;
     }
 
@@ -76,27 +89,23 @@ export default function AddressInputFixed({
     };
 
     document.head.appendChild(script);
-
-    return () => {
-      // Cleanup autocomplete instance
-      if (autocompleteRef.current && window.google?.maps?.event) {
-        window.google.maps.event.clearInstanceListeners(autocompleteRef.current);
-        autocompleteRef.current = null;
-      }
-    };
   }, [apiKey]);
 
   // Initialize autocomplete
   useEffect(() => {
-    if (!scriptLoaded || !inputRef.current || !window.google?.maps?.places) return;
+    if (!scriptLoaded || !inputRef.current || !(window as any).google?.maps?.places) return;
 
     // Clean up existing autocomplete
-    if (autocompleteRef.current && window.google?.maps?.event) {
-      window.google.maps.event.clearInstanceListeners(autocompleteRef.current);
+    if (autocompleteRef.current) {
+      try {
+        (window as any).google.maps.event.clearInstanceListeners(autocompleteRef.current);
+      } catch (e) {
+        // Ignore cleanup errors
+      }
     }
 
     // Create new autocomplete instance
-    const autocomplete = new google.maps.places.Autocomplete(inputRef.current, {
+    const autocomplete = new (window as any).google.maps.places.Autocomplete(inputRef.current, {
       types: ['address'],
       componentRestrictions: { country: 'us' }
     });
@@ -108,7 +117,7 @@ export default function AddressInputFixed({
       const place = autocomplete.getPlace();
       
       if (place && place.formatted_address) {
-        // Force update React state immediately
+        // Update React state immediately
         onChange(place.formatted_address);
         
         // Call the callback
@@ -119,8 +128,12 @@ export default function AddressInputFixed({
     });
 
     return () => {
-      if (listener && window.google?.maps?.event) {
-        window.google.maps.event.removeListener(listener);
+      try {
+        if (listener) {
+          (window as any).google.maps.event.removeListener(listener);
+        }
+      } catch (e) {
+        // Ignore cleanup errors
       }
     };
   }, [scriptLoaded, onChange, onPlaceSelected]);
