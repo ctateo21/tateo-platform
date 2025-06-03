@@ -16,6 +16,9 @@ import BuyTypeForm from "@/components/questionnaire/buy-type-form";
 import SellTypeForm from "@/components/questionnaire/sell-type-form";
 import CashPurchaseForm from "@/components/questionnaire/cash-purchase-form";
 import SellPropertyForm from "@/components/questionnaire/sell-property-form";
+import MortgageTypeForm from "@/components/questionnaire/mortgage-type-form";
+import PropertyLocationForm from "@/components/questionnaire/property-location-form";
+import PropertyOwnershipForm from "@/components/questionnaire/property-ownership-form";
 import MortgageForm from "@/components/questionnaire/mortgage-form";
 import MortgagePropertyTypeForm from "@/components/questionnaire/mortgage-property-type-form";
 import { MortgageFinancingForm } from "@/components/questionnaire/mortgage-financing-form";
@@ -743,12 +746,25 @@ export default function ServiceQuestionnaire() {
         // Handle mortgage flow based on the current step
         switch (mortgageFlowState.step) {
           case 'initial':
-            console.log('All formData:', formData); // Debug log
-            console.log('Mortgage form data:', formData.mortgage); // Debug log
-            return <MortgageForm 
+            return <MortgageTypeForm 
               defaultValues={formData.mortgage || {}}
-              onSubmit={handleMortgageInitialSubmit} 
+              onSubmit={handleMortgageTypeSubmit} 
               onBack={handleBack} 
+            />;
+            
+          case 'location':
+            return <PropertyLocationForm
+              defaultValues={formData.mortgage || {}}
+              mortgageType={mortgageFlowState.type || 'purchase'}
+              onSubmit={handlePropertyLocationSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'initial' }))}
+            />;
+            
+          case 'ownership':
+            return <PropertyOwnershipForm
+              defaultValues={formData.mortgage || {}}
+              onSubmit={handlePropertyOwnershipSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'location' }))}
             />;
             
           case 'property-type':
