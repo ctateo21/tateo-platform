@@ -313,7 +313,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'initial' | 'location' | 'ownership' | 'property-type' | 'financing' | 'income' | 'liabilities' | 'payment';
+    step: 'initial' | 'property-type' | 'financing' | 'income' | 'liabilities' | 'payment';
     type: 'purchase' | 'refinance';
     ownershipType: 'primary' | 'secondary' | 'investment';
     propertyType?: string;
@@ -332,7 +332,7 @@ export default function ServiceQuestionnaire() {
     let total = 0;
     selectedServices.forEach(service => {
       if (service.id === 'mortgage') {
-        total += 8; // initial, location, ownership, property-type, financing, income, liabilities, payment
+        total += 6; // initial, property-type, financing, income, liabilities, payment
       } else if (service.id === 'real-estate') {
         total += 3;
       } else {
@@ -804,25 +804,12 @@ export default function ServiceQuestionnaire() {
         // Handle mortgage flow based on the current step
         switch (mortgageFlowState.step) {
           case 'initial':
-            return <MortgageTypeForm 
+            console.log('All formData:', formData); // Debug log
+            console.log('Mortgage form data:', formData.mortgage); // Debug log
+            return <MortgageForm 
               defaultValues={formData.mortgage || {}}
-              onSubmit={handleMortgageTypeSubmit} 
+              onSubmit={handleMortgageInitialSubmit} 
               onBack={handleBack} 
-            />;
-            
-          case 'location':
-            return <PropertyLocationForm
-              defaultValues={formData.mortgage || {}}
-              mortgageType={mortgageFlowState.type || 'purchase'}
-              onSubmit={handlePropertyLocationSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'initial' }))}
-            />;
-            
-          case 'ownership':
-            return <PropertyOwnershipForm
-              defaultValues={formData.mortgage || {}}
-              onSubmit={handlePropertyOwnershipSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'location' }))}
             />;
             
           case 'property-type':
