@@ -68,23 +68,30 @@ export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookPro
         // Add place_changed listener
         instance.addListener('place_changed', () => {
           const place = instance.getPlace();
-          if (onPlaceSelected && place) {
+          if (onPlaceSelected && place && place.formatted_address) {
             onPlaceSelected(place);
           }
         });
         
-        // Prevent form submission on Enter key
-        const preventSubmit = (e: KeyboardEvent) => {
-          if (e.key === 'Enter') e.preventDefault();
+        // Handle keyboard events to allow normal typing
+        const handleKeydown = (e: KeyboardEvent) => {
+          // Only prevent form submission on Enter, allow all other typing
+          if (e.key === 'Enter') {
+            e.preventDefault();
+          }
         };
         
-        inputElement.addEventListener('keydown', preventSubmit);
+        inputElement.addEventListener('keydown', handleKeydown);
+        
+        // Store reference to prevent input field interference
+        (inputElement as any).__googleAutocomplete = instance;
         setAutocomplete(instance);
         
         // Return cleanup function
         return () => {
-          inputElement.removeEventListener('keydown', preventSubmit);
-          // Note: Google's Autocomplete doesn't need explicit cleanup
+          inputElement.removeEventListener('keydown', handleKeydown);
+          // Clear the reference
+          delete (inputElement as any).__googleAutocomplete;
         };
       } catch (error) {
         console.error('Error initializing Google Places Autocomplete:', error);
