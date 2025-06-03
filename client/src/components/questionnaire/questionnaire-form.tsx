@@ -11,9 +11,11 @@ interface QuestionnaireFormProps<T extends z.ZodType> {
   defaultValues: z.infer<T>;
   onSubmit: (data: z.infer<T>) => void;
   onBack: () => void;
-  children: ReactNode;
+  children: ReactNode | ((form: any) => ReactNode);
   submitText?: string;
   isSubmitting?: boolean;
+  title?: string;
+  description?: string;
 }
 
 export default function QuestionnaireForm<T extends z.ZodType>({
@@ -24,6 +26,8 @@ export default function QuestionnaireForm<T extends z.ZodType>({
   children,
   submitText = "Continue",
   isSubmitting = false,
+  title,
+  description,
 }: QuestionnaireFormProps<T>) {
   const form = useForm<z.infer<T>>({
     resolver: zodResolver(schema),
@@ -43,7 +47,15 @@ export default function QuestionnaireForm<T extends z.ZodType>({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="bg-white p-6 rounded-lg shadow-sm">
-        {children}
+        {title && (
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">{title}</h1>
+            {description && (
+              <p className="text-gray-600">{description}</p>
+            )}
+          </div>
+        )}
+        {typeof children === 'function' ? children(form) : children}
         
         <div className="flex justify-between mt-8">
           <Button 
