@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, MapPin, Home } from "lucide-react";
 import QuestionnaireForm from "./questionnaire-form";
-import AddressInput from "./address-input";
+import AddressInputFixed from "./address-input-fixed";
 import CurrencyInput from "./currency-input";
 import { getZestimate, getZipCodeAverage, formatPrice } from "@/lib/zillow";
 
@@ -80,7 +80,15 @@ export default function PropertyLocationStep({ onSubmit, onBack, defaultValues, 
     setSelectedPlace(place);
     
     if (place?.formatted_address) {
-      form.setValue('propertyAddress', place.formatted_address);
+      // Force update the form field value
+      form.setValue('propertyAddress', place.formatted_address, { 
+        shouldValidate: true, 
+        shouldDirty: true,
+        shouldTouch: true 
+      });
+      
+      // Trigger form validation and re-render
+      form.trigger('propertyAddress');
       
       setAddressResult(prev => ({ ...prev, loading: true, error: undefined }));
       
@@ -243,7 +251,7 @@ export default function PropertyLocationStep({ onSubmit, onBack, defaultValues, 
                     <FormItem>
                       <FormLabel>Property Address</FormLabel>
                       <FormControl>
-                        <AddressInput
+                        <AddressInputFixed
                           value={field.value}
                           onChange={field.onChange}
                           onPlaceSelected={(place) => handleAddressSelect(place, form)}

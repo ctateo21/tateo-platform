@@ -56,7 +56,15 @@ export default function AddressInput({
   // Handle place selection
   const handlePlaceSelected = useCallback((place: any) => {
     if (place && place.formatted_address) {
+      // Force the input value to update immediately
+      if (inputRef.current) {
+        inputRef.current.value = place.formatted_address;
+      }
+      
+      // Update the form state
       onChange(place.formatted_address);
+      
+      // Call the callback
       if (onPlaceSelected) {
         onPlaceSelected(place);
       }
