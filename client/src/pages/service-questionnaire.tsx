@@ -350,7 +350,7 @@ export default function ServiceQuestionnaire() {
     for (let i = 0; i < currentServiceIndex; i++) {
       const service = selectedServices[i];
       if (service.id === 'mortgage') {
-        step += 8;
+        step += 6;
       } else if (service.id === 'real-estate') {
         step += 3;
       } else {
@@ -362,14 +362,12 @@ export default function ServiceQuestionnaire() {
     if (currentService) {
       if (currentService.id === 'mortgage') {
         const mortgageSteps = { 
-          'initial': 1,
-          'location': 2,
-          'ownership': 3,
-          'property-type': 4, 
-          'financing': 5, 
-          'income': 6,
-          'liabilities': 7,
-          'payment': 8
+          'initial': 1, 
+          'property-type': 2, 
+          'financing': 3, 
+          'income': 4,
+          'liabilities': 5,
+          'payment': 6
         };
         step += mortgageSteps[mortgageFlowState.step] || 1;
       } else {
@@ -535,61 +533,7 @@ export default function ServiceQuestionnaire() {
     }
   };
   
-  // Handle mortgage type form submission (first step)
-  const handleMortgageTypeSubmit = (data: any) => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    
-    setFormData(prev => ({
-      ...prev,
-      mortgage: {
-        ...prev.mortgage,
-        ...data
-      }
-    }));
-    
-    setMortgageFlowState(prev => ({
-      ...prev,
-      step: 'location',
-      type: data.type
-    }));
-  };
 
-  // Handle property location form submission (second step)
-  const handlePropertyLocationSubmit = (data: any) => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    
-    setFormData(prev => ({
-      ...prev,
-      mortgage: {
-        ...prev.mortgage,
-        ...data
-      }
-    }));
-    
-    setMortgageFlowState(prev => ({
-      ...prev,
-      step: 'ownership'
-    }));
-  };
-
-  // Handle property ownership form submission (third step)
-  const handlePropertyOwnershipSubmit = (data: any) => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    
-    setFormData(prev => ({
-      ...prev,
-      mortgage: {
-        ...prev.mortgage,
-        ...data
-      }
-    }));
-    
-    setMortgageFlowState(prev => ({
-      ...prev,
-      step: 'property-type',
-      ownershipType: data.ownershipType
-    }));
-  };
 
   // Handle initial mortgage form submission (legacy)
   const handleMortgageInitialSubmit = (data: any) => {
