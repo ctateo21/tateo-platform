@@ -164,7 +164,7 @@ export default function RealEstateInitialForm({ onSubmit, onBack }: RealEstateIn
                                 </svg>
                               </div>
                             </div>
-                            <div className="font-semibold text-lg block mb-2">Buy & Sell</div>
+                            <div className="font-semibold text-lg block mb-2">Sell & Buy</div>
                             <p className="text-muted-foreground text-sm">
                               Seamlessly transition from your current home to your new one
                             </p>
