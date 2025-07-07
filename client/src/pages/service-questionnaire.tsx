@@ -242,19 +242,11 @@ export default function ServiceQuestionnaire() {
           }));
           break;
           
-        case 'financing':
+        case 'income':
           // Go back to lender-price form
           setMortgageFlowState(prev => ({
             ...prev,
             step: 'lender-price'
-          }));
-          break;
-          
-        case 'income':
-          // Go back to financing form
-          setMortgageFlowState(prev => ({
-            ...prev,
-            step: 'financing'
           }));
           break;
           
@@ -341,7 +333,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'type' | 'location' | 'ownership' | 'lender-price' | 'financing' | 'income' | 'liabilities' | 'payment';
+    step: 'type' | 'location' | 'ownership' | 'lender-price' | 'income' | 'liabilities' | 'payment';
     type: 'purchase' | 'refinance';
     ownershipType: 'primary' | 'secondary' | 'investment';
     propertyType?: string;
@@ -360,7 +352,7 @@ export default function ServiceQuestionnaire() {
     let total = 0;
     selectedServices.forEach(service => {
       if (service.id === 'mortgage') {
-        total += 8; // type, location, ownership, property-type, financing, income, liabilities, payment
+        total += 7; // type, location, ownership, lender-price, income, liabilities, payment
       } else if (service.id === 'real-estate') {
         total += 3;
       } else {
@@ -378,7 +370,7 @@ export default function ServiceQuestionnaire() {
     for (let i = 0; i < currentServiceIndex; i++) {
       const service = selectedServices[i];
       if (service.id === 'mortgage') {
-        step += 8;
+        step += 7;
       } else if (service.id === 'real-estate') {
         step += 3;
       } else {
@@ -394,10 +386,9 @@ export default function ServiceQuestionnaire() {
           'location': 2,
           'ownership': 3,
           'lender-price': 4, 
-          'financing': 5, 
-          'income': 6,
-          'liabilities': 7,
-          'payment': 8
+          'income': 5,
+          'liabilities': 6,
+          'payment': 7
         };
         step += mortgageSteps[mortgageFlowState.step] || 1;
       } else {
@@ -658,7 +649,7 @@ export default function ServiceQuestionnaire() {
     
     setMortgageFlowState(prev => ({
       ...prev,
-      step: 'financing'
+      step: 'income'
     }));
   };
   
@@ -852,17 +843,6 @@ export default function ServiceQuestionnaire() {
               onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'ownership' }))}
             />;
             
-          case 'financing':
-            return <MortgageFinancingForm
-              initialData={{
-                type: mortgageFlowState.type,
-                ownershipType: mortgageFlowState.ownershipType,
-                propertyType: mortgageFlowState.propertyType
-              }}
-              onSubmit={handleMortgageFinancingSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'lender-price' }))}
-            />;
-            
           case 'income':
             return <MortgageIncomeForm
               initialData={{
@@ -872,7 +852,7 @@ export default function ServiceQuestionnaire() {
               }}
               formData={formData.mortgage}
               onSubmit={handleMortgageIncomeSubmit}
-              onBack={handleBack}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'lender-price' }))}
             />;
             
           case 'liabilities':
