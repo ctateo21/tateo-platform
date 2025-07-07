@@ -419,6 +419,7 @@ export default function ServiceQuestionnaire() {
       ...prev,
       step: intent === 'buy' ? 'purchase-method' : 
             intent === 'sell' ? 'sell-property' : 
+            intent === 'hold-and-buy' ? 'purchase-method' :
             'sell-type', // for 'both'
       intent
     }));

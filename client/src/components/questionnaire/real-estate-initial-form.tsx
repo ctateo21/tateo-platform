@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 
 // Define a simpler schema just for the initial question
 const realEstateInitialSchema = z.object({
-  intent: z.enum(["buy", "sell", "both"])
+  intent: z.enum(["buy", "sell", "both", "hold-and-buy"])
 });
 
 interface RealEstateInitialFormProps {
@@ -47,7 +47,7 @@ export default function RealEstateInitialForm({ onSubmit, onBack }: RealEstateIn
                     }, 300);
                   }}
                   value={field.value}
-                  className="grid grid-cols-1 md:grid-cols-3 gap-4"
+                  className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
                 >
                   <FormItem className="contents">
                     <FormControl>
@@ -167,6 +167,49 @@ export default function RealEstateInitialForm({ onSubmit, onBack }: RealEstateIn
                             <div className="font-semibold text-lg block mb-2">Buy & Sell</div>
                             <p className="text-muted-foreground text-sm">
                               Seamlessly transition from your current home to your new one
+                            </p>
+                          </CardContent>
+                        </Card>
+                      </label>
+                    </FormControl>
+                  </FormItem>
+                  
+                  <FormItem className="contents">
+                    <FormControl>
+                      <label>
+                        <input 
+                          type="radio" 
+                          className="hidden" 
+                          checked={field.value === 'hold-and-buy'} 
+                          onChange={() => field.onChange('hold-and-buy')}
+                        />
+                        <Card 
+                          className={`cursor-pointer transition-all ${field.value === 'hold-and-buy' ? 'border-primary ring-2 ring-primary/20' : 'border-gray-200 hover:border-primary/50'}`}
+                          onClick={() => {
+                            field.onChange('hold-and-buy');
+                            // Submit form after a short delay to show selection
+                            setTimeout(() => {
+                              const form = document.querySelector('form');
+                              if (form) form.requestSubmit();
+                            }, 300);
+                          }}
+                        >
+                          <CardContent className="p-6 text-center">
+                            <div className="flex items-center justify-center mb-4">
+                              <RadioGroupItem value="hold-and-buy" className="sr-only" />
+                              <div className="h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-primary">
+                                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                                  <path d="M17 21v-8H7v8"></path>
+                                  <path d="M7 3v5h8"></path>
+                                  <circle cx="15" cy="9" r="2"></circle>
+                                  <path d="m9 12 2 2 4-4"></path>
+                                </svg>
+                              </div>
+                            </div>
+                            <div className="font-semibold text-lg block mb-2">Hold and Buy</div>
+                            <p className="text-muted-foreground text-sm">
+                              Keep your current primary residence and buy a new home
                             </p>
                           </CardContent>
                         </Card>
