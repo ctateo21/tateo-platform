@@ -12,6 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import CurrencyInput from "@/components/questionnaire/currency-input";
 import NumberInput from "@/components/questionnaire/number-input";
+import { IncomeTypeSelection } from "./income-type-selection";
 
 interface MortgageIncomeFormProps {
   initialData?: {
@@ -30,6 +31,8 @@ export function MortgageIncomeForm({
   onSubmit,
   onBack
 }: MortgageIncomeFormProps) {
+  const [currentStep, setCurrentStep] = useState<'type-selection' | 'retired-details'>('type-selection');
+  const [incomeSelectionData, setIncomeSelectionData] = useState<any>(null);
   const [selectedIncomeType, setSelectedIncomeType] = useState<string>("");
   const [selectedSalaryType, setSelectedSalaryType] = useState<string>("");
   const [selectedBusinessType, setSelectedBusinessType] = useState<string>("");
@@ -101,8 +104,31 @@ export function MortgageIncomeForm({
     setSelectedDisabilityType(watchDisabilityType || "");
   }, [watchDisabilityType]);
   
+  const handleIncomeTypeSelection = (data: any) => {
+    setIncomeSelectionData(data);
+    
+    // If continuing to retired flow or API integrations handled everything, proceed
+    if (data.continueToRetiredFlow || (data.apiIntegrations && !data.incomeTypes.includes('retired'))) {
+      // For non-retired flows or when APIs handle everything, complete the step
+      if (!data.incomeTypes.includes('retired')) {
+        onSubmit({
+          ...data,
+          incomeType: 'api-verified'
+        });
+        return;
+      }
+      // For retired flow, continue to details
+      setCurrentStep('retired-details');
+    }
+  };
+
   const handleSubmit = (data: MortgageIncomeData) => {
-    onSubmit(data);
+    // Combine with income selection data
+    const finalData = {
+      ...data,
+      ...incomeSelectionData
+    };
+    onSubmit(finalData);
   };
   
   const getIncomeMultiplier = (incomeType: string) => {
@@ -223,12 +249,24 @@ export function MortgageIncomeForm({
     });
   };
   
+  // Show income type selection first
+  if (currentStep === 'type-selection') {
+    return (
+      <IncomeTypeSelection
+        onComplete={handleIncomeTypeSelection}
+        onBack={onBack}
+        defaultValues={formData}
+      />
+    );
+  }
+
+  // Show retired details form
   return (
     <Card className="w-full max-w-4xl mx-auto">
       <CardHeader>
         <CardTitle className="text-2xl font-bold">{getFormTitle()}</CardTitle>
         <CardDescription>
-          Tell us about your income to help us find the best loan options.
+          Please provide details about your retirement income sources.
         </CardDescription>
       </CardHeader>
       
