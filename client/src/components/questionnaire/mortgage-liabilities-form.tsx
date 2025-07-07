@@ -4,11 +4,12 @@ import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/comp
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { CreditCard, Building2, Car, Home, Plus, Trash2, Link } from "lucide-react";
+import { CreditCard, Building2, Car, Home, Plus, Trash2, Link, ArrowLeft } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import QuestionnaireForm from "./questionnaire-form";
 import CurrencyInput from "./currency-input";
+import { PlaidIntegration } from "./plaid-integration";
 
 // Schema for liabilities form
 const liabilitiesFormSchema = z.object({
@@ -37,11 +38,13 @@ const debtTypes = [
 ];
 
 export function MortgageLiabilitiesForm({ onSubmit, onBack, defaultValues, monthlyIncome = 0 }: MortgageLiabilitiesFormProps) {
-  const [inputMethod, setInputMethod] = useState<"manual" | "plaid">("manual");
+  const [inputMethod, setInputMethod] = useState<"manual" | "plaid">("plaid");
+  const [showPlaidFlow, setShowPlaidFlow] = useState(false);
   const [manualDebts, setManualDebts] = useState([
     { type: "", monthlyPayment: "" }
   ]);
   const [plaidConnected, setPlaidConnected] = useState(false);
+  const [plaidData, setPlaidData] = useState<any>(null);
   const [totalMonthlyDebts, setTotalMonthlyDebts] = useState(0);
 
   // Calculate total monthly debts
@@ -60,7 +63,7 @@ export function MortgageLiabilitiesForm({ onSubmit, onBack, defaultValues, month
 
   // Form default values
   const formDefaults = {
-    inputMethod: "manual" as const,
+    inputMethod: "plaid" as const,
     manualDebts: [{ type: "", monthlyPayment: "" }],
     plaidConnected: false,
     ...defaultValues,
@@ -95,11 +98,47 @@ export function MortgageLiabilitiesForm({ onSubmit, onBack, defaultValues, month
     setManualDebts(updated);
   };
 
-  const connectToPlaid = () => {
-    // This would integrate with Plaid API
-    // For now, we'll simulate the connection
-    setPlaidConnected(true);
+  const handlePlaidConnect = () => {
+    setShowPlaidFlow(true);
   };
+
+  const handlePlaidComplete = (data: any) => {
+    setPlaidData(data);
+    setPlaidConnected(true);
+    setTotalMonthlyDebts(data.totalMonthlyDebts);
+    setShowPlaidFlow(false);
+    
+    // Submit the form with Plaid data
+    onSubmit({
+      inputMethod: 'plaid',
+      plaidConnected: true,
+      plaidData: data,
+      totalMonthlyDebts: data.totalMonthlyDebts,
+      totalAssets: data.totalAssets
+    });
+  };
+
+  const handlePlaidCancel = () => {
+    setShowPlaidFlow(false);
+    setInputMethod('manual');
+  };
+
+  // Show Plaid integration flow
+  if (showPlaidFlow) {
+    return (
+      <div className="space-y-6">
+        <Button 
+          variant="ghost" 
+          onClick={handlePlaidCancel}
+          className="mb-4"
+        >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Selection
+        </Button>
+        <PlaidIntegration onComplete={handlePlaidComplete} onCancel={handlePlaidCancel} />
+      </div>
+    );
+  }
 
   return (
     <QuestionnaireForm
@@ -113,37 +152,62 @@ export function MortgageLiabilitiesForm({ onSubmit, onBack, defaultValues, month
       
       <div className="space-y-6">
         {/* Input Method Selection */}
-        <div className="space-y-4">
-          <h4 className="text-lg font-medium">How would you like to provide your debt information?</h4>
+        <div className="space-y-6">
+          <div className="text-center">
+            <h4 className="text-lg font-medium mb-2">Connect Your Financial Accounts</h4>
+            <p className="text-muted-foreground">We'll securely collect your debts AND assets for a complete financial picture</p>
+          </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Manual Input Option */}
-            <Card 
-              className={`cursor-pointer transition-all ${inputMethod === "manual" ? "ring-2 ring-primary" : ""}`}
-              onClick={() => setInputMethod("manual")}
-            >
-              <CardHeader className="text-center">
-                <CreditCard className="h-8 w-8 mx-auto mb-2 text-primary" />
-                <CardTitle className="text-lg">Manual Input</CardTitle>
-                <CardDescription>
-                  Enter your debts manually for complete control
-                </CardDescription>
-              </CardHeader>
-            </Card>
+          {/* Plaid Connection Option - Dominant */}
+          <Card 
+            className={`cursor-pointer transition-all border-2 ${inputMethod === "plaid" ? "ring-4 ring-blue-200 border-blue-500 bg-blue-50" : "border-blue-300 hover:border-blue-400"}`}
+            onClick={() => {
+              setInputMethod("plaid");
+              handlePlaidConnect();
+            }}
+          >
+            <CardHeader className="text-center py-8">
+              <div className="mx-auto mb-4 w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+                <Link className="h-8 w-8 text-blue-600" />
+              </div>
+              <CardTitle className="text-2xl text-blue-700 mb-2">Connect with Plaid</CardTitle>
+              <CardDescription className="text-lg mb-4">
+                <strong>Recommended:</strong> Securely connect your bank accounts and credit cards
+              </CardDescription>
+              <div className="bg-white/80 p-4 rounded-lg text-sm text-left space-y-2">
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span>Automatically imports all debts and monthly payments</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span>Collects asset information (savings, checking, investments)</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span>Faster processing and more accurate loan terms</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  <span>Bank-level security with 256-bit encryption</span>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
 
-            {/* Plaid Connection Option */}
-            <Card 
-              className={`cursor-pointer transition-all ${inputMethod === "plaid" ? "ring-2 ring-primary" : ""}`}
-              onClick={() => setInputMethod("plaid")}
+          {/* Manual Input Option - Smaller, Less Prominent */}
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={() => setInputMethod("manual")}
+              className={`text-sm px-4 py-2 rounded-md transition-all ${
+                inputMethod === "manual" 
+                  ? "bg-gray-200 text-gray-800" 
+                  : "text-gray-600 hover:text-gray-800 hover:bg-gray-100"
+              }`}
             >
-              <CardHeader className="text-center">
-                <Link className="h-8 w-8 mx-auto mb-2 text-primary" />
-                <CardTitle className="text-lg">Connect with Plaid</CardTitle>
-                <CardDescription>
-                  Securely connect to Credit Karma and auto-import your debts
-                </CardDescription>
-              </CardHeader>
-            </Card>
+              Or enter debts manually instead
+            </button>
           </div>
         </div>
 
@@ -290,7 +354,7 @@ export function MortgageLiabilitiesForm({ onSubmit, onBack, defaultValues, month
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <Button onClick={connectToPlaid} className="w-full">
+                  <Button onClick={handlePlaidConnect} className="w-full">
                     <Link className="h-4 w-4 mr-2" />
                     Connect with Plaid
                   </Button>
