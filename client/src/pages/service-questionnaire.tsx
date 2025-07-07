@@ -28,6 +28,7 @@ import { MortgageFinancingForm } from "@/components/questionnaire/mortgage-finan
 import { MortgageIncomeForm } from "@/components/questionnaire/mortgage-income-form";
 import { MortgageLiabilitiesForm } from "@/components/questionnaire/mortgage-liabilities-form";
 import { MortgagePaymentForm } from "@/components/questionnaire/mortgage-payment-form";
+import LenderPriceStep from "@/components/questionnaire/lender-price-step";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
 import PropertyManagementForm from "@/components/questionnaire/property-management-form";
@@ -233,11 +234,19 @@ export default function ServiceQuestionnaire() {
           // The formData should persist automatically
           break;
           
-        case 'financing':
-          // Go back to property type form
+        case 'lender-price':
+          // Go back to ownership step
           setMortgageFlowState(prev => ({
             ...prev,
-            step: 'property-type'
+            step: 'ownership'
+          }));
+          break;
+          
+        case 'financing':
+          // Go back to lender-price form
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'lender-price'
           }));
           break;
           
@@ -332,7 +341,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'type' | 'location' | 'ownership' | 'property-type' | 'financing' | 'income' | 'liabilities' | 'payment';
+    step: 'type' | 'location' | 'ownership' | 'lender-price' | 'financing' | 'income' | 'liabilities' | 'payment';
     type: 'purchase' | 'refinance';
     ownershipType: 'primary' | 'secondary' | 'investment';
     propertyType?: string;
@@ -384,7 +393,7 @@ export default function ServiceQuestionnaire() {
           'type': 1,
           'location': 2,
           'ownership': 3,
-          'property-type': 4, 
+          'lender-price': 4, 
           'financing': 5, 
           'income': 6,
           'liabilities': 7,
@@ -608,7 +617,7 @@ export default function ServiceQuestionnaire() {
     
     setMortgageFlowState(prev => ({
       ...prev,
-      step: 'property-type',
+      step: 'lender-price',
       ownershipType: data.ownershipType
     }));
   };
@@ -632,6 +641,24 @@ export default function ServiceQuestionnaire() {
       ...prev,
       step: 'financing',
       propertyType: data.propertyType
+    }));
+  };
+  
+  // Handle LenderPrice step submission (step 4)
+  const handleLenderPriceSubmit = (data: any) => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'financing'
     }));
   };
   
@@ -817,14 +844,12 @@ export default function ServiceQuestionnaire() {
               onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'location' }))}
             />;
             
-          case 'property-type':
-            return <MortgagePropertyTypeForm
-              initialData={{
-                type: mortgageFlowState.type,
-                ownershipType: mortgageFlowState.ownershipType
-              }}
-              onSubmit={handleMortgagePropertyTypeSubmit}
-              onBack={handleBack}
+          case 'lender-price':
+            return <LenderPriceStep
+              defaultValues={formData.mortgage || {}}
+              mortgageData={formData.mortgage}
+              onSubmit={handleLenderPriceSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'ownership' }))}
             />;
             
           case 'financing':
@@ -835,7 +860,7 @@ export default function ServiceQuestionnaire() {
                 propertyType: mortgageFlowState.propertyType
               }}
               onSubmit={handleMortgageFinancingSubmit}
-              onBack={handleBack}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'lender-price' }))}
             />;
             
           case 'income':
