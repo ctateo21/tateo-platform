@@ -24,6 +24,8 @@ import { HomeOwnershipHistoryStep } from "@/components/questionnaire/home-owners
 import { CreditScoreStep } from "@/components/questionnaire/credit-score-step";
 import PropertyLocationStep from "@/components/questionnaire/property-location-step";
 import { LoanTypeStep } from "@/components/questionnaire/loan-type-step";
+import { LoanAssistanceStep } from "@/components/questionnaire/loan-assistance-step";
+import { NonQMStep } from "@/components/questionnaire/non-qm-step";
 import PropertyOwnershipStep from "@/components/questionnaire/property-ownership-step";
 import MortgageForm from "@/components/questionnaire/mortgage-form";
 import MortgagePropertyTypeForm from "@/components/questionnaire/mortgage-property-type-form";
@@ -252,11 +254,32 @@ export default function ServiceQuestionnaire() {
           }));
           break;
 
-        case 'lender-price':
+        case 'loan-assistance':
           // Go back to loan type step
           setMortgageFlowState(prev => ({
             ...prev,
             step: 'loan-type'
+          }));
+          break;
+
+        case 'non-qm':
+          // Go back to loan type step
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'loan-type'
+          }));
+          break;
+
+        case 'lender-price':
+          // Go back based on loan type
+          const prevStep = mortgageFlowState.loanType === 'jumbo' || mortgageFlowState.loanType === '5-plus-units' 
+            ? 'loan-type' 
+            : mortgageFlowState.loanType === 'non-qm' 
+              ? 'non-qm' 
+              : 'loan-assistance';
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: prevStep as any
           }));
           break;
           
@@ -351,13 +374,14 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'lender-price' | 'income' | 'liabilities' | 'payment';
+    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'loan-assistance' | 'non-qm' | 'lender-price' | 'income' | 'liabilities' | 'payment';
     type: 'purchase' | 'refinance';
     homeOwnershipHistory?: 'yes' | 'no';
     ownershipType: 'primary' | 'secondary' | 'investment';
     propertyType?: string;
     creditScore?: string;
     loanType?: string;
+    assistanceType?: string;
     nonQMType?: string;
     incomeType?: string;
   }>({
@@ -407,10 +431,12 @@ export default function ServiceQuestionnaire() {
           'location': 4,
           'ownership': 5,
           'loan-type': 6,
-          'lender-price': 7, 
-          'income': 8,
-          'liabilities': 9,
-          'payment': 10
+          'loan-assistance': 7,
+          'non-qm': 7,
+          'lender-price': 8, 
+          'income': 9,
+          'liabilities': 10,
+          'payment': 11
         };
         step += mortgageSteps[mortgageFlowState.step] || 1;
       } else {
@@ -685,10 +711,57 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
+    // Route based on selected loan type
+    let nextStep = 'lender-price'; // Default for jumbo and 5+ units
+    
+    if (data.loanType === 'conventional' || data.loanType === 'fha' || data.loanType === 'va' || data.loanType === 'usda') {
+      nextStep = 'loan-assistance';
+    } else if (data.loanType === 'non-qm') {
+      nextStep = 'non-qm';
+    }
+    
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: nextStep as any,
+      loanType: data.loanType
+    }));
+  };
+
+  // Handle loan assistance step submission (step 7a - conditional)
+  const handleLoanAssistanceSubmit = (data: any) => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
     setMortgageFlowState(prev => ({
       ...prev,
       step: 'lender-price',
-      loanType: data.loanType
+      assistanceType: data.assistanceType
+    }));
+  };
+
+  // Handle Non-QM step submission (step 7b - conditional)
+  const handleNonQMSubmit = (data: any) => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'lender-price',
+      nonQMType: data.nonQMType
     }));
   };
   
@@ -893,12 +966,37 @@ export default function ServiceQuestionnaire() {
               onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'ownership' }))}
             />;
             
+          case 'loan-assistance':
+            return <LoanAssistanceStep
+              defaultValues={formData.mortgage || {}}
+              loanType={mortgageFlowState.loanType || 'conventional'}
+              onSubmit={handleLoanAssistanceSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'loan-type' }))}
+            />;
+            
+          case 'non-qm':
+            return <NonQMStep
+              defaultValues={formData.mortgage || {}}
+              onSubmit={handleNonQMSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'loan-type' }))}
+            />;
+            
           case 'lender-price':
+            const getPreviousStepFromLenderPrice = () => {
+              if (mortgageFlowState.loanType === 'jumbo' || mortgageFlowState.loanType === '5-plus-units') {
+                return 'loan-type';
+              } else if (mortgageFlowState.loanType === 'non-qm') {
+                return 'non-qm';
+              } else {
+                return 'loan-assistance';
+              }
+            };
+
             return <LenderPriceStep
               defaultValues={formData.mortgage || {}}
               mortgageData={formData.mortgage}
               onSubmit={handleLenderPriceSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'loan-type' }))}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: getPreviousStepFromLenderPrice() as any }))}
             />;
             
           case 'income':
