@@ -158,21 +158,45 @@ export function LoanAssistanceStep({ onSubmit, onBack, loanType, defaultValues }
         </div>
 
         {/* Important notes about assistance programs */}
-        {loanType === 'conventional' || loanType === 'fha' ? (
-          <Alert className="mt-6 border-amber-200 bg-amber-50">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-            <AlertDescription className="text-amber-800">
-              <strong>Important:</strong> Lenders usually charge higher rates or fees when using down payment assistance programs.
-            </AlertDescription>
-          </Alert>
-        ) : (
-          <Alert className="mt-6 border-amber-200 bg-amber-50">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-            <AlertDescription className="text-amber-800">
-              <strong>Important:</strong> Assistance with closing costs can be in the form of a seller credit or a grant program. Grant programs may charge higher fees or rates.
-            </AlertDescription>
-          </Alert>
-        )}
+        <div className="space-y-4 mt-6">
+          {loanType === 'conventional' || loanType === 'fha' ? (
+            <>
+              <Alert className="border-amber-200 bg-amber-50">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-800">
+                  <strong>Important:</strong> Lenders usually charge higher rates or fees when using down payment assistance programs.
+                </AlertDescription>
+              </Alert>
+              <Alert className="border-blue-200 bg-blue-50">
+                <HelpCircle className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-800">
+                  <strong>Seller Concessions:</strong> {loanType === 'fha' 
+                    ? 'To cover closing costs, it is possible to get UP TO 6% in seller concessions.'
+                    : 'To cover closing costs, it is possible to get UP TO 3% in seller concessions.'
+                  }
+                </AlertDescription>
+              </Alert>
+            </>
+          ) : (
+            <>
+              <Alert className="border-amber-200 bg-amber-50">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-800">
+                  <strong>Important:</strong> Assistance with closing costs can be in the form of a seller credit or a grant program. Grant programs may charge higher fees or rates.
+                </AlertDescription>
+              </Alert>
+              <Alert className="border-blue-200 bg-blue-50">
+                <HelpCircle className="h-4 w-4 text-blue-600" />
+                <AlertDescription className="text-blue-800">
+                  <strong>Seller Concessions:</strong> {loanType === 'usda' 
+                    ? 'To cover closing costs, it is possible to get UP TO 6% in seller concessions.'
+                    : 'To cover closing costs, it is possible to get UP TO 4% in seller concessions.'
+                  }
+                </AlertDescription>
+              </Alert>
+            </>
+          )}
+        </div>
 
         <div className="flex justify-between mt-8">
           <Button 
