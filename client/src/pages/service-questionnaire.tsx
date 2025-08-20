@@ -21,6 +21,7 @@ import PropertyLocationForm from "@/components/questionnaire/property-location-f
 import PropertyOwnershipForm from "@/components/questionnaire/property-ownership-form";
 import MortgageTypeStep from "@/components/questionnaire/mortgage-type-step";
 import { HomeOwnershipHistoryStep } from "@/components/questionnaire/home-ownership-history-step";
+import { CreditScoreStep } from "@/components/questionnaire/credit-score-step";
 import PropertyLocationStep from "@/components/questionnaire/property-location-step";
 import PropertyOwnershipStep from "@/components/questionnaire/property-ownership-step";
 import MortgageForm from "@/components/questionnaire/mortgage-form";
@@ -218,11 +219,19 @@ export default function ServiceQuestionnaire() {
           }));
           break;
           
-        case 'location':
+        case 'credit-score':
           // Go back to home ownership history step
           setMortgageFlowState(prev => ({
             ...prev,
             step: 'home-ownership-history'
+          }));
+          break;
+          
+        case 'location':
+          // Go back to credit score step
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'credit-score'
           }));
           break;
           
@@ -335,7 +344,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'type' | 'home-ownership-history' | 'location' | 'ownership' | 'lender-price' | 'income' | 'liabilities' | 'payment';
+    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'lender-price' | 'income' | 'liabilities' | 'payment';
     type: 'purchase' | 'refinance';
     homeOwnershipHistory?: 'yes' | 'no';
     ownershipType: 'primary' | 'secondary' | 'investment';
@@ -594,8 +603,27 @@ export default function ServiceQuestionnaire() {
     
     setMortgageFlowState(prev => ({
       ...prev,
-      step: 'location',
+      step: 'credit-score',
       homeOwnershipHistory: data.homeOwnershipHistory
+    }));
+  };
+
+  // Handle credit score step submission (step 3)
+  const handleCreditScoreSubmit = (data: any) => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'location',
+      creditScore: data.creditScore
     }));
   };
 
@@ -807,12 +835,19 @@ export default function ServiceQuestionnaire() {
               onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'type' }))}
             />;
             
+          case 'credit-score':
+            return <CreditScoreStep
+              defaultValues={formData.mortgage || {}}
+              onSubmit={handleCreditScoreSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'home-ownership-history' }))}
+            />;
+            
           case 'location':
             return <PropertyLocationStep
               defaultValues={formData.mortgage || {}}
               mortgageType={mortgageFlowState.type}
               onSubmit={handlePropertyLocationSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'home-ownership-history' }))}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'credit-score' }))}
             />;
             
           case 'ownership':
