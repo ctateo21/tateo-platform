@@ -23,6 +23,7 @@ import MortgageTypeStep from "@/components/questionnaire/mortgage-type-step";
 import { HomeOwnershipHistoryStep } from "@/components/questionnaire/home-ownership-history-step";
 import { CreditScoreStep } from "@/components/questionnaire/credit-score-step";
 import PropertyLocationStep from "@/components/questionnaire/property-location-step";
+import { LoanTypeStep } from "@/components/questionnaire/loan-type-step";
 import PropertyOwnershipStep from "@/components/questionnaire/property-ownership-step";
 import MortgageForm from "@/components/questionnaire/mortgage-form";
 import MortgagePropertyTypeForm from "@/components/questionnaire/mortgage-property-type-form";
@@ -243,13 +244,19 @@ export default function ServiceQuestionnaire() {
           }));
           break;
           
-
-          
-        case 'lender-price':
+        case 'loan-type':
           // Go back to ownership step
           setMortgageFlowState(prev => ({
             ...prev,
             step: 'ownership'
+          }));
+          break;
+
+        case 'lender-price':
+          // Go back to loan type step
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'loan-type'
           }));
           break;
           
@@ -344,7 +351,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'lender-price' | 'income' | 'liabilities' | 'payment';
+    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'lender-price' | 'income' | 'liabilities' | 'payment';
     type: 'purchase' | 'refinance';
     homeOwnershipHistory?: 'yes' | 'no';
     ownershipType: 'primary' | 'secondary' | 'investment';
@@ -396,12 +403,14 @@ export default function ServiceQuestionnaire() {
         const mortgageSteps = { 
           'type': 1,
           'home-ownership-history': 2,
-          'location': 3,
-          'ownership': 4,
-          'lender-price': 5, 
-          'income': 6,
-          'liabilities': 7,
-          'payment': 8
+          'credit-score': 3,
+          'location': 4,
+          'ownership': 5,
+          'loan-type': 6,
+          'lender-price': 7, 
+          'income': 8,
+          'liabilities': 9,
+          'payment': 10
         };
         step += mortgageSteps[mortgageFlowState.step] || 1;
       } else {
@@ -659,8 +668,27 @@ export default function ServiceQuestionnaire() {
     
     setMortgageFlowState(prev => ({
       ...prev,
-      step: 'lender-price',
+      step: 'loan-type',
       ownershipType: data.ownershipType
+    }));
+  };
+
+  // Handle loan type step submission (step 6)
+  const handleLoanTypeSubmit = (data: any) => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'lender-price',
+      loanType: data.loanType
     }));
   };
   
@@ -858,12 +886,19 @@ export default function ServiceQuestionnaire() {
               onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'location' }))}
             />;
             
+          case 'loan-type':
+            return <LoanTypeStep
+              defaultValues={formData.mortgage || {}}
+              onSubmit={handleLoanTypeSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'ownership' }))}
+            />;
+            
           case 'lender-price':
             return <LenderPriceStep
               defaultValues={formData.mortgage || {}}
               mortgageData={formData.mortgage}
               onSubmit={handleLenderPriceSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'ownership' }))}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'loan-type' }))}
             />;
             
           case 'income':
