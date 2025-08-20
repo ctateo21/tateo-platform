@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ArrowLeft, HandCoins, X, HelpCircle } from "lucide-react";
+import { ArrowLeft, HandCoins, X, HelpCircle, AlertTriangle } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface LoanAssistanceStepProps {
   onSubmit: (data: { assistanceType: string }) => void;
@@ -155,6 +156,23 @@ export function LoanAssistanceStep({ onSubmit, onBack, loanType, defaultValues }
             );
           })}
         </div>
+
+        {/* Important notes about assistance programs */}
+        {loanType === 'conventional' || loanType === 'fha' ? (
+          <Alert className="mt-6 border-amber-200 bg-amber-50">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-amber-800">
+              <strong>Important:</strong> Lenders usually charge higher rates or fees when using down payment assistance programs.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert className="mt-6 border-amber-200 bg-amber-50">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertDescription className="text-amber-800">
+              <strong>Important:</strong> Assistance with closing costs can be in the form of a seller credit or a grant program. Grant programs may charge higher fees or rates.
+            </AlertDescription>
+          </Alert>
+        )}
 
         <div className="flex justify-between mt-8">
           <Button 
