@@ -87,6 +87,7 @@ Changelog:
   * Step 12: Complete loan analysis with DTI ratios and asset verification
   * Real-time feedback system with loan-specific DTI limits
   * Asset sufficiency analysis with recommendations for shortfalls
+  * Enhanced refinance flow with cash-out debt selection, dynamic loan amount calculation, tax bill connection, CanopyConnect insurance integration, and cash back analysis
 ```
 
 ## User Preferences

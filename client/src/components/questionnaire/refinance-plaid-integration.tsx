@@ -55,13 +55,23 @@ export function RefinancePlaidIntegration({
   };
 
   const handleContinue = () => {
+    // Calculate new loan amount based on original loan balance + selected debts + closing costs
+    const originalLoanBalance = parseFloat(defaultValues.currentLoanBalance?.replace(/[$,]/g, '') || '250000');
+    const closingCosts = 8000; // Estimated closing costs
+    const newLoanAmount = originalLoanBalance + totalSelectedBalance + closingCosts;
+    
     const data = {
       plaidConnected: connected,
       bankVerified: true,
       assetDocumentation: 'verified',
       selectedDebts: isCashOut ? selectedDebts : [],
       totalDebtPayoff: isCashOut ? totalSelectedBalance : 0,
-      monthlyDebtReduction: isCashOut ? totalSelectedPayments : 0
+      monthlyDebtReduction: isCashOut ? totalSelectedPayments : 0,
+      // Add calculated loan amounts
+      originalLoanBalance,
+      closingCosts,
+      newLoanAmount,
+      cashOutAmount: newLoanAmount - originalLoanBalance // Total cash-out including debt payoff + closing costs
     };
     
     onComplete(data);
@@ -285,15 +295,33 @@ export function RefinancePlaidIntegration({
 
                   {selectedDebts.length > 0 && (
                     <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                      <h4 className="font-semibold text-blue-800 mb-2">Payoff Summary</h4>
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <span className="text-blue-700">Total Payoff Amount:</span>
-                          <div className="font-bold text-blue-900">${totalSelectedBalance.toLocaleString()}</div>
+                      <h4 className="font-semibold text-blue-800 mb-2">Loan Amount Update</h4>
+                      <div className="space-y-3 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-blue-700">Original Loan Balance:</span>
+                          <span className="font-bold text-blue-900">
+                            ${parseFloat(defaultValues.currentLoanBalance?.replace(/[$,]/g, '') || '250000').toLocaleString()}
+                          </span>
                         </div>
-                        <div>
+                        <div className="flex justify-between">
+                          <span className="text-blue-700">Debts to Pay Off:</span>
+                          <span className="font-bold text-blue-900">+${totalSelectedBalance.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-blue-700">Estimated Closing Costs:</span>
+                          <span className="font-bold text-blue-900">+$8,000</span>
+                        </div>
+                        <div className="border-t border-blue-200 pt-2">
+                          <div className="flex justify-between">
+                            <span className="font-semibold text-blue-800">New Loan Amount:</span>
+                            <span className="font-bold text-lg text-blue-900">
+                              ${(parseFloat(defaultValues.currentLoanBalance?.replace(/[$,]/g, '') || '250000') + totalSelectedBalance + 8000).toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="mt-2">
                           <span className="text-blue-700">Monthly Payment Reduction:</span>
-                          <div className="font-bold text-blue-900">${totalSelectedPayments}/month</div>
+                          <div className="font-bold text-green-600">${totalSelectedPayments}/month saved</div>
                         </div>
                       </div>
                     </div>

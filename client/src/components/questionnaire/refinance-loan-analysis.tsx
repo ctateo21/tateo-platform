@@ -12,10 +12,10 @@ interface RefinanceLoanAnalysisProps {
 }
 
 export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: RefinanceLoanAnalysisProps) {
-  // Refinance loan details (using example data)
-  const currentLoanBalance = 320000;
-  const newLoanAmount = 380000; // Cash-out refinance
-  const cashOutAmount = newLoanAmount - currentLoanBalance;
+  // Refinance loan details using data from previous steps
+  const currentLoanBalance = defaultValues.originalLoanBalance || 250000;
+  const newLoanAmount = defaultValues.newLoanAmount || 272000; // From Plaid calculation
+  const cashOutAmount = defaultValues.cashOutAmount || (newLoanAmount - currentLoanBalance);
   const interestRate = 6.25; // Slightly lower rate for refinance
   const apr = 6.41;
   
@@ -23,7 +23,7 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
   const principalAndInterest = 2340;
   const propertyTaxes = defaultValues.monthlyPropertyTax || 417;
   const homeownersInsurance = defaultValues.monthlyHomeownersInsurance || 150;
-  const floodInsurance = defaultValues.floodRequired ? (defaultValues.monthlyFloodInsurance || 50) : 0;
+  const floodInsurance = defaultValues.monthlyFloodInsurance || 0;
   const totalMonthlyPayment = principalAndInterest + propertyTaxes + homeownersInsurance + floodInsurance;
   
   // Cash flow calculation

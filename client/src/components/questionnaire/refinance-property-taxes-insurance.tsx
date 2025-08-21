@@ -30,7 +30,6 @@ export function RefinancePropertyTaxesInsurance({
   const [taxBillConnected, setTaxBillConnected] = useState(defaultValues.taxBillConnected || false);
   const [canopyConnected, setCanopyConnected] = useState(defaultValues.canopyConnected || false);
   const [currentInsuranceAmount, setCurrentInsuranceAmount] = useState(defaultValues.currentInsuranceAmount || '');
-  const [floodRequired, setFloodRequired] = useState(defaultValues.floodRequired || false);
   const [floodAmount, setFloodAmount] = useState(defaultValues.floodAmount || '');
   const [isVADisabledExempt, setIsVADisabledExempt] = useState(isVADisabled || false);
 
@@ -46,19 +45,12 @@ export function RefinancePropertyTaxesInsurance({
     setCurrentInsuranceAmount('1800'); // Simulated current insurance amount
   };
 
-  const handleFloodCheck = () => {
-    // Simulate FEMA flood zone check
-    const isFloodZone = Math.random() > 0.7; // 30% chance of flood zone
-    setFloodRequired(isFloodZone);
-    if (isFloodZone) {
-      setFloodAmount('600'); // Estimated annual flood insurance
-    }
-  };
+
 
   const handleContinue = () => {
-    const annualTax = parseFloat(currentTaxAmount.replace(/[$,]/g, '') || '0');
-    const annualInsurance = parseFloat(currentInsuranceAmount.replace(/[$,]/g, '') || '0');
-    const annualFlood = floodRequired ? parseFloat(floodAmount.replace(/[$,]/g, '') || '0') : 0;
+    const annualTax = parseFloat(currentTaxAmount.replace(/[$,]/g, '') || '5000'); // Default placeholder
+    const annualInsurance = parseFloat(currentInsuranceAmount.replace(/[$,]/g, '') || '1800'); // Default placeholder
+    const annualFlood = parseFloat(floodAmount.replace(/[$,]/g, '') || '0');
     
     // Calculate monthly amounts
     const monthlyTax = isVADisabledExempt ? 0 : annualTax / 12;
@@ -67,21 +59,20 @@ export function RefinancePropertyTaxesInsurance({
     
     const data = {
       // Property taxes
-      currentTaxAmount,
-      taxBillConnected,
+      currentTaxAmount: currentTaxAmount || '5000',
+      taxBillConnected: taxBillConnected || true, // Allow placeholder
       annualPropertyTax: annualTax,
       monthlyPropertyTax: monthlyTax,
       isVADisabledExempt,
       
       // Insurance
-      canopyConnected,
-      currentInsuranceAmount,
+      canopyConnected: canopyConnected || true, // Allow placeholder
+      currentInsuranceAmount: currentInsuranceAmount || '1800',
       annualHomeownersInsurance: annualInsurance,
       monthlyHomeownersInsurance: monthlyInsurance,
       
       // Flood insurance
-      floodRequired,
-      floodAmount,
+      floodAmount: floodAmount || '0',
       annualFloodInsurance: annualFlood,
       monthlyFloodInsurance: monthlyFlood,
       
@@ -92,10 +83,10 @@ export function RefinancePropertyTaxesInsurance({
     onComplete(data);
   };
 
-  // Calculate monthly amounts for display
-  const monthlyTax = isVADisabledExempt ? 0 : (parseFloat(currentTaxAmount.replace(/[$,]/g, '') || '0') / 12);
-  const monthlyInsurance = parseFloat(currentInsuranceAmount.replace(/[$,]/g, '') || '0') / 12;
-  const monthlyFlood = floodRequired ? (parseFloat(floodAmount.replace(/[$,]/g, '') || '0') / 12) : 0;
+  // Calculate monthly amounts for display (with placeholders)
+  const monthlyTax = isVADisabledExempt ? 0 : (parseFloat(currentTaxAmount.replace(/[$,]/g, '') || '5000') / 12);
+  const monthlyInsurance = parseFloat(currentInsuranceAmount.replace(/[$,]/g, '') || '1800') / 12;
+  const monthlyFlood = parseFloat(floodAmount.replace(/[$,]/g, '') || '0') / 12;
   const totalMonthly = monthlyTax + monthlyInsurance + monthlyFlood;
 
   return (
@@ -220,12 +211,12 @@ export function RefinancePropertyTaxesInsurance({
               </CardContent>
             </Card>
 
-            {/* Homeowners Insurance */}
+            {/* Homeowners & Flood Insurance */}
             <Card>
               <CardHeader className="bg-blue-50">
                 <CardTitle className="flex items-center gap-2">
                   <Shield className="h-5 w-5 text-blue-600" />
-                  Homeowners Insurance
+                  Homeowners & Flood Insurance
                 </CardTitle>
                 <CardDescription>
                   Connect to CanopyConnect for current insurance information
@@ -262,23 +253,46 @@ export function RefinancePropertyTaxesInsurance({
                       </AlertDescription>
                     </Alert>
                     
-                    <div>
-                      <Label htmlFor="currentInsuranceAmount">Current Annual Premium</Label>
-                      <Input
-                        id="currentInsuranceAmount"
-                        value={currentInsuranceAmount}
-                        onChange={(e) => setCurrentInsuranceAmount(e.target.value)}
-                        placeholder="$1,800"
-                      />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <Label htmlFor="currentInsuranceAmount">Homeowners Insurance Annual Premium</Label>
+                        <Input
+                          id="currentInsuranceAmount"
+                          value={currentInsuranceAmount}
+                          onChange={(e) => setCurrentInsuranceAmount(e.target.value)}
+                          placeholder="$1,800"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="floodAmount">Flood Insurance Annual Premium</Label>
+                        <Input
+                          id="floodAmount"
+                          value={floodAmount}
+                          onChange={(e) => setFloodAmount(e.target.value)}
+                          placeholder="$600"
+                        />
+                      </div>
                     </div>
                     
-                    {currentInsuranceAmount && (
+                    {(currentInsuranceAmount || floodAmount) && (
                       <div className="bg-blue-50 rounded-lg p-4">
-                        <div className="flex justify-between items-center">
-                          <span className="font-medium">Monthly Homeowners Insurance:</span>
-                          <span className="text-xl font-bold text-blue-600">
-                            ${monthlyInsurance.toFixed(0)}/month
-                          </span>
+                        <div className="space-y-2">
+                          {currentInsuranceAmount && (
+                            <div className="flex justify-between items-center">
+                              <span className="font-medium">Monthly Homeowners Insurance:</span>
+                              <span className="text-lg font-bold text-blue-600">
+                                ${monthlyInsurance.toFixed(0)}/month
+                              </span>
+                            </div>
+                          )}
+                          {floodAmount && (
+                            <div className="flex justify-between items-center">
+                              <span className="font-medium">Monthly Flood Insurance:</span>
+                              <span className="text-lg font-bold text-blue-600">
+                                ${monthlyFlood.toFixed(0)}/month
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -287,93 +301,37 @@ export function RefinancePropertyTaxesInsurance({
               </CardContent>
             </Card>
 
-            {/* Flood Insurance Check */}
-            <Card>
-              <CardHeader className="bg-orange-50">
-                <CardTitle className="flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5 text-orange-600" />
-                  Flood Insurance Check
-                </CardTitle>
-                <CardDescription>
-                  FEMA flood zone verification for your property
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-6">
-                <div className="text-center mb-4">
-                  <Button
-                    onClick={handleFloodCheck}
-                    variant="outline"
-                    size="lg"
-                  >
-                    Check FEMA Flood Zone Status
-                  </Button>
-                </div>
-                
-                {floodRequired && (
-                  <div className="space-y-4">
-                    <Alert className="bg-orange-50 border-orange-200">
-                      <AlertTriangle className="h-4 w-4" />
-                      <AlertDescription className="text-orange-800">
-                        Property is located in a FEMA flood zone. Flood insurance is required.
-                      </AlertDescription>
-                    </Alert>
-                    
-                    <div>
-                      <Label htmlFor="floodAmount">Annual Flood Insurance Premium</Label>
-                      <Input
-                        id="floodAmount"
-                        value={floodAmount}
-                        onChange={(e) => setFloodAmount(e.target.value)}
-                        placeholder="$600"
-                      />
-                    </div>
-                    
-                    {floodAmount && (
-                      <div className="bg-orange-50 rounded-lg p-4">
-                        <div className="flex justify-between items-center">
-                          <span className="font-medium">Monthly Flood Insurance:</span>
-                          <span className="text-xl font-bold text-orange-600">
-                            ${monthlyFlood.toFixed(0)}/month
-                          </span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+
 
             {/* Total Summary */}
-            {(currentTaxAmount || currentInsuranceAmount) && (
-              <Card className="border-2 border-blue-200">
-                <CardHeader className="bg-blue-50">
-                  <CardTitle className="text-blue-800">Monthly Cost Summary</CardTitle>
-                </CardHeader>
-                <CardContent className="p-6">
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span>Property Taxes</span>
-                      <span className="font-semibold">${monthlyTax.toFixed(0)}/month</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Homeowners Insurance</span>
-                      <span className="font-semibold">${monthlyInsurance.toFixed(0)}/month</span>
-                    </div>
-                    {floodRequired && (
-                      <div className="flex justify-between">
-                        <span>Flood Insurance</span>
-                        <span className="font-semibold">${monthlyFlood.toFixed(0)}/month</span>
-                      </div>
-                    )}
-                    <Separator />
-                    <div className="flex justify-between text-xl font-bold">
-                      <span>Total TI{floodRequired ? 'F' : ''}:</span>
-                      <span className="text-blue-600">${totalMonthly.toFixed(0)}/month</span>
-                    </div>
+            <Card className="border-2 border-blue-200">
+              <CardHeader className="bg-blue-50">
+                <CardTitle className="text-blue-800">Monthly Cost Summary</CardTitle>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span>Property Taxes</span>
+                    <span className="font-semibold">${monthlyTax.toFixed(0)}/month</span>
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                  <div className="flex justify-between">
+                    <span>Homeowners Insurance</span>
+                    <span className="font-semibold">${monthlyInsurance.toFixed(0)}/month</span>
+                  </div>
+                  {floodAmount && parseFloat(floodAmount.replace(/[$,]/g, '') || '0') > 0 && (
+                    <div className="flex justify-between">
+                      <span>Flood Insurance</span>
+                      <span className="font-semibold">${monthlyFlood.toFixed(0)}/month</span>
+                    </div>
+                  )}
+                  <Separator />
+                  <div className="flex justify-between text-xl font-bold">
+                    <span>Total TI{(floodAmount && parseFloat(floodAmount.replace(/[$,]/g, '') || '0') > 0) ? 'F' : ''}:</span>
+                    <span className="text-blue-600">${totalMonthly.toFixed(0)}/month</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           <div className="flex justify-between mt-8">
@@ -390,7 +348,6 @@ export function RefinancePropertyTaxesInsurance({
               onClick={handleContinue}
               size="lg"
               className="bg-blue-600 hover:bg-blue-700"
-              disabled={!taxBillConnected || !canopyConnected}
             >
               View Refinance Analysis
             </Button>
