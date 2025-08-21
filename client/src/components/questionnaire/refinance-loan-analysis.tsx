@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Home, DollarSign, Calculator, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ArrowLeft, Home, DollarSign, Calculator, CheckCircle, AlertTriangle, AlertCircle } from 'lucide-react';
 
 interface RefinanceLoanAnalysisProps {
   defaultValues: any;
@@ -15,6 +16,7 @@ interface RefinanceLoanAnalysisProps {
 
 export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: RefinanceLoanAnalysisProps) {
   const [additionalCashOut, setAdditionalCashOut] = useState('');
+  const [showLtvWarning, setShowLtvWarning] = useState(false);
   
   // Refinance loan details using data from previous steps
   const homeValue = defaultValues.homeValue || defaultValues.propertyValue || 350000; // From address lookup
@@ -63,12 +65,39 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
   const dtiLimit = getDTILimit(loanType);
   const dtiStatus = dtiLimit ? (dtiRatio <= dtiLimit ? 'good' : 'high') : 'no-limit';
   
-  // Format currency input
+  // Calculate maximum cash-out to maintain 80% LTV
+  const maxLoanAmountFor80LTV = homeValue * 0.8;
+  const maxCashOut = maxLoanAmountFor80LTV - currentLoanBalance - debtsToBePaidOff - estimatedClosingCosts;
+  
+  // Format currency input with LTV validation
   const handleCashOutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/[^\d]/g, '');
-    const formattedValue = value ? `$${parseInt(value).toLocaleString()}` : '';
-    setAdditionalCashOut(formattedValue);
+    const numericValue = parseInt(value) || 0;
+    
+    // Check if this would exceed 80% LTV
+    const proposedLoanAmount = currentLoanBalance + debtsToBePaidOff + numericValue + estimatedClosingCosts;
+    const proposedLTV = (proposedLoanAmount / homeValue) * 100;
+    
+    if (proposedLTV > 80) {
+      setShowLtvWarning(true);
+      // Set to maximum allowed amount
+      const maxAllowed = Math.max(0, maxCashOut);
+      const formattedValue = maxAllowed > 0 ? `$${maxAllowed.toLocaleString()}` : '';
+      setAdditionalCashOut(formattedValue);
+    } else {
+      setShowLtvWarning(false);
+      const formattedValue = value ? `$${numericValue.toLocaleString()}` : '';
+      setAdditionalCashOut(formattedValue);
+    }
   };
+  
+  // Hide warning after 5 seconds
+  useEffect(() => {
+    if (showLtvWarning) {
+      const timer = setTimeout(() => setShowLtvWarning(false), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [showLtvWarning]);
 
   const handleComplete = () => {
     const analysisData = {
@@ -129,6 +158,18 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
           </div>
 
           <div className="space-y-6">
+            {/* LTV Warning */}
+            {showLtvWarning && (
+              <Alert className="border-red-200 bg-red-50">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-800">
+                  <strong>Maximum LTV Exceeded:</strong> Cash-out refinances have a maximum loan-to-value ratio of 80%. 
+                  Your additional cash-out has been adjusted to ${maxCashOut > 0 ? maxCashOut.toLocaleString() : '0'} 
+                  to stay within this limit.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Refinance Details */}
             <Card className="border-2 border-green-200">
               <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50">
@@ -180,7 +221,7 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
                     <span className="text-3xl font-bold text-green-600">${newLoanAmount.toLocaleString()}</span>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-4 mt-4">
+                  <div className="grid grid-cols-3 gap-4 mt-4">
                     <div className="text-center">
                       <div className="text-sm text-gray-600">Interest Rate</div>
                       <Badge variant="outline" className="text-lg font-semibold">{interestRate}%</Badge>
@@ -189,17 +230,21 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
                       <div className="text-sm text-gray-600">APR</div>
                       <Badge variant="outline" className="text-lg font-semibold">{apr}%</Badge>
                     </div>
-                  </div>
-                  
-                  <div className="text-center mt-4">
-                    <div className="text-sm text-gray-600 mb-2">Loan-to-Value (LTV)</div>
-                    <Badge variant="outline" className={`text-xl font-bold px-4 py-2 ${ltvRatio <= 80 ? 'text-green-600 border-green-300' : ltvRatio <= 90 ? 'text-yellow-600 border-yellow-300' : 'text-red-600 border-red-300'}`}>
-                      {ltvRatio.toFixed(1)}%
-                    </Badge>
-                    <div className="text-xs text-gray-500 mt-1">
-                      ${newLoanAmount.toLocaleString()} ÷ ${homeValue.toLocaleString()}
+                    <div className="text-center">
+                      <div className="text-sm text-gray-600">Loan-to-Value (LTV)</div>
+                      <Badge variant="outline" className={`text-lg font-bold ${ltvRatio <= 80 ? 'text-green-600 border-green-300' : ltvRatio <= 90 ? 'text-yellow-600 border-yellow-300' : 'text-red-600 border-red-300'}`}>
+                        {ltvRatio.toFixed(1)}%
+                      </Badge>
                     </div>
                   </div>
+                  
+                  {ltvRatio > 78 && (
+                    <div className="mt-3 text-center">
+                      <div className="text-xs text-gray-500">
+                        ${newLoanAmount.toLocaleString()} ÷ ${homeValue.toLocaleString()} = {ltvRatio.toFixed(1)}% LTV
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
