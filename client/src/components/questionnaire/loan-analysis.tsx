@@ -31,6 +31,35 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   const estimatedClosingCosts = 8500; // Typical 2-3% of loan amount
   const cashToClose = downPayment + estimatedClosingCosts;
 
+  // DTI Calculations (using example data from Truv and Plaid)
+  const monthlyIncome = 8500; // From Truv integration
+  const existingMonthlyDebts = 850; // From Plaid integration
+  const totalMonthlyDebts = totalMonthlyPayment + existingMonthlyDebts;
+  const dtiRatio = (totalMonthlyDebts / monthlyIncome) * 100;
+
+  // DTI Limits based on loan type
+  const loanType = defaultValues.loanType || 'conventional';
+  const getDTILimit = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'conventional': return 50;
+      case 'fha': return 57;
+      case 'usda': return 43;
+      case 'va': return null; // No limit mentioned for VA
+      default: return 50;
+    }
+  };
+
+  const dtiLimit = getDTILimit(loanType);
+  const dtiStatus = dtiLimit ? (dtiRatio <= dtiLimit ? 'good' : 'high') : 'no-limit';
+
+  // Assets Calculations (using example data from Plaid)
+  const checkingSavings = 45000; // From Plaid bank accounts
+  const investments = 25000; // From Plaid investment accounts  
+  const retirement401k = 120000; // From Plaid 401k accounts
+  const usable401k = retirement401k * 0.6; // 60% of 401k is usable
+  const totalAssets = checkingSavings + investments + usable401k;
+  const assetsSufficient = totalAssets >= cashToClose;
+
   const handleComplete = () => {
     const analysisData = {
       purchasePrice,
@@ -47,7 +76,24 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
         total: totalMonthlyPayment
       },
       cashToClose,
-      estimatedClosingCosts
+      estimatedClosingCosts,
+      dtiAnalysis: {
+        monthlyIncome,
+        existingMonthlyDebts,
+        totalMonthlyDebts,
+        dtiRatio,
+        dtiLimit,
+        dtiStatus,
+        loanType
+      },
+      assets: {
+        checkingSavings,
+        investments,
+        retirement401k,
+        usable401k,
+        totalAssets,
+        assetsSufficient
+      }
     };
 
     onComplete(analysisData);
@@ -201,6 +247,131 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
                 title insurance, attorney fees, and other settlement costs. Your loan officer will provide 
                 a detailed Loan Estimate within 3 business days.
               </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardHeader className="bg-gradient-to-r from-indigo-50 to-blue-50">
+            <CardTitle className="flex items-center gap-2">
+              <Calculator className="h-5 w-5 text-indigo-600" />
+              Debt-to-Income Ratios
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between py-2">
+                <span className="font-medium text-gray-700">Monthly Income (Truv Verified)</span>
+                <span className="font-semibold text-gray-900">${monthlyIncome.toLocaleString()}</span>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between py-2">
+                <span className="font-medium text-gray-700">Existing Monthly Debts (Plaid)</span>
+                <span className="font-semibold text-gray-900">${existingMonthlyDebts.toLocaleString()}</span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="font-medium text-gray-700">New Housing Payment</span>
+                <span className="font-semibold text-gray-900">${totalMonthlyPayment.toLocaleString()}</span>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between py-2">
+                <span className="font-medium text-gray-700">Total Monthly Debts</span>
+                <span className="font-semibold text-gray-900">${totalMonthlyDebts.toLocaleString()}</span>
+              </div>
+              <Separator className="border-2" />
+              <div className={`flex items-center justify-between py-3 px-4 rounded-lg ${
+                dtiStatus === 'good' ? 'bg-green-50' : 
+                dtiStatus === 'high' ? 'bg-red-50' : 'bg-blue-50'
+              }`}>
+                <span className="text-lg font-bold text-gray-900">Debt-to-Income Ratio</span>
+                <div className="text-right">
+                  <span className={`text-2xl font-bold ${
+                    dtiStatus === 'good' ? 'text-green-600' : 
+                    dtiStatus === 'high' ? 'text-red-600' : 'text-blue-600'
+                  }`}>
+                    {dtiRatio.toFixed(1)}%
+                  </span>
+                  {dtiLimit && (
+                    <div className={`text-sm ${
+                      dtiStatus === 'good' ? 'text-green-700' : 'text-red-700'
+                    }`}>
+                      {dtiStatus === 'good' ? '✓' : '⚠'} {loanType.toUpperCase()} limit: {dtiLimit}%
+                    </div>
+                  )}
+                  {loanType.toLowerCase() === 'va' && (
+                    <div className="text-sm text-blue-700">
+                      VA loans have flexible DTI requirements
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="mb-6">
+          <CardHeader className="bg-gradient-to-r from-emerald-50 to-green-50">
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-emerald-600" />
+              Assets & Cash to Close
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between py-2">
+                <span className="font-medium text-gray-700">Checking & Savings (Plaid)</span>
+                <span className="font-semibold text-gray-900">${checkingSavings.toLocaleString()}</span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="font-medium text-gray-700">Investment Accounts (Plaid)</span>
+                <span className="font-semibold text-gray-900">${investments.toLocaleString()}</span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="font-medium text-gray-700">401(k) Available (60%)</span>
+                <span className="font-semibold text-gray-900">${usable401k.toLocaleString()}</span>
+              </div>
+              <Separator className="border-2" />
+              <div className="flex items-center justify-between py-3 bg-gray-50 -mx-6 px-6 rounded-lg">
+                <span className="text-lg font-bold text-gray-900">Total Available Assets</span>
+                <span className="text-2xl font-bold text-gray-900">${totalAssets.toLocaleString()}</span>
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between py-2">
+                <span className="font-medium text-gray-700">Required Cash to Close</span>
+                <span className="font-semibold text-gray-900">${cashToClose.toLocaleString()}</span>
+              </div>
+              <Separator className="border-2" />
+              <div className={`flex items-center justify-between py-3 px-4 rounded-lg ${
+                assetsSufficient ? 'bg-green-50' : 'bg-red-50'
+              }`}>
+                <span className="text-lg font-bold text-gray-900">Asset Coverage</span>
+                <div className="text-right">
+                  <span className={`text-2xl font-bold ${
+                    assetsSufficient ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {assetsSufficient ? '✓ Sufficient' : '⚠ Insufficient'}
+                  </span>
+                  <div className={`text-sm ${
+                    assetsSufficient ? 'text-green-700' : 'text-red-700'
+                  }`}>
+                    {assetsSufficient 
+                      ? `$${(totalAssets - cashToClose).toLocaleString()} remaining after closing`
+                      : `$${(cashToClose - totalAssets).toLocaleString()} shortfall`
+                    }
+                  </div>
+                </div>
+              </div>
+              {!assetsSufficient && (
+                <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <h4 className="font-semibold text-red-800 mb-2">Recommended Solutions:</h4>
+                  <ul className="text-sm text-red-700 space-y-1">
+                    <li>• Request a gift from family members or close friends</li>
+                    <li>• Negotiate seller concessions to reduce cash to close</li>
+                    <li>• Consider a lower down payment option if available</li>
+                    <li>• Explore down payment assistance programs</li>
+                  </ul>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
