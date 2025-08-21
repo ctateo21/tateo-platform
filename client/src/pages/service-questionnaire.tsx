@@ -38,6 +38,8 @@ import { MortgageIncomeForm } from "@/components/questionnaire/mortgage-income-f
 import { MortgageLiabilitiesForm } from "@/components/questionnaire/mortgage-liabilities-form";
 import { MortgagePaymentForm } from "@/components/questionnaire/mortgage-payment-form";
 import LenderPriceStep from "@/components/questionnaire/lender-price-step";
+import { PlaidIntegration } from "@/components/questionnaire/plaid-integration";
+import { PropertyTaxesInsurance } from "@/components/questionnaire/property-taxes-insurance";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
 import PropertyManagementForm from "@/components/questionnaire/property-management-form";
@@ -335,6 +337,22 @@ export default function ServiceQuestionnaire() {
             step: 'lender-price'
           }));
           break;
+
+        case 'plaid':
+          // Go back to income form
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'income'
+          }));
+          break;
+
+        case 'taxes-insurance':
+          // Go back to plaid form
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'plaid'
+          }));
+          break;
           
         default:
           // Default to type step
@@ -419,7 +437,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'loan-assistance' | 'non-qm' | 'lender-price' | 'income' | 'liabilities' | 'payment' | 'lien-type' | 'loan-balance' | 'refinance-type' | 'escrow';
+    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'loan-assistance' | 'non-qm' | 'lender-price' | 'income' | 'plaid' | 'taxes-insurance' | 'liabilities' | 'payment' | 'lien-type' | 'loan-balance' | 'refinance-type' | 'escrow';
     type: 'purchase' | 'refinance';
     homeOwnershipHistory?: 'yes' | 'no';
     ownershipType: 'primary' | 'secondary' | 'investment';
@@ -433,6 +451,9 @@ export default function ServiceQuestionnaire() {
     loanBalance?: string;
     refinanceType?: 'cash-out' | 'rate-term';
     escrow?: 'yes' | 'no';
+    propertyAddress?: string;
+    propertyZipCode?: string;
+    isVADisabled?: boolean;
   }>({
     step: 'type',
     type: 'purchase',
@@ -444,7 +465,7 @@ export default function ServiceQuestionnaire() {
     let total = 0;
     selectedServices.forEach(service => {
       if (service.id === 'mortgage') {
-        total += 8; // type, home-ownership-history, location, ownership, lender-price, income, liabilities, payment
+        total += 11; // type, home-ownership-history, location, ownership, lender-price, income, plaid, taxes-insurance, liabilities, payment
       } else if (service.id === 'real-estate') {
         total += 3;
       } else {
@@ -462,7 +483,7 @@ export default function ServiceQuestionnaire() {
     for (let i = 0; i < currentServiceIndex; i++) {
       const service = selectedServices[i];
       if (service.id === 'mortgage') {
-        step += 8;
+        step += 11;
       } else if (service.id === 'real-estate') {
         step += 3;
       } else {
@@ -488,8 +509,10 @@ export default function ServiceQuestionnaire() {
           'non-qm': 7, // purchase only
           'lender-price': 8, // both purchase and refinance
           'income': 9,
-          'liabilities': 10,
-          'payment': 11
+          'plaid': 10,
+          'taxes-insurance': 11,
+          'liabilities': 12,
+          'payment': 13
         };
         step += mortgageSteps[mortgageFlowState.step] || 1;
       } else {
@@ -943,11 +966,50 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
-    // Update mortgage flow state to go to liabilities form
+    // Update mortgage flow state to go to plaid integration
     setMortgageFlowState(prev => ({
       ...prev,
-      step: 'liabilities',
+      step: 'plaid',
       incomeType: data.incomeType
+    }));
+  };
+
+  // Handle Plaid integration submission
+  const handlePlaidSubmit = (data: any) => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'taxes-insurance',
+      propertyAddress: formData.mortgage?.propertyAddress,
+      propertyZipCode: formData.mortgage?.zipCode,
+      isVADisabled: formData.mortgage?.isVADisabled
+    }));
+  };
+
+  // Handle Property Taxes & Insurance submission
+  const handleTaxesInsuranceSubmit = (data: any) => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'liabilities'
     }));
   };
 
@@ -1208,6 +1270,24 @@ export default function ServiceQuestionnaire() {
               onSubmit={handleMortgageIncomeSubmit}
               onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'lender-price' }))}
             />;
+
+          case 'plaid':
+            return <PlaidIntegration
+              defaultValues={formData.mortgage || {}}
+              onComplete={handlePlaidSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'income' }))}
+            />;
+
+          case 'taxes-insurance':
+            return <PropertyTaxesInsurance
+              propertyAddress={mortgageFlowState.propertyAddress}
+              propertyZipCode={mortgageFlowState.propertyZipCode}
+              isVADisabled={mortgageFlowState.isVADisabled || false}
+              isPrimaryResidence={mortgageFlowState.ownershipType === 'primary'}
+              defaultValues={formData.mortgage || {}}
+              onComplete={handleTaxesInsuranceSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'plaid' }))}
+            />;
             
           case 'liabilities':
             // Calculate monthly income from saved data
@@ -1232,7 +1312,7 @@ export default function ServiceQuestionnaire() {
             
             return <MortgageLiabilitiesForm
               onSubmit={handleMortgageLiabilitiesSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'income' }))}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'taxes-insurance' }))}
               defaultValues={formData.mortgage}
               monthlyIncome={calculatedMonthlyIncome}
             />;
