@@ -286,10 +286,11 @@ export default function ServiceQuestionnaire() {
           break;
           
         case 'loan-type':
-          // Go back to ownership step
+          // Go back based on mortgage type
+          const prevStepFromLoanType = mortgageFlowState.type === 'refinance' ? 'location' : 'ownership';
           setMortgageFlowState(prev => ({
             ...prev,
-            step: 'ownership'
+            step: prevStepFromLoanType as any
           }));
           break;
 
@@ -313,7 +314,7 @@ export default function ServiceQuestionnaire() {
           // Go back based on mortgage type and loan type
           let prevStep: string;
           if (mortgageFlowState.type === 'refinance') {
-            prevStep = 'location';
+            prevStep = 'loan-type'; // For refinance, always go back to loan-type
           } else if (mortgageFlowState.loanType === 'jumbo' || mortgageFlowState.loanType === '5-plus-units') {
             prevStep = 'loan-type';
           } else if (mortgageFlowState.loanType === 'non-qm') {
@@ -789,17 +790,15 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
-    // For refinance, go to loan balance; for purchase, go to location
-    const nextStep = mortgageFlowState.type === 'refinance' ? 'loan-balance' : 'location';
-    
+    // Both purchase and refinance go to location (step 4)
     setMortgageFlowState(prev => ({
       ...prev,
-      step: nextStep as any,
+      step: 'location',
       creditScore: data.creditScore
     }));
   };
 
-  // Handle property location step submission (step 4/7)
+  // Handle property location step submission (step 4)
   const handlePropertyLocationSubmit = (data: any) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
@@ -811,8 +810,8 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
-    // For purchase, go to ownership; for refinance, skip to lender pricing
-    const nextStep = mortgageFlowState.type === 'purchase' ? 'ownership' : 'lender-price';
+    // For purchase, go to ownership; for refinance, go to loan type (step 5)
+    const nextStep = mortgageFlowState.type === 'purchase' ? 'ownership' : 'loan-type';
     
     setMortgageFlowState(prev => ({
       ...prev,
@@ -839,7 +838,7 @@ export default function ServiceQuestionnaire() {
     }));
   };
 
-  // Handle loan type step submission (step 6)
+  // Handle loan type step submission (step 5/6)
   const handleLoanTypeSubmit = (data: any) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
@@ -851,13 +850,16 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
-    // Route based on selected loan type
-    let nextStep = 'lender-price'; // Default for jumbo and 5+ units
+    // For refinance, always go directly to lender-price (step 7)
+    // For purchase, follow original logic
+    let nextStep = 'lender-price';
     
-    if (data.loanType === 'conventional' || data.loanType === 'fha' || data.loanType === 'va' || data.loanType === 'usda') {
-      nextStep = 'loan-assistance';
-    } else if (data.loanType === 'non-qm') {
-      nextStep = 'non-qm';
+    if (mortgageFlowState.type === 'purchase') {
+      if (data.loanType === 'conventional' || data.loanType === 'fha' || data.loanType === 'va' || data.loanType === 'usda') {
+        nextStep = 'loan-assistance';
+      } else if (data.loanType === 'non-qm') {
+        nextStep = 'non-qm';
+      }
     }
     
     setMortgageFlowState(prev => ({
@@ -1148,10 +1150,18 @@ export default function ServiceQuestionnaire() {
             />;
             
           case 'loan-type':
+            const previousStepFromLoanType = () => {
+              if (mortgageFlowState.type === 'refinance') {
+                return 'location';
+              } else {
+                return 'ownership';
+              }
+            };
+
             return <LoanTypeStep
               defaultValues={formData.mortgage || {}}
               onSubmit={handleLoanTypeSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'ownership' }))}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: previousStepFromLoanType() as any }))}
             />;
             
           case 'loan-assistance':
