@@ -143,29 +143,30 @@ export default function Review() {
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-6">
-                  <div className="space-y-2">
-                    <Label>Who did you work with?</Label>
+                  {/* Agent Selection */}
+                  <div className="space-y-2 border-2 border-primary/20 rounded-lg p-4 bg-primary/5">
+                    <Label className="text-lg font-semibold text-primary">Who did you work with?</Label>
                     <div className="grid grid-cols-2 gap-4 pt-2">
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-3">
                         <input 
                           type="checkbox" 
                           id="christian-agent" 
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
                           checked={selectedAgents.christian}
                           onChange={(e) => setSelectedAgents({...selectedAgents, christian: e.target.checked})}
                         />
-                        <Label htmlFor="christian-agent" className="font-normal">Christian</Label>
+                        <Label htmlFor="christian-agent" className="font-medium">Christian</Label>
                       </div>
                       
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-3">
                         <input 
                           type="checkbox" 
                           id="omar-agent" 
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
                           checked={selectedAgents.omar}
                           onChange={(e) => setSelectedAgents({...selectedAgents, omar: e.target.checked})}
                         />
-                        <Label htmlFor="omar-agent" className="font-normal">Omar</Label>
+                        <Label htmlFor="omar-agent" className="font-medium">Omar</Label>
                       </div>
                     </div>
                   </div>
