@@ -254,7 +254,11 @@ export default function Review() {
                               </a>
                               
                               <a 
-                                href="https://www.zillow.com/mortgage/lender-review/?screenName=tateoco" 
+                                href={
+                                  selectedAgents.christian && selectedAgents.omar 
+                                    ? "https://www.zillow.com/lender-profile/OmarA0809/"
+                                    : "https://www.zillow.com/mortgage/lender-review/?screenName=tateoco"
+                                }
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 className="text-primary hover:text-primary/80 underline font-medium"
