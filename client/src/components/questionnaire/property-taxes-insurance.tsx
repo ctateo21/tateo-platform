@@ -270,7 +270,7 @@ export function PropertyTaxesInsurance({
             <ArrowLeft className="mr-2 h-4 w-4" /> Back
           </Button>
           <Button onClick={handleContinue}>
-            Complete Application
+            View Loan Analysis
           </Button>
         </div>
       </CardContent>
