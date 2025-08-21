@@ -20,6 +20,7 @@ export default function Review() {
   const [name, setName] = useState<string>("");
   const [email, setEmail] = useState<string>("");
   const [message, setMessage] = useState<string>("");
+  const [selectedAgent, setSelectedAgent] = useState<string>("");
   const [selectedServices, setSelectedServices] = useState<{
     realtor: boolean;
     mortgage: boolean;
@@ -52,6 +53,7 @@ export default function Review() {
       setName("");
       setEmail("");
       setMessage("");
+      setSelectedAgent("");
       setSelectedServices({ 
         realtor: false, 
         mortgage: false, 
@@ -132,6 +134,37 @@ export default function Review() {
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-6">
+                  <div className="space-y-2">
+                    <Label>Which agent did you work with?</Label>
+                    <div className="grid grid-cols-2 gap-4 pt-2">
+                      <div className="flex items-center space-x-2">
+                        <input 
+                          type="radio" 
+                          id="christian" 
+                          name="agent"
+                          value="christian"
+                          className="h-4 w-4 border-gray-300 text-primary focus:ring-primary"
+                          checked={selectedAgent === "christian"}
+                          onChange={(e) => setSelectedAgent(e.target.value)}
+                        />
+                        <Label htmlFor="christian" className="font-normal">Christian</Label>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <input 
+                          type="radio" 
+                          id="omar" 
+                          name="agent"
+                          value="omar"
+                          className="h-4 w-4 border-gray-300 text-primary focus:ring-primary"
+                          checked={selectedAgent === "omar"}
+                          onChange={(e) => setSelectedAgent(e.target.value)}
+                        />
+                        <Label htmlFor="omar" className="font-normal">Omar</Label>
+                      </div>
+                    </div>
+                  </div>
+                  
                   <div className="space-y-2">
                     <Label>Which services did you use? (Select all that apply)</Label>
                     <div className="grid grid-cols-2 gap-2 pt-2">
@@ -322,6 +355,25 @@ export default function Review() {
                     {submitting ? "Submitting..." : "Submit Review"}
                     {!submitting && <ArrowRight className="ml-2 h-4 w-4" />}
                   </Button>
+                  
+                  {/* Zillow Link Section */}
+                  {selectedAgent && (
+                    <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <h4 className="font-semibold text-blue-800 mb-2">Leave a Review on Zillow</h4>
+                      <p className="text-sm text-blue-700 mb-3">
+                        You can also leave a review for {selectedAgent === "christian" ? "Christian" : "Omar"} on their Zillow profile:
+                      </p>
+                      <Button asChild variant="outline" className="text-blue-600 border-blue-300 hover:bg-blue-100">
+                        <a 
+                          href={selectedAgent === "omar" ? "https://www.zillow.com/lender-profile/OmarA0809/" : "https://www.zillow.com/lender-profile/ChristianT/"} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                        >
+                          Review on Zillow <ArrowRight className="ml-2 h-4 w-4" />
+                        </a>
+                      </Button>
+                    </div>
+                  )}
                 </form>
               )}
             </div>
