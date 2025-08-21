@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft } from "lucide-react";
 import { TruvIntegration } from "./truv-integration";
@@ -14,9 +14,11 @@ interface IncomeTypeSelectionProps {
 }
 
 export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: IncomeTypeSelectionProps) {
-  const [selectedEmploymentStatus, setSelectedEmploymentStatus] = useState<string>(defaultValues?.employmentStatus || "");
+  const [selectedEmploymentTypes, setSelectedEmploymentTypes] = useState<string[]>(defaultValues?.employmentTypes || []);
   const [currentStep, setCurrentStep] = useState<'selection' | 'taxstatus' | 'truv' | 'disability-type' | 'ssa' | 'va'>('selection');
   const [apiData, setApiData] = useState<any>({});
+  const [apiQueue, setApiQueue] = useState<string[]>([]);
+  const [currentApiIndex, setCurrentApiIndex] = useState(0);
 
   const employmentOptions = [
     {
@@ -30,11 +32,6 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
       description: '1099 contractor, business owner, or self-employment income'
     },
     {
-      id: 'both',
-      label: 'BOTH',
-      description: 'Both W-2 employment and self-employment income'
-    },
-    {
       id: 'retired',
       label: 'Retired',
       description: 'Social Security, pension, retirement accounts, or other retirement income'
@@ -46,82 +43,91 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
     }
   ];
 
-  const handleContinue = () => {
-    if (!selectedEmploymentStatus) return;
+  const buildApiQueue = (employmentTypes: string[]) => {
+    const queue: string[] = [];
+    
+    // Build queue in order: NOT Self Employed → Self Employed → Retired → Disability
+    if (employmentTypes.includes('not-self-employed')) {
+      queue.push('truv');
+    }
+    if (employmentTypes.includes('self-employed')) {
+      queue.push('taxstatus');
+    }
+    if (employmentTypes.includes('retired')) {
+      queue.push('ssa');
+    }
+    if (employmentTypes.includes('disability')) {
+      queue.push('disability-type');
+    }
+    
+    return queue;
+  };
 
-    // Route based on employment status for API connections
-    if (selectedEmploymentStatus === 'self-employed') {
-      // Self Employed -> TaxStatus API
-      setCurrentStep('taxstatus');
-    } else if (selectedEmploymentStatus === 'not-self-employed') {
-      // NOT Self Employed -> Truv API
-      setCurrentStep('truv');
-    } else if (selectedEmploymentStatus === 'both') {
-      // BOTH -> TaxStatus first, then Truv
-      setCurrentStep('taxstatus');
-    } else if (selectedEmploymentStatus === 'retired') {
-      // Retired -> Social Security Administration API
-      setCurrentStep('ssa');
-    } else if (selectedEmploymentStatus === 'disability') {
-      // Disability -> Ask VA or Social Security disability
-      setCurrentStep('disability-type');
+  const handleContinue = () => {
+    if (selectedEmploymentTypes.length === 0) return;
+
+    const queue = buildApiQueue(selectedEmploymentTypes);
+    setApiQueue(queue);
+    setCurrentApiIndex(0);
+    
+    // Start with the first API in the queue
+    setCurrentStep(queue[0] as any);
+  };
+
+  const handleEmploymentTypeToggle = (employmentType: string) => {
+    setSelectedEmploymentTypes(prev => {
+      if (prev.includes(employmentType)) {
+        return prev.filter(type => type !== employmentType);
+      } else {
+        return [...prev, employmentType];
+      }
+    });
+  };
+
+  const moveToNextApiOrComplete = (updatedApiData: any, skipKey?: string) => {
+    const nextIndex = currentApiIndex + 1;
+    
+    if (nextIndex < apiQueue.length) {
+      // Move to next API in queue
+      setCurrentApiIndex(nextIndex);
+      setCurrentStep(apiQueue[nextIndex] as any);
+    } else {
+      // Complete the flow
+      onComplete({
+        employmentTypes: selectedEmploymentTypes,
+        incomeTypes: selectedEmploymentTypes.map(type => {
+          switch (type) {
+            case 'not-self-employed': return 'salary-hourly';
+            case 'self-employed': return 'self-employed';
+            case 'retired': return 'retired';
+            case 'disability': return 'disability';
+            default: return type;
+          }
+        }),
+        apiIntegrations: updatedApiData,
+        ...(skipKey && { [skipKey]: true })
+      });
     }
   };
 
   const handleTaxStatusComplete = (data: any) => {
-    setApiData(prev => ({ ...prev, taxstatus: data }));
-    
-    // If BOTH, go to Truv next; otherwise complete
-    if (selectedEmploymentStatus === 'both') {
-      setCurrentStep('truv');
-    } else {
-      // Complete for self-employed only
-      onComplete({
-        employmentStatus: selectedEmploymentStatus,
-        incomeTypes: ['self-employed'],
-        apiIntegrations: { ...apiData, taxstatus: data }
-      });
-    }
+    const updatedApiData = { ...apiData, taxstatus: data };
+    setApiData(updatedApiData);
+    moveToNextApiOrComplete(updatedApiData);
   };
 
   const handleTaxStatusSkip = () => {
-    // If BOTH, go to Truv next; otherwise complete
-    if (selectedEmploymentStatus === 'both') {
-      setCurrentStep('truv');
-    } else {
-      // Complete for self-employed only
-      onComplete({
-        employmentStatus: selectedEmploymentStatus,
-        incomeTypes: ['self-employed'],
-        apiIntegrations: apiData,
-        skipTaxStatus: true
-      });
-    }
+    moveToNextApiOrComplete(apiData, 'skipTaxStatus');
   };
 
   const handleTruvComplete = (data: any) => {
-    const finalApiData = { ...apiData, truv: data };
-    
-    // Complete the flow with all collected data
-    onComplete({
-      employmentStatus: selectedEmploymentStatus,
-      incomeTypes: selectedEmploymentStatus === 'both' 
-        ? ['salary-hourly', 'self-employed'] 
-        : ['salary-hourly'],
-      apiIntegrations: finalApiData
-    });
+    const updatedApiData = { ...apiData, truv: data };
+    setApiData(updatedApiData);
+    moveToNextApiOrComplete(updatedApiData);
   };
 
   const handleTruvSkip = () => {
-    // Complete the flow
-    onComplete({
-      employmentStatus: selectedEmploymentStatus,
-      incomeTypes: selectedEmploymentStatus === 'both' 
-        ? ['salary-hourly', 'self-employed'] 
-        : ['salary-hourly'],
-      apiIntegrations: apiData,
-      skipTruv: true
-    });
+    moveToNextApiOrComplete(apiData, 'skipTruv');
   };
 
   const handleDisabilityTypeSelection = (disabilityType: 'va' | 'social-security') => {
@@ -133,39 +139,23 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
   };
 
   const handleSSAComplete = (data: any) => {
-    onComplete({
-      employmentStatus: selectedEmploymentStatus,
-      incomeTypes: ['retired'],
-      apiIntegrations: { ...apiData, ssa: data }
-    });
+    const updatedApiData = { ...apiData, ssa: data };
+    setApiData(updatedApiData);
+    moveToNextApiOrComplete(updatedApiData);
   };
 
   const handleSSASkip = () => {
-    onComplete({
-      employmentStatus: selectedEmploymentStatus,
-      incomeTypes: ['retired'],
-      apiIntegrations: apiData,
-      skipSSA: true
-    });
+    moveToNextApiOrComplete(apiData, 'skipSSA');
   };
 
   const handleVAComplete = (data: any) => {
-    onComplete({
-      employmentStatus: 'disability',
-      incomeTypes: ['disability'],
-      disabilityType: 'va',
-      apiIntegrations: { ...apiData, va: data }
-    });
+    const updatedApiData = { ...apiData, va: data };
+    setApiData(updatedApiData);
+    moveToNextApiOrComplete(updatedApiData);
   };
 
   const handleVASkip = () => {
-    onComplete({
-      employmentStatus: 'disability',
-      incomeTypes: ['disability'],
-      disabilityType: 'va',
-      apiIntegrations: apiData,
-      skipVA: true
-    });
+    moveToNextApiOrComplete(apiData, 'skipVA');
   };
 
   // Handle API integration steps
@@ -191,9 +181,10 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
         <Button 
           variant="ghost" 
           onClick={() => {
-            // Go back to appropriate step
-            if (selectedEmploymentStatus === 'both' && !apiData.taxstatus) {
-              setCurrentStep('taxstatus');
+            // Go back to previous step in queue or to selection
+            if (currentApiIndex > 0) {
+              setCurrentApiIndex(currentApiIndex - 1);
+              setCurrentStep(apiQueue[currentApiIndex - 1] as any);
             } else {
               setCurrentStep('selection');
             }
@@ -263,8 +254,11 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
         <Button 
           variant="ghost" 
           onClick={() => {
-            if (selectedEmploymentStatus === 'disability') {
+            if (selectedEmploymentTypes.includes('disability')) {
               setCurrentStep('disability-type');
+            } else if (currentApiIndex > 0) {
+              setCurrentApiIndex(currentApiIndex - 1);
+              setCurrentStep(apiQueue[currentApiIndex - 1] as any);
             } else {
               setCurrentStep('selection');
             }
@@ -354,48 +348,41 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
   return (
     <Card className="w-full max-w-2xl mx-auto">
       <CardHeader className="text-center">
-        <CardTitle className="text-2xl">Employment Status</CardTitle>
+        <CardTitle className="text-2xl">Income Sources</CardTitle>
         <CardDescription>
-          Please select your employment status to help us determine your income sources.
+          Please select all that apply to help us determine your income sources.
         </CardDescription>
       </CardHeader>
       
       <CardContent className="space-y-6">
-        <RadioGroup value={selectedEmploymentStatus} onValueChange={setSelectedEmploymentStatus}>
+        <div className="space-y-4">
           {employmentOptions.map((option) => (
-            <div key={option.id} className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-gray-50">
-              <RadioGroupItem value={option.id} id={option.id} className="mt-1" />
-              <div className="flex-1">
-                <Label 
-                  htmlFor={option.id} 
-                  className="text-base font-medium cursor-pointer"
-                >
-                  {option.label}
-                </Label>
-                <p className="text-sm text-gray-600 mt-1">{option.description}</p>
-              </div>
+            <div key={option.id} className="flex items-center space-x-3 p-4 border rounded-lg hover:bg-gray-50">
+              <Checkbox
+                id={option.id}
+                checked={selectedEmploymentTypes.includes(option.id)}
+                onCheckedChange={() => handleEmploymentTypeToggle(option.id)}
+              />
+              <Label htmlFor={option.id} className="flex-1 cursor-pointer">
+                <div className="font-semibold">{option.label}</div>
+                <div className="text-sm text-gray-600">{option.description}</div>
+              </Label>
             </div>
           ))}
-        </RadioGroup>
+        </div>
         
-        {selectedEmploymentStatus && (
+        {selectedEmploymentTypes.length > 0 && (
           <div className="bg-blue-50 p-4 rounded-lg">
             <p className="text-sm text-blue-800">
-              {selectedEmploymentStatus === 'both' && 
-                "Next, we'll connect to TaxStatus to verify your tax returns, then to Truv to verify your W-2 employment income."
-              }
-              {selectedEmploymentStatus === 'self-employed' && 
-                "Next, we'll connect to TaxStatus to securely verify your tax returns and self-employment income."
-              }
-              {selectedEmploymentStatus === 'not-self-employed' && 
-                "Next, we'll connect to Truv to securely verify your W-2 employment income."
-              }
-              {selectedEmploymentStatus === 'retired' && 
-                "Next, we'll connect to the Social Security Administration to verify your retirement income."
-              }
-              {selectedEmploymentStatus === 'disability' && 
-                "Next, we'll ask about your disability type and connect to the appropriate verification system."
-              }
+              Selected income sources will connect to: {selectedEmploymentTypes.map((type, index) => {
+                const connections = {
+                  'not-self-employed': 'Truv (W-2 verification)',
+                  'self-employed': 'TaxStatus (tax return verification)', 
+                  'retired': 'Social Security Administration',
+                  'disability': 'VA Portal or SSA (depending on type)'
+                };
+                return (index > 0 ? ', ' : '') + connections[type as keyof typeof connections];
+              }).join('')}
             </p>
           </div>
         )}
@@ -414,7 +401,7 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
         <Button 
           type="button"
           onClick={handleContinue}
-          disabled={!selectedEmploymentStatus}
+          disabled={selectedEmploymentTypes.length === 0}
           className="w-full sm:w-auto"
         >
           Continue
