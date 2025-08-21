@@ -4,6 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft } from "lucide-react";
+import { TruvIntegration } from "./truv-integration";
+import { TaxStatusIntegration } from "./taxstatus-integration";
 
 interface IncomeTypeSelectionProps {
   onComplete: (data: any) => void;
@@ -13,6 +15,8 @@ interface IncomeTypeSelectionProps {
 
 export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: IncomeTypeSelectionProps) {
   const [selectedEmploymentStatus, setSelectedEmploymentStatus] = useState<string>(defaultValues?.employmentStatus || "");
+  const [currentStep, setCurrentStep] = useState<'selection' | 'taxstatus' | 'truv'>('selection');
+  const [apiData, setApiData] = useState<any>({});
 
   const employmentOptions = [
     {
@@ -35,15 +39,114 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
   const handleContinue = () => {
     if (!selectedEmploymentStatus) return;
 
+    // Route based on employment status for API connections
+    if (selectedEmploymentStatus === 'self-employed') {
+      // Self Employed -> TaxStatus API
+      setCurrentStep('taxstatus');
+    } else if (selectedEmploymentStatus === 'not-self-employed') {
+      // NOT Self Employed -> Truv API
+      setCurrentStep('truv');
+    } else if (selectedEmploymentStatus === 'both') {
+      // BOTH -> TaxStatus first, then Truv
+      setCurrentStep('taxstatus');
+    }
+  };
+
+  const handleTaxStatusComplete = (data: any) => {
+    setApiData(prev => ({ ...prev, taxstatus: data }));
+    
+    // If BOTH, go to Truv next; otherwise complete
+    if (selectedEmploymentStatus === 'both') {
+      setCurrentStep('truv');
+    } else {
+      // Complete for self-employed only
+      onComplete({
+        employmentStatus: selectedEmploymentStatus,
+        incomeTypes: ['self-employed'],
+        apiIntegrations: { ...apiData, taxstatus: data }
+      });
+    }
+  };
+
+  const handleTaxStatusSkip = () => {
+    // If BOTH, go to Truv next; otherwise complete
+    if (selectedEmploymentStatus === 'both') {
+      setCurrentStep('truv');
+    } else {
+      // Complete for self-employed only
+      onComplete({
+        employmentStatus: selectedEmploymentStatus,
+        incomeTypes: ['self-employed'],
+        apiIntegrations: apiData,
+        skipTaxStatus: true
+      });
+    }
+  };
+
+  const handleTruvComplete = (data: any) => {
+    const finalApiData = { ...apiData, truv: data };
+    
+    // Complete the flow with all collected data
     onComplete({
       employmentStatus: selectedEmploymentStatus,
       incomeTypes: selectedEmploymentStatus === 'both' 
         ? ['salary-hourly', 'self-employed'] 
-        : selectedEmploymentStatus === 'self-employed' 
-          ? ['self-employed'] 
-          : ['salary-hourly']
+        : ['salary-hourly'],
+      apiIntegrations: finalApiData
     });
   };
+
+  const handleTruvSkip = () => {
+    // Complete the flow
+    onComplete({
+      employmentStatus: selectedEmploymentStatus,
+      incomeTypes: selectedEmploymentStatus === 'both' 
+        ? ['salary-hourly', 'self-employed'] 
+        : ['salary-hourly'],
+      apiIntegrations: apiData,
+      skipTruv: true
+    });
+  };
+
+  // Handle API integration steps
+  if (currentStep === 'taxstatus') {
+    return (
+      <div className="space-y-6">
+        <Button 
+          variant="ghost" 
+          onClick={() => setCurrentStep('selection')}
+          className="mb-4"
+        >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Employment Selection
+        </Button>
+        <TaxStatusIntegration onComplete={handleTaxStatusComplete} onSkip={handleTaxStatusSkip} />
+      </div>
+    );
+  }
+
+  if (currentStep === 'truv') {
+    return (
+      <div className="space-y-6">
+        <Button 
+          variant="ghost" 
+          onClick={() => {
+            // Go back to appropriate step
+            if (selectedEmploymentStatus === 'both' && !apiData.taxstatus) {
+              setCurrentStep('taxstatus');
+            } else {
+              setCurrentStep('selection');
+            }
+          }}
+          className="mb-4"
+        >
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back
+        </Button>
+        <TruvIntegration onComplete={handleTruvComplete} onSkip={handleTruvSkip} />
+      </div>
+    );
+  }
 
   return (
     <Card className="w-full max-w-2xl mx-auto">
@@ -76,13 +179,13 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
           <div className="bg-blue-50 p-4 rounded-lg">
             <p className="text-sm text-blue-800">
               {selectedEmploymentStatus === 'both' && 
-                "You'll provide details for both W-2 employment and self-employment income."
+                "Next, we'll connect to TaxStatus to verify your tax returns, then to Truv to verify your W-2 employment income."
               }
               {selectedEmploymentStatus === 'self-employed' && 
-                "You'll provide details about your self-employment or 1099 income."
+                "Next, we'll connect to TaxStatus to securely verify your tax returns and self-employment income."
               }
               {selectedEmploymentStatus === 'not-self-employed' && 
-                "You'll provide details about your W-2 employment income."
+                "Next, we'll connect to Truv to securely verify your W-2 employment income."
               }
             </p>
           </div>
