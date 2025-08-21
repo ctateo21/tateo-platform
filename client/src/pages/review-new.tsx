@@ -266,7 +266,11 @@ export default function Review() {
                           
                           {selectedServices.realtor && (
                             <a 
-                              href="https://www.zillow.com/user/acct/login/?entry_point=redirect&url=%2Freviews%2Fwrite%2F%3Fs%3DX1-ZU1094ao4brvy15_9od0t" 
+                              href={
+                                selectedAgents.christian && selectedAgents.omar 
+                                  ? "https://www.zillow.com/lender-profile/OmarA0809/"
+                                  : "https://www.zillow.com/user/acct/login/?entry_point=redirect&url=%2Freviews%2Fwrite%2F%3Fs%3DX1-ZU1094ao4brvy15_9od0t"
+                              }
                               target="_blank" 
                               rel="noopener noreferrer"
                               className="text-primary hover:text-primary/80 underline font-medium"
