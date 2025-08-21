@@ -1,9 +1,11 @@
+import { useState } from "react";
 import { ServiceCategory } from "@shared/schema";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { useServices } from "@/context/services-context";
-import { SquareCheck, Square, ArrowRight } from "lucide-react";
+import { SquareCheck, Square, ArrowRight, ChevronDown, ChevronUp, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface ServiceCardProps {
   service: ServiceCategory;
@@ -12,6 +14,7 @@ interface ServiceCardProps {
 export default function ServiceCard({ service }: ServiceCardProps) {
   const { isServiceSelected, selectService, deselectService } = useServices();
   const selected = isServiceSelected(service.id);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const [location, navigate] = useLocation();
 
@@ -23,6 +26,66 @@ export default function ServiceCard({ service }: ServiceCardProps) {
       selectService(service);
     }
   };
+
+  // Service-specific detailed information
+  const serviceDetails = {
+    'real-estate': {
+      description: "Expert guidance on buying, selling, and investing in properties across the market.",
+      benefits: [
+        "Market analysis and property valuation",
+        "Strategic marketing for sellers", 
+        "Property search and negotiation for buyers",
+        "Investment property consultation"
+      ]
+    },
+    'mortgage': {
+      description: "Competitive rates and flexible terms for all your home financing needs.",
+      benefits: [
+        "Personalized loan options",
+        "Refinancing opportunities", 
+        "First-time homebuyer programs",
+        "Cash-out refinance solutions"
+      ]
+    },
+    'insurance': {
+      description: "Comprehensive coverage to protect your valuable assets and investments.",
+      benefits: [
+        "Homeowners insurance",
+        "Auto insurance",
+        "Umbrella policies", 
+        "Life and disability coverage"
+      ]
+    },
+    'construction': {
+      description: "Quality construction and renovation services for residential and commercial properties.",
+      benefits: [
+        "Custom home building",
+        "Renovation and remodeling",
+        "Project management",
+        "Construction consulting"
+      ]
+    },
+    'property-management': {
+      description: "Professional management services for rental properties and investment portfolios.",
+      benefits: [
+        "Tenant screening and placement",
+        "Rent collection and accounting",
+        "Maintenance coordination",
+        "Regular property inspections"
+      ]
+    },
+    'home-services': {
+      description: "Reliable home services to keep your property in top condition year-round.",
+      benefits: [
+        "Home maintenance",
+        "Cleaning services",
+        "Landscaping and lawn care", 
+        "HVAC and plumbing services"
+      ]
+    }
+  };
+
+  const details = serviceDetails[service.id as keyof typeof serviceDetails];
   
   return (
     <div className="flex flex-col">
@@ -66,13 +129,34 @@ export default function ServiceCard({ service }: ServiceCardProps) {
           </div>
         </div>
       </div>
-      <div className="mt-4 text-center">
-        <Button asChild className="bg-primary hover:bg-primary/90 text-white">
-          <Link href={`/${service.id}`}>
-            Learn More <ArrowRight className="ml-2 h-4 w-4" />
-          </Link>
-        </Button>
-      </div>
+      
+      {/* Expandable Learn More Section */}
+      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+        <div className="mt-4 text-center">
+          <CollapsibleTrigger asChild>
+            <Button 
+              variant="outline" 
+              className="border-primary text-primary hover:bg-primary hover:text-white transition-colors"
+            >
+              Learn More {isExpanded ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />}
+            </Button>
+          </CollapsibleTrigger>
+        </div>
+        
+        <CollapsibleContent className="mt-4">
+          <div className="bg-gray-50 rounded-lg p-6 border border-gray-100">
+            <p className="text-gray-600 mb-4">{details?.description}</p>
+            <ul className="space-y-2">
+              {details?.benefits.map((benefit, i) => (
+                <li key={i} className="flex items-start">
+                  <Check className="h-5 w-5 text-secondary shrink-0 mr-2 mt-0.5" />
+                  <span className="text-gray-700">{benefit}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

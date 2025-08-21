@@ -1,8 +1,6 @@
 import { Helmet } from "react-helmet";
 import HeroSection from "@/components/ui/hero-section";
 import ServiceSelector from "@/components/services/service-selector";
-import FeaturesSection from "@/components/ui/features-section";
-import GuidesSection from "@/components/ui/guides-section";
 import CTASection from "@/components/ui/cta-section";
 
 export default function Home() {
@@ -15,7 +13,6 @@ export default function Home() {
       
       <HeroSection />
       <ServiceSelector />
-      <FeaturesSection />
       <CTASection />
     </>
   );
