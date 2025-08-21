@@ -255,7 +255,7 @@ export default function Review() {
                               
                               <a 
                                 href={
-                                  selectedAgents.christian && selectedAgents.omar 
+                                  selectedAgents.omar
                                     ? "https://www.zillow.com/lender-profile/OmarA0809/"
                                     : "https://www.zillow.com/mortgage/lender-review/?screenName=tateoco"
                                 }
