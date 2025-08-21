@@ -87,7 +87,9 @@ Changelog:
   * Step 12: Complete loan analysis with DTI ratios and asset verification
   * Real-time feedback system with loan-specific DTI limits
   * Asset sufficiency analysis with recommendations for shortfalls
-  * Enhanced refinance flow with cash-out debt selection, dynamic loan amount calculation, tax bill connection, CanopyConnect insurance integration, and cash back analysis
+  * Enhanced refinance flow with cash-out debt selection, dynamic loan amount calculation, tax bill connection, CanopyConnect insurance integration, and refined analysis display
+  * Updated refinance analysis with detailed calculation breakdown: current loan balance + selected debts + additional cash-out + closing costs = new loan amount (highlighted)
+  * Fixed monthly payment precision to 2 decimal places, removed cash flow summary and assets sections per user specifications
 ```
 
 ## User Preferences
