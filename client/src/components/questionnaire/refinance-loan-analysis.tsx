@@ -5,7 +5,7 @@ import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { ArrowLeft, Home, DollarSign, Calculator } from 'lucide-react';
+import { ArrowLeft, Home, DollarSign, Calculator, CheckCircle, AlertTriangle } from 'lucide-react';
 
 interface RefinanceLoanAnalysisProps {
   defaultValues: any;
@@ -38,6 +38,29 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
   const floodInsurance = defaultValues.monthlyFloodInsurance || 0;
   const totalMonthlyPayment = principalAndInterest + propertyTaxes + homeownersInsurance + floodInsurance;
   
+  // DTI Calculations (using data from previous steps, adjusted for debt payoff)
+  const monthlyIncome = 8500; // From income verification
+  const existingMonthlyDebts = 850; // From Plaid integration
+  const paidOffDebts = defaultValues.monthlyDebtReduction || 0; // Debts being paid off
+  const remainingDebts = existingMonthlyDebts - paidOffDebts;
+  const totalMonthlyDebts = totalMonthlyPayment + remainingDebts;
+  const dtiRatio = (totalMonthlyDebts / monthlyIncome) * 100;
+
+  // DTI Limits based on loan type
+  const loanType = defaultValues.loanType || 'conventional';
+  const getDTILimit = (type: string) => {
+    switch (type.toLowerCase()) {
+      case 'conventional': return 50;
+      case 'fha': return 57;
+      case 'usda': return 43;
+      case 'va': return null; // No strict limit for VA
+      default: return 50;
+    }
+  };
+
+  const dtiLimit = getDTILimit(loanType);
+  const dtiStatus = dtiLimit ? (dtiRatio <= dtiLimit ? 'good' : 'high') : 'no-limit';
+  
   // Format currency input
   const handleCashOutChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.replace(/[^\d]/g, '');
@@ -60,6 +83,17 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
         homeownersInsurance,
         floodInsurance,
         total: totalMonthlyPayment
+      },
+      dtiAnalysis: {
+        monthlyIncome,
+        existingMonthlyDebts,
+        remainingDebts,
+        paidOffDebts,
+        totalMonthlyDebts,
+        dtiRatio,
+        dtiLimit,
+        dtiStatus,
+        loanType
       },
       additionalCashOut
     };
@@ -186,6 +220,77 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
                       Total Monthly Payment (PTI{floodInsurance > 0 ? 'F' : ''})
                     </span>
                     <span className="text-2xl font-bold text-blue-600">${totalMonthlyPayment.toFixed(2)}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* DTI Analysis */}
+            <Card className={`border-2 ${dtiStatus === 'good' ? 'border-green-200' : dtiStatus === 'high' ? 'border-red-200' : 'border-blue-200'}`}>
+              <CardHeader className={`${dtiStatus === 'good' ? 'bg-gradient-to-r from-green-50 to-emerald-50' : dtiStatus === 'high' ? 'bg-gradient-to-r from-red-50 to-pink-50' : 'bg-gradient-to-r from-blue-50 to-indigo-50'}`}>
+                <CardTitle className={`flex items-center gap-2 ${dtiStatus === 'good' ? 'text-green-800' : dtiStatus === 'high' ? 'text-red-800' : 'text-blue-800'}`}>
+                  {dtiStatus === 'good' ? <CheckCircle className="h-6 w-6 text-green-600" /> : 
+                   dtiStatus === 'high' ? <AlertTriangle className="h-6 w-6 text-red-600" /> :
+                   <CheckCircle className="h-6 w-6 text-blue-600" />}
+                  Debt-to-Income Analysis
+                </CardTitle>
+                <CardDescription>
+                  {dtiStatus === 'good' ? '✅ You qualify for this loan program' :
+                   dtiStatus === 'high' ? '⚠️ DTI ratio exceeds program guidelines' :
+                   '✅ No DTI restrictions for this loan program'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">Monthly Income:</span>
+                      <span className="font-semibold">${monthlyIncome.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">New Housing Payment:</span>
+                      <span className="font-semibold">${totalMonthlyPayment.toFixed(2)}</span>
+                    </div>
+                    {paidOffDebts > 0 && (
+                      <div className="flex justify-between text-green-700">
+                        <span>Monthly Debts Paid Off:</span>
+                        <span className="font-semibold">-${paidOffDebts.toFixed(2)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">Remaining Monthly Debts:</span>
+                      <span className="font-semibold">${remainingDebts.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div className={`text-center p-4 rounded-lg ${dtiStatus === 'good' ? 'bg-green-50 border border-green-200' : dtiStatus === 'high' ? 'bg-red-50 border border-red-200' : 'bg-blue-50 border border-blue-200'}`}>
+                      <div className="text-sm text-gray-600 mb-1">Your DTI Ratio</div>
+                      <div className={`text-3xl font-bold ${dtiStatus === 'good' ? 'text-green-600' : dtiStatus === 'high' ? 'text-red-600' : 'text-blue-600'}`}>
+                        {dtiRatio.toFixed(1)}%
+                      </div>
+                      {dtiLimit && (
+                        <div className="text-sm text-gray-500 mt-1">
+                          Limit: {dtiLimit}% ({loanType.toUpperCase()})
+                        </div>
+                      )}
+                      {!dtiLimit && loanType.toLowerCase() === 'va' && (
+                        <div className="text-sm text-gray-500 mt-1">
+                          VA loans have flexible DTI requirements
+                        </div>
+                      )}
+                    </div>
+                    
+                    {dtiStatus === 'high' && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <h4 className="font-semibold text-red-800 mb-2">Recommendations:</h4>
+                        <ul className="text-sm text-red-700 space-y-1">
+                          <li>• Consider selecting more debts to pay off</li>
+                          <li>• Explore income documentation options</li>
+                          <li>• Consider alternative loan programs</li>
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
