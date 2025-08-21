@@ -450,7 +450,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'loan-assistance' | 'non-qm' | 'lender-price' | 'income' | 'plaid' | 'taxes-insurance' | 'loan-analysis' | 'lien-type' | 'loan-balance' | 'refinance-type' | 'escrow';
+    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'loan-assistance' | 'non-qm' | 'lender-price' | 'income' | 'plaid' | 'taxes-insurance' | 'loan-analysis' | 'refinance-lien-type' | 'loan-balance' | 'refinance-type' | 'escrow';
     type: 'purchase' | 'refinance';
     homeOwnershipHistory?: 'yes' | 'no';
     ownershipType: 'primary' | 'secondary' | 'investment';
@@ -706,7 +706,7 @@ export default function ServiceQuestionnaire() {
     }));
     
     // For refinance, go to lien-type step; for purchase, go to home-ownership-history
-    const nextStep = data.type === 'refinance' ? 'lien-type' : 'home-ownership-history';
+    const nextStep = data.type === 'refinance' ? 'refinance-lien-type' : 'home-ownership-history';
     
     setMortgageFlowState(prev => ({
       ...prev,
@@ -729,7 +729,7 @@ export default function ServiceQuestionnaire() {
     
     setMortgageFlowState(prev => ({
       ...prev,
-      step: 'credit-score', // Skip to credit score for refinance
+      step: 'credit-score', // Step 3: Estimated Credit Score
       lienType: data.lienType
     }));
   };
@@ -775,7 +775,7 @@ export default function ServiceQuestionnaire() {
     }));
   };
 
-  // Handle escrow step submission (refinance step 6/7)
+  // Handle escrow step submission (refinance step 6)
   const handleEscrowSubmit = (data: any) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
@@ -789,7 +789,7 @@ export default function ServiceQuestionnaire() {
     
     setMortgageFlowState(prev => ({
       ...prev,
-      step: 'location', // Next step is location for both purchase and refinance
+      step: 'location', // Step 7: Property Location
       escrow: data.escrow
     }));
   };
@@ -825,15 +825,17 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
-    // Both purchase and refinance go to location (step 4)
+    // Different flow for refinance vs purchase
+    const nextStep = mortgageFlowState.type === 'refinance' ? 'loan-balance' : 'location';
+    
     setMortgageFlowState(prev => ({
       ...prev,
-      step: 'location',
+      step: nextStep as any,
       creditScore: data.creditScore
     }));
   };
 
-  // Handle property location step submission (step 4)
+  // Handle property location step submission (step 4 purchase, step 7 refinance)
   const handlePropertyLocationSubmit = (data: any) => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
     
@@ -845,7 +847,7 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
-    // For purchase, go to ownership; for refinance, go to loan type (step 5)
+    // For purchase, go to ownership; for refinance, go to loan type (step 8)
     const nextStep = mortgageFlowState.type === 'purchase' ? 'ownership' : 'loan-type';
     
     setMortgageFlowState(prev => ({
@@ -885,7 +887,7 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
-    // For refinance, always go directly to lender-price (step 7)
+    // For refinance, always go directly to lender-price (step 9)
     // For purchase, follow original logic
     let nextStep = 'lender-price';
     
@@ -1127,7 +1129,7 @@ export default function ServiceQuestionnaire() {
               onBack={handleBack} 
             />;
             
-          case 'lien-type':
+          case 'refinance-lien-type':
             return <RefinanceLienTypeStep
               onSubmit={handleRefinanceLienTypeSubmit}
               onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'type' }))}
@@ -1143,7 +1145,7 @@ export default function ServiceQuestionnaire() {
           case 'credit-score':
             const previousStepFromCreditScore = () => {
               if (mortgageFlowState.type === 'refinance') {
-                return 'lien-type';
+                return 'refinance-lien-type';
               } else {
                 return 'home-ownership-history';
               }
