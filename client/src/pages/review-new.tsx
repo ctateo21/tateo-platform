@@ -10,7 +10,16 @@ import { fetchGoogleReviews } from "@/lib/api-reviews";
 import { ReviewCarousel } from "@/components/review-carousel";
 
 export default function Review() {  
-  // State for selected services only
+  // State for selected agents
+  const [selectedAgents, setSelectedAgents] = useState<{
+    christian: boolean;
+    omar: boolean;
+  }>({
+    christian: false,
+    omar: false
+  });
+  
+  // State for selected services
   const [selectedServices, setSelectedServices] = useState<{
     realtor: boolean;
     mortgage: boolean;
@@ -42,6 +51,10 @@ export default function Review() {
       setSubmitting(false);
       setSubmitted(true);
       // Reset form
+      setSelectedAgents({
+        christian: false,
+        omar: false
+      });
       setSelectedServices({ 
         realtor: false, 
         mortgage: false, 
@@ -118,6 +131,34 @@ export default function Review() {
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-6">
+                  {/* Agent Selection */}
+                  <div className="space-y-2 border-2 border-primary/20 rounded-lg p-4 bg-primary/5">
+                    <Label className="text-lg font-semibold text-primary">Who did you work with?</Label>
+                    <div className="grid grid-cols-2 gap-4 pt-2">
+                      <div className="flex items-center space-x-3">
+                        <input 
+                          type="checkbox" 
+                          id="christian-agent" 
+                          className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
+                          checked={selectedAgents.christian}
+                          onChange={(e) => setSelectedAgents({...selectedAgents, christian: e.target.checked})}
+                        />
+                        <Label htmlFor="christian-agent" className="font-medium">Christian</Label>
+                      </div>
+                      
+                      <div className="flex items-center space-x-3">
+                        <input 
+                          type="checkbox" 
+                          id="omar-agent" 
+                          className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
+                          checked={selectedAgents.omar}
+                          onChange={(e) => setSelectedAgents({...selectedAgents, omar: e.target.checked})}
+                        />
+                        <Label htmlFor="omar-agent" className="font-medium">Omar</Label>
+                      </div>
+                    </div>
+                  </div>
+                  
                   <div className="space-y-2">
                     <Label>Which services did you use? (Select all that apply)</Label>
                     <div className="grid grid-cols-2 gap-2 pt-2">
