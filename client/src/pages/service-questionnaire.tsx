@@ -40,6 +40,9 @@ import LenderPriceStep from "@/components/questionnaire/lender-price-step";
 import { PlaidIntegration } from "@/components/questionnaire/plaid-integration";
 import { PropertyTaxesInsurance } from "@/components/questionnaire/property-taxes-insurance";
 import { LoanAnalysis } from "@/components/questionnaire/loan-analysis";
+import { RefinancePlaidIntegration } from "@/components/questionnaire/refinance-plaid-integration";
+import { RefinancePropertyTaxesInsurance } from "@/components/questionnaire/refinance-property-taxes-insurance";
+import { RefinanceLoanAnalysis } from "@/components/questionnaire/refinance-loan-analysis";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
 import PropertyManagementForm from "@/components/questionnaire/property-management-form";
@@ -953,6 +956,7 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
+    // Both purchase and refinance now go to income step
     setMortgageFlowState(prev => ({
       ...prev,
       step: 'income'
@@ -1262,31 +1266,62 @@ export default function ServiceQuestionnaire() {
             />;
 
           case 'plaid':
-            return <PlaidIntegration
-              defaultValues={formData.mortgage || {}}
-              onComplete={handlePlaidSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'income' }))}
-            />;
+            // Use refinance-specific Plaid component for refinance flow
+            if (mortgageFlowState.type === 'refinance') {
+              return <RefinancePlaidIntegration
+                defaultValues={formData.mortgage || {}}
+                onComplete={handlePlaidSubmit}
+                onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'income' }))}
+                refinanceType={mortgageFlowState.refinanceType || 'rate-term'}
+              />;
+            } else {
+              return <PlaidIntegration
+                defaultValues={formData.mortgage || {}}
+                onComplete={handlePlaidSubmit}
+                onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'income' }))}
+              />;
+            }
 
           case 'taxes-insurance':
-            return <PropertyTaxesInsurance
-              propertyAddress={mortgageFlowState.propertyAddress}
-              propertyZipCode={mortgageFlowState.propertyZipCode}
-              isVADisabled={mortgageFlowState.isVADisabled || false}
-              isPrimaryResidence={mortgageFlowState.ownershipType === 'primary'}
-              defaultValues={formData.mortgage || {}}
-              onComplete={handleTaxesInsuranceSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'plaid' }))}
-            />;
+            // Use refinance-specific taxes & insurance component for refinance flow
+            if (mortgageFlowState.type === 'refinance') {
+              return <RefinancePropertyTaxesInsurance
+                propertyAddress={formData.mortgage?.propertyAddress}
+                propertyZipCode={formData.mortgage?.zipCode}
+                isVADisabled={formData.mortgage?.isVADisabled || false}
+                defaultValues={formData.mortgage || {}}
+                onComplete={handleTaxesInsuranceSubmit}
+                onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'plaid' }))}
+              />;
+            } else {
+              return <PropertyTaxesInsurance
+                propertyAddress={mortgageFlowState.propertyAddress}
+                propertyZipCode={mortgageFlowState.propertyZipCode}
+                isVADisabled={mortgageFlowState.isVADisabled || false}
+                isPrimaryResidence={mortgageFlowState.ownershipType === 'primary'}
+                defaultValues={formData.mortgage || {}}
+                onComplete={handleTaxesInsuranceSubmit}
+                onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'plaid' }))}
+              />;
+            }
             
 
 
           case 'loan-analysis':
-            return <LoanAnalysis
-              defaultValues={formData.mortgage || {}}
-              onComplete={handleLoanAnalysisSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'taxes-insurance' }))}
-            />;
+            // Use refinance-specific loan analysis component for refinance flow
+            if (mortgageFlowState.type === 'refinance') {
+              return <RefinanceLoanAnalysis
+                defaultValues={formData.mortgage || {}}
+                onComplete={handleLoanAnalysisSubmit}
+                onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'taxes-insurance' }))}
+              />;
+            } else {
+              return <LoanAnalysis
+                defaultValues={formData.mortgage || {}}
+                onComplete={handleLoanAnalysisSubmit}
+                onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'taxes-insurance' }))}
+              />;
+            }
             
           default:
             return <div>Unknown mortgage step</div>;
