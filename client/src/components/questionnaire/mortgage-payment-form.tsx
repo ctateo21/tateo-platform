@@ -227,6 +227,7 @@ export function MortgagePaymentForm({
       defaultValues={formDefaults}
       onSubmit={handleSubmit}
       onBack={onBack}
+      submitText="View Loan Analysis"
     >
       <h3 className="text-2xl font-semibold mb-2 text-primary">Monthly Payment Calculation</h3>
       <p className="text-muted-foreground mb-6">Let's calculate your estimated monthly mortgage payment</p>
