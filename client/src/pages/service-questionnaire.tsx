@@ -40,6 +40,7 @@ import { MortgagePaymentForm } from "@/components/questionnaire/mortgage-payment
 import LenderPriceStep from "@/components/questionnaire/lender-price-step";
 import { PlaidIntegration } from "@/components/questionnaire/plaid-integration";
 import { PropertyTaxesInsurance } from "@/components/questionnaire/property-taxes-insurance";
+import { LoanAnalysis } from "@/components/questionnaire/loan-analysis";
 import InsuranceForm from "@/components/questionnaire/insurance-form";
 import ConstructionForm from "@/components/questionnaire/construction-form";
 import PropertyManagementForm from "@/components/questionnaire/property-management-form";
@@ -353,6 +354,30 @@ export default function ServiceQuestionnaire() {
             step: 'plaid'
           }));
           break;
+
+        case 'liabilities':
+          // Go back to taxes-insurance form
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'taxes-insurance'
+          }));
+          break;
+
+        case 'payment':
+          // Go back to liabilities form
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'liabilities'
+          }));
+          break;
+
+        case 'loan-analysis':
+          // Go back to payment form
+          setMortgageFlowState(prev => ({
+            ...prev,
+            step: 'payment'
+          }));
+          break;
           
         default:
           // Default to type step
@@ -437,7 +462,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'loan-assistance' | 'non-qm' | 'lender-price' | 'income' | 'plaid' | 'taxes-insurance' | 'liabilities' | 'payment' | 'lien-type' | 'loan-balance' | 'refinance-type' | 'escrow';
+    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'loan-assistance' | 'non-qm' | 'lender-price' | 'income' | 'plaid' | 'taxes-insurance' | 'liabilities' | 'payment' | 'loan-analysis' | 'lien-type' | 'loan-balance' | 'refinance-type' | 'escrow';
     type: 'purchase' | 'refinance';
     homeOwnershipHistory?: 'yes' | 'no';
     ownershipType: 'primary' | 'secondary' | 'investment';
@@ -465,7 +490,7 @@ export default function ServiceQuestionnaire() {
     let total = 0;
     selectedServices.forEach(service => {
       if (service.id === 'mortgage') {
-        total += 11; // type, home-ownership-history, location, ownership, lender-price, income, plaid, taxes-insurance, liabilities, payment
+        total += 12; // type, home-ownership-history, location, ownership, lender-price, income, plaid, taxes-insurance, liabilities, payment, loan-analysis
       } else if (service.id === 'real-estate') {
         total += 3;
       } else {
@@ -483,7 +508,7 @@ export default function ServiceQuestionnaire() {
     for (let i = 0; i < currentServiceIndex; i++) {
       const service = selectedServices[i];
       if (service.id === 'mortgage') {
-        step += 11;
+        step += 12;
       } else if (service.id === 'real-estate') {
         step += 3;
       } else {
@@ -512,7 +537,8 @@ export default function ServiceQuestionnaire() {
           'plaid': 10,
           'taxes-insurance': 11,
           'liabilities': 12,
-          'payment': 13
+          'payment': 13,
+          'loan-analysis': 14
         };
         step += mortgageSteps[mortgageFlowState.step] || 1;
       } else {
@@ -1048,6 +1074,27 @@ export default function ServiceQuestionnaire() {
       }
     }));
     
+    // Go to loan analysis step
+    setMortgageFlowState(prev => ({
+      ...prev,
+      step: 'loan-analysis'
+    }));
+  };
+
+  // Handle loan analysis completion
+  const handleLoanAnalysisSubmit = (data: any) => {
+    // Scroll to top of page
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    
+    // Save the analysis data
+    setFormData(prev => ({
+      ...prev,
+      mortgage: {
+        ...prev.mortgage,
+        ...data
+      }
+    }));
+    
     // Complete the mortgage service and move to next service
     handleFormData('mortgage', {
       ...formData.mortgage,
@@ -1366,6 +1413,13 @@ export default function ServiceQuestionnaire() {
               monthlyDebts={monthlyDebts}
               ownershipType={mortgageFlowState.ownershipType}
               mortgageData={mortgageData}
+            />;
+
+          case 'loan-analysis':
+            return <LoanAnalysis
+              defaultValues={formData.mortgage || {}}
+              onComplete={handleLoanAnalysisSubmit}
+              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'payment' }))}
             />;
             
           default:
