@@ -144,28 +144,28 @@ export default function Review() {
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <div className="space-y-2">
-                    <Label>Who helped you? (Select all that apply)</Label>
+                    <Label>Who did you work with?</Label>
                     <div className="grid grid-cols-2 gap-4 pt-2">
                       <div className="flex items-center space-x-2">
                         <input 
                           type="checkbox" 
-                          id="christian" 
+                          id="christian-agent" 
                           className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                           checked={selectedAgents.christian}
                           onChange={(e) => setSelectedAgents({...selectedAgents, christian: e.target.checked})}
                         />
-                        <Label htmlFor="christian" className="font-normal">Christian</Label>
+                        <Label htmlFor="christian-agent" className="font-normal">Christian</Label>
                       </div>
                       
                       <div className="flex items-center space-x-2">
                         <input 
                           type="checkbox" 
-                          id="omar" 
+                          id="omar-agent" 
                           className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                           checked={selectedAgents.omar}
                           onChange={(e) => setSelectedAgents({...selectedAgents, omar: e.target.checked})}
                         />
-                        <Label htmlFor="omar" className="font-normal">Omar</Label>
+                        <Label htmlFor="omar-agent" className="font-normal">Omar</Label>
                       </div>
                     </div>
                   </div>
