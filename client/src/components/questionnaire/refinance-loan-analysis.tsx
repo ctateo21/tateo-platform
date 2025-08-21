@@ -17,13 +17,15 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
   const [additionalCashOut, setAdditionalCashOut] = useState('');
   
   // Refinance loan details using data from previous steps
+  const homeValue = defaultValues.homeValue || defaultValues.propertyValue || 350000; // From address lookup
   const currentLoanBalance = defaultValues.originalLoanBalance || 250000;
   const debtsToBePaidOff = defaultValues.totalDebtPayoff || 0;
   const additionalCashOutAmount = parseFloat(additionalCashOut.replace(/[$,]/g, '') || '0');
   const estimatedClosingCosts = defaultValues.closingCosts || 8000;
   
-  // Calculate new loan amount
+  // Calculate new loan amount and LTV
   const newLoanAmount = currentLoanBalance + debtsToBePaidOff + additionalCashOutAmount + estimatedClosingCosts;
+  const ltvRatio = (newLoanAmount / homeValue) * 100;
   
   const interestRate = 6.25; // Slightly lower rate for refinance
   const apr = 6.41;
@@ -70,6 +72,7 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
 
   const handleComplete = () => {
     const analysisData = {
+      homeValue,
       currentLoanBalance,
       newLoanAmount,
       debtsToBePaidOff,
@@ -77,6 +80,7 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
       estimatedClosingCosts,
       interestRate,
       apr,
+      ltvRatio,
       monthlyPayment: {
         principalAndInterest,
         propertyTaxes,
@@ -137,6 +141,11 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
               <CardContent className="p-6">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between py-2">
+                    <span className="font-medium text-gray-700">Home Value</span>
+                    <span className="font-semibold text-gray-900">${homeValue.toLocaleString()}</span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between py-2">
                     <span className="font-medium text-gray-700">Current Loan Balance</span>
                     <span className="font-semibold text-gray-900">${currentLoanBalance.toLocaleString()}</span>
                   </div>
@@ -179,6 +188,16 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
                     <div className="text-center">
                       <div className="text-sm text-gray-600">APR</div>
                       <Badge variant="outline" className="text-lg font-semibold">{apr}%</Badge>
+                    </div>
+                  </div>
+                  
+                  <div className="text-center mt-4">
+                    <div className="text-sm text-gray-600 mb-2">Loan-to-Value (LTV)</div>
+                    <Badge variant="outline" className={`text-xl font-bold px-4 py-2 ${ltvRatio <= 80 ? 'text-green-600 border-green-300' : ltvRatio <= 90 ? 'text-yellow-600 border-yellow-300' : 'text-red-600 border-red-300'}`}>
+                      {ltvRatio.toFixed(1)}%
+                    </Badge>
+                    <div className="text-xs text-gray-500 mt-1">
+                      ${newLoanAmount.toLocaleString()} ÷ ${homeValue.toLocaleString()}
                     </div>
                   </div>
                 </div>
