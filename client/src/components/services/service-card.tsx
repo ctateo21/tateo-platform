@@ -27,60 +27,90 @@ export default function ServiceCard({ service }: ServiceCardProps) {
     }
   };
 
-  // Service-specific detailed information
+  // Service-specific detailed information with service options integrated
   const serviceDetails = {
     'real-estate': {
       description: "Expert guidance on buying, selling, and investing in properties across the market.",
+      options: ["Buy", "Sell"], // From service.options
       benefits: [
         "Market analysis and property valuation",
         "Strategic marketing for sellers", 
         "Property search and negotiation for buyers",
-        "Investment property consultation"
+        "Investment property consultation",
+        "Comprehensive buyer representation",
+        "Professional seller services",
+        "Investment property analysis",
+        "Market trend insights"
       ]
     },
     'mortgage': {
       description: "Competitive rates and flexible terms for all your home financing needs.",
+      options: ["Purchase", "Refinance"], // From service.options
       benefits: [
         "Personalized loan options",
         "Refinancing opportunities", 
         "First-time homebuyer programs",
-        "Cash-out refinance solutions"
+        "Cash-out refinance solutions",
+        "Conventional and government loans",
+        "Jumbo loan specialists",
+        "Rate and term refinancing",
+        "Home equity solutions"
       ]
     },
     'insurance': {
       description: "Comprehensive coverage to protect your valuable assets and investments.",
+      options: ["Auto", "Property", "Flood", "Commercial"], // From service.options
       benefits: [
         "Homeowners insurance",
-        "Auto insurance",
-        "Umbrella policies", 
-        "Life and disability coverage"
+        "Auto insurance coverage",
+        "Flood insurance protection",
+        "Commercial property coverage",
+        "Umbrella liability policies", 
+        "Life and disability coverage",
+        "Multi-policy discounts",
+        "Claims assistance and support"
       ]
     },
     'construction': {
       description: "Quality construction and renovation services for residential and commercial properties.",
+      options: ["Build", "Rehab"], // From service.options
       benefits: [
         "Custom home building",
+        "Property rehabilitation",
         "Renovation and remodeling",
-        "Project management",
-        "Construction consulting"
+        "Project management services",
+        "Construction consulting",
+        "Permit assistance",
+        "Quality craftsmanship",
+        "Timeline and budget management"
       ]
     },
     'property-management': {
       description: "Professional management services for rental properties and investment portfolios.",
+      options: ["Manage", "Rentals"], // From service.options
       benefits: [
+        "Full-service property management",
+        "Rental property services",
         "Tenant screening and placement",
         "Rent collection and accounting",
         "Maintenance coordination",
-        "Regular property inspections"
+        "Regular property inspections",
+        "Financial reporting",
+        "Legal compliance assistance"
       ]
     },
     'home-services': {
       description: "Reliable home services to keep your property in top condition year-round.",
+      options: ["Maintenance", "Cleaning", "Landscaping", "Other"], // From service.options
       benefits: [
-        "Home maintenance",
-        "Cleaning services",
+        "Regular home maintenance",
+        "Professional cleaning services",
         "Landscaping and lawn care", 
-        "HVAC and plumbing services"
+        "HVAC and plumbing services",
+        "Electrical and handyman work",
+        "Seasonal maintenance programs",
+        "Emergency repair services",
+        "Preventive maintenance planning"
       ]
     }
   };
@@ -120,13 +150,9 @@ export default function ServiceCard({ service }: ServiceCardProps) {
           </div>
         </div>
         <div className="py-4 px-5 bg-white">
-          <div className="flex flex-wrap gap-2 justify-center items-center">
-            {service.options.map((option, index) => (
-              <span key={index} className="text-base bg-gray-200 text-gray-800 px-4 py-2 rounded-full font-medium text-center hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer">
-                {option}
-              </span>
-            ))}
-          </div>
+          <p className="text-center text-gray-600 text-sm">
+            Click to select this service for your questionnaire
+          </p>
         </div>
       </div>
       
@@ -146,14 +172,31 @@ export default function ServiceCard({ service }: ServiceCardProps) {
         <CollapsibleContent className="mt-4">
           <div className="bg-gray-50 rounded-lg p-6 border border-gray-100">
             <p className="text-gray-600 mb-4">{details?.description}</p>
-            <ul className="space-y-2">
-              {details?.benefits.map((benefit, i) => (
-                <li key={i} className="flex items-start">
-                  <Check className="h-5 w-5 text-secondary shrink-0 mr-2 mt-0.5" />
-                  <span className="text-gray-700">{benefit}</span>
-                </li>
-              ))}
-            </ul>
+            
+            {/* Service Options */}
+            <div className="mb-4">
+              <h4 className="font-semibold text-primary mb-2">Our {service.displayName} Services:</h4>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {details?.options.map((option, i) => (
+                  <span key={i} className="text-sm bg-primary/10 text-primary px-3 py-1 rounded-full font-medium">
+                    {option}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Benefits */}
+            <div>
+              <h4 className="font-semibold text-primary mb-2">What We Offer:</h4>
+              <ul className="space-y-2">
+                {details?.benefits.map((benefit, i) => (
+                  <li key={i} className="flex items-start">
+                    <Check className="h-5 w-5 text-secondary shrink-0 mr-2 mt-0.5" />
+                    <span className="text-gray-700">{benefit}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         </CollapsibleContent>
       </Collapsible>
