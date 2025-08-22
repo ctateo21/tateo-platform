@@ -104,9 +104,9 @@ export default function Review() {
         </div>
       </div>
       
-      <section className="py-16">
-        <div className="container mx-auto px-4">
-          <div className="grid lg:grid-cols-2 gap-12">
+      <section className="py-8 md:py-16">
+        <div className="container mx-auto px-2 sm:px-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12">
             <div>
               <h2 className="text-3xl font-bold text-primary mb-6">Leave Your Review</h2>
               <p className="text-gray-600 mb-8">
@@ -132,112 +132,112 @@ export default function Review() {
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-6">
                   {/* Agent Selection */}
-                  <div className="space-y-2 border-2 border-primary/20 rounded-lg p-4 bg-primary/5">
-                    <Label className="text-lg font-semibold text-primary">Who did you work with?</Label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                      <div className="flex items-center space-x-3">
+                  <div className="space-y-2 border-2 border-primary/20 rounded-lg p-3 sm:p-4 bg-primary/5">
+                    <Label className="text-base sm:text-lg font-semibold text-primary">Who did you work with?</Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4 pt-2">
+                      <div className="flex items-center space-x-2 sm:space-x-3">
                         <input 
                           type="checkbox" 
                           id="christian-agent" 
-                          className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
+                          className="h-4 w-4 sm:h-5 sm:w-5 rounded border-gray-300 text-primary focus:ring-primary"
                           checked={selectedAgents.christian}
                           onChange={(e) => setSelectedAgents({...selectedAgents, christian: e.target.checked})}
                         />
-                        <Label htmlFor="christian-agent" className="font-medium">Christian</Label>
+                        <Label htmlFor="christian-agent" className="font-medium text-sm sm:text-base">Christian</Label>
                       </div>
                       
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-2 sm:space-x-3">
                         <input 
                           type="checkbox" 
                           id="omar-agent" 
-                          className="h-5 w-5 rounded border-gray-300 text-primary focus:ring-primary"
+                          className="h-4 w-4 sm:h-5 sm:w-5 rounded border-gray-300 text-primary focus:ring-primary"
                           checked={selectedAgents.omar}
                           onChange={(e) => setSelectedAgents({...selectedAgents, omar: e.target.checked})}
                         />
-                        <Label htmlFor="omar-agent" className="font-medium">Omar</Label>
+                        <Label htmlFor="omar-agent" className="font-medium text-sm sm:text-base">Omar</Label>
                       </div>
                     </div>
                   </div>
                   
                   <div className="space-y-2">
-                    <Label>Which services did you use? (Select all that apply)</Label>
+                    <Label className="text-sm sm:text-base">Which services did you use? (Select all that apply)</Label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                       <div className="flex items-center space-x-2">
                         <input 
                           type="checkbox" 
                           id="realtor" 
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary flex-shrink-0"
                           checked={selectedServices.realtor}
                           onChange={(e) => setSelectedServices({...selectedServices, realtor: e.target.checked})}
                         />
-                        <Label htmlFor="realtor" className="font-normal">Realtor</Label>
+                        <Label htmlFor="realtor" className="font-normal text-sm sm:text-base">Realtor</Label>
                       </div>
                       
                       <div className="flex items-center space-x-2">
                         <input 
                           type="checkbox" 
                           id="mortgage" 
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary flex-shrink-0"
                           checked={selectedServices.mortgage}
                           onChange={(e) => setSelectedServices({...selectedServices, mortgage: e.target.checked})}
                         />
-                        <Label htmlFor="mortgage" className="font-normal">Mortgage</Label>
+                        <Label htmlFor="mortgage" className="font-normal text-sm sm:text-base">Mortgage</Label>
                       </div>
                       
                       <div className="flex items-center space-x-2">
                         <input 
                           type="checkbox" 
                           id="insurance" 
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary flex-shrink-0"
                           checked={selectedServices.insurance}
                           onChange={(e) => setSelectedServices({...selectedServices, insurance: e.target.checked})}
                         />
-                        <Label htmlFor="insurance" className="font-normal">Insurance</Label>
+                        <Label htmlFor="insurance" className="font-normal text-sm sm:text-base">Insurance</Label>
                       </div>
                       
                       <div className="flex items-center space-x-2">
                         <input 
                           type="checkbox" 
                           id="propertyManagement" 
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary flex-shrink-0"
                           checked={selectedServices.propertyManagement}
                           onChange={(e) => setSelectedServices({...selectedServices, propertyManagement: e.target.checked})}
                         />
-                        <Label htmlFor="propertyManagement" className="font-normal">Property Management</Label>
+                        <Label htmlFor="propertyManagement" className="font-normal text-sm sm:text-base">Property Management</Label>
                       </div>
                       
                       <div className="flex items-center space-x-2">
                         <input 
                           type="checkbox" 
                           id="construction" 
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary flex-shrink-0"
                           checked={selectedServices.construction}
                           onChange={(e) => setSelectedServices({...selectedServices, construction: e.target.checked})}
                         />
-                        <Label htmlFor="construction" className="font-normal">Construction</Label>
+                        <Label htmlFor="construction" className="font-normal text-sm sm:text-base">Construction</Label>
                       </div>
                       
                       <div className="flex items-center space-x-2">
                         <input 
                           type="checkbox" 
                           id="homeServices" 
-                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary flex-shrink-0"
                           checked={selectedServices.homeServices}
                           onChange={(e) => setSelectedServices({...selectedServices, homeServices: e.target.checked})}
                         />
-                        <Label htmlFor="homeServices" className="font-normal">Home Services</Label>
+                        <Label htmlFor="homeServices" className="font-normal text-sm sm:text-base">Home Services</Label>
                       </div>
                     </div>
                     
                     {hasSelectedService && (
                       <div className="mt-4 text-left">
-                        <p className="font-bold mb-2">Please leave your review on EACH site below:</p>
-                        <div className="flex flex-col space-y-2 text-left">
+                        <p className="font-bold mb-2 text-sm sm:text-base">Please leave your review on EACH site below:</p>
+                        <div className="flex flex-col space-y-2 text-left break-words overflow-hidden">
                           <a 
                             href="https://www.google.com/maps/place//data=!4m3!3m2!1s0x8203cd622a64e825:0xf771e45c35347782!12e1?source=g.page.m.kd._&laa=lu-desktop-review-solicitation" 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="text-primary hover:text-primary/80 underline font-medium"
+                            className="text-primary hover:text-primary/80 underline font-medium text-sm sm:text-base break-all"
                           >
                             Google My Business
                           </a>
