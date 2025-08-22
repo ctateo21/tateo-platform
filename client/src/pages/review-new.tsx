@@ -134,7 +134,7 @@ export default function Review() {
                   {/* Agent Selection */}
                   <div className="space-y-2 border-2 border-primary/20 rounded-lg p-4 bg-primary/5">
                     <Label className="text-lg font-semibold text-primary">Who did you work with?</Label>
-                    <div className="grid grid-cols-2 gap-4 pt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                       <div className="flex items-center space-x-3">
                         <input 
                           type="checkbox" 
@@ -161,7 +161,7 @@ export default function Review() {
                   
                   <div className="space-y-2">
                     <Label>Which services did you use? (Select all that apply)</Label>
-                    <div className="grid grid-cols-2 gap-2 pt-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                       <div className="flex items-center space-x-2">
                         <input 
                           type="checkbox" 
