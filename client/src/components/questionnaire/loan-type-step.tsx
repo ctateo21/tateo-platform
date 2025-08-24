@@ -41,16 +41,9 @@ const loanTypes = [
     color: "orange"
   },
   { 
-    value: "5-plus-units", 
-    label: "5+ Units", 
-    description: "Multi-family investment property loan",
-    icon: Users,
-    color: "indigo"
-  },
-  { 
     value: "non-qm", 
     label: "Non-QM", 
-    description: "Non-qualified mortgage for unique situations",
+    description: "Non-qualified mortgage including 5+ units & unique situations",
     icon: FileText,
     color: "rose"
   }

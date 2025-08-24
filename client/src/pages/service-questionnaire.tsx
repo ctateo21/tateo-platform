@@ -320,7 +320,7 @@ export default function ServiceQuestionnaire() {
           let prevStep: string;
           if (mortgageFlowState.type === 'refinance') {
             prevStep = 'loan-type'; // For refinance, always go back to loan-type
-          } else if (mortgageFlowState.loanType === 'jumbo' || mortgageFlowState.loanType === '5-plus-units') {
+          } else if (mortgageFlowState.loanType === 'jumbo') {
             prevStep = 'loan-type';
           } else if (mortgageFlowState.loanType === 'non-qm') {
             prevStep = 'non-qm';
@@ -1241,7 +1241,7 @@ export default function ServiceQuestionnaire() {
             
           case 'lender-price':
             const getPreviousStepFromLenderPrice = () => {
-              if (mortgageFlowState.loanType === 'jumbo' || mortgageFlowState.loanType === '5-plus-units') {
+              if (mortgageFlowState.loanType === 'jumbo') {
                 return 'loan-type';
               } else if (mortgageFlowState.loanType === 'non-qm') {
                 return 'non-qm';
