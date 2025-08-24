@@ -168,31 +168,31 @@ export function PropertyTaxesInsurance({
             <div>
               <p className="text-sm text-gray-600">Estimated Annual Tax</p>
               <p className="text-2xl font-bold text-green-600">
-                ${propertyTaxData.estimatedAnnualTax.toLocaleString()}
+                ${propertyTaxData?.estimatedAnnualTax?.toLocaleString() || '0'}
               </p>
               <p className="text-sm text-gray-500">
-                ${(propertyTaxData.estimatedAnnualTax / 12).toFixed(0)}/month
+                ${((propertyTaxData?.estimatedAnnualTax || 0) / 12).toFixed(0)}/month
               </p>
             </div>
             <div>
               <p className="text-sm text-gray-600">Tax Rate</p>
-              <p className="text-lg font-semibold">{propertyTaxData.taxRate}%</p>
-              <p className="text-sm text-gray-500">{propertyTaxData.county}</p>
+              <p className="text-lg font-semibold">{propertyTaxData?.taxRate || 0}%</p>
+              <p className="text-sm text-gray-500">{propertyTaxData?.county || 'Unknown'}</p>
             </div>
           </div>
 
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-gray-600">Ad Valorem Taxes</p>
-              <p className="font-medium">${propertyTaxData.adValoremTax.toLocaleString()}</p>
+              <p className="font-medium">${propertyTaxData?.adValoremTax?.toLocaleString() || '0'}</p>
             </div>
             <div>
               <p className="text-gray-600">Non-Ad Valorem Taxes</p>
-              <p className="font-medium">${propertyTaxData.nonAdValoremTax.toLocaleString()}</p>
+              <p className="font-medium">${propertyTaxData?.nonAdValoremTax?.toLocaleString() || '0'}</p>
             </div>
           </div>
 
-          {propertyTaxData.eligibleForVAExemption && (
+          {propertyTaxData?.eligibleForVAExemption && (
             <div className="mt-4 bg-green-50 border border-green-200 p-3 rounded-lg">
               <div className="flex items-start space-x-2">
                 <Info className="h-5 w-5 text-green-600 mt-0.5" />
@@ -203,7 +203,7 @@ export function PropertyTaxesInsurance({
                     to have Ad Valorem taxes removed. Non-Ad Valorem taxes would still apply.
                   </p>
                   <p className="text-sm font-medium text-green-800 mt-1">
-                    Potential savings: ${propertyTaxData.adValoremTax.toLocaleString()}/year
+                    Potential savings: ${propertyTaxData?.adValoremTax?.toLocaleString() || '0'}/year
                   </p>
                 </div>
               </div>
@@ -223,22 +223,22 @@ export function PropertyTaxesInsurance({
             <div>
               <p className="text-sm text-gray-600">Annual Premium</p>
               <p className="text-xl font-bold text-blue-600">
-                ${insuranceQuote.annualPremium.toLocaleString()}
+                ${insuranceQuote?.annualPremium?.toLocaleString() || '0'}
               </p>
             </div>
             <div>
               <p className="text-sm text-gray-600">Monthly Premium</p>
               <p className="text-xl font-bold text-blue-600">
-                ${insuranceQuote.monthlyPremium}
+                ${insuranceQuote?.monthlyPremium || '0'}
               </p>
             </div>
             <div>
               <p className="text-sm text-gray-600">Coverage Amount</p>
               <p className="text-lg font-semibold">
-                ${insuranceQuote.coverage.toLocaleString()}
+                ${insuranceQuote?.coverage?.toLocaleString() || '0'}
               </p>
               <p className="text-xs text-gray-500">
-                ${insuranceQuote.deductible.toLocaleString()} deductible
+                ${insuranceQuote?.deductible?.toLocaleString() || '0'} deductible
               </p>
             </div>
           </div>
@@ -255,25 +255,25 @@ export function PropertyTaxesInsurance({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <p className="text-sm text-gray-600">Flood Zone</p>
-              <p className="text-lg font-semibold">{floodData.zone}</p>
+              <p className="text-lg font-semibold">{floodData?.zone || 'X'}</p>
               <p className="text-sm text-gray-500">
-                {floodData.required ? 'Flood insurance required' : 'Flood insurance optional'}
+                {floodData?.required ? 'Flood insurance required' : 'Flood insurance optional'}
               </p>
             </div>
-            {floodData.required && (
+            {floodData?.required && (
               <div>
                 <p className="text-sm text-gray-600">Estimated Premium</p>
                 <p className="text-xl font-bold text-orange-600">
-                  ${floodData.annualPremium}/year
+                  ${floodData?.annualPremium || '0'}/year
                 </p>
                 <p className="text-sm text-gray-500">
-                  ${floodData.monthlyPremium}/month
+                  ${floodData?.monthlyPremium || '0'}/month
                 </p>
               </div>
             )}
           </div>
 
-          {floodData.required && (
+          {floodData?.required && (
             <div className="mt-3 bg-orange-50 border border-orange-200 p-3 rounded-lg">
               <div className="flex items-start space-x-2">
                 <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5" />
@@ -294,16 +294,16 @@ export function PropertyTaxesInsurance({
           <div className="space-y-2">
             <div className="flex justify-between">
               <span>Property Taxes</span>
-              <span>${(propertyTaxData.estimatedAnnualTax / 12).toFixed(0)}</span>
+              <span>${((propertyTaxData?.estimatedAnnualTax || 0) / 12).toFixed(0)}</span>
             </div>
             <div className="flex justify-between">
               <span>Homeowners Insurance</span>
-              <span>${insuranceQuote.monthlyPremium}</span>
+              <span>${insuranceQuote?.monthlyPremium || '0'}</span>
             </div>
-            {floodData.required && (
+            {floodData?.required && (
               <div className="flex justify-between">
                 <span>Flood Insurance</span>
-                <span>${floodData.monthlyPremium}</span>
+                <span>${floodData?.monthlyPremium || '0'}</span>
               </div>
             )}
             <div className="border-t pt-2 flex justify-between font-semibold text-lg">
