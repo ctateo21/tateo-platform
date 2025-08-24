@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ArrowLeft, Home, User } from "lucide-react";
+import { ReviewsSection } from "./reviews-section";
 
 interface HomeOwnershipHistoryStepProps {
   onSubmit: (data: { homeOwnershipHistory: 'yes' | 'no' }) => void;
@@ -98,6 +99,8 @@ export function HomeOwnershipHistoryStep({ onSubmit, onBack, defaultValues }: Ho
             Continue
           </Button>
         </div>
+
+        <ReviewsSection />
       </CardContent>
     </Card>
   );

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ArrowLeft, Building2, Home, Shield, Leaf, Banknote, Users, FileText } from "lucide-react";
+import { ReviewsSection } from "./reviews-section";
 
 const loanTypes = [
   { 
@@ -179,6 +180,8 @@ export function LoanTypeStep({ onSubmit, onBack, defaultValues }: LoanTypeStepPr
             Continue <ArrowLeft className="ml-2 h-4 w-4 rotate-180" />
           </Button>
         </div>
+
+        <ReviewsSection />
       </CardContent>
     </Card>
   );

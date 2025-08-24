@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Form } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ReviewsSection } from "./reviews-section";
 
 interface QuestionnaireFormProps<T extends z.ZodType> {
   schema: T;
@@ -73,6 +74,8 @@ export default function QuestionnaireForm<T extends z.ZodType>({
             {submitText} {!isSubmitting && <ArrowRight className="ml-2 h-4 w-4" />}
           </Button>
         </div>
+
+        <ReviewsSection />
       </form>
     </Form>
   );

@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ArrowLeft, CreditCard, Info } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ReviewsSection } from "./reviews-section";
 
 const creditScoreRanges = [
   { value: "780+", label: "780+", description: "Excellent credit" },
@@ -151,6 +152,8 @@ export function CreditScoreStep({ onSubmit, onBack, defaultValues }: CreditScore
             Continue <ArrowLeft className="ml-2 h-4 w-4 rotate-180" />
           </Button>
         </div>
+
+        <ReviewsSection />
       </CardContent>
     </Card>
   );
