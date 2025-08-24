@@ -47,9 +47,6 @@ export function RefinanceTypeStep({ onSubmit, onBack }: RefinanceTypeStepProps) 
 
   return (
     <div className="max-w-4xl mx-auto p-6 space-y-6">
-      {/* Reviews Section */}
-      <ReviewsSection />
-      
       <div className="text-center mb-8">
         <h2 className="text-2xl md:text-3xl font-bold text-primary mb-2">
           Refinance Type
@@ -115,6 +112,9 @@ export function RefinanceTypeStep({ onSubmit, onBack }: RefinanceTypeStepProps) 
           Continue
         </Button>
       </div>
+
+      {/* Reviews Section */}
+      <ReviewsSection />
     </div>
   );
 }

@@ -96,9 +96,6 @@ export function RefinancePropertyTaxesInsurance({
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
-          {/* Reviews Section */}
-          <ReviewsSection />
-          
           <div className="mb-6">
             <Button
               variant="ghost"
@@ -358,6 +355,9 @@ export function RefinancePropertyTaxesInsurance({
               View Refinance Analysis
             </Button>
           </div>
+
+          {/* Reviews Section */}
+          <ReviewsSection />
         </div>
       </div>
     </div>
