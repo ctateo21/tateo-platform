@@ -6,6 +6,7 @@ import { Loader2, ExternalLink, DollarSign } from "lucide-react";
 import QuestionnaireForm from "./questionnaire-form";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { ReviewsSection } from "./reviews-section";
 
 const lenderPriceSchema = z.object({
   selectedRate: z.string().optional(),
@@ -132,6 +133,9 @@ export default function LenderPriceStep({
     >
       {(form) => (
         <div className="space-y-6">
+          {/* Reviews Section */}
+          <ReviewsSection />
+          
           <Card>
             <CardHeader className="text-center">
               <DollarSign className="h-12 w-12 mx-auto text-green-600" />

@@ -5,6 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ArrowLeft, CreditCard, Landmark, Shield, CheckCircle, DollarSign } from 'lucide-react';
+import { ReviewsSection } from './reviews-section';
 
 interface RefinancePlaidIntegrationProps {
   onComplete: (data: any) => void;
@@ -82,6 +83,9 @@ export function RefinancePlaidIntegration({
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
         <div className="container mx-auto px-4 py-8">
           <div className="max-w-2xl mx-auto">
+            {/* Reviews Section */}
+            <ReviewsSection />
+            
             <div className="mb-6">
               <Button
                 variant="ghost"
@@ -168,6 +172,9 @@ export function RefinancePlaidIntegration({
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
+          {/* Reviews Section */}
+          <ReviewsSection />
+          
           <div className="mb-6">
             <Button
               variant="ghost"

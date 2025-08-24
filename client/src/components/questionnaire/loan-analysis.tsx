@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CheckCircle, DollarSign, Home, Calculator, FileText } from "lucide-react";
+import { ReviewsSection } from "./reviews-section";
 
 interface LoanAnalysisProps {
   defaultValues: any;
@@ -101,6 +102,9 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
 
   return (
     <div className="space-y-6">
+      {/* Reviews Section */}
+      <ReviewsSection />
+      
       <div className="text-center">
         <div className="flex items-center justify-center mb-4">
           <div className="bg-blue-100 p-3 rounded-full">

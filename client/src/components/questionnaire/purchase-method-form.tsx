@@ -3,6 +3,7 @@ import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/comp
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import QuestionnaireForm from "./questionnaire-form";
 import { Card, CardContent } from "@/components/ui/card";
+import { ReviewsSection } from "./reviews-section";
 
 // Define a schema for the purchase method question
 const purchaseMethodSchema = z.object({
@@ -26,6 +27,9 @@ export default function PurchaseMethodForm({ onSubmit, onBack }: PurchaseMethodF
       onSubmit={onSubmit}
       onBack={onBack}
     >
+      {/* Reviews Section */}
+      <ReviewsSection />
+      
       <div className="text-center mb-8">
         <h3 className="text-2xl font-semibold mb-4 text-primary">Purchase Method</h3>
         <p className="text-muted-foreground">How are you planning to pay for the property?</p>

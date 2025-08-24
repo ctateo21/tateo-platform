@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ArrowLeft, Home, DollarSign, Calculator, CheckCircle, AlertTriangle, AlertCircle } from 'lucide-react';
+import { ReviewsSection } from './reviews-section';
 
 interface RefinanceLoanAnalysisProps {
   defaultValues: any;
@@ -138,6 +139,9 @@ export function RefinanceLoanAnalysis({ defaultValues, onComplete, onBack }: Ref
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
+          {/* Reviews Section */}
+          <ReviewsSection />
+          
           <div className="mb-6">
             <Button
               variant="ghost"

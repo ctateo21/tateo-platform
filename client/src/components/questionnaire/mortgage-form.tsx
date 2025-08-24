@@ -12,6 +12,7 @@ import QuestionnaireForm from "./questionnaire-form";
 import AddressInput from "./address-input";
 import CurrencyInput from "./currency-input";
 import { getZestimate, getZipCodeAverage, formatPrice } from "@/lib/zillow";
+import { ReviewsSection } from "./reviews-section";
 
 interface MortgageFormProps {
   onSubmit: (data: z.infer<typeof mortgageFormSchema>) => void;
@@ -123,6 +124,9 @@ export default function MortgageForm({ onSubmit, onBack, defaultValues: savedVal
       <p className="text-muted-foreground mb-6">Tell us about your mortgage needs</p>
       
       <div className="space-y-6">
+        {/* Reviews Section */}
+        <ReviewsSection />
+        
         {/* Mortgage Type - First Question */}
         <FormField
           name="type"
