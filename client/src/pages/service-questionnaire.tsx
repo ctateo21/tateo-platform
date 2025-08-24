@@ -1300,11 +1300,11 @@ export default function ServiceQuestionnaire() {
               />;
             } else {
               return <PropertyTaxesInsurance
-                propertyAddress={mortgageFlowState.propertyAddress}
-                propertyZipCode={mortgageFlowState.propertyZipCode}
-                salePrice={mortgageFlowState.purchasePrice ? parseFloat(mortgageFlowState.purchasePrice.replace(/[$,]/g, '')) : 400000}
-                isVADisabled={mortgageFlowState.isVADisabled || false}
-                isPrimaryResidence={mortgageFlowState.ownershipType === 'primary'}
+                propertyAddress={formData.mortgage?.propertyAddress}
+                propertyZipCode={formData.mortgage?.zipCode}
+                salePrice={formData.mortgage?.purchasePrice ? parseFloat(formData.mortgage.purchasePrice.replace(/[$,]/g, '')) : 400000}
+                isVADisabled={formData.mortgage?.isVADisabled || false}
+                isPrimaryResidence={formData.mortgage?.ownershipType === 'primary'}
                 defaultValues={formData.mortgage || {}}
                 onComplete={handleTaxesInsuranceSubmit}
                 onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'plaid' }))}
