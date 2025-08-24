@@ -43,7 +43,7 @@ export function ReviewsSection() {
         {[...Array(5)].map((_, i) => (
           <Star
             key={i}
-            className={`h-4 w-4 ${i < rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+            className={`h-3 w-3 sm:h-4 sm:w-4 ${i < rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
           />
         ))}
       </div>
@@ -52,35 +52,35 @@ export function ReviewsSection() {
 
   return (
     <div className="mt-12 pt-8 border-t border-gray-200">
-      <div className="text-center mb-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-2">
+      <div className="text-center mb-4">
+        <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-1">
           Trusted by Our Clients
         </h3>
-        <p className="text-sm text-gray-600">
+        <p className="text-xs sm:text-sm text-gray-600">
           See what our clients are saying across all platforms
         </p>
       </div>
       
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-4 gap-2 sm:gap-4">
         {reviews.map((review, index) => (
           <Card key={index} className="hover:shadow-md transition-shadow">
-            <CardContent className="p-4 text-center">
+            <CardContent className="p-2 sm:p-4 text-center">
               <a
                 href={review.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block group"
               >
-                <div className="flex items-center justify-center mb-2">
-                  <span className="text-2xl mr-2">{review.logo}</span>
-                  <ExternalLink className="h-3 w-3 text-gray-400 group-hover:text-gray-600" />
+                <div className="flex items-center justify-center mb-1 sm:mb-2">
+                  <span className="text-lg sm:text-2xl mr-1 sm:mr-2">{review.logo}</span>
+                  <ExternalLink className="h-2 w-2 sm:h-3 sm:w-3 text-gray-400 group-hover:text-gray-600" />
                 </div>
-                <h4 className="font-semibold text-sm text-gray-900 mb-2">
+                <h4 className="font-semibold text-xs sm:text-sm text-gray-900 mb-1 sm:mb-2 leading-tight">
                   {review.platform}
                 </h4>
-                <div className="flex items-center justify-center mb-2">
+                <div className="flex items-center justify-center mb-1 sm:mb-2">
                   {renderStars(review.rating)}
-                  <span className="ml-2 text-sm font-medium text-gray-900">
+                  <span className="ml-1 sm:ml-2 text-xs sm:text-sm font-medium text-gray-900">
                     {review.rating}.0
                   </span>
                 </div>
@@ -93,7 +93,7 @@ export function ReviewsSection() {
         ))}
       </div>
       
-      <div className="text-center mt-4">
+      <div className="text-center mt-2 sm:mt-4">
         <p className="text-xs text-gray-500">
           "Powered by" indicates this is a verification badge
         </p>
