@@ -466,6 +466,7 @@ export default function ServiceQuestionnaire() {
     escrow?: 'yes' | 'no';
     propertyAddress?: string;
     propertyZipCode?: string;
+    purchasePrice?: string;
     isVADisabled?: boolean;
   }>({
     step: 'type',
@@ -1006,6 +1007,7 @@ export default function ServiceQuestionnaire() {
       step: 'taxes-insurance',
       propertyAddress: formData.mortgage?.propertyAddress,
       propertyZipCode: formData.mortgage?.zipCode,
+      purchasePrice: formData.mortgage?.purchasePrice || formData.mortgage?.propertyValue,
       isVADisabled: formData.mortgage?.isVADisabled
     }));
   };
@@ -1290,6 +1292,7 @@ export default function ServiceQuestionnaire() {
               return <RefinancePropertyTaxesInsurance
                 propertyAddress={formData.mortgage?.propertyAddress}
                 propertyZipCode={formData.mortgage?.zipCode}
+                salePrice={formData.mortgage?.purchasePrice ? parseFloat(formData.mortgage.purchasePrice.replace(/[$,]/g, '')) : formData.mortgage?.propertyValue ? parseFloat(formData.mortgage.propertyValue.replace(/[$,]/g, '')) : 400000}
                 isVADisabled={formData.mortgage?.isVADisabled || false}
                 defaultValues={formData.mortgage || {}}
                 onComplete={handleTaxesInsuranceSubmit}
@@ -1299,6 +1302,7 @@ export default function ServiceQuestionnaire() {
               return <PropertyTaxesInsurance
                 propertyAddress={mortgageFlowState.propertyAddress}
                 propertyZipCode={mortgageFlowState.propertyZipCode}
+                salePrice={mortgageFlowState.purchasePrice ? parseFloat(mortgageFlowState.purchasePrice.replace(/[$,]/g, '')) : 400000}
                 isVADisabled={mortgageFlowState.isVADisabled || false}
                 isPrimaryResidence={mortgageFlowState.ownershipType === 'primary'}
                 defaultValues={formData.mortgage || {}}

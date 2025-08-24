@@ -3,12 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ArrowLeft, Home, Shield, Waves, AlertTriangle, Info } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { getPropertyTaxEstimate } from "@/lib/county-tax-estimator";
 
 interface PropertyTaxesInsuranceProps {
   onComplete: (data: any) => void;
   onBack: () => void;
   propertyAddress?: string;
   propertyZipCode?: string;
+  salePrice?: number;
   isVADisabled?: boolean;
   isPrimaryResidence?: boolean;
   defaultValues?: any;
@@ -19,6 +21,7 @@ export function PropertyTaxesInsurance({
   onBack, 
   propertyAddress,
   propertyZipCode,
+  salePrice = 400000,
   isVADisabled = false,
   isPrimaryResidence = false,
   defaultValues 
@@ -29,23 +32,41 @@ export function PropertyTaxesInsurance({
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate API calls to get property tax, insurance, and flood data
+    // Fetch real property tax, insurance, and flood data
     const fetchData = async () => {
       setLoading(true);
       
-      // Simulate delay for API calls
-      setTimeout(() => {
-        // Mock property tax data
-        setPropertyTaxData({
-          estimatedAnnualTax: 4850,
-          taxRate: 1.2,
-          county: "Hillsborough County",
-          adValoremTax: 3420,
-          nonAdValoremTax: 1430,
-          eligibleForVAExemption: isVADisabled && isPrimaryResidence
-        });
+      try {
+        // Get property tax estimate using real county data
+        if (propertyAddress && salePrice) {
+          const taxEstimate = await getPropertyTaxEstimate({
+            address: propertyAddress,
+            salePrice,
+            isPrimaryResidence,
+            isVADisabled
+          });
 
-        // Mock insurance quote
+          setPropertyTaxData({
+            estimatedAnnualTax: taxEstimate.estimatedAnnualTax,
+            taxRate: taxEstimate.taxRate,
+            county: taxEstimate.county,
+            adValoremTax: taxEstimate.adValoremTax,
+            nonAdValoremTax: taxEstimate.nonAdValoremTax,
+            eligibleForVAExemption: isVADisabled && isPrimaryResidence && taxEstimate.source === 'county_website'
+          });
+        } else {
+          // Fallback to estimated data if no address or sale price
+          setPropertyTaxData({
+            estimatedAnnualTax: 4850,
+            taxRate: 1.2,
+            county: "Estimated",
+            adValoremTax: 3420,
+            nonAdValoremTax: 1430,
+            eligibleForVAExemption: isVADisabled && isPrimaryResidence
+          });
+        }
+
+        // TODO: Replace with real insurance API calls
         setInsuranceQuote({
           annualPremium: 1650,
           monthlyPremium: 137.50,
@@ -54,20 +75,47 @@ export function PropertyTaxesInsurance({
           deductible: 2500
         });
 
-        // Mock flood data (check FEMA by address)
+        // TODO: Replace with real FEMA flood zone lookup
         setFloodData({
           required: Math.random() > 0.5, // 50% chance flood insurance is required
           zone: Math.random() > 0.5 ? "AE" : "X",
           annualPremium: 850,
           monthlyPremium: 70.83
         });
+        
+      } catch (error) {
+        console.error('Error fetching property data:', error);
+        // Fallback to estimated data on error
+        setPropertyTaxData({
+          estimatedAnnualTax: 4850,
+          taxRate: 1.2,
+          county: "Estimated",
+          adValoremTax: 3420,
+          nonAdValoremTax: 1430,
+          eligibleForVAExemption: isVADisabled && isPrimaryResidence
+        });
 
-        setLoading(false);
-      }, 2000);
+        setInsuranceQuote({
+          annualPremium: 1650,
+          monthlyPremium: 137.50,
+          provider: "QuoteRush",
+          coverage: 350000,
+          deductible: 2500
+        });
+
+        setFloodData({
+          required: false,
+          zone: "X",
+          annualPremium: 850,
+          monthlyPremium: 70.83
+        });
+      }
+      
+      setLoading(false);
     };
 
     fetchData();
-  }, [propertyAddress, propertyZipCode, isVADisabled, isPrimaryResidence]);
+  }, [propertyAddress, propertyZipCode, salePrice, isVADisabled, isPrimaryResidence]);
 
   const handleContinue = () => {
     onComplete({

@@ -15,6 +15,7 @@ interface RefinancePropertyTaxesInsuranceProps {
   defaultValues?: any;
   propertyAddress?: string;
   propertyZipCode?: string;
+  salePrice?: number;
   isVADisabled?: boolean;
 }
 
@@ -24,6 +25,7 @@ export function RefinancePropertyTaxesInsurance({
   defaultValues = {},
   propertyAddress,
   propertyZipCode,
+  salePrice = 400000,
   isVADisabled = false
 }: RefinancePropertyTaxesInsuranceProps) {
   const [currentTaxAmount, setCurrentTaxAmount] = useState(defaultValues.currentTaxAmount || '');

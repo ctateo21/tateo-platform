@@ -19,6 +19,7 @@ import { canopyConnectIntegration } from "./integrations/canopy-connect";
 import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowProperty } from "./integrations/zillow";
 import { getHillsboroughTaxEstimate, isHillsboroughCountyAddress } from "./integrations/hillsborough-tax";
 import { fetchGoogleReviews, getMockReviews } from "./integrations/google-reviews";
+import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API routes
