@@ -231,8 +231,7 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
                   onChange={(e) => {
                     const value = e.target.value.replace(/[$,]/g, '');
                     const numValue = parseInt(value) || 0;
-                    const minDownPaymentAmount = purchasePrice * (calculatedMinDownPayment / 100);
-                    setDownPayment(Math.max(numValue, minDownPaymentAmount));
+                    setDownPayment(numValue);
                   }}
                   className="w-40 text-right text-lg font-semibold border-2 focus:border-green-500"
                 />
