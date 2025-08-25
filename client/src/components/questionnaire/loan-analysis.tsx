@@ -75,8 +75,16 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   const maxClosingCostAssistance = getMaxClosingCostAssistance(selectedLoanType, purchasePrice);
   const [closingCostAssistanceAmount, setClosingCostAssistanceAmount] = useState([1]);
   
-  // Monthly payment components
-  const principalAndInterest = 2534;
+  // Monthly payment components - calculate dynamically
+  const calculateMonthlyPayment = (principal: number, annualRate: number, years: number = 30) => {
+    if (principal <= 0) return 0;
+    const monthlyRate = annualRate / 12;
+    const numberOfPayments = years * 12;
+    const monthlyPayment = principal * (monthlyRate * Math.pow(1 + monthlyRate, numberOfPayments)) / (Math.pow(1 + monthlyRate, numberOfPayments) - 1);
+    return Math.round(monthlyPayment);
+  };
+  
+  const principalAndInterest = calculateMonthlyPayment(loanAmount, interestRate / 100);
   const propertyTaxes = 417; // $5,000/year
   const homeownersInsurance = 167; // $2,000/year
   const floodInsurance = defaultValues.floodRequired ? 50 : 0;
