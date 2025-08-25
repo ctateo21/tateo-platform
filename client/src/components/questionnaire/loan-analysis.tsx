@@ -2,8 +2,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CheckCircle, DollarSign, Home, Calculator, FileText } from "lucide-react";
 import { ReviewsSection } from "./reviews-section";
+import { useState } from "react";
 
 interface LoanAnalysisProps {
   defaultValues: any;
@@ -12,6 +14,8 @@ interface LoanAnalysisProps {
 }
 
 export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysisProps) {
+  const [downPaymentAssistance, setDownPaymentAssistance] = useState(false);
+  const [closingCostAssistance, setClosingCostAssistance] = useState(false);
   // Example data for $400K home with 5% down conventional loan
   const purchasePrice = 400000;
   const downPaymentPercent = 5;
@@ -28,9 +32,11 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   const hoaFees = defaultValues.hoaFees || 0;
   const totalMonthlyPayment = principalAndInterest + propertyTaxes + homeownersInsurance + floodInsurance + hoaFees;
   
-  // Cash to close
+  // Cash to close with assistance adjustments
   const estimatedClosingCosts = 8500; // Typical 2-3% of loan amount
-  const cashToClose = downPayment + estimatedClosingCosts;
+  const adjustedDownPayment = downPaymentAssistance ? 0 : downPayment;
+  const adjustedClosingCosts = closingCostAssistance ? Math.max(0, estimatedClosingCosts - 3000) : estimatedClosingCosts; // Assume $3k assistance
+  const cashToClose = adjustedDownPayment + adjustedClosingCosts;
 
   // DTI Calculations (using example data from Truv and Plaid)
   const monthlyIncome = 8500; // From Truv integration
@@ -232,13 +238,46 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
             <div className="space-y-4">
               <div className="flex items-center justify-between py-2">
                 <span className="font-medium text-gray-700">Down Payment</span>
-                <span className="font-semibold text-gray-900">${downPayment.toLocaleString()}</span>
+                <span className="font-semibold text-gray-900">${adjustedDownPayment.toLocaleString()}</span>
               </div>
               <Separator />
               <div className="flex items-center justify-between py-2">
                 <span className="font-medium text-gray-700">Estimated Closing Costs</span>
-                <span className="font-semibold text-gray-900">${estimatedClosingCosts.toLocaleString()}</span>
+                <span className="font-semibold text-gray-900">${adjustedClosingCosts.toLocaleString()}</span>
               </div>
+              
+              {/* Assistance Programs */}
+              <div className="bg-blue-50 p-4 rounded-lg mt-4 mb-4">
+                <h4 className="font-semibold text-blue-800 mb-3">Available Assistance Programs</h4>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <Checkbox 
+                      id="down-payment-assistance"
+                      checked={downPaymentAssistance}
+                      onCheckedChange={(checked) => setDownPaymentAssistance(checked as boolean)}
+                    />
+                    <label htmlFor="down-payment-assistance" className="text-sm font-medium text-blue-700 cursor-pointer">
+                      Down Payment Assistance Program
+                      {downPaymentAssistance && <span className="text-green-600 ml-2">(-${downPayment.toLocaleString()})</span>}
+                    </label>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Checkbox 
+                      id="closing-cost-assistance"
+                      checked={closingCostAssistance}
+                      onCheckedChange={(checked) => setClosingCostAssistance(checked as boolean)}
+                    />
+                    <label htmlFor="closing-cost-assistance" className="text-sm font-medium text-blue-700 cursor-pointer">
+                      Closing Cost Assistance Program
+                      {closingCostAssistance && <span className="text-green-600 ml-2">(-$3,000)</span>}
+                    </label>
+                  </div>
+                </div>
+                <p className="text-xs text-blue-600 mt-2">
+                  Check the programs you'd like to explore. Our team will verify eligibility and provide details.
+                </p>
+              </div>
+              
               <Separator className="border-2" />
               <div className="flex items-center justify-between py-3 bg-gray-50 -mx-6 px-6 rounded-lg">
                 <span className="text-lg font-bold text-gray-900">Total Cash to Close</span>

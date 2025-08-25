@@ -24,7 +24,6 @@ import { HomeOwnershipHistoryStep } from "@/components/questionnaire/home-owners
 import { CreditScoreStep } from "@/components/questionnaire/credit-score-step";
 import PropertyLocationStep from "@/components/questionnaire/property-location-step";
 import { LoanTypeStep } from "@/components/questionnaire/loan-type-step";
-import { LoanAssistanceStep } from "@/components/questionnaire/loan-assistance-step";
 import { NonQMStep } from "@/components/questionnaire/non-qm-step";
 import { RefinanceLienTypeStep } from "@/components/questionnaire/refinance-lien-type-step";
 import { LoanBalanceStep } from "@/components/questionnaire/loan-balance-step";
@@ -223,7 +222,7 @@ export default function ServiceQuestionnaire() {
           }
           break;
           
-        case 'lien-type':
+        case 'refinance-lien-type':
           // Go back to type step
           setMortgageFlowState(prev => ({
             ...prev,
@@ -241,7 +240,7 @@ export default function ServiceQuestionnaire() {
           
         case 'credit-score':
           // Go back based on mortgage type
-          const prevStepFromCreditScore = mortgageFlowState.type === 'refinance' ? 'lien-type' : 'home-ownership-history';
+          const prevStepFromCreditScore = mortgageFlowState.type === 'refinance' ? 'refinance-lien-type' : 'home-ownership-history';
           setMortgageFlowState(prev => ({
             ...prev,
             step: prevStepFromCreditScore as any
@@ -299,13 +298,6 @@ export default function ServiceQuestionnaire() {
           }));
           break;
 
-        case 'loan-assistance':
-          // Go back to loan type step
-          setMortgageFlowState(prev => ({
-            ...prev,
-            step: 'loan-type'
-          }));
-          break;
 
         case 'non-qm':
           // Go back to loan type step
@@ -325,7 +317,7 @@ export default function ServiceQuestionnaire() {
           } else if (mortgageFlowState.loanType === 'non-qm') {
             prevStep = 'non-qm';
           } else {
-            prevStep = 'loan-assistance';
+            prevStep = 'loan-type';
           }
           setMortgageFlowState(prev => ({
             ...prev,
@@ -450,7 +442,7 @@ export default function ServiceQuestionnaire() {
   
   // Track mortgage flow with proper typing
   const [mortgageFlowState, setMortgageFlowState] = useState<{
-    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'loan-assistance' | 'non-qm' | 'lender-price' | 'income' | 'plaid' | 'taxes-insurance' | 'loan-analysis' | 'refinance-lien-type' | 'loan-balance' | 'refinance-type' | 'escrow';
+    step: 'type' | 'home-ownership-history' | 'credit-score' | 'location' | 'ownership' | 'loan-type' | 'non-qm' | 'lender-price' | 'income' | 'plaid' | 'taxes-insurance' | 'loan-analysis' | 'refinance-lien-type' | 'loan-balance' | 'refinance-type' | 'escrow';
     type: 'purchase' | 'refinance';
     homeOwnershipHistory?: 'yes' | 'no';
     ownershipType: 'primary' | 'secondary' | 'investment';
@@ -510,7 +502,7 @@ export default function ServiceQuestionnaire() {
       if (currentService.id === 'mortgage') {
         const mortgageSteps = { 
           'type': 1,
-          'lien-type': 2, // refinance only
+          'refinance-lien-type': 2, // refinance only
           'loan-balance': 3, // refinance only
           'refinance-type': 4, // refinance only (1st lien)
           'escrow': 5, // refinance only
@@ -519,13 +511,12 @@ export default function ServiceQuestionnaire() {
           'location': 4, // both purchase and refinance  
           'ownership': 5, // purchase only
           'loan-type': 6, // purchase only
-          'loan-assistance': 7, // purchase only
-          'non-qm': 7, // purchase only
-          'lender-price': 8, // both purchase and refinance
-          'income': 9,
-          'plaid': 10,
-          'taxes-insurance': 11,
-          'loan-analysis': 12
+          'non-qm': 6, // purchase only
+          'lender-price': 7, // both purchase and refinance
+          'income': 8,
+          'plaid': 9,
+          'taxes-insurance': 10,
+          'loan-analysis': 11
         };
         step += mortgageSteps[mortgageFlowState.step] || 1;
       } else {
@@ -893,9 +884,7 @@ export default function ServiceQuestionnaire() {
     let nextStep = 'lender-price';
     
     if (mortgageFlowState.type === 'purchase') {
-      if (data.loanType === 'conventional' || data.loanType === 'fha' || data.loanType === 'va' || data.loanType === 'usda') {
-        nextStep = 'loan-assistance';
-      } else if (data.loanType === 'non-qm') {
+      if (data.loanType === 'non-qm') {
         nextStep = 'non-qm';
       }
     }
@@ -907,24 +896,6 @@ export default function ServiceQuestionnaire() {
     }));
   };
 
-  // Handle loan assistance step submission (step 7a - conditional)
-  const handleLoanAssistanceSubmit = (data: any) => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    
-    setFormData(prev => ({
-      ...prev,
-      mortgage: {
-        ...prev.mortgage,
-        ...data
-      }
-    }));
-    
-    setMortgageFlowState(prev => ({
-      ...prev,
-      step: 'lender-price',
-      assistanceType: data.assistanceType
-    }));
-  };
 
   // Handle Non-QM step submission (step 7b - conditional)
   const handleNonQMSubmit = (data: any) => {
@@ -1224,13 +1195,6 @@ export default function ServiceQuestionnaire() {
               onBack={() => setMortgageFlowState(prev => ({ ...prev, step: previousStepFromLoanType() as any }))}
             />;
             
-          case 'loan-assistance':
-            return <LoanAssistanceStep
-              defaultValues={formData.mortgage || {}}
-              loanType={mortgageFlowState.loanType || 'conventional'}
-              onSubmit={handleLoanAssistanceSubmit}
-              onBack={() => setMortgageFlowState(prev => ({ ...prev, step: 'loan-type' }))}
-            />;
             
           case 'non-qm':
             return <NonQMStep
@@ -1246,7 +1210,7 @@ export default function ServiceQuestionnaire() {
               } else if (mortgageFlowState.loanType === 'non-qm') {
                 return 'non-qm';
               } else {
-                return 'loan-assistance';
+                return 'loan-type';
               }
             };
 
