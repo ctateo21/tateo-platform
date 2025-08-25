@@ -84,7 +84,7 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   const totalMonthlyPayment = principalAndInterest + propertyTaxes + homeownersInsurance + floodInsurance + hoaFees;
   
   // Cash to close with assistance adjustments
-  const estimatedClosingCosts = 8500; // Typical 2-3% of loan amount
+  const estimatedClosingCosts = loanAmount * 0.03; // 3% of loan amount
   const adjustedDownPayment = (downPaymentAssistance && showDownPaymentAssistance) ? 0 : downPayment;
   const adjustedClosingCosts = closingCostAssistance ? Math.max(0, estimatedClosingCosts - closingCostAssistanceAmount[0]) : estimatedClosingCosts;
   const cashToClose = adjustedDownPayment + adjustedClosingCosts;
