@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { CheckCircle, DollarSign, Home, Calculator, FileText } from "lucide-react";
 import { ReviewsSection } from "./reviews-section";
 import { useState } from "react";
@@ -18,8 +20,24 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   const [downPaymentAssistance, setDownPaymentAssistance] = useState(false);
   const [closingCostAssistance, setClosingCostAssistance] = useState(false);
   
-  // Get loan type from mortgage data
+  // Get loan type and home ownership history from mortgage data
   const selectedLoanType = defaultValues.loanType || 'conventional';
+  const homeOwnershipHistory = defaultValues.homeOwnershipHistory || 'no'; // 'yes' means they owned home in last 3 years, 'no' means first-time buyer
+  
+  // Determine minimum down payment based on loan type and first-time buyer status
+  const getMinDownPayment = (loanType: string, isFirstTimeBuyer: boolean) => {
+    if (loanType === 'conventional') {
+      return isFirstTimeBuyer ? 3 : 5; // 3% for first-time, 5% for repeat buyers
+    }
+    // Other loan types remain the same
+    switch (loanType.toLowerCase()) {
+      case 'fha': return 3.5;
+      case 'va': return 0;
+      case 'usda': return 0;
+      case 'jumbo': return 10;
+      default: return 5;
+    }
+  };
   
   // Determine which assistance programs to show based on loan type
   const showDownPaymentAssistance = selectedLoanType === 'conventional' || selectedLoanType === 'fha';
@@ -40,9 +58,14 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
         return purchasePrice * 0.03; // Default to 3%
     }
   };
-  // Example data for $400K home with 5% down conventional loan
-  const purchasePrice = 400000;
-  const downPaymentPercent = 5;
+  
+  // Editable purchase price and down payment - initialize from questionnaire data
+  const isFirstTimeBuyer = homeOwnershipHistory === 'no';
+  const calculatedMinDownPayment = getMinDownPayment(selectedLoanType, isFirstTimeBuyer);
+  
+  const [purchasePrice, setPurchasePrice] = useState(defaultValues.purchasePrice || 400000);
+  const [downPaymentPercent, setDownPaymentPercent] = useState(calculatedMinDownPayment);
+  
   const downPayment = purchasePrice * (downPaymentPercent / 100);
   const loanAmount = purchasePrice - downPayment;
   const interestRate = 6.75;
@@ -99,6 +122,7 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
     const analysisData = {
       purchasePrice,
       downPayment,
+      downPaymentPercent,
       loanAmount,
       interestRate,
       apr,
@@ -128,6 +152,13 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
         usable401k,
         totalAssets,
         assetsSufficient
+      },
+      isFirstTimeBuyer,
+      calculatedMinDownPayment,
+      assistancePrograms: {
+        downPaymentAssistance,
+        closingCostAssistance,
+        closingCostAssistanceAmount: closingCostAssistance ? closingCostAssistanceAmount[0] : 0
       }
     };
 
@@ -163,19 +194,58 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
           </CardHeader>
           <CardContent className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Editable Purchase Price */}
               <div className="text-center">
-                <p className="text-sm font-medium text-gray-500 mb-1">Purchase Price</p>
-                <p className="text-2xl font-bold text-gray-900">${purchasePrice.toLocaleString()}</p>
+                <Label htmlFor="purchase-price-input" className="text-sm font-medium text-gray-500 mb-2 block">
+                  Purchase Price
+                </Label>
+                <Input
+                  id="purchase-price-input"
+                  type="text"
+                  value={`$${purchasePrice.toLocaleString()}`}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/[$,]/g, '');
+                    const numValue = parseInt(value) || 0;
+                    setPurchasePrice(numValue);
+                  }}
+                  className="text-center text-xl font-bold border-2 focus:border-blue-500"
+                />
               </div>
+              
+              {/* Editable Down Payment */}
               <div className="text-center">
-                <p className="text-sm font-medium text-gray-500 mb-1">Down Payment ({downPaymentPercent}%)</p>
-                <p className="text-2xl font-bold text-green-600">${downPayment.toLocaleString()}</p>
+                <Label htmlFor="down-payment-input" className="text-sm font-medium text-gray-500 mb-2 block">
+                  Down Payment (%)
+                </Label>
+                <Input
+                  id="down-payment-input"
+                  type="number"
+                  min={calculatedMinDownPayment}
+                  max="50"
+                  step="0.5"
+                  value={downPaymentPercent}
+                  onChange={(e) => setDownPaymentPercent(parseFloat(e.target.value) || calculatedMinDownPayment)}
+                  className="text-center text-xl font-bold border-2 focus:border-green-500"
+                />
+                <p className="text-lg font-semibold text-green-600 mt-1">${downPayment.toLocaleString()}</p>
+                <p className="text-xs text-blue-600">Min: {calculatedMinDownPayment}%</p>
               </div>
+              
               <div className="text-center">
                 <p className="text-sm font-medium text-gray-500 mb-1">Loan Amount</p>
                 <p className="text-2xl font-bold text-blue-600">${loanAmount.toLocaleString()}</p>
               </div>
             </div>
+            
+            {/* First-time buyer indicator */}
+            {isFirstTimeBuyer && (
+              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm text-green-800">
+                  <CheckCircle className="h-4 w-4 inline mr-2" />
+                  <strong>First-Time Homebuyer Benefits:</strong> You qualify for a {calculatedMinDownPayment}% minimum down payment and special loan programs.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
