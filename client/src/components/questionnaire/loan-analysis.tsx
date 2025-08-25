@@ -233,6 +233,13 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
                     const numValue = parseInt(value) || 0;
                     setDownPayment(numValue);
                   }}
+                  onBlur={() => {
+                    // Auto-correct to minimum percentage if below threshold
+                    const minDownPaymentAmount = purchasePrice * (calculatedMinDownPayment / 100);
+                    if (downPayment < minDownPaymentAmount) {
+                      setDownPayment(minDownPaymentAmount);
+                    }
+                  }}
                   className="w-40 text-right text-lg font-semibold border-2 focus:border-green-500"
                 />
               </div>
