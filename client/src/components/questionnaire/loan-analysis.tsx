@@ -279,16 +279,25 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
                 <h4 className="font-semibold text-blue-800 mb-3">Available Assistance Programs</h4>
                 <div className="space-y-3">
                   {showDownPaymentAssistance && (
-                    <div className="flex items-center space-x-3">
-                      <Checkbox 
-                        id="down-payment-assistance"
-                        checked={downPaymentAssistance}
-                        onCheckedChange={(checked) => setDownPaymentAssistance(checked as boolean)}
-                      />
-                      <label htmlFor="down-payment-assistance" className="text-sm font-medium text-blue-700 cursor-pointer">
-                        Down Payment Assistance Program
-                        {downPaymentAssistance && <span className="text-green-600 ml-2">(-${downPayment.toLocaleString()})</span>}
-                      </label>
+                    <div className="space-y-2">
+                      <div className="flex items-center space-x-3">
+                        <Checkbox 
+                          id="down-payment-assistance"
+                          checked={downPaymentAssistance}
+                          onCheckedChange={(checked) => setDownPaymentAssistance(checked as boolean)}
+                        />
+                        <label htmlFor="down-payment-assistance" className="text-sm font-medium text-blue-700 cursor-pointer">
+                          Down Payment Assistance Program
+                          {downPaymentAssistance && <span className="text-green-600 ml-2">(-${downPayment.toLocaleString()})</span>}
+                        </label>
+                      </div>
+                      {downPaymentAssistance && (
+                        <div className="ml-6 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                          <p className="text-sm text-amber-800">
+                            <strong>Important:</strong> Adding down payment assistance will cause us to reprice your loan and you will not get the same interest rate. Lenders typically charge higher rates and higher fees for down payment assistance.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                   {showClosingCostAssistance && (
