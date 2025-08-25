@@ -50,7 +50,7 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   
   // Closing cost assistance calculations
   const maxClosingCostAssistance = getMaxClosingCostAssistance(selectedLoanType, purchasePrice);
-  const [closingCostAssistanceAmount, setClosingCostAssistanceAmount] = useState([maxClosingCostAssistance]);
+  const [closingCostAssistanceAmount, setClosingCostAssistanceAmount] = useState([1]);
   
   // Monthly payment components
   const principalAndInterest = 2534;
@@ -321,12 +321,12 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
                       value={closingCostAssistanceAmount}
                       onValueChange={setClosingCostAssistanceAmount}
                       max={maxClosingCostAssistance}
-                      min={1000}
-                      step={250}
+                      min={1}
+                      step={1}
                       className="w-full"
                     />
                     <div className="flex justify-between text-xs text-blue-600 mt-1">
-                      <span>$1,000</span>
+                      <span>$1</span>
                       <span className="text-center">
                         Max: {(maxClosingCostAssistance / purchasePrice * 100).toFixed(0)}% of purchase price
                       </span>
