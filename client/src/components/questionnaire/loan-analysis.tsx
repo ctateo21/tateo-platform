@@ -222,28 +222,25 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
               {/* Down Payment */}
               <div className="flex justify-between items-center">
                 <Label htmlFor="down-payment-input" className="text-lg font-medium text-gray-700">
-                  Down Payment:
+                  Down Payment: ({downPaymentPercent.toFixed(2)}%)
                 </Label>
-                <div className="text-right">
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="down-payment-input"
-                      type="text"
-                      value={`$${downPayment.toLocaleString()}`}
-                      onChange={(e) => {
-                        const value = e.target.value.replace(/[$,]/g, '');
-                        const numValue = parseInt(value) || 0;
-                        const minDownPaymentAmount = purchasePrice * (calculatedMinDownPayment / 100);
-                        setDownPayment(Math.max(numValue, minDownPaymentAmount));
-                      }}
-                      className="w-32 text-right font-semibold border-2 focus:border-green-500"
-                    />
-                    <span className="text-lg font-semibold text-gray-700">({downPaymentPercent.toFixed(2)}%)</span>
-                  </div>
-                  <p className="text-sm text-blue-600 mt-1">
-                    {calculatedMinDownPayment}% is the minimum for {isFirstTimeBuyer ? 'first time home buyer' : 'repeat home buyer'}
-                  </p>
-                </div>
+                <Input
+                  id="down-payment-input"
+                  type="text"
+                  value={`$${downPayment.toLocaleString()}`}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(/[$,]/g, '');
+                    const numValue = parseInt(value) || 0;
+                    const minDownPaymentAmount = purchasePrice * (calculatedMinDownPayment / 100);
+                    setDownPayment(Math.max(numValue, minDownPaymentAmount));
+                  }}
+                  className="w-40 text-right text-lg font-semibold border-2 focus:border-green-500"
+                />
+              </div>
+              <div className="text-right">
+                <p className="text-sm text-blue-600">
+                  {calculatedMinDownPayment}% is the minimum for {isFirstTimeBuyer ? 'first time home buyer' : 'repeat home buyer'}
+                </p>
               </div>
               
               {/* Loan Amount */}
