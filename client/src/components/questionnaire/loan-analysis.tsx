@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Slider } from "@/components/ui/slider";
 import { CheckCircle, DollarSign, Home, Calculator, FileText } from "lucide-react";
 import { ReviewsSection } from "./reviews-section";
 import { useState } from "react";
@@ -23,6 +24,22 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   // Determine which assistance programs to show based on loan type
   const showDownPaymentAssistance = selectedLoanType === 'conventional' || selectedLoanType === 'fha';
   const showClosingCostAssistance = true; // Always show closing cost assistance
+  
+  // Calculate maximum closing cost assistance based on loan type
+  const getMaxClosingCostAssistance = (loanType: string, purchasePrice: number) => {
+    switch (loanType.toLowerCase()) {
+      case 'conventional':
+      case 'jumbo':
+        return purchasePrice * 0.03; // 3%
+      case 'fha':
+      case 'usda':
+        return purchasePrice * 0.06; // 6%
+      case 'va':
+        return purchasePrice * 0.04; // 4%
+      default:
+        return purchasePrice * 0.03; // Default to 3%
+    }
+  };
   // Example data for $400K home with 5% down conventional loan
   const purchasePrice = 400000;
   const downPaymentPercent = 5;
@@ -30,6 +47,10 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   const loanAmount = purchasePrice - downPayment;
   const interestRate = 6.75;
   const apr = 6.89;
+  
+  // Closing cost assistance calculations
+  const maxClosingCostAssistance = getMaxClosingCostAssistance(selectedLoanType, purchasePrice);
+  const [closingCostAssistanceAmount, setClosingCostAssistanceAmount] = useState([maxClosingCostAssistance]);
   
   // Monthly payment components
   const principalAndInterest = 2534;
@@ -42,7 +63,7 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   // Cash to close with assistance adjustments
   const estimatedClosingCosts = 8500; // Typical 2-3% of loan amount
   const adjustedDownPayment = (downPaymentAssistance && showDownPaymentAssistance) ? 0 : downPayment;
-  const adjustedClosingCosts = closingCostAssistance ? Math.max(0, estimatedClosingCosts - 3000) : estimatedClosingCosts; // Assume $3k assistance
+  const adjustedClosingCosts = closingCostAssistance ? Math.max(0, estimatedClosingCosts - closingCostAssistanceAmount[0]) : estimatedClosingCosts;
   const cashToClose = adjustedDownPayment + adjustedClosingCosts;
 
   // DTI Calculations (using example data from Truv and Plaid)
@@ -279,11 +300,41 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
                       />
                       <label htmlFor="closing-cost-assistance" className="text-sm font-medium text-blue-700 cursor-pointer">
                         Closing Cost Assistance Program
-                        {closingCostAssistance && <span className="text-green-600 ml-2">(-$3,000)</span>}
+                        {closingCostAssistance && <span className="text-green-600 ml-2">(-${Math.round(closingCostAssistanceAmount[0]).toLocaleString()})</span>}
                       </label>
                     </div>
                   )}
                 </div>
+                
+                {/* Closing Cost Assistance Slider */}
+                {closingCostAssistance && showClosingCostAssistance && (
+                  <div className="mt-4 p-3 bg-white border border-blue-200 rounded-lg">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-blue-800">
+                        Assistance Amount
+                      </span>
+                      <span className="text-sm font-bold text-green-600">
+                        ${Math.round(closingCostAssistanceAmount[0]).toLocaleString()}
+                      </span>
+                    </div>
+                    <Slider
+                      value={closingCostAssistanceAmount}
+                      onValueChange={setClosingCostAssistanceAmount}
+                      max={maxClosingCostAssistance}
+                      min={1000}
+                      step={250}
+                      className="w-full"
+                    />
+                    <div className="flex justify-between text-xs text-blue-600 mt-1">
+                      <span>$1,000</span>
+                      <span className="text-center">
+                        Max: {(maxClosingCostAssistance / purchasePrice * 100).toFixed(0)}% of purchase price
+                      </span>
+                      <span>${Math.round(maxClosingCostAssistance).toLocaleString()}</span>
+                    </div>
+                  </div>
+                )}
+                
                 <p className="text-xs text-blue-600 mt-2">
                   Check the programs you'd like to explore. Our team will verify eligibility and provide details.
                 </p>
