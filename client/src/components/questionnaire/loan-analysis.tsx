@@ -64,9 +64,9 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   const calculatedMinDownPayment = getMinDownPayment(selectedLoanType, isFirstTimeBuyer);
   
   const [purchasePrice, setPurchasePrice] = useState(defaultValues.purchasePrice || 400000);
-  const [downPaymentPercent, setDownPaymentPercent] = useState(calculatedMinDownPayment);
+  const [downPayment, setDownPayment] = useState((defaultValues.purchasePrice || 400000) * (calculatedMinDownPayment / 100));
   
-  const downPayment = purchasePrice * (downPaymentPercent / 100);
+  const downPaymentPercent = purchasePrice > 0 ? (downPayment / purchasePrice) * 100 : 0;
   const loanAmount = purchasePrice - downPayment;
   const interestRate = 6.75;
   const apr = 6.89;
@@ -206,7 +206,14 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
                   onChange={(e) => {
                     const value = e.target.value.replace(/[$,]/g, '');
                     const numValue = parseInt(value) || 0;
+                    // Maintain the same percentage when purchase price changes
+                    const currentPercent = downPaymentPercent;
                     setPurchasePrice(numValue);
+                    if (numValue > 0) {
+                      const newDownPayment = numValue * (currentPercent / 100);
+                      const minDownPaymentAmount = numValue * (calculatedMinDownPayment / 100);
+                      setDownPayment(Math.max(newDownPayment, minDownPaymentAmount));
+                    }
                   }}
                   className="w-40 text-right text-lg font-semibold border-2 focus:border-blue-500"
                 />
@@ -221,15 +228,17 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
                   <div className="flex items-center gap-2">
                     <Input
                       id="down-payment-input"
-                      type="number"
-                      min={calculatedMinDownPayment}
-                      max="50"
-                      step="0.5"
-                      value={downPaymentPercent}
-                      onChange={(e) => setDownPaymentPercent(parseFloat(e.target.value) || calculatedMinDownPayment)}
-                      className="w-16 text-center font-semibold border-2 focus:border-green-500"
+                      type="text"
+                      value={`$${downPayment.toLocaleString()}`}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/[$,]/g, '');
+                        const numValue = parseInt(value) || 0;
+                        const minDownPaymentAmount = purchasePrice * (calculatedMinDownPayment / 100);
+                        setDownPayment(Math.max(numValue, minDownPaymentAmount));
+                      }}
+                      className="w-32 text-right font-semibold border-2 focus:border-green-500"
                     />
-                    <span className="text-lg font-semibold text-gray-700">% = ${downPayment.toLocaleString()}</span>
+                    <span className="text-lg font-semibold text-gray-700">({downPaymentPercent.toFixed(2)}%)</span>
                   </div>
                   <p className="text-sm text-blue-600 mt-1">
                     {calculatedMinDownPayment}% is the minimum for {isFirstTimeBuyer ? 'first time home buyer' : 'repeat home buyer'}
