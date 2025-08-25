@@ -16,6 +16,13 @@ interface LoanAnalysisProps {
 export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysisProps) {
   const [downPaymentAssistance, setDownPaymentAssistance] = useState(false);
   const [closingCostAssistance, setClosingCostAssistance] = useState(false);
+  
+  // Get loan type from mortgage data
+  const selectedLoanType = defaultValues.loanType || 'conventional';
+  
+  // Determine which assistance programs to show based on loan type
+  const showDownPaymentAssistance = selectedLoanType === 'conventional' || selectedLoanType === 'fha';
+  const showClosingCostAssistance = true; // Always show closing cost assistance
   // Example data for $400K home with 5% down conventional loan
   const purchasePrice = 400000;
   const downPaymentPercent = 5;
@@ -34,7 +41,7 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
   
   // Cash to close with assistance adjustments
   const estimatedClosingCosts = 8500; // Typical 2-3% of loan amount
-  const adjustedDownPayment = downPaymentAssistance ? 0 : downPayment;
+  const adjustedDownPayment = (downPaymentAssistance && showDownPaymentAssistance) ? 0 : downPayment;
   const adjustedClosingCosts = closingCostAssistance ? Math.max(0, estimatedClosingCosts - 3000) : estimatedClosingCosts; // Assume $3k assistance
   const cashToClose = adjustedDownPayment + adjustedClosingCosts;
 
@@ -250,28 +257,32 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
               <div className="bg-blue-50 p-4 rounded-lg mt-4 mb-4">
                 <h4 className="font-semibold text-blue-800 mb-3">Available Assistance Programs</h4>
                 <div className="space-y-3">
-                  <div className="flex items-center space-x-3">
-                    <Checkbox 
-                      id="down-payment-assistance"
-                      checked={downPaymentAssistance}
-                      onCheckedChange={(checked) => setDownPaymentAssistance(checked as boolean)}
-                    />
-                    <label htmlFor="down-payment-assistance" className="text-sm font-medium text-blue-700 cursor-pointer">
-                      Down Payment Assistance Program
-                      {downPaymentAssistance && <span className="text-green-600 ml-2">(-${downPayment.toLocaleString()})</span>}
-                    </label>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <Checkbox 
-                      id="closing-cost-assistance"
-                      checked={closingCostAssistance}
-                      onCheckedChange={(checked) => setClosingCostAssistance(checked as boolean)}
-                    />
-                    <label htmlFor="closing-cost-assistance" className="text-sm font-medium text-blue-700 cursor-pointer">
-                      Closing Cost Assistance Program
-                      {closingCostAssistance && <span className="text-green-600 ml-2">(-$3,000)</span>}
-                    </label>
-                  </div>
+                  {showDownPaymentAssistance && (
+                    <div className="flex items-center space-x-3">
+                      <Checkbox 
+                        id="down-payment-assistance"
+                        checked={downPaymentAssistance}
+                        onCheckedChange={(checked) => setDownPaymentAssistance(checked as boolean)}
+                      />
+                      <label htmlFor="down-payment-assistance" className="text-sm font-medium text-blue-700 cursor-pointer">
+                        Down Payment Assistance Program
+                        {downPaymentAssistance && <span className="text-green-600 ml-2">(-${downPayment.toLocaleString()})</span>}
+                      </label>
+                    </div>
+                  )}
+                  {showClosingCostAssistance && (
+                    <div className="flex items-center space-x-3">
+                      <Checkbox 
+                        id="closing-cost-assistance"
+                        checked={closingCostAssistance}
+                        onCheckedChange={(checked) => setClosingCostAssistance(checked as boolean)}
+                      />
+                      <label htmlFor="closing-cost-assistance" className="text-sm font-medium text-blue-700 cursor-pointer">
+                        Closing Cost Assistance Program
+                        {closingCostAssistance && <span className="text-green-600 ml-2">(-$3,000)</span>}
+                      </label>
+                    </div>
+                  )}
                 </div>
                 <p className="text-xs text-blue-600 mt-2">
                   Check the programs you'd like to explore. Our team will verify eligibility and provide details.
