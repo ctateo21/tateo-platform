@@ -202,10 +202,10 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
                 <Input
                   id="purchase-price-input"
                   type="text"
-                  value={`$${purchasePrice.toLocaleString()}`}
+                  value={`$${Math.round(purchasePrice).toLocaleString()}`}
                   onChange={(e) => {
                     const value = e.target.value.replace(/[$,]/g, '');
-                    const numValue = parseInt(value) || 0;
+                    const numValue = Math.round(parseInt(value) || 0);
                     // Maintain the same percentage when purchase price changes
                     const currentPercent = downPaymentPercent;
                     setPurchasePrice(numValue);
