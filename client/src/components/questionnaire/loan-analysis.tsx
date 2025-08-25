@@ -193,11 +193,11 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
             </CardTitle>
           </CardHeader>
           <CardContent className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Editable Purchase Price */}
-              <div className="text-center">
-                <Label htmlFor="purchase-price-input" className="text-sm font-medium text-gray-500 mb-2 block">
-                  Purchase Price
+            <div className="space-y-4">
+              {/* Purchase Price */}
+              <div className="flex justify-between items-center">
+                <Label htmlFor="purchase-price-input" className="text-lg font-medium text-gray-700">
+                  Purchase Price:
                 </Label>
                 <Input
                   id="purchase-price-input"
@@ -208,44 +208,41 @@ export function LoanAnalysis({ defaultValues, onComplete, onBack }: LoanAnalysis
                     const numValue = parseInt(value) || 0;
                     setPurchasePrice(numValue);
                   }}
-                  className="text-center text-xl font-bold border-2 focus:border-blue-500"
+                  className="w-40 text-right text-lg font-semibold border-2 focus:border-blue-500"
                 />
               </div>
               
-              {/* Editable Down Payment */}
-              <div className="text-center">
-                <Label htmlFor="down-payment-input" className="text-sm font-medium text-gray-500 mb-2 block">
-                  Down Payment (%)
+              {/* Down Payment */}
+              <div className="flex justify-between items-center">
+                <Label htmlFor="down-payment-input" className="text-lg font-medium text-gray-700">
+                  Down Payment:
                 </Label>
-                <Input
-                  id="down-payment-input"
-                  type="number"
-                  min={calculatedMinDownPayment}
-                  max="50"
-                  step="0.5"
-                  value={downPaymentPercent}
-                  onChange={(e) => setDownPaymentPercent(parseFloat(e.target.value) || calculatedMinDownPayment)}
-                  className="text-center text-xl font-bold border-2 focus:border-green-500"
-                />
-                <p className="text-lg font-semibold text-green-600 mt-1">${downPayment.toLocaleString()}</p>
-                <p className="text-xs text-blue-600">Min: {calculatedMinDownPayment}%</p>
+                <div className="text-right">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="down-payment-input"
+                      type="number"
+                      min={calculatedMinDownPayment}
+                      max="50"
+                      step="0.5"
+                      value={downPaymentPercent}
+                      onChange={(e) => setDownPaymentPercent(parseFloat(e.target.value) || calculatedMinDownPayment)}
+                      className="w-16 text-center font-semibold border-2 focus:border-green-500"
+                    />
+                    <span className="text-lg font-semibold text-gray-700">% = ${downPayment.toLocaleString()}</span>
+                  </div>
+                  <p className="text-sm text-blue-600 mt-1">
+                    {calculatedMinDownPayment}% is the minimum for {isFirstTimeBuyer ? 'first time home buyer' : 'repeat home buyer'}
+                  </p>
+                </div>
               </div>
               
-              <div className="text-center">
-                <p className="text-sm font-medium text-gray-500 mb-1">Loan Amount</p>
-                <p className="text-2xl font-bold text-blue-600">${loanAmount.toLocaleString()}</p>
+              {/* Loan Amount */}
+              <div className="flex justify-between items-center">
+                <span className="text-lg font-medium text-gray-700">Loan Amount:</span>
+                <span className="text-lg font-semibold text-blue-600">${loanAmount.toLocaleString()}</span>
               </div>
             </div>
-            
-            {/* First-time buyer indicator */}
-            {isFirstTimeBuyer && (
-              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                <p className="text-sm text-green-800">
-                  <CheckCircle className="h-4 w-4 inline mr-2" />
-                  <strong>First-Time Homebuyer Benefits:</strong> You qualify for a {calculatedMinDownPayment}% minimum down payment and special loan programs.
-                </p>
-              </div>
-            )}
           </CardContent>
         </Card>
 
