@@ -98,11 +98,6 @@ export default function Header() {
               </Link>
             )
           ))}
-          <Button asChild className="bg-secondary hover:bg-secondary/90 text-white">
-            <Link href="/#contact">
-              CONTACT
-            </Link>
-          </Button>
           <Button asChild className="bg-black hover:bg-gray-800 text-white border border-black">
             <Link href="/#schedule">
               Schedule a Call
@@ -158,12 +153,7 @@ export default function Header() {
                   )}
                 </div>
               ))}
-              <Button asChild className="bg-secondary hover:bg-secondary/90 text-white w-full mt-4">
-                <Link href="/#contact">
-                  CONTACT
-                </Link>
-              </Button>
-              <Button asChild className="bg-black hover:bg-gray-800 text-white border border-black w-full mt-2">
+              <Button asChild className="bg-black hover:bg-gray-800 text-white border border-black w-full mt-4">
                 <Link href="/#schedule">
                   Schedule a Call
                 </Link>
