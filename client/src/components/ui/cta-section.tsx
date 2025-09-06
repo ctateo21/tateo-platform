@@ -1,60 +1,56 @@
-import { Link } from "wouter";
-import { Button } from "@/components/ui/button";
-import { PhoneCall, MessageCircle, ArrowRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ReviewCarousel } from "@/components/review-carousel";
+import { GoogleReview } from "@/lib/google-reviews";
+import { fetchGoogleReviews } from "@/lib/api-reviews";
 
 export default function CTASection() {
-  return (
-    <section id="contact" className="py-20 relative bg-gradient-to-r from-primary to-primary/80 text-white">
-      <div className="absolute inset-0 bg-opacity-90 bg-pattern"></div>
-      <div className="container mx-auto px-4 relative z-10">
-        <div className="grid md:grid-cols-2 gap-12 items-center">
-          <div>
-            <h2 className="text-3xl md:text-4xl font-bold mb-6">
-              Ready to Take the Next Step in Your Real Estate Journey?
-            </h2>
-            <p className="text-white/80 mb-8 text-lg leading-relaxed">
-              Whether you're looking to buy, sell, finance, insure, build, or manage a property, our team of experts is here to guide you every step of the way.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-4">
-              <Button asChild className="bg-white text-primary hover:bg-white/90">
-                <a href="tel:5551234567">
-                  <PhoneCall className="mr-2 h-4 w-4" />
-                  Call Us Today
-                </a>
-              </Button>
+  const [googleReviews, setGoogleReviews] = useState<GoogleReview[]>([]);
+  const [isLoadingReviews, setIsLoadingReviews] = useState<boolean>(false);
+  const [reviewsError, setReviewsError] = useState<string | null>(null);
+  
+  // Fetch Google Reviews when component mounts
+  useEffect(() => {
+    async function loadReviews() {
+      setIsLoadingReviews(true);
+      try {
+        const reviews = await fetchGoogleReviews();
+        setGoogleReviews(reviews);
+        setReviewsError(null);
+      } catch (error) {
+        console.error('Error loading Google reviews:', error);
+        setReviewsError('Unable to load reviews. Please try again later.');
+      } finally {
+        setIsLoadingReviews(false);
+      }
+    }
+    
+    loadReviews();
+  }, []);
 
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-lg p-8 shadow-lg">
-            <h3 className="text-2xl font-bold text-primary mb-6">Our Promise to You</h3>
-            <ul className="space-y-4">
-              <li className="flex items-start">
-                <ArrowRight className="text-secondary mr-3 h-5 w-5 mt-0.5" />
-                <span className="text-gray-700">Personalized service tailored to your unique needs</span>
-              </li>
-              <li className="flex items-start">
-                <ArrowRight className="text-secondary mr-3 h-5 w-5 mt-0.5" />
-                <span className="text-gray-700">Transparent communication throughout the process</span>
-              </li>
-              <li className="flex items-start">
-                <ArrowRight className="text-secondary mr-3 h-5 w-5 mt-0.5" />
-                <span className="text-gray-700">Expert guidance from experienced professionals</span>
-              </li>
-              <li className="flex items-start">
-                <ArrowRight className="text-secondary mr-3 h-5 w-5 mt-0.5" />
-                <span className="text-gray-700">Commitment to achieving your real estate goals</span>
-              </li>
-            </ul>
-            <div className="mt-8 pt-6 border-t border-gray-200">
-              <Button asChild className="w-full bg-secondary hover:bg-secondary/90 text-white">
-                <Link href="/#contact">
-                  CONTACT
-                </Link>
-              </Button>
-            </div>
-          </div>
+  return (
+    <section id="testimonials" className="py-20 bg-gray-50">
+      <div className="container mx-auto px-4">
+        <div className="text-center mb-12">
+          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
+            What Our Clients Say
+          </h2>
+          <p className="text-gray-600 text-lg max-w-2xl mx-auto">
+            Don't just take our word for it. Here's what real clients have to say about their experience with Tateo & Co.
+          </p>
         </div>
+        
+        {isLoadingReviews ? (
+          <div className="text-center py-12">
+            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            <p className="mt-4 text-gray-600">Loading reviews...</p>
+          </div>
+        ) : reviewsError ? (
+          <div className="text-center py-12">
+            <p className="text-red-600">{reviewsError}</p>
+          </div>
+        ) : (
+          <ReviewCarousel reviews={googleReviews} autoplayDelay={7000} />
+        )}
       </div>
     </section>
   );
