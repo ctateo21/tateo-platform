@@ -5,7 +5,7 @@ import { ChevronRight } from "lucide-react";
 export default function HeroSection() {
   const slide = {
     title: "One Guide. Every Home Decision.",
-    description: "From buying and selling to financing, insurance, construction, and property management, we handle all your real estate needs under one roof.",
+    description: "Buyers waste weeks chasing answers and don't know who to trust. With me, one conversation replaces agents, lenders, and insurers — so you avoid mistakes, protect your money, and close fast.",
     ctaText: "Explore Our Services",
     ctaLink: "/#services",
     bgClass: "bg-gradient-to-r from-primary to-primary/80"
