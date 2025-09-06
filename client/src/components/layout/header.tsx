@@ -103,6 +103,11 @@ export default function Header() {
               CONTACT
             </Link>
           </Button>
+          <Button asChild className="bg-black hover:bg-gray-800 text-white border border-black">
+            <Link href="/#schedule">
+              Schedule a Call
+            </Link>
+          </Button>
         </nav>
         
         {/* Mobile Menu */}
@@ -156,6 +161,11 @@ export default function Header() {
               <Button asChild className="bg-secondary hover:bg-secondary/90 text-white w-full mt-4">
                 <Link href="/#contact">
                   CONTACT
+                </Link>
+              </Button>
+              <Button asChild className="bg-black hover:bg-gray-800 text-white border border-black w-full mt-2">
+                <Link href="/#schedule">
+                  Schedule a Call
                 </Link>
               </Button>
             </nav>
