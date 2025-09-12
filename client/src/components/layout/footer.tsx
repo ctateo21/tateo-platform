@@ -67,10 +67,12 @@ export default function Footer() {
               </div>
 
               <div>
-                <h5 className="font-medium text-white">Insurance Agent</h5>
-                <a href="http://www.tateoco.com/insurance" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#f6921e]">Tateo & Co Insurance</a>
-                <p className="text-white/80 text-sm">L123977</p>
-                <p className="text-white/80 text-sm">Licensed in FL</p>
+                <h5 className="font-medium text-white">Tateo Insurance Corp</h5>
+                <p className="text-white/80 text-sm">L132640</p>
+                <p className="text-white/80 text-sm">2105 - Licensed Insurance Agency</p>
+                <p className="text-white/80 text-sm">Paul Christian Tateo</p>
+                <p className="text-white/80 text-sm">W142842</p>
+                <p className="text-white/80 text-sm">0220 - Licensed Insurance Agent</p>
               </div>
             </div>
           </div>
