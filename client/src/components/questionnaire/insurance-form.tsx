@@ -57,16 +57,16 @@ export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) 
     if (insuranceCategory === "residential") {
       const currentTypes = form.getValues("residentialTypes") || [];
       if (checked) {
-        form.setValue("residentialTypes", [...currentTypes, type as any]);
+        form.setValue("residentialTypes", [...currentTypes, type as "auto" | "home" | "flood" | "general-liability"], { shouldValidate: true });
       } else {
-        form.setValue("residentialTypes", currentTypes.filter(t => t !== type));
+        form.setValue("residentialTypes", currentTypes.filter(t => t !== type), { shouldValidate: true });
       }
     } else if (insuranceCategory === "commercial") {
       const currentTypes = form.getValues("commercialTypes") || [];
       if (checked) {
-        form.setValue("commercialTypes", [...currentTypes, type as any]);
+        form.setValue("commercialTypes", [...currentTypes, type as "property" | "business-owners-policy" | "flood" | "other"], { shouldValidate: true });
       } else {
-        form.setValue("commercialTypes", currentTypes.filter(t => t !== type));
+        form.setValue("commercialTypes", currentTypes.filter(t => t !== type), { shouldValidate: true });
       }
     }
   };
