@@ -1,14 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { z } from "zod";
 import { insuranceFormSchema } from "@shared/schema";
 import { FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form } from "@/components/ui/form";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 
 interface InsuranceFormProps {
   onSubmit: (data: z.infer<typeof insuranceFormSchema>) => void;
@@ -16,13 +17,18 @@ interface InsuranceFormProps {
 }
 
 export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) {
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [insuranceCategory, setInsuranceCategory] = useState<"residential" | "commercial" | null>(null);
   const [quoteType, setQuoteType] = useState<"new" | "current" | null>(null);
   const [propertyType, setPropertyType] = useState<string>("");
 
   const form = useForm<z.infer<typeof insuranceFormSchema>>({
     resolver: zodResolver(insuranceFormSchema),
     defaultValues: {
-      quoteType: "new",
+      insuranceCategory: undefined,
+      residentialTypes: [],
+      commercialTypes: [],
+      quoteType: undefined,
       firstName: "",
       lastName: "",
       email: "",
@@ -35,6 +41,53 @@ export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) 
     },
   });
 
+  const handleCategorySelect = (category: "residential" | "commercial") => {
+    setInsuranceCategory(category);
+    form.setValue("insuranceCategory", category);
+    // Reset the other category's selections
+    if (category === "residential") {
+      form.setValue("commercialTypes", []);
+    } else {
+      form.setValue("residentialTypes", []);
+    }
+    setCurrentStep(2);
+  };
+
+  const handleTypeSelection = (type: string, checked: boolean) => {
+    if (insuranceCategory === "residential") {
+      const currentTypes = form.getValues("residentialTypes") || [];
+      if (checked) {
+        form.setValue("residentialTypes", [...currentTypes, type as any]);
+      } else {
+        form.setValue("residentialTypes", currentTypes.filter(t => t !== type));
+      }
+    } else if (insuranceCategory === "commercial") {
+      const currentTypes = form.getValues("commercialTypes") || [];
+      if (checked) {
+        form.setValue("commercialTypes", [...currentTypes, type as any]);
+      } else {
+        form.setValue("commercialTypes", currentTypes.filter(t => t !== type));
+      }
+    }
+  };
+
+  const handleNextFromStep2 = () => {
+    const residentialTypes = form.getValues("residentialTypes") || [];
+    const commercialTypes = form.getValues("commercialTypes") || [];
+    
+    if (insuranceCategory === "residential" && residentialTypes.length === 0) {
+      form.setError("residentialTypes", { message: "Please select at least one residential insurance type" });
+      return;
+    }
+    
+    if (insuranceCategory === "commercial" && commercialTypes.length === 0) {
+      form.setError("commercialTypes", { message: "Please select at least one commercial insurance type" });
+      return;
+    }
+    
+    setCurrentStep(3);
+  };
+
   const handleQuoteTypeChange = (value: "new" | "current") => {
     setQuoteType(value);
     form.setValue("quoteType", value);
@@ -43,6 +96,9 @@ export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) 
   const handleCanopyConnect = async () => {
     // Handle Canopy Connect integration for existing insurance
     const canopyData = {
+      insuranceCategory: insuranceCategory || undefined,
+      residentialTypes: form.getValues("residentialTypes"),
+      commercialTypes: form.getValues("commercialTypes"),
       quoteType: "current" as const,
     };
     onSubmit(canopyData);
@@ -52,13 +108,25 @@ export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) 
     onSubmit(data);
   };
 
-  // If no quote type selected yet, show the initial selection
-  if (!quoteType) {
+  const handleBack = () => {
+    if (currentStep === 1) {
+      onBack();
+    } else if (currentStep === 2) {
+      setCurrentStep(1);
+      setInsuranceCategory(null);
+    } else if (currentStep === 3) {
+      setCurrentStep(2);
+      setQuoteType(null);
+    }
+  };
+
+  // Step 1: Insurance Category Selection
+  if (currentStep === 1) {
     return (
       <div className="max-w-2xl mx-auto">
         <div className="mb-8">
           <Button
-            onClick={onBack}
+            onClick={handleBack}
             variant="outline"
             className="mb-4"
           >
@@ -66,7 +134,177 @@ export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) 
             Back
           </Button>
           
-          <h3 className="text-xl font-semibold mb-6">Insurance Information</h3>
+          <div className="mb-6">
+            <div className="text-sm text-gray-500 mb-2">Step 1 of 3</div>
+            <h3 className="text-xl font-semibold mb-2">Insurance Information</h3>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="bg-primary h-2 rounded-full" style={{ width: '33%' }}></div>
+            </div>
+          </div>
+          
+          <div className="space-y-4">
+            <p className="text-gray-600 mb-6">
+              What type of insurance are you looking for?
+            </p>
+            
+            <div className="grid gap-4">
+              <Button
+                onClick={() => handleCategorySelect("residential")}
+                variant="outline"
+                className="p-6 text-left justify-between h-auto"
+                data-testid="button-residential-insurance"
+              >
+                <div>
+                  <div className="font-semibold">Residential</div>
+                  <div className="text-sm text-gray-600">Personal and home insurance needs</div>
+                </div>
+                <ChevronRight className="h-5 w-5" />
+              </Button>
+              
+              <Button
+                onClick={() => handleCategorySelect("commercial")}
+                variant="outline"
+                className="p-6 text-left justify-between h-auto"
+                data-testid="button-commercial-insurance"
+              >
+                <div>
+                  <div className="font-semibold">Commercial/Business</div>
+                  <div className="text-sm text-gray-600">Business and commercial insurance needs</div>
+                </div>
+                <ChevronRight className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Step 2: Insurance Type Selection
+  if (currentStep === 2) {
+    const residentialTypes = form.getValues("residentialTypes") || [];
+    const commercialTypes = form.getValues("commercialTypes") || [];
+    
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="mb-8">
+          <Button
+            onClick={handleBack}
+            variant="outline"
+            className="mb-4"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
+          </Button>
+          
+          <div className="mb-6">
+            <div className="text-sm text-gray-500 mb-2">Step 2 of 3</div>
+            <h3 className="text-xl font-semibold mb-2">
+              {insuranceCategory === "residential" ? "Residential Insurance Types" : "Commercial Insurance Types"}
+            </h3>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="bg-primary h-2 rounded-full" style={{ width: '66%' }}></div>
+            </div>
+          </div>
+          
+          <div className="space-y-4">
+            <p className="text-gray-600 mb-6">
+              What type of {insuranceCategory} insurance do you need? (Choose as many as you'd like)
+            </p>
+            
+            {insuranceCategory === "residential" && (
+              <div className="space-y-4">
+                {[
+                  { value: "auto", label: "Auto", description: "Car, truck, or motorcycle insurance" },
+                  { value: "home", label: "Home", description: "Homeowners or renters insurance" },
+                  { value: "flood", label: "Flood", description: "Flood damage protection" },
+                  { value: "general-liability", label: "General Liability", description: "Personal liability protection" }
+                ].map((option) => (
+                  <div key={option.value} className="flex items-center space-x-3 p-4 border rounded-lg">
+                    <Checkbox
+                      id={option.value}
+                      checked={residentialTypes.includes(option.value as any)}
+                      onCheckedChange={(checked) => handleTypeSelection(option.value, !!checked)}
+                      data-testid={`checkbox-residential-${option.value}`}
+                    />
+                    <div className="flex-1">
+                      <label htmlFor={option.value} className="font-medium cursor-pointer">
+                        {option.label}
+                      </label>
+                      <p className="text-sm text-gray-600">{option.description}</p>
+                    </div>
+                  </div>
+                ))}
+                {form.formState.errors.residentialTypes && (
+                  <p className="text-sm text-red-600">{form.formState.errors.residentialTypes.message}</p>
+                )}
+              </div>
+            )}
+            
+            {insuranceCategory === "commercial" && (
+              <div className="space-y-4">
+                {[
+                  { value: "property", label: "Property", description: "Commercial property insurance" },
+                  { value: "business-owners-policy", label: "Business Owners Policy", description: "Comprehensive business coverage" },
+                  { value: "flood", label: "Flood", description: "Commercial flood insurance" },
+                  { value: "other", label: "Other", description: "Other commercial insurance needs" }
+                ].map((option) => (
+                  <div key={option.value} className="flex items-center space-x-3 p-4 border rounded-lg">
+                    <Checkbox
+                      id={option.value}
+                      checked={commercialTypes.includes(option.value as any)}
+                      onCheckedChange={(checked) => handleTypeSelection(option.value, !!checked)}
+                      data-testid={`checkbox-commercial-${option.value}`}
+                    />
+                    <div className="flex-1">
+                      <label htmlFor={option.value} className="font-medium cursor-pointer">
+                        {option.label}
+                      </label>
+                      <p className="text-sm text-gray-600">{option.description}</p>
+                    </div>
+                  </div>
+                ))}
+                {form.formState.errors.commercialTypes && (
+                  <p className="text-sm text-red-600">{form.formState.errors.commercialTypes.message}</p>
+                )}
+              </div>
+            )}
+            
+            <Button
+              onClick={handleNextFromStep2}
+              className="w-full mt-6"
+              data-testid="button-continue-to-step3"
+            >
+              Continue
+              <ChevronRight className="ml-2 h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Step 3: Quote Type Selection
+  if (currentStep === 3 && !quoteType) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <div className="mb-8">
+          <Button
+            onClick={handleBack}
+            variant="outline"
+            className="mb-4"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back
+          </Button>
+          
+          <div className="mb-6">
+            <div className="text-sm text-gray-500 mb-2">Step 3 of 3</div>
+            <h3 className="text-xl font-semibold mb-2">Quote Type</h3>
+            <div className="w-full bg-gray-200 rounded-full h-2">
+              <div className="bg-primary h-2 rounded-full" style={{ width: '100%' }}></div>
+            </div>
+          </div>
           
           <div className="space-y-4">
             <p className="text-gray-600 mb-6">
@@ -104,7 +342,7 @@ export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) 
     );
   }
 
-  // If current insurance selected, show Canopy Connect option
+  // Current insurance flow
   if (quoteType === "current") {
     return (
       <div className="max-w-2xl mx-auto">
@@ -118,7 +356,7 @@ export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) 
             Back
           </Button>
           
-          <h3 className="text-xl font-semibold mb-6">Current Insurance Quote</h3>
+          <h3 className="text-xl font-semibold mb-6">Current Insurance Analysis</h3>
           
           <div className="space-y-6">
             <p className="text-gray-600">
@@ -126,7 +364,23 @@ export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) 
             </p>
             
             <div className="bg-blue-50 p-6 rounded-lg">
-              <h4 className="font-semibold mb-2">Current Insurance Analysis</h4>
+              <h4 className="font-semibold mb-2">Selected Insurance Types</h4>
+              <div className="mb-4">
+                <p className="text-sm text-gray-600">
+                  <strong>{insuranceCategory === "residential" ? "Residential" : "Commercial"} Insurance:</strong>
+                </p>
+                <ul className="text-sm text-gray-600 ml-4 list-disc">
+                  {insuranceCategory === "residential" 
+                    ? form.getValues("residentialTypes")?.map(type => (
+                        <li key={type}>{type.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</li>
+                      ))
+                    : form.getValues("commercialTypes")?.map(type => (
+                        <li key={type}>{type.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase())}</li>
+                      ))
+                  }
+                </ul>
+              </div>
+              
               <p className="text-sm text-gray-600 mb-4">
                 We'll securely connect with your current insurance provider to analyze your coverage and provide personalized recommendations.
               </p>

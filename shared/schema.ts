@@ -186,11 +186,19 @@ export const mortgageIncomeSchema = z.object({
 });
 
 export const insuranceFormSchema = z.object({
-  // Step 1: Quote type selection
-  quoteType: z.enum(["new", "current"]),
+  // Step 1: Insurance category selection
+  insuranceCategory: z.enum(["residential", "commercial"]).optional(),
   
-  // For new insurance path
-  // Personal information
+  // Step 2a: Residential insurance types (multiple selection allowed)
+  residentialTypes: z.array(z.enum(["auto", "home", "flood", "general-liability"])).optional(),
+  
+  // Step 2b: Commercial insurance types (multiple selection allowed)  
+  commercialTypes: z.array(z.enum(["property", "business-owners-policy", "flood", "other"])).optional(),
+  
+  // Step 3: Quote type selection
+  quoteType: z.enum(["new", "current"]).optional(),
+  
+  // For new insurance path - Personal information
   firstName: z.string().optional(),
   lastName: z.string().optional(), 
   email: z.string().optional(),
@@ -223,6 +231,27 @@ export const insuranceFormSchema = z.object({
   placeId: z.string().optional(),
   notes: z.string().optional(),
 }).superRefine((data, ctx) => {
+  // Validate insurance category and types
+  if (data.insuranceCategory) {
+    if (data.insuranceCategory === "residential") {
+      if (!data.residentialTypes || data.residentialTypes.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please select at least one residential insurance type",
+          path: ["residentialTypes"],
+        });
+      }
+    } else if (data.insuranceCategory === "commercial") {
+      if (!data.commercialTypes || data.commercialTypes.length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Please select at least one commercial insurance type",
+          path: ["commercialTypes"],
+        });
+      }
+    }
+  }
+  
   // Apply conditional validation for new insurance path
   if (data.quoteType === "new") {
     // Require personal information for new insurance
