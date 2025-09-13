@@ -37,12 +37,13 @@ function calculateEstimatedPremium(formData: InsuranceFormData) {
   // This would be a real calculation based on Canopy Connect's algorithms
   // For now, we'll use a simple placeholder calculation
   
-  // Base premium by insurance type
+  // Base premium by insurance type (default to property insurance)
+  const insuranceType = formData.type || "property";
   const basePremium = {
     auto: 1200,
     property: 1800,
     other: 1500
-  }[formData.type];
+  }[insuranceType];
   
   // Adjust based on coverage amount if provided
   let coverageMultiplier = 1.0;

@@ -186,14 +186,111 @@ export const mortgageIncomeSchema = z.object({
 });
 
 export const insuranceFormSchema = z.object({
-  type: z.enum(["auto", "property", "other"]),
+  // Step 1: Quote type selection
+  quoteType: z.enum(["new", "current"]),
+  
+  // For new insurance path
+  // Personal information
+  firstName: z.string().optional(),
+  lastName: z.string().optional(), 
+  email: z.string().optional(),
+  dateOfBirth: z.string().optional(),
+  
+  // Property information
+  currentAddress: z.string().optional(),
+  currentAddressPlaceId: z.string().optional(),
+  newAddress: z.string().optional(),
+  newAddressPlaceId: z.string().optional(),
+  hasMortgage: z.boolean().optional(),
+  propertyType: z.enum(["primary", "secondary", "investment"]).optional(),
+  
+  // Investment property specific
+  rentalTerm: z.enum([
+    "1-2-nights", 
+    "3-7-nights", 
+    "7-30-nights", 
+    "30-plus-days", 
+    "90-plus-days", 
+    "annual"
+  ]).optional(),
+  
+  // Legacy fields for backward compatibility
+  type: z.enum(["auto", "property", "other"]).optional(),
   currentProvider: z.string().optional(),
   coverageAmount: z.string().optional(),
   additionalInfo: z.string().optional(),
   address: z.string().optional(),
   placeId: z.string().optional(),
-  propertyType: z.string().optional(),
   notes: z.string().optional(),
+}).superRefine((data, ctx) => {
+  // Apply conditional validation for new insurance path
+  if (data.quoteType === "new") {
+    // Require personal information for new insurance
+    if (!data.firstName || data.firstName.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "First name is required",
+        path: ["firstName"],
+      });
+    }
+    
+    if (!data.lastName || data.lastName.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Last name is required",
+        path: ["lastName"],
+      });
+    }
+    
+    if (!data.email || data.email.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Email is required",
+        path: ["email"],
+      });
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Valid email is required",
+        path: ["email"],
+      });
+    }
+    
+    if (!data.dateOfBirth || data.dateOfBirth.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Date of birth is required",
+        path: ["dateOfBirth"],
+      });
+    }
+    
+    if (!data.propertyType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Property type is required",
+        path: ["propertyType"],
+      });
+    }
+    
+    // Require rental term for investment properties
+    if (data.propertyType === "investment" && !data.rentalTerm) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Rental term is required for investment properties",
+        path: ["rentalTerm"],
+      });
+    }
+    
+    // Require at least one address
+    if ((!data.currentAddress || data.currentAddress.trim() === "") && 
+        (!data.newAddress || data.newAddress.trim() === "")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one address is required",
+        path: ["currentAddress"],
+      });
+    }
+  }
 });
 
 export const constructionFormSchema = z.object({
