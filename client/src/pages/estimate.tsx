@@ -609,7 +609,7 @@ export default function Estimate() {
                 <CardContent className="pt-5">
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                     <div className="text-center">
-                      <p className="text-xs text-muted-foreground mb-1">Total Monthly Payment</p>
+                      <p className="text-xs text-muted-foreground mb-1">New Monthly Mortgage Payment</p>
                       <p className="text-2xl font-bold text-primary">{fmt(calc.totalHousing)}</p>
                     </div>
                     <div className="text-center">
