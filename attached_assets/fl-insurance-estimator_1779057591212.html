@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Florida Homeowners Insurance Estimator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,300&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0f1f3d;
+    --navy-mid: #1a3060;
+    --navy-light: #243f7a;
+    --gold: #c9a227;
+    --gold-light: #e8bf55;
+    --gold-pale: #fdf6e3;
+    --teal: #1a9e8f;
+    --teal-light: #22c5b3;
+    --teal-pale: #e6f8f6;
+    --white: #ffffff;
+    --off-white: #f7f8fb;
+    --gray-100: #eef0f5;
+    --gray-200: #dde1ec;
+    --gray-400: #9ba3b8;
+    --gray-600: #5c6680;
+    --gray-800: #2d3550;
+    --red-light: #fff0f0;
+    --red: #c0392b;
+    --amber-light: #fffbeb;
+    --amber: #b45309;
+    --green-light: #f0faf7;
+    --green: #0f6e56;
+    --risk-extreme-bg: #fff0f0;
+    --risk-extreme-text: #a32d2d;
+    --risk-high-bg: #fff5eb;
+    --risk-high-text: #854f0b;
+    --risk-mid-bg: #fffbeb;
+    --risk-mid-text: #b45309;
+    --risk-low-bg: #f0faf7;
+    --risk-low-text: #0f6e56;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --shadow-sm: 0 1px 3px rgba(15,31,61,0.08);
+    --shadow-md: 0 4px 16px rgba(15,31,61,0.10);
+    --shadow-lg: 0 8px 32px rgba(15,31,61,0.13);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--navy);
+    color: var(--gray-800);
+    min-height: 100vh;
+  }
+
+  /* ─── Header ─── */
+  header {
+    background: var(--navy);
+    padding: 28px 32px 24px;
+    border-bottom: 1px solid rgba(201,162,39,0.25);
+  }
+  .header-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .brand-icon {
+    width: 44px; height: 44px;
+    background: var(--gold);
+    border-radius: var(--radius-md);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .brand-text h1 {
+    font-size: 20px; font-weight: 600;
+    color: var(--white); letter-spacing: -0.02em;
+  }
+  .brand-text p {
+    font-size: 12px; color: var(--gray-400);
+    margin-top: 2px; font-weight: 300;
+  }
+  .header-badge {
+    background: rgba(201,162,39,0.15);
+    border: 1px solid rgba(201,162,39,0.35);
+    color: var(--gold-light);
+    font-size: 11px; font-weight: 500;
+    padding: 5px 12px; border-radius: 20px;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  /* ─── Main layout ─── */
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 32px 24px 64px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 400px 1fr;
+    gap: 24px;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+
+  /* ─── Panel / Card ─── */
+  .panel {
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 18px 22px 14px;
+    border-bottom: 1px solid var(--gray-100);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .panel-icon {
+    width: 32px; height: 32px;
+    background: var(--navy);
+    border-radius: var(--radius-sm);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px;
+  }
+  .panel-header h2 {
+    font-size: 14px; font-weight: 600;
+    color: var(--navy); letter-spacing: -0.01em;
+  }
+  .panel-body { padding: 20px 22px; }
+
+  /* ─── Form controls ─── */
+  .field { margin-bottom: 16px; }
+  .field:last-child { margin-bottom: 0; }
+  label {
+    display: block;
+    font-size: 11px; font-weight: 600;
+    color: var(--gray-600);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 6px;
+  }
+  select, input[type="number"] {
+    width: 100%;
+    padding: 10px 13px;
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    color: var(--gray-800);
+    background: var(--off-white);
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    cursor: pointer;
+  }
+  select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239ba3b8' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+  }
+  select:focus, input[type="number"]:focus {
+    outline: none;
+    border-color: var(--teal);
+    box-shadow: 0 0 0 3px rgba(26,158,143,0.12);
+    background: var(--white);
+  }
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+  /* Slider */
+  .slider-wrap { display: flex; flex-direction: column; gap: 8px; }
+  .slider-header { display: flex; justify-content: space-between; align-items: baseline; }
+  .slider-val {
+    font-family: 'DM Mono', monospace;
+    font-size: 16px; font-weight: 500;
+    color: var(--navy);
+  }
+  input[type="range"] {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    background: var(--gray-200);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px; height: 18px;
+    background: var(--navy);
+    border-radius: 50%;
+    border: 3px solid var(--white);
+    box-shadow: 0 0 0 1px var(--navy), var(--shadow-sm);
+    cursor: pointer;
+  }
+  input[type="range"]:focus { outline: none; }
+
+  .slider-ticks {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--gray-400);
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* ─── Section divider ─── */
+  .section-divider {
+    font-size: 10px; font-weight: 600;
+    color: var(--gray-400); text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 12px 22px 8px;
+    border-top: 1px solid var(--gray-100);
+    background: var(--off-white);
+  }
+
+  /* ─── Estimate button ─── */
+  .btn-estimate {
+    width: 100%;
+    padding: 14px;
+    background: var(--navy);
+    color: var(--white);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px; font-weight: 600;
+    border: none; border-radius: var(--radius-md);
+    cursor: pointer;
+    letter-spacing: -0.01em;
+    transition: background 0.15s, transform 0.1s;
+    margin-top: 4px;
+  }
+  .btn-estimate:hover { background: var(--navy-mid); }
+  .btn-estimate:active { transform: scale(0.99); }
+  .btn-estimate .btn-inner { display: flex; align-items: center; justify-content: center; gap: 8px; }
+
+  /* ─── Results panel ─── */
+  .result-hero {
+    background: var(--navy);
+    border-radius: var(--radius-lg);
+    padding: 28px;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-lg);
+  }
+  .result-hero-label {
+    font-size: 11px; font-weight: 600;
+    color: var(--gold);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 6px;
+  }
+  .result-hero-title {
+    font-size: 13px; color: rgba(255,255,255,0.6);
+    font-weight: 300; margin-bottom: 20px;
+  }
+  .result-hero-amounts {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+  }
+  .amount-card {
+    background: rgba(255,255,255,0.07);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  .amount-card.featured {
+    background: rgba(201,162,39,0.15);
+    border-color: rgba(201,162,39,0.4);
+  }
+  .amount-label {
+    font-size: 10px; font-weight: 500;
+    color: rgba(255,255,255,0.5);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 8px;
+  }
+  .amount-card.featured .amount-label { color: var(--gold); }
+  .amount-value {
+    font-family: 'DM Mono', monospace;
+    font-size: 22px; font-weight: 500;
+    color: var(--white);
+    letter-spacing: -0.02em;
+  }
+  .amount-card.featured .amount-value { color: var(--gold-light); }
+  .amount-pct {
+    font-size: 11px; color: rgba(255,255,255,0.4);
+    margin-top: 3px;
+    font-family: 'DM Mono', monospace;
+  }
+  .amount-card.featured .amount-pct { color: rgba(201,162,39,0.7); }
+
+  /* ─── Metric grid ─── */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .metric-card {
+    background: var(--white);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--gray-100);
+  }
+  .metric-card-label {
+    font-size: 11px; color: var(--gray-400);
+    font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: 4px;
+  }
+  .metric-card-val {
+    font-family: 'DM Mono', monospace;
+    font-size: 18px; font-weight: 500;
+    color: var(--navy);
+  }
+  .metric-card-sub {
+    font-size: 11px; color: var(--gray-400);
+    margin-top: 2px;
+  }
+
+  /* ─── Region info ─── */
+  .region-info {
+    background: var(--teal-pale);
+    border: 1px solid rgba(26,158,143,0.25);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    margin-bottom: 20px;
+    display: flex; gap: 12px; align-items: flex-start;
+  }
+  .region-info-icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  .region-info-text { font-size: 13px; color: #0c5247; line-height: 1.55; }
+  .region-info-text strong { font-weight: 600; }
+
+  /* ─── Rate table ─── */
+  .table-section { background: var(--white); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow: hidden; margin-bottom: 20px; }
+  .table-head {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--gray-100);
+  }
+  .table-head h3 { font-size: 14px; font-weight: 600; color: var(--navy); }
+  .table-head p { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    font-size: 10px; font-weight: 600;
+    color: var(--gray-400); text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 10px 16px 8px;
+    text-align: left;
+    background: var(--off-white);
+    border-bottom: 1px solid var(--gray-100);
+  }
+  td {
+    padding: 11px 16px;
+    font-size: 13px; color: var(--gray-800);
+    border-bottom: 1px solid var(--gray-100);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr.active-row { background: rgba(26,158,143,0.06); }
+  tr.active-row td { font-weight: 500; }
+
+  /* Badges */
+  .badge {
+    display: inline-block;
+    font-size: 10px; font-weight: 600;
+    padding: 3px 8px; border-radius: 20px;
+    white-space: nowrap; letter-spacing: 0.03em;
+  }
+  .badge-extreme { background: var(--risk-extreme-bg); color: var(--risk-extreme-text); }
+  .badge-high    { background: var(--risk-high-bg);    color: var(--risk-high-text); }
+  .badge-mid     { background: var(--risk-mid-bg);     color: var(--risk-mid-text); }
+  .badge-low     { background: var(--risk-low-bg);     color: var(--risk-low-text); }
+
+  /* ─── Adjustments callout ─── */
+  .adj-section { background: var(--white); border-radius: var(--radius-lg); box-shadow: var(--shadow-md); overflow: hidden; }
+  .adj-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+  @media (max-width: 600px) { .adj-grid { grid-template-columns: 1fr; } }
+  .adj-item {
+    padding: 16px 18px;
+    border-right: 1px solid var(--gray-100);
+  }
+  .adj-item:last-child { border-right: none; }
+  .adj-item-label { font-size: 11px; color: var(--gray-400); font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .adj-item-val {
+    font-family: 'DM Mono', monospace;
+    font-size: 16px; font-weight: 500;
+    color: var(--navy);
+  }
+  .adj-item-val.save { color: var(--teal); }
+  .adj-item-val.cost { color: #c0392b; }
+  .adj-item-desc { font-size: 11px; color: var(--gray-400); margin-top: 3px; }
+
+  /* ─── Disclaimer ─── */
+  .disclaimer {
+    margin-top: 20px;
+    font-size: 11px; color: rgba(255,255,255,0.35);
+    line-height: 1.6;
+    text-align: center;
+  }
+  .disclaimer a { color: rgba(255,255,255,0.5); }
+
+  /* ─── Placeholder state ─── */
+  .placeholder {
+    text-align: center; padding: 48px 24px;
+    background: var(--white); border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+  }
+  .placeholder-icon { font-size: 40px; margin-bottom: 12px; }
+  .placeholder h3 { font-size: 16px; font-weight: 600; color: var(--navy); margin-bottom: 6px; }
+  .placeholder p { font-size: 13px; color: var(--gray-400); line-height: 1.6; max-width: 300px; margin: 0 auto; }
+
+  /* ─── Responsive ─── */
+  @media (max-width: 500px) {
+    .result-hero-amounts { grid-template-columns: 1fr; }
+    .metrics-grid { grid-template-columns: 1fr; }
+    .adj-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="brand">
+      <div class="brand-icon">🏠</div>
+      <div class="brand-text">
+        <h1>FL Homeowners Insurance Estimator</h1>
+        <p>Tateo Conglomerate · Independent Insurance Agency</p>
+      </div>
+    </div>
+    <span class="header-badge">2026 Market Data</span>
+  </div>
+</header>
+
+<main>
+  <div class="layout">
+
+    <!-- ─── LEFT: Inputs ─── -->
+    <div>
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-icon">📍</div>
+          <h2>Property inputs</h2>
+        </div>
+        <div class="panel-body">
+
+          <div class="field">
+            <label>Region / risk tier</label>
+            <select id="region">
+              <option value="keys">Keys / Barrier Islands (Monroe, etc.)</option>
+              <option value="sefl">Southeast FL Coastal (Miami-Dade, Broward, Palm Beach)</option>
+              <option value="swfl">Southwest FL Coastal (Lee, Collier, Charlotte)</option>
+              <option value="tampa">Tampa Bay (Hillsborough, Pinellas, Pasco)</option>
+              <option value="nefljax">NE FL / Jacksonville (Duval, Clay, St. Johns)</option>
+              <option value="central">Central FL Inland (Orange, Osceola, Polk, Seminole)</option>
+              <option value="ncfl" selected>North-Central FL Inland (Alachua, Marion, Sumter, Lake)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Estimated rebuild / replacement cost</label>
+            <div class="slider-wrap">
+              <div class="slider-header">
+                <span style="font-size:12px;color:var(--gray-400)">Coverage A — dwelling only</span>
+                <span class="slider-val" id="rebuildOut">$400,000</span>
+              </div>
+              <input type="range" id="rebuild" min="150000" max="1500000" step="25000" value="400000">
+              <div class="slider-ticks">
+                <span>$150K</span>
+                <span>$500K</span>
+                <span>$1M</span>
+                <span>$1.5M</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="section-divider">Property conditions</div>
+        <div class="panel-body">
+
+          <div class="field">
+            <label>Roof age</label>
+            <select id="roof">
+              <option value="0">Under 5 years — best available rate</option>
+              <option value="1" selected>5–14 years — standard market rate</option>
+              <option value="2">15–20 years — surcharge applies</option>
+              <option value="3">20+ years — limited carrier options</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Wind mitigation status</label>
+            <select id="wind">
+              <option value="0">No inspection / no features on file</option>
+              <option value="1" selected>Basic inspection on file</option>
+              <option value="2">Full mitigation (hip roof, shutters, secondary water resistance)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Hurricane deductible</label>
+            <select id="hurr">
+              <option value="0">2% of dwelling — lowest out-of-pocket</option>
+              <option value="1" selected>5% of dwelling — saves ~15–20% on premium</option>
+              <option value="2">10% of dwelling — saves ~25–30% on premium</option>
+            </select>
+          </div>
+
+        </div>
+
+        <div class="section-divider">Coverage options</div>
+        <div class="panel-body">
+
+          <div class="field">
+            <label>Construction type</label>
+            <select id="construction">
+              <option value="1">Concrete block / CBS (preferred)</option>
+              <option value="2" selected>Frame construction (standard)</option>
+              <option value="3">Wood frame, older vintage (+cost)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Year built</label>
+            <select id="yearbuilt">
+              <option value="0">2002 or newer (Florida Building Code)</option>
+              <option value="1" selected>1990–2001</option>
+              <option value="2">1970–1989</option>
+              <option value="3">Pre-1970 (+significant surcharge)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Claims history (past 5 years)</label>
+            <select id="claims">
+              <option value="0" selected>No claims — clean history</option>
+              <option value="1">1 claim filed</option>
+              <option value="2">2 claims filed</option>
+              <option value="3">3+ claims — high-risk surcharge</option>
+            </select>
+          </div>
+
+          <button class="btn-estimate" onclick="calculate()">
+            <div class="btn-inner">
+              <span>Calculate estimate</span>
+              <span>→</span>
+            </div>
+          </button>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── RIGHT: Results ─── -->
+    <div id="resultsArea">
+      <div class="placeholder">
+        <div class="placeholder-icon">🏠</div>
+        <h3>Ready to estimate</h3>
+        <p>Fill in the property details on the left and click "Calculate estimate" to see your premium range.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <p class="disclaimer">
+    Data sourced from FL OIR CHOICES filings, Insure.com, Insurance.com, Greene & Associates, Broker One (2026).<br>
+    Estimates are for planning purposes only — excludes flood insurance (NFIP / private policy required separately).<br>
+    Actual premiums depend on carrier underwriting, credit score, specific property inspection, and market availability.
+  </p>
+</main>
+
+<script>
+const REGIONS = {
+  keys:    { name: "Keys / Barrier Islands",             low: 0.0495, high: 0.0665, badge: "badge-extreme", tier: "Extreme", note: "Extreme hurricane surge risk, very limited reinsurance appetite, and a small pool of insurable units produce premiums unlike anywhere else in the state. Most major carriers have exited this market." },
+  sefl:    { name: "Southeast FL Coastal",               low: 0.0233, high: 0.0407, badge: "badge-high",    tier: "High",    note: "Hurricane exposure, high rebuild costs, and older housing stock define this market. Miami-Dade, Broward, and Palm Beach are among the most expensive mainland ZIP codes in the U.S." },
+  swfl:    { name: "Southwest FL Coastal",               low: 0.0134, high: 0.0207, badge: "badge-high",    tier: "High",    note: "Post-Hurricane Ian reinsurance pricing continues to elevate rates across Lee, Collier, and Charlotte counties. Barrier island properties (Sanibel, Captiva) run significantly higher than the county average." },
+  tampa:   { name: "Tampa Bay Area",                     low: 0.0110, high: 0.0170, badge: "badge-mid",     tier: "Mod-High",note: "Growing storm risk recognition, high population density, and significant flood zone coverage in low-lying areas push rates above Central Florida. Pinellas peninsula properties carry the highest exposure within this region." },
+  nefljax: { name: "NE FL / Jacksonville",               low: 0.0080, high: 0.0127, badge: "badge-mid",     tier: "Moderate",note: "Moderate coastal exposure with better carrier availability than South Florida. St. Johns County waterfront properties trend toward the upper end; inland Duval and Clay closer to the lower bound." },
+  central: { name: "Central FL Inland",                  low: 0.0078, high: 0.0122, badge: "badge-mid",     tier: "Moderate",note: "Shielded from direct coastal wind, though sinkhole risk in parts of Polk and Pasco adds cost. Good carrier availability and the lowest hurricane deductibles of any Florida coastal-adjacent region." },
+  ncfl:    { name: "North-Central FL Inland",            low: 0.0054, high: 0.0080, badge: "badge-low",     tier: "Low",     note: "Consistently the lowest rates in Florida. Counties like Sumter, Alachua, Marion, and Columbia sit 60+ miles from the coast, dramatically limiting hurricane exposure. Strong carrier competition keeps premiums in check." }
+};
+
+const ROOF_ADJ  = [0.90, 1.00, 1.20, 1.38];
+const WIND_ADJ  = [1.14, 1.00, 0.82];
+const HURR_ADJ  = [1.10, 1.00, 0.85];
+const CONST_ADJ = [0.93, 1.00, 1.08];
+const YEAR_ADJ  = [0.90, 1.00, 1.10, 1.28];
+const CLAIM_ADJ = [1.00, 1.14, 1.26, 1.40];
+
+const REGION_TABLE = [
+  { key: "keys",    label: "Keys / Barrier Islands",                     counties: "Monroe, barrier islands",                        low: 0.0495, high: 0.0665, badge: "badge-extreme", tier: "Extreme"  },
+  { key: "sefl",    label: "SE FL Coastal (Miami-Dade / Broward / Palm Beach)", counties: "Miami-Dade, Broward, Palm Beach",          low: 0.0233, high: 0.0407, badge: "badge-high",    tier: "High"     },
+  { key: "swfl",    label: "SW FL Coastal",                              counties: "Lee, Collier, Charlotte",                        low: 0.0134, high: 0.0207, badge: "badge-high",    tier: "High"     },
+  { key: "tampa",   label: "Tampa Bay",                                  counties: "Hillsborough, Pinellas, Pasco",                  low: 0.0110, high: 0.0170, badge: "badge-mid",     tier: "Mod-High" },
+  { key: "nefljax", label: "NE FL / Jacksonville",                       counties: "Duval, Clay, St. Johns, Flagler",                low: 0.0080, high: 0.0127, badge: "badge-mid",     tier: "Moderate" },
+  { key: "central", label: "Central FL Inland",                          counties: "Orange, Osceola, Polk, Seminole",                low: 0.0078, high: 0.0122, badge: "badge-mid",     tier: "Moderate" },
+  { key: "ncfl",    label: "North-Central FL Inland",                    counties: "Alachua, Marion, Sumter, Lake, Columbia",        low: 0.0054, high: 0.0080, badge: "badge-low",     tier: "Low"      },
+];
+
+function fmt(n)  { return '$' + Math.round(n).toLocaleString(); }
+function pct(n)  { return (n * 100).toFixed(2) + '%'; }
+function fmtK(n) { return n >= 1000000 ? '$' + (n/1000000).toFixed(1) + 'M' : '$' + Math.round(n/1000) + 'K'; }
+
+function calculate() {
+  const regionKey  = document.getElementById('region').value;
+  const rebuild    = parseInt(document.getElementById('rebuild').value);
+  const roofIdx    = parseInt(document.getElementById('roof').value);
+  const windIdx    = parseInt(document.getElementById('wind').value);
+  const hurrIdx    = parseInt(document.getElementById('hurr').value);
+  const constIdx   = parseInt(document.getElementById('construction').value) - 1;
+  const yearIdx    = parseInt(document.getElementById('yearbuilt').value);
+  const claimsIdx  = parseInt(document.getElementById('claims').value);
+
+  const region = REGIONS[regionKey];
+  const adj = ROOF_ADJ[roofIdx] * WIND_ADJ[windIdx] * HURR_ADJ[hurrIdx] * CONST_ADJ[constIdx] * YEAR_ADJ[yearIdx] * CLAIM_ADJ[claimsIdx];
+
+  const lowRate  = region.low  * adj;
+  const highRate = region.high * adj;
+  const midRate  = (lowRate + highRate) / 2;
+
+  const lowAmt  = rebuild * lowRate;
+  const highAmt = rebuild * highRate;
+  const midAmt  = rebuild * midRate;
+
+  // Adjustment callouts
+  const windSaving = windIdx === 2 ? '–18% (full mit.)' : windIdx === 1 ? 'baseline' : '+14% (none)';
+  const roofEffect = roofIdx === 0 ? '–10%' : roofIdx === 1 ? 'baseline' : roofIdx === 2 ? '+20%' : '+38%';
+  const hurrSave   = hurrIdx === 0 ? '+10%' : hurrIdx === 1 ? 'baseline' : '–15%';
+
+  // Build table rows
+  const tableRows = REGION_TABLE.map(r => {
+    const isActive = r.key === regionKey;
+    const activeClass = isActive ? ' class="active-row"' : '';
+    const activeIcon = isActive ? ' ◀' : '';
+    return `<tr${activeClass}>
+      <td>${r.label}${activeIcon}</td>
+      <td style="font-family:'DM Mono',monospace;font-size:12px;">${pct(r.low)} – ${pct(r.high)}</td>
+      <td><span class="badge ${r.badge}">${r.tier}</span></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('resultsArea').innerHTML = `
+    <div class="result-hero">
+      <div class="result-hero-label">Estimated annual premium</div>
+      <div class="result-hero-title">${region.name} · ${fmtK(rebuild)} rebuild cost · HO-3 wind policy</div>
+      <div class="result-hero-amounts">
+        <div class="amount-card">
+          <div class="amount-label">Low estimate</div>
+          <div class="amount-value">${fmt(lowAmt)}</div>
+          <div class="amount-pct">${pct(lowRate)} of rebuild</div>
+        </div>
+        <div class="amount-card featured">
+          <div class="amount-label">Midpoint</div>
+          <div class="amount-value">${fmt(midAmt)}</div>
+          <div class="amount-pct">${pct(midRate)} of rebuild</div>
+        </div>
+        <div class="amount-card">
+          <div class="amount-label">High estimate</div>
+          <div class="amount-value">${fmt(highAmt)}</div>
+          <div class="amount-pct">${pct(highRate)} of rebuild</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-card-label">Monthly (midpoint)</div>
+        <div class="metric-card-val">${fmt(midAmt / 12)}/mo</div>
+        <div class="metric-card-sub">Budget planning figure</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-card-label">Hurricane deductible</div>
+        <div class="metric-card-val">${fmt(rebuild * [0.02, 0.05, 0.10][hurrIdx])}</div>
+        <div class="metric-card-sub">Out-of-pocket per storm event</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-card-label">Flood insurance</div>
+        <div class="metric-card-val">Separate policy</div>
+        <div class="metric-card-sub">NFIP or private — not included</div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-card-label">Risk tier</div>
+        <div class="metric-card-val"><span class="badge ${region.badge}" style="font-size:13px;">${region.tier}</span></div>
+        <div class="metric-card-sub">${region.name}</div>
+      </div>
+    </div>
+
+    <div class="region-info">
+      <div class="region-info-icon">ℹ️</div>
+      <div class="region-info-text"><strong>${region.name}:</strong> ${region.note}</div>
+    </div>
+
+    <div class="adj-section" style="margin-bottom:20px;">
+      <div class="panel-header" style="padding:14px 18px;">
+        <div class="panel-icon">⚙️</div>
+        <h2>Applied rate adjustments</h2>
+      </div>
+      <div class="adj-grid">
+        <div class="adj-item">
+          <div class="adj-item-label">Wind mitigation</div>
+          <div class="adj-item-val ${windIdx === 2 ? 'save' : windIdx === 0 ? 'cost' : ''}">${windSaving}</div>
+          <div class="adj-item-desc">vs. no mitigation baseline</div>
+        </div>
+        <div class="adj-item">
+          <div class="adj-item-label">Roof age</div>
+          <div class="adj-item-val ${roofIdx === 0 ? 'save' : roofIdx > 1 ? 'cost' : ''}">${roofEffect}</div>
+          <div class="adj-item-desc">vs. 5–14 year standard roof</div>
+        </div>
+        <div class="adj-item">
+          <div class="adj-item-label">Hurricane deductible</div>
+          <div class="adj-item-val ${hurrIdx === 2 ? 'save' : hurrIdx === 0 ? 'cost' : ''}">${hurrSave}</div>
+          <div class="adj-item-desc">vs. 5% deductible baseline</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-section">
+      <div class="table-head">
+        <h3>Rate percentage benchmarks by region</h3>
+        <p>Per $300K dwelling · 2026 market data · your selection highlighted</p>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Region</th>
+            <th>% of rebuild cost</th>
+            <th>Risk tier</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+// Live rebuild slider update
+document.getElementById('rebuild').addEventListener('input', function() {
+  document.getElementById('rebuildOut').textContent = '$' + parseInt(this.value).toLocaleString();
+});
+
+// Auto-calculate on load with defaults visible
+window.addEventListener('DOMContentLoaded', function() {
+  // Leave placeholder — user clicks calculate
+});
+</script>
+</body>
+</html>

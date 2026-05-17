@@ -1,232 +1,491 @@
+import { useMemo, useState } from "react";
+import { useSearch } from "wouter";
 import { Helmet } from "react-helmet";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { ArrowLeft, Shield, MapPin, Home, AlertTriangle, Info, TrendingDown, TrendingUp, Minus } from "lucide-react";
 import { Link } from "wouter";
-import { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { FileText, Download, ArrowRight, Car, Home, Shield, Umbrella, CheckCircle, AlertTriangle, Loader2 } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
-import AddressSearch from "@/components/insurance/address-search";
-import InsuranceResults from "@/components/insurance/insurance-results";
-import { getInsuranceQuote } from "@/lib/api";
+import { getCountyName } from "@/lib/county-tax-estimator";
 
-export default function Insurance() {  
-  const [property, setProperty] = useState<{ 
-    address: string; 
-    propertyType: string; 
-    insuranceTypes: string[]; 
-    otherOptions: string[];
-    placeId?: string 
-  } | null>(null);
-  const [quote, setQuote] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showResults, setShowResults] = useState(false);
+// ─── Data ────────────────────────────────────────────────────────────────────
 
-  const handleAddressSelected = async (
-    address: string, 
-    insuranceTypes: string[], 
-    propertyType: string, 
-    otherOptions: string[], 
-    placeId?: string
-  ) => {
-    setProperty({ address, propertyType, insuranceTypes, otherOptions, placeId });
-    setLoading(true);
-    setError(null);
-    
-    try {
-      // Call backend API to get insurance quote via Canopy Connect
-      const data = await getInsuranceQuote({
-        address,
-        placeId,
-        propertyType,
-        insuranceTypes,
-        otherOptions,
-        // Determine primary insurance type based on selection
-        type: insuranceTypes[0] || 'property'
-      });
-      
-      setQuote(data);
-      setShowResults(true);
-    } catch (err) {
-      console.error('Error getting insurance quote:', err);
-      setError('We encountered a problem getting your insurance options. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-  
-  const resources = [
-    {
-      title: "Florida Homeowners Insurance Guide",
-      description: "Learn about Florida-specific homeowners insurance options, requirements, and how to get the best coverage for your property.",
-      icon: <FileText className="h-10 w-10 text-primary" />,
-      cta: "Download Homeowners Guide",
-      link: "https://tateoco.com/florida-homeowners-insurance-guide/?utm_source=Insurance&utm_medium=form&utm_campaign=HOI_guide"
-    },
-    {
-      title: "Insurance Claims Guide",
-      description: "Step-by-step instructions for filing claims and maximizing your insurance benefits when you need them most.",
-      icon: <FileText className="h-10 w-10 text-primary" />,
-      cta: "Download Claims Guide",
-      link: "#"
-    }
-  ];
+type RegionKey = "keys" | "sefl" | "swfl" | "tampa" | "nefljax" | "central" | "ncfl";
 
-  const insuranceTypes = [
-    {
-      title: "Auto Insurance",
-      description: "Comprehensive coverage for your vehicles including liability, collision, comprehensive, and uninsured motorist protection.",
-      icon: <Car className="h-10 w-10 text-primary" />
-    },
-    {
-      title: "Property or Flood Insurance",
-      description: "Protect your home, rental property, or business with comprehensive property and flood insurance coverage.",
-      icon: <Home className="h-10 w-10 text-primary" />
-    },
-    {
-      title: "Commercial Insurance",
-      description: "Protect your business with comprehensive commercial property, liability, and business interruption insurance.",
-      icon: <Shield className="h-10 w-10 text-primary" />
-    },
-    {
-      title: "Other Insurance",
-      description: "Additional liability coverage that protects your assets and future earnings beyond standard policy limits.",
-      icon: <Umbrella className="h-10 w-10 text-primary" />
-    }
-  ];
+interface Region {
+  name: string;
+  counties: string;
+  low: number;
+  high: number;
+  tier: string;
+  tierColor: string;
+  note: string;
+}
+
+const REGIONS: Record<RegionKey, Region> = {
+  keys:    { name: "Keys / Barrier Islands",        counties: "Monroe, barrier islands",                          low: 0.0495, high: 0.0665, tier: "Extreme",  tierColor: "bg-red-100 text-red-800",    note: "Extreme hurricane surge risk, very limited reinsurance appetite, and a small pool of insurable units produce premiums unlike anywhere else in the state. Most major carriers have exited this market." },
+  sefl:    { name: "SE FL Coastal",                 counties: "Miami-Dade, Broward, Palm Beach",                  low: 0.0233, high: 0.0407, tier: "High",     tierColor: "bg-orange-100 text-orange-800", note: "Hurricane exposure, high rebuild costs, and older housing stock define this market. Miami-Dade, Broward, and Palm Beach are among the most expensive mainland ZIP codes in the U.S." },
+  swfl:    { name: "SW FL Coastal",                 counties: "Lee, Collier, Charlotte",                          low: 0.0134, high: 0.0207, tier: "High",     tierColor: "bg-orange-100 text-orange-800", note: "Post-Hurricane Ian reinsurance pricing continues to elevate rates across Lee, Collier, and Charlotte counties. Barrier island properties run significantly higher than the county average." },
+  tampa:   { name: "Tampa Bay Area",                counties: "Hillsborough, Pinellas, Pasco",                   low: 0.0110, high: 0.0170, tier: "Mod-High", tierColor: "bg-yellow-100 text-yellow-800", note: "Growing storm risk recognition, high population density, and significant flood zone coverage in low-lying areas push rates above Central Florida. Pinellas peninsula properties carry the highest exposure within this region." },
+  nefljax: { name: "NE FL / Jacksonville",          counties: "Duval, Clay, St. Johns, Flagler",                  low: 0.0080, high: 0.0127, tier: "Moderate", tierColor: "bg-blue-100 text-blue-800",   note: "Moderate coastal exposure with better carrier availability than South Florida. St. Johns County waterfront properties trend toward the upper end; inland Duval and Clay closer to the lower bound." },
+  central: { name: "Central FL Inland",             counties: "Orange, Osceola, Polk, Seminole",                  low: 0.0078, high: 0.0122, tier: "Moderate", tierColor: "bg-blue-100 text-blue-800",   note: "Shielded from direct coastal wind, though sinkhole risk in parts of Polk adds cost. Good carrier availability and the lowest hurricane deductibles of any Florida coastal-adjacent region." },
+  ncfl:    { name: "North-Central FL Inland",       counties: "Alachua, Marion, Sumter, Lake, Columbia",           low: 0.0054, high: 0.0080, tier: "Low",      tierColor: "bg-green-100 text-green-800",  note: "Consistently the lowest rates in Florida. These counties sit 60+ miles from the coast, dramatically limiting hurricane exposure. Strong carrier competition keeps premiums in check." },
+};
+
+const REGION_TABLE: { key: RegionKey; label: string; counties: string; rateRange: string }[] = [
+  { key: "keys",    label: "Keys / Barrier Islands",   counties: "Monroe, barrier islands",             rateRange: "4.95% – 6.65%" },
+  { key: "sefl",    label: "SE FL Coastal",             counties: "Miami-Dade, Broward, Palm Beach",     rateRange: "2.33% – 4.07%" },
+  { key: "swfl",    label: "SW FL Coastal",             counties: "Lee, Collier, Charlotte",             rateRange: "1.34% – 2.07%" },
+  { key: "tampa",   label: "Tampa Bay",                 counties: "Hillsborough, Pinellas, Pasco",       rateRange: "1.10% – 1.70%" },
+  { key: "nefljax", label: "NE FL / Jacksonville",      counties: "Duval, Clay, St. Johns, Flagler",     rateRange: "0.80% – 1.27%" },
+  { key: "central", label: "Central FL Inland",         counties: "Orange, Osceola, Polk, Seminole",     rateRange: "0.78% – 1.22%" },
+  { key: "ncfl",    label: "North-Central FL Inland",   counties: "Alachua, Marion, Sumter, Lake",       rateRange: "0.54% – 0.80%" },
+];
+
+const ROOF_ADJ  = [0.90, 1.00, 1.20, 1.38];
+const WIND_ADJ  = [1.14, 1.00, 0.82];
+const HURR_ADJ  = [1.10, 1.00, 0.85];
+const CONST_ADJ = [0.93, 1.00, 1.08];
+const YEAR_ADJ  = [0.90, 1.00, 1.10, 1.28];
+const CLAIM_ADJ = [1.00, 1.14, 1.26, 1.40];
+
+const MODIFIERS = [
+  { factor: "Roof 0–5 years",           adjustment: "−10% to −20%",    dir: "save" },
+  { factor: "Roof 6–10 years",           adjustment: "Baseline",         dir: "neutral" },
+  { factor: "Roof 11–15 years",          adjustment: "+10% to +25%",    dir: "cost" },
+  { factor: "Roof 16+ years",            adjustment: "+25% to +75%",    dir: "cost" },
+  { factor: "Masonry / block (CBS)",     adjustment: "−5% to −15%",     dir: "save" },
+  { factor: "Frame construction",        adjustment: "+10% to +30%",    dir: "cost" },
+  { factor: "Wind mitigation credits",   adjustment: "−10% to −40%",    dir: "save" },
+  { factor: "Hip roof",                  adjustment: "−5% to −15%",     dir: "save" },
+  { factor: "No opening protection",     adjustment: "+10% to +25%",    dir: "cost" },
+  { factor: "Coastal ZIP / barrier isl.", adjustment: "+25% to +100%",  dir: "cost" },
+  { factor: "AE / VE flood zone",        adjustment: "Separate flood policy required", dir: "neutral" },
+];
+
+// ─── Region detection from address ────────────────────────────────────────────
+
+const COUNTY_TO_REGION: Record<string, RegionKey> = {
+  "monroe": "keys",
+  "miami-dade": "sefl", "broward": "sefl", "palm beach": "sefl",
+  "lee": "swfl", "collier": "swfl", "charlotte": "swfl",
+  "hillsborough": "tampa", "pinellas": "tampa", "pasco": "tampa", "hernando": "tampa",
+  "duval": "nefljax", "clay": "nefljax", "st. johns": "nefljax", "st johns": "nefljax", "flagler": "nefljax", "nassau": "nefljax",
+  "orange": "central", "osceola": "central", "polk": "central", "seminole": "central", "lake": "central", "volusia": "central",
+  "alachua": "ncfl", "marion": "ncfl", "sumter": "ncfl", "columbia": "ncfl", "putnam": "ncfl",
+  "manatee": "swfl", "sarasota": "swfl",
+  "brevard": "central", "indian river": "central", "st. lucie": "sefl", "martin": "sefl",
+  "okaloosa": "nefljax", "santa rosa": "nefljax", "escambia": "nefljax",
+  "leon": "ncfl", "gadsden": "ncfl", "wakulla": "ncfl",
+};
+
+function getRegionFromAddress(address: string): RegionKey {
+  const county = getCountyName(address);
+  if (county && COUNTY_TO_REGION[county]) return COUNTY_TO_REGION[county];
+  return "tampa";
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function fmt(n: number) { return "$" + Math.round(n).toLocaleString(); }
+function fmtK(n: number) { return n >= 1_000_000 ? "$" + (n / 1_000_000).toFixed(1) + "M" : "$" + Math.round(n / 1000) + "K"; }
+
+// ─── Slider component ─────────────────────────────────────────────────────────
+
+function SliderRow({ label, value, onChange, min, max, step, display }: {
+  label: string; value: number; onChange: (v: number) => void;
+  min: number; max: number; step: number; display: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex justify-between items-baseline">
+        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</span>
+        <span className="text-sm font-bold text-primary font-mono">{display}</span>
+      </div>
+      <input
+        type="range"
+        min={min} max={max} step={step} value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        className="w-full h-1.5 rounded-full appearance-none bg-gray-200 accent-primary cursor-pointer"
+      />
+    </div>
+  );
+}
+
+function SelectRow({ label, value, onChange, options }: {
+  label: string; value: number; onChange: (v: number) => void;
+  options: { value: number; label: string }[];
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">{label}</label>
+      <select
+        value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+      >
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+    </div>
+  );
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export default function InsuranceDashboard() {
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  const address = params.get("address") || "";
+
+  const detectedRegion = address ? getRegionFromAddress(address) : "tampa";
+
+  const [regionKey, setRegionKey] = useState<RegionKey>(detectedRegion);
+  const [rebuild, setRebuild] = useState(400000);
+  const [roofIdx, setRoofIdx] = useState(1);
+  const [windIdx, setWindIdx] = useState(1);
+  const [hurrIdx, setHurrIdx] = useState(1);
+  const [constIdx, setConstIdx] = useState(0);
+  const [yearIdx, setYearIdx] = useState(1);
+  const [claimsIdx, setClaimsIdx] = useState(0);
+
+  const calc = useMemo(() => {
+    const region = REGIONS[regionKey];
+    const adj = ROOF_ADJ[roofIdx] * WIND_ADJ[windIdx] * HURR_ADJ[hurrIdx] * CONST_ADJ[constIdx] * YEAR_ADJ[yearIdx] * CLAIM_ADJ[claimsIdx];
+    const lowRate  = region.low  * adj;
+    const highRate = region.high * adj;
+    const midRate  = (lowRate + highRate) / 2;
+    const hurrDeductiblePct = [0.02, 0.05, 0.10][hurrIdx];
+    return {
+      low: rebuild * lowRate,
+      mid: rebuild * midRate,
+      high: rebuild * highRate,
+      monthly: rebuild * midRate / 12,
+      hurrDeductible: rebuild * hurrDeductiblePct,
+      hurrPct: hurrDeductiblePct * 100,
+      adj,
+      windEffect: windIdx === 2 ? { label: "−18%", dir: "save" } : windIdx === 0 ? { label: "+14%", dir: "cost" } : { label: "Baseline", dir: "neutral" },
+      roofEffect: roofIdx === 0 ? { label: "−10%", dir: "save" } : roofIdx === 1 ? { label: "Baseline", dir: "neutral" } : roofIdx === 2 ? { label: "+20%", dir: "cost" } : { label: "+38%", dir: "cost" },
+      hurrEffect: hurrIdx === 2 ? { label: "−15%", dir: "save" } : hurrIdx === 0 ? { label: "+10%", dir: "cost" } : { label: "Baseline", dir: "neutral" },
+      constEffect: constIdx === 0 ? { label: "−7%", dir: "save" } : constIdx === 2 ? { label: "+8%", dir: "cost" } : { label: "Baseline", dir: "neutral" },
+    };
+  }, [regionKey, rebuild, roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx]);
+
+  const region = REGIONS[regionKey];
+
+  function EffectBadge({ label, dir }: { label: string; dir: string }) {
+    if (dir === "save") return <span className="inline-flex items-center gap-1 text-green-700 font-semibold text-sm"><TrendingDown className="h-3.5 w-3.5" />{label}</span>;
+    if (dir === "cost") return <span className="inline-flex items-center gap-1 text-red-600 font-semibold text-sm"><TrendingUp className="h-3.5 w-3.5" />{label}</span>;
+    return <span className="inline-flex items-center gap-1 text-muted-foreground text-sm"><Minus className="h-3.5 w-3.5" />{label}</span>;
+  }
 
   return (
-    <div>
-      <Helmet>
-        <title>Insurance Services | Tateo & Co</title>
-      </Helmet>
+    <>
+      <Helmet><title>Insurance Estimate — Tateo & Co</title></Helmet>
 
-      <div className="py-10 bg-primary/5">
-        <div className="container mx-auto px-4 text-center">
-          <h1 className="text-4xl font-bold text-primary mb-4">Insurance Services</h1>
-          <p className="text-lg text-gray-600 max-w-3xl mx-auto">
-            Our insurance specialists can help you find the right coverage to protect what matters most, whether it's your auto, property, or other valuable assets.
-          </p>
+      {/* ── Page header ── */}
+      <div className="bg-primary text-white">
+        <div className="max-w-6xl mx-auto px-4 py-5 flex items-center gap-4 flex-wrap">
+          <Link href={`/select-service${address ? `?address=${encodeURIComponent(address)}` : ""}`}>
+            <button className="flex items-center gap-1.5 text-white/70 hover:text-white text-sm transition-colors">
+              <ArrowLeft className="h-4 w-4" /> Back
+            </button>
+          </Link>
+          <div className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-white/80" />
+            <span className="font-semibold text-lg">Florida Homeowners Insurance Estimator</span>
+          </div>
+          {address && (
+            <div className="ml-auto flex items-center gap-1.5 text-white/70 text-sm">
+              <MapPin className="h-4 w-4" />
+              <span className="truncate max-w-xs">{address}</span>
+            </div>
+          )}
         </div>
       </div>
-      
-      <section className="py-16">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-primary mb-4">Insurance Coverage Options</h2>
-            <p className="text-gray-600 max-w-2xl mx-auto">
-              We offer a comprehensive range of insurance products from top-rated carriers to ensure you get the protection you need at competitive rates.
+
+      <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+
+        {/* ── Region note ── */}
+        {address && (
+          <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+            <Info className="h-4 w-4 text-emerald-700 mt-0.5 shrink-0" />
+            <p className="text-sm text-emerald-800">
+              <strong>Auto-detected region:</strong> {region.name} — {region.counties}. Adjust below if needed.
             </p>
           </div>
-          
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 mb-16">
-            {insuranceTypes.map((type, index) => (
-              <Card key={index} className="border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-                <CardContent className="p-6">
-                  <div className="bg-primary/10 p-3 rounded-lg inline-block mb-4">
-                    {type.icon}
-                  </div>
-                  <h3 className="text-xl font-semibold text-primary mb-2">{type.title}</h3>
-                  <p className="text-gray-600">{type.description}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+        )}
 
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-primary mb-4">FREE QUOTE NOW</h2>
-            <p className="text-gray-600 max-w-2xl mx-auto">
-              Find personalized insurance options for you in just a few minutes.
-            </p>
-          </div>
+        <div className="grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6 items-start">
 
-          <div className="max-w-2xl mx-auto mb-12">
-            <AddressSearch onAddressSelected={handleAddressSelected} />
-            {property && quote && !loading && !error && (
-              <div className="mt-8 bg-green-50 p-6 rounded-lg border border-green-200">
-                <div className="flex items-center text-green-700 mb-2">
-                  <CheckCircle className="h-5 w-5 mr-2" />
-                  <h3 className="text-lg font-semibold">Quote Request Received</h3>
+          {/* ── LEFT: Inputs ── */}
+          <Card className="border shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Home className="h-4 w-4 text-primary" /> Property Details
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+
+              <SelectRow
+                label="Region / Risk Tier"
+                value={Object.keys(REGIONS).indexOf(regionKey)}
+                onChange={i => setRegionKey(Object.keys(REGIONS)[i] as RegionKey)}
+                options={Object.entries(REGIONS).map(([, r], i) => ({ value: i, label: r.name + " — " + r.counties }))}
+              />
+
+              <SliderRow
+                label="Rebuild / Replacement Cost (Coverage A)"
+                value={rebuild}
+                onChange={setRebuild}
+                min={150000} max={1500000} step={25000}
+                display={fmtK(rebuild)}
+              />
+
+              <Separator />
+
+              <SelectRow
+                label="Roof Age"
+                value={roofIdx}
+                onChange={setRoofIdx}
+                options={[
+                  { value: 0, label: "Under 5 years — best rate (−10%)" },
+                  { value: 1, label: "5–14 years — standard baseline" },
+                  { value: 2, label: "15–20 years — surcharge (+20%)" },
+                  { value: 3, label: "20+ years — limited options (+38%)" },
+                ]}
+              />
+
+              <SelectRow
+                label="Wind Mitigation"
+                value={windIdx}
+                onChange={setWindIdx}
+                options={[
+                  { value: 0, label: "No inspection / no features on file (+14%)" },
+                  { value: 1, label: "Basic inspection on file — baseline" },
+                  { value: 2, label: "Full mitigation: hip roof, shutters, SWR (−18%)" },
+                ]}
+              />
+
+              <SelectRow
+                label="Hurricane Deductible"
+                value={hurrIdx}
+                onChange={setHurrIdx}
+                options={[
+                  { value: 0, label: "2% of dwelling — lowest out-of-pocket (+10%)" },
+                  { value: 1, label: "5% of dwelling — baseline (saves 15–20%)" },
+                  { value: 2, label: "10% of dwelling — saves 25–30% on premium" },
+                ]}
+              />
+
+              <SelectRow
+                label="Construction Type"
+                value={constIdx}
+                onChange={setConstIdx}
+                options={[
+                  { value: 0, label: "Concrete block / CBS — preferred (−7%)" },
+                  { value: 1, label: "Mixed / unknown — baseline" },
+                  { value: 2, label: "Frame construction (+8%)" },
+                ]}
+              />
+
+              <SelectRow
+                label="Year Built"
+                value={yearIdx}
+                onChange={setYearIdx}
+                options={[
+                  { value: 0, label: "2002 or newer — Florida Building Code (−10%)" },
+                  { value: 1, label: "1990–2001 — baseline" },
+                  { value: 2, label: "1970–1989 (+10%)" },
+                  { value: 3, label: "Pre-1970 — significant surcharge (+28%)" },
+                ]}
+              />
+
+              <SelectRow
+                label="Claims History (past 5 years)"
+                value={claimsIdx}
+                onChange={setClaimsIdx}
+                options={[
+                  { value: 0, label: "No claims — clean history" },
+                  { value: 1, label: "1 claim filed (+14%)" },
+                  { value: 2, label: "2 claims filed (+26%)" },
+                  { value: 3, label: "3+ claims — high-risk surcharge (+40%)" },
+                ]}
+              />
+
+            </CardContent>
+          </Card>
+
+          {/* ── RIGHT: Results ── */}
+          <div className="space-y-5 lg:sticky lg:top-4">
+
+            {/* Premium hero */}
+            <div className="bg-primary rounded-2xl p-6 text-white shadow-lg">
+              <div className="text-xs font-semibold text-white/60 uppercase tracking-widest mb-1">Estimated Annual Premium</div>
+              <div className="text-xs text-white/50 mb-5">{region.name} · {fmtK(rebuild)} rebuild · HO-3 wind policy</div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-white/10 rounded-xl p-4 border border-white/10">
+                  <div className="text-[10px] font-medium text-white/50 uppercase tracking-wide mb-2">Low Estimate</div>
+                  <div className="text-xl font-bold font-mono">{fmt(calc.low)}</div>
+                  <div className="text-[10px] text-white/40 mt-1">{(calc.low / rebuild * 100).toFixed(2)}% of rebuild</div>
                 </div>
-                <p className="text-gray-700">Thank you for your request for {property.address}. An insurance specialist will contact you soon with personalized quotes.</p>
-              </div>
-            )}
-            {loading && (
-              <div className="mt-8 text-center p-6">
-                <Loader2 className="h-8 w-8 animate-spin mx-auto text-primary mb-4" />
-                <p className="text-gray-600">Processing your request...</p>
-              </div>
-            )}
-            {error && (
-              <div className="mt-8 bg-red-50 p-6 rounded-lg border border-red-200">
-                <div className="flex items-center text-red-700 mb-2">
-                  <AlertTriangle className="h-5 w-5 mr-2" />
-                  <h3 className="text-lg font-semibold">Error</h3>
+                <div className="bg-secondary/30 rounded-xl p-4 border border-secondary/50">
+                  <div className="text-[10px] font-medium text-secondary-foreground/70 uppercase tracking-wide mb-2">Midpoint</div>
+                  <div className="text-2xl font-bold font-mono text-secondary">{fmt(calc.mid)}</div>
+                  <div className="text-[10px] text-secondary/70 mt-1">{(calc.mid / rebuild * 100).toFixed(2)}% of rebuild</div>
                 </div>
-                <p className="text-gray-700">{error}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-16">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4 text-primary">
-              Insurance Resources
-            </h2>
-            <div className="w-20 h-1 bg-secondary mx-auto mb-6"></div>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Download our free guides to help you understand different insurance options and make informed decisions about your coverage.
-            </p>
-          </div>
-          
-          <div className="grid md:grid-cols-2 gap-10">
-            {resources.map((resource, index) => (
-              <div key={index} className="bg-white rounded-lg shadow-md overflow-hidden border border-gray-100">
-                <div className="p-8">
-                  <div className="flex items-start">
-                    <div className="bg-primary/10 p-3 rounded-lg mr-5">
-                      {resource.icon}
-                    </div>
-                    <div>
-                      <h3 className="text-2xl font-bold text-primary mb-3">{resource.title}</h3>
-                      <p className="text-gray-600 mb-6 leading-relaxed">{resource.description}</p>
-                      <Button asChild variant="outline" className="group border-primary text-primary hover:bg-primary hover:text-white">
-                        <a href={resource.link} target="_blank" rel="noopener noreferrer">
-                          <Download className="mr-2 h-4 w-4 transition-transform group-hover:translate-y-0.5" />
-                          {resource.cta}
-                        </a>
-                      </Button>
-                    </div>
-                  </div>
+                <div className="bg-white/10 rounded-xl p-4 border border-white/10">
+                  <div className="text-[10px] font-medium text-white/50 uppercase tracking-wide mb-2">High Estimate</div>
+                  <div className="text-xl font-bold font-mono">{fmt(calc.high)}</div>
+                  <div className="text-[10px] text-white/40 mt-1">{(calc.high / rebuild * 100).toFixed(2)}% of rebuild</div>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-16 bg-gray-50">
-        <div className="container mx-auto px-4">
-          <div className="max-w-3xl mx-auto text-center">
-            <h2 className="text-3xl font-bold mb-6 text-primary">Ready to Protect What Matters Most?</h2>
-            <p className="text-gray-600 mb-8">Our insurance specialists are ready to help you find the right coverage for your unique needs.</p>
-            <div className="flex flex-wrap justify-center gap-4">
-              <Button asChild className="bg-primary hover:bg-primary/90 text-white">
-                <Link href="/questionnaire">
-                  Get Started <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-              <Button asChild className="bg-secondary hover:bg-secondary/90 text-white">
-                <Link href="/#contact">
-                  CONTACT <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
             </div>
+
+            {/* Key metric cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: "Monthly (midpoint)", value: fmt(calc.monthly) + "/mo", sub: "Budget planning figure" },
+                { label: "Hurricane Deductible", value: fmt(calc.hurrDeductible), sub: `${calc.hurrPct}% of dwelling — per event` },
+                { label: "Flood Insurance", value: "Separate", sub: "NFIP or private — not included" },
+                { label: "Risk Tier", value: region.tier, sub: region.name, badge: true, tierColor: region.tierColor },
+              ].map((m, i) => (
+                <Card key={i} className="border shadow-sm">
+                  <CardContent className="p-4">
+                    <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">{m.label}</div>
+                    {m.badge
+                      ? <Badge className={`text-xs font-bold mt-1 ${m.tierColor} border-0`}>{m.value}</Badge>
+                      : <div className="text-base font-bold font-mono text-primary">{m.value}</div>
+                    }
+                    <div className="text-[10px] text-muted-foreground mt-1">{m.sub}</div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            {/* Region insight */}
+            <div className="flex gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+              <p className="text-sm text-blue-900 leading-relaxed">
+                <strong>{region.name}:</strong> {region.note}
+              </p>
+            </div>
+
+            {/* Rate adjustments applied */}
+            <Card className="border shadow-sm">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Applied Rate Adjustments</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                  {[
+                    { label: "Wind Mitigation", effect: calc.windEffect },
+                    { label: "Roof Age",        effect: calc.roofEffect },
+                    { label: "Hurricane Deductible", effect: calc.hurrEffect },
+                    { label: "Construction Type",    effect: calc.constEffect },
+                  ].map((item, i) => (
+                    <div key={i}>
+                      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{item.label}</div>
+                      <EffectBadge label={item.effect.label} dir={item.effect.dir} />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
           </div>
         </div>
-      </section>
-    </div>
+
+        {/* ── Region benchmark table ── */}
+        <Card className="border shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Rate Benchmarks by Region — 2026 Market Data</CardTitle>
+            <p className="text-xs text-muted-foreground">Per $300K dwelling · your selection highlighted</p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Region</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Key Counties</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Rate Range (% of rebuild)</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Risk Tier</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {REGION_TABLE.map(row => {
+                    const isActive = row.key === regionKey;
+                    const r = REGIONS[row.key];
+                    return (
+                      <tr
+                        key={row.key}
+                        className={`border-b last:border-0 cursor-pointer transition-colors ${isActive ? "bg-primary/5 font-medium" : "hover:bg-muted/30"}`}
+                        onClick={() => setRegionKey(row.key)}
+                      >
+                        <td className="px-4 py-3">
+                          {row.label}
+                          {isActive && <span className="ml-2 text-primary text-xs font-bold">◀ selected</span>}
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground text-xs">{row.counties}</td>
+                        <td className="px-4 py-3 font-mono text-xs">{row.rateRange}</td>
+                        <td className="px-4 py-3">
+                          <Badge className={`text-xs border-0 ${r.tierColor}`}>{r.tier}</Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ── Modifier reference ── */}
+        <Card className="border shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Premium Modifier Reference</CardTitle>
+            <p className="text-xs text-muted-foreground">Typical adjustments applied on top of the base regional rate</p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40">
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Factor</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Typical Adjustment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {MODIFIERS.map((m, i) => (
+                    <tr key={i} className="border-b last:border-0">
+                      <td className="px-4 py-2.5 text-muted-foreground">{m.factor}</td>
+                      <td className={`px-4 py-2.5 font-medium ${m.dir === "save" ? "text-green-700" : m.dir === "cost" ? "text-red-600" : "text-muted-foreground"}`}>
+                        {m.adjustment}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ── Flood warning ── */}
+        <div className="flex gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+          <p className="text-sm text-amber-900 leading-relaxed">
+            <strong>Flood insurance is not included in this estimate.</strong> Properties in AE or VE flood zones require a separate NFIP or private flood policy — often $800–$3,500+/year depending on zone and elevation. Ask your agent about an elevation certificate to reduce flood premiums.
+          </p>
+        </div>
+
+        {/* ── Disclaimer ── */}
+        <p className="text-xs text-muted-foreground text-center leading-relaxed pb-4">
+          Data sourced from FL OIR CHOICES filings, Insure.com, Insurance.com, Greene & Associates, Broker One (2026).
+          Estimates are for planning purposes only. Actual premiums depend on carrier underwriting, credit score,
+          specific property inspection, and market availability. Not a binding quote.
+        </p>
+
+      </div>
+    </>
   );
 }

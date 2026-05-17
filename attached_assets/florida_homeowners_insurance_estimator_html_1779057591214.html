@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Florida Homeowners Insurance Estimator</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #d1d5db;
+      --dark: #111827;
+      --accent: #2563eb;
+      --accent-soft: #eff6ff;
+      --success: #047857;
+      --warning: #b45309;
+      --danger: #b91c1c;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: Arial, Helvetica, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 18px 48px;
+    }
+
+    .hero {
+      background: linear-gradient(135deg, #111827, #374151);
+      color: white;
+      padding: 34px;
+      border-radius: 22px;
+      margin-bottom: 24px;
+      box-shadow: 0 14px 35px rgba(17, 24, 39, 0.18);
+    }
+
+    .hero h1 {
+      margin: 0 0 10px;
+      font-size: clamp(28px, 4vw, 46px);
+      line-height: 1.05;
+    }
+
+    .hero p {
+      margin: 0;
+      max-width: 850px;
+      color: #e5e7eb;
+      font-size: 17px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 22px;
+    }
+
+    @media (max-width: 900px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 22px;
+      box-shadow: 0 10px 26px rgba(17, 24, 39, 0.06);
+    }
+
+    .card h2 {
+      margin: 0 0 16px;
+      font-size: 22px;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    @media (max-width: 650px) {
+      .form-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    label {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 12px 13px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      font-size: 15px;
+      background: white;
+    }
+
+    input:focus,
+    select:focus {
+      outline: 2px solid rgba(37, 99, 235, 0.18);
+      border-color: var(--accent);
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 5px;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 20px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 13px 18px;
+      font-weight: 800;
+      cursor: pointer;
+      font-size: 15px;
+    }
+
+    .primary-btn {
+      background: var(--dark);
+      color: white;
+    }
+
+    .secondary-btn {
+      background: #e5e7eb;
+      color: var(--text);
+    }
+
+    .result-card {
+      position: sticky;
+      top: 18px;
+    }
+
+    .big-number {
+      font-size: clamp(34px, 5vw, 52px);
+      font-weight: 900;
+      margin: 6px 0;
+      letter-spacing: -1px;
+    }
+
+    .sub-number {
+      color: var(--muted);
+      font-size: 16px;
+      margin-bottom: 18px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: #1d4ed8;
+      font-weight: 800;
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+
+    .breakdown {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      border-bottom: 1px solid #eef0f3;
+      padding-bottom: 10px;
+      font-size: 14px;
+    }
+
+    .row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .row span:first-child {
+      color: var(--muted);
+    }
+
+    .row span:last-child {
+      font-weight: 800;
+      text-align: right;
+    }
+
+    .info-section {
+      margin-top: 22px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    @media (max-width: 900px) {
+      .info-section {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      overflow: hidden;
+      border-radius: 14px;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+      padding: 12px;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f3f4f6;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .notice {
+      border-left: 5px solid var(--warning);
+      background: #fffbeb;
+      padding: 14px 16px;
+      border-radius: 12px;
+      color: #78350f;
+      font-size: 14px;
+      margin-top: 18px;
+    }
+
+    .formula {
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      padding: 12px;
+      border-radius: 12px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 13px;
+      overflow-x: auto;
+    }
+
+    .footer {
+      margin-top: 26px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <section class="hero">
+      <h1>Florida Homeowners Insurance Estimator</h1>
+      <p>
+        Estimate annual homeowners insurance using replacement cost, ZIP/location risk profile, roof age,
+        construction type, wind mitigation, opening protection, and coastal exposure. This is designed as a
+        fast consumer-facing estimate, not a binding quote.
+      </p>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Property Inputs</h2>
+
+        <div class="form-grid">
+          <div>
+            <label for="zipCode">ZIP Code</label>
+            <input id="zipCode" type="text" placeholder="Example: 33602" maxlength="5" />
+            <div class="hint">Used for display now. Add ZIP-specific factors later from Florida OIR data.</div>
+          </div>
+
+          <div>
+            <label for="riskBand">Location / ZIP Risk Profile</label>
+            <select id="riskBand">
+              <option value="0.0070">Inland North Florida / lower wind risk — 0.70%</option>
+              <option value="0.0090">Inland Central Florida — 0.90%</option>
+              <option value="0.0100">Tampa Bay inland / newer construction — 1.00%</option>
+              <option value="0.0125" selected>Tampa Bay typical older home — 1.25%</option>
+              <option value="0.0150">Pinellas / coastal Hillsborough / coastal Pasco — 1.50%</option>
+              <option value="0.0160">Sarasota / Manatee / Lee / Charlotte coastal — 1.60%</option>
+              <option value="0.0200">Collier / Palm Beach / Broward / Miami-Dade — 2.00%</option>
+              <option value="0.0280">Monroe / barrier island / severe coastal — 2.80%</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="salePrice">Sale Price / Home Value</label>
+            <input id="salePrice" type="number" value="600000" min="0" step="1000" />
+            <div class="hint">Not the best insurance input, but useful for comparison.</div>
+          </div>
+
+          <div>
+            <label for="livingArea">Living Area Sq Ft</label>
+            <input id="livingArea" type="number" value="2000" min="0" step="50" />
+          </div>
+
+          <div>
+            <label for="rebuildCost">Estimated Rebuild Cost per Sq Ft</label>
+            <input id="rebuildCost" type="number" value="250" min="0" step="5" />
+          </div>
+
+          <div>
+            <label for="coverageA">Coverage A / Replacement Cost</label>
+            <input id="coverageA" type="number" value="500000" min="0" step="1000" />
+            <div class="hint">Auto-filled from sq ft × rebuild cost unless manually changed.</div>
+          </div>
+
+          <div>
+            <label for="roofAge">Roof Age</label>
+            <select id="roofAge">
+              <option value="0.85">0–5 years — reduce 15%</option>
+              <option value="1.00" selected>6–10 years — baseline</option>
+              <option value="1.15">11–15 years — add 15%</option>
+              <option value="1.40">16+ years — add 40%</option>
+              <option value="1.75">20+ years / difficult eligibility — add 75%</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="construction">Construction Type</label>
+            <select id="construction">
+              <option value="0.92" selected>Concrete block / masonry — reduce 8%</option>
+              <option value="1.00">Mixed / unknown — baseline</option>
+              <option value="1.20">Frame — add 20%</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="windMitigation">Wind Mitigation</label>
+            <select id="windMitigation">
+              <option value="0.75">Strong wind mitigation / clips, protection, hip roof — reduce 25%</option>
+              <option value="0.88">Some wind mitigation credits — reduce 12%</option>
+              <option value="1.00" selected>Unknown / baseline</option>
+              <option value="1.15">Weak or no credits — add 15%</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="openingProtection">Opening Protection</label>
+            <select id="openingProtection">
+              <option value="0.90">Full hurricane opening protection — reduce 10%</option>
+              <option value="1.00" selected>Partial / unknown — baseline</option>
+              <option value="1.15">No opening protection — add 15%</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="coastalExposure">Coastal Exposure</label>
+            <select id="coastalExposure">
+              <option value="0.95">Inland / lower exposure — reduce 5%</option>
+              <option value="1.00" selected>Typical exposure — baseline</option>
+              <option value="1.30">Coastal ZIP — add 30%</option>
+              <option value="1.75">Barrier island / severe coastal — add 75%</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="deductibleProfile">Deductible Profile</label>
+            <select id="deductibleProfile">
+              <option value="1.12">Lower deductibles — add 12%</option>
+              <option value="1.00" selected>Typical deductibles — baseline</option>
+              <option value="0.90">Higher deductibles — reduce 10%</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button class="primary-btn" onclick="calculateEstimate()">Calculate Estimate</button>
+          <button class="secondary-btn" onclick="resetDefaults()">Reset Defaults</button>
+          <button class="secondary-btn" onclick="syncCoverageA()">Use Sq Ft × Rebuild Cost</button>
+        </div>
+
+        <div class="notice">
+          For the most accurate model, replace the location risk profile with ZIP-level factors from Florida OIR Market Intelligence Reports:
+          premium with wind ÷ structure exposure with wind.
+        </div>
+      </div>
+
+      <aside class="card result-card">
+        <div class="pill">Estimated Annual Premium</div>
+        <div class="big-number" id="annualPremium">$0</div>
+        <div class="sub-number" id="monthlyPremium">$0/month</div>
+
+        <div class="breakdown">
+          <div class="row">
+            <span>ZIP Code</span>
+            <span id="resultZip">—</span>
+          </div>
+          <div class="row">
+            <span>Coverage A / Replacement Cost</span>
+            <span id="resultCoverageA">$0</span>
+          </div>
+          <div class="row">
+            <span>Base ZIP/location factor</span>
+            <span id="resultBaseFactor">0.00%</span>
+          </div>
+          <div class="row">
+            <span>Adjusted premium factor</span>
+            <span id="resultAdjustedFactor">0.00%</span>
+          </div>
+          <div class="row">
+            <span>Premium as % of sale price</span>
+            <span id="resultSalePricePercent">0.00%</span>
+          </div>
+          <div class="row">
+            <span>Estimated rebuild cost from sq ft</span>
+            <span id="resultRebuildEstimate">$0</span>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section class="info-section">
+      <div class="card">
+        <h2>Recommended Starting Factors</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>ZIP / Location Profile</th>
+              <th>Suggested Annual Premium % of Replacement Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Inland North Florida / lower wind risk</td><td>0.55% – 0.85%</td></tr>
+            <tr><td>Inland Central Florida</td><td>0.70% – 1.05%</td></tr>
+            <tr><td>Tampa Bay inland / newer construction / good roof</td><td>0.80% – 1.20%</td></tr>
+            <tr><td>Tampa Bay typical older home</td><td>1.00% – 1.50%</td></tr>
+            <tr><td>Pinellas / coastal Hillsborough / coastal Pasco</td><td>1.20% – 1.80%</td></tr>
+            <tr><td>Sarasota / Manatee / Lee / Charlotte coastal areas</td><td>1.20% – 2.00%</td></tr>
+            <tr><td>Collier / Palm Beach / Broward / Miami-Dade</td><td>1.50% – 2.50%</td></tr>
+            <tr><td>Monroe / barrier island / severe coastal exposure</td><td>2.00% – 3.50%+</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Estimator Formula</h2>
+        <p>The cleanest estimate should be based on replacement cost, not sale price.</p>
+        <div class="formula">
+          Estimated Replacement Cost = Living Area Sq Ft × Local Rebuild Cost per Sq Ft
+        </div>
+        <br />
+        <div class="formula">
+          Base Premium = Coverage A × ZIP Premium Factor
+        </div>
+        <br />
+        <div class="formula">
+          Adjusted Premium = Base Premium × Roof × Construction × Wind Mitigation × Opening Protection × Coastal Exposure × Deductible Profile
+        </div>
+        <br />
+        <div class="formula">
+          ZIP Premium Factor = Total Homeowners Premium With Wind ÷ Total Structure Exposure With Wind
+        </div>
+      </div>
+    </section>
+
+    <section class="info-section">
+      <div class="card">
+        <h2>Modifier Logic</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Factor</th>
+              <th>Suggested Adjustment</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Roof 0–5 years</td><td>-10% to -20%</td></tr>
+            <tr><td>Roof 6–10 years</td><td>Baseline</td></tr>
+            <tr><td>Roof 11–15 years</td><td>+10% to +25%</td></tr>
+            <tr><td>Roof 16+ years</td><td>+25% to +75%, or quote unavailable</td></tr>
+            <tr><td>Masonry/block construction</td><td>-5% to -15%</td></tr>
+            <tr><td>Frame construction</td><td>+10% to +30%</td></tr>
+            <tr><td>Wind mitigation credits</td><td>-10% to -40%</td></tr>
+            <tr><td>Hip roof</td><td>-5% to -15%</td></tr>
+            <tr><td>No opening protection</td><td>+10% to +25%</td></tr>
+            <tr><td>Coastal ZIP / barrier island</td><td>+25% to +100%</td></tr>
+            <tr><td>AE/VE flood zone</td><td>Separate flood quote needed</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <h2>Data Structure for ZIP-Level Upgrade</h2>
+        <p>When you import OIR ZIP-level data, structure it like this:</p>
+        <div class="formula">
+          ZIP | County | Premium With Wind | Structure Exposure With Wind | Premium % of Rebuild Cost
+        </div>
+        <br />
+        <p>Then map each ZIP to its factor:</p>
+        <div class="formula">
+          33602: 0.0125,
+          33706: 0.0185,
+          34102: 0.0225
+        </div>
+        <div class="notice">
+          Final premiums depend on carrier eligibility, roof age, wind mitigation inspection, construction type, deductibles,
+          coverage selections, claims history, and underwriting rules. Flood insurance is separate unless specifically included.
+        </div>
+      </div>
+    </section>
+
+    <div class="footer">
+      Estimated homeowners insurance premium based on replacement cost and Florida location risk. Not a quote or guarantee of coverage.
+    </div>
+  </main>
+
+  <script>
+    const formatter = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 0
+    });
+
+    function num(id) {
+      return Number(document.getElementById(id).value) || 0;
+    }
+
+    function selectedNum(id) {
+      return Number(document.getElementById(id).value) || 0;
+    }
+
+    function percent(value) {
+      return (value * 100).toFixed(2) + '%';
+    }
+
+    function syncCoverageA() {
+      const livingArea = num('livingArea');
+      const rebuildCost = num('rebuildCost');
+      const estimatedCoverageA = livingArea * rebuildCost;
+      document.getElementById('coverageA').value = Math.round(estimatedCoverageA);
+      calculateEstimate();
+    }
+
+    function calculateEstimate() {
+      const zipCode = document.getElementById('zipCode').value || '—';
+      const salePrice = num('salePrice');
+      const livingArea = num('livingArea');
+      const rebuildCost = num('rebuildCost');
+      const coverageA = num('coverageA');
+
+      const baseFactor = selectedNum('riskBand');
+      const roof = selectedNum('roofAge');
+      const construction = selectedNum('construction');
+      const windMitigation = selectedNum('windMitigation');
+      const openingProtection = selectedNum('openingProtection');
+      const coastalExposure = selectedNum('coastalExposure');
+      const deductibleProfile = selectedNum('deductibleProfile');
+
+      const adjustedFactor = baseFactor * roof * construction * windMitigation * openingProtection * coastalExposure * deductibleProfile;
+      const annualPremium = coverageA * adjustedFactor;
+      const monthlyPremium = annualPremium / 12;
+      const rebuildEstimate = livingArea * rebuildCost;
+      const salePricePercent = salePrice > 0 ? annualPremium / salePrice : 0;
+
+      document.getElementById('annualPremium').textContent = formatter.format(annualPremium);
+      document.getElementById('monthlyPremium').textContent = formatter.format(monthlyPremium) + '/month';
+      document.getElementById('resultZip').textContent = zipCode;
+      document.getElementById('resultCoverageA').textContent = formatter.format(coverageA);
+      document.getElementById('resultBaseFactor').textContent = percent(baseFactor);
+      document.getElementById('resultAdjustedFactor').textContent = percent(adjustedFactor);
+      document.getElementById('resultSalePricePercent').textContent = percent(salePricePercent);
+      document.getElementById('resultRebuildEstimate').textContent = formatter.format(rebuildEstimate);
+    }
+
+    function resetDefaults() {
+      document.getElementById('zipCode').value = '';
+      document.getElementById('riskBand').value = '0.0125';
+      document.getElementById('salePrice').value = 600000;
+      document.getElementById('livingArea').value = 2000;
+      document.getElementById('rebuildCost').value = 250;
+      document.getElementById('coverageA').value = 500000;
+      document.getElementById('roofAge').value = '1.00';
+      document.getElementById('construction').value = '0.92';
+      document.getElementById('windMitigation').value = '1.00';
+      document.getElementById('openingProtection').value = '1.00';
+      document.getElementById('coastalExposure').value = '1.00';
+      document.getElementById('deductibleProfile').value = '1.00';
+      calculateEstimate();
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const inputs = document.querySelectorAll('input, select');
+      inputs.forEach(input => input.addEventListener('input', calculateEstimate));
+      calculateEstimate();
+    });
+  </script>
+</body>
+</html>
