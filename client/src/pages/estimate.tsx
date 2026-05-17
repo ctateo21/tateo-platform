@@ -138,6 +138,7 @@ interface Inputs {
   swr: boolean;
   hasMortgage: boolean | null;
   currentLoanFHA: boolean | null;
+  rentalType: "annual" | "short-term" | null;
 }
 
 const FALLBACK_RATES = { conventional: 6.82, fha: 6.38, va: 6.25, usda: 6.38 };
@@ -365,6 +366,7 @@ export default function Estimate() {
     swr: false,
     hasMortgage: null,
     currentLoanFHA: null,
+    rentalType: null,
   });
 
   // Sync interest rate to live rate (with credit adjustment) when rates first load
@@ -399,7 +401,12 @@ export default function Estimate() {
   function setOccupancy(occ: "primary" | "secondary" | "investment") {
     setInputs((p) => {
       const newMin = getMinDown(p.loanType, p.hasMortgage, occ);
-      return { ...p, occupancy: occ, downPaymentPct: Math.max(p.downPaymentPct, newMin) };
+      return {
+        ...p,
+        occupancy: occ,
+        downPaymentPct: Math.max(p.downPaymentPct, newMin),
+        rentalType: occ === "investment" ? p.rentalType : null,
+      };
     });
   }
 
@@ -618,6 +625,31 @@ export default function Estimate() {
                           ? "Secondary home requires minimum 10% down"
                           : "Investment property requires minimum 20% down"}
                       </p>
+                    )}
+
+                    {inputs.occupancy === "investment" && (
+                      <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg animate-in fade-in slide-in-from-top-2 duration-200">
+                        <p className="text-xs font-semibold text-blue-800 mb-2">How do you plan to rent this property?</p>
+                        <div className="flex gap-2">
+                          {([
+                            { value: "annual", label: "Annual Lease", sub: "12-month tenant" },
+                            { value: "short-term", label: "Short-Term Rental", sub: "Airbnb / VRBO" },
+                          ] as const).map(({ value, label, sub }) => (
+                            <button
+                              key={value}
+                              onClick={() => set("rentalType", value)}
+                              className={`flex-1 py-2 px-2 rounded-md text-left border transition-colors ${
+                                inputs.rentalType === value
+                                  ? "bg-blue-600 text-white border-blue-600"
+                                  : "bg-white border-blue-200 text-blue-900 hover:border-blue-400"
+                              }`}
+                            >
+                              <p className="text-xs font-semibold leading-tight">{label}</p>
+                              <p className={`text-[10px] leading-tight mt-0.5 ${inputs.rentalType === value ? "text-blue-100" : "text-muted-foreground"}`}>{sub}</p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     )}
                   </div>
 
