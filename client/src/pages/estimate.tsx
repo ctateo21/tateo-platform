@@ -655,7 +655,8 @@ export default function Estimate() {
     const maxDti = getMaxDTI(creditScore);
     const requiredIncome = Math.round((totalHousing + monthlyDebts) / maxDti);
     const requiredReserves = Math.round(totalHousing * 2);
-    const qualifies = qualifyingIncome >= requiredIncome && reserves >= cashToClose;
+    const availableReserves = Math.max(0, downPaymentAmt - cashToClose);
+    const qualifies = qualifyingIncome >= requiredIncome && availableReserves >= requiredReserves;
 
     const estimatedHOIns = calcInsuranceEstimate(purchasePrice, impactWindows, roofAttachment, swr);
 
@@ -688,7 +689,7 @@ export default function Estimate() {
     return {
       loanAmount, downPaymentAmt, pi, monthlyTax, monthlyHOIns, monthlyFlood,
       monthlyCDD, mortgageInsurance, pmi, mip, vaFee, totalHousing,
-      closingCosts, cashToClose, housingDTI, dti, maxDti, requiredIncome, requiredReserves,
+      closingCosts, cashToClose, housingDTI, dti, maxDti, requiredIncome, requiredReserves, availableReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
       rentalIncomeQualifying, qualifyingIncome,
     };
@@ -1166,11 +1167,11 @@ export default function Estimate() {
               {/* Summary Banner */}
               <div className="overflow-hidden rounded-xl border-2 border-primary/20">
                 {/* Qualification header bar */}
-                <div className={`w-full py-2 px-4 text-center text-sm font-semibold tracking-wide ${calc.dti > 0.45 || inputs.reserves < calc.cashToClose ? "bg-red-600 text-white" : "bg-green-600 text-white"}`}>
+                <div className={`w-full py-2 px-4 text-center text-sm font-semibold tracking-wide ${calc.dti > 0.45 || calc.availableReserves < calc.requiredReserves ? "bg-red-600 text-white" : "bg-green-600 text-white"}`}>
                   {calc.dti > 0.45
                     ? "⚠ Needs Review — DTI exceeds 45%"
-                    : inputs.reserves < calc.cashToClose
-                    ? "⚠ Needs Review — Insufficient cash to close"
+                    : calc.availableReserves < calc.requiredReserves
+                    ? "⚠ Needs Review — Insufficient reserves"
                     : "✓ Likely Qualifies"}
                 </div>
                 {/* Metrics row */}
@@ -1340,14 +1341,14 @@ export default function Estimate() {
                   />
                   <Row label="Max Allowed DTI" value={fmtPct(calc.maxDti)} sub={`Based on credit score ${inputs.creditScore}`} />
                   <Separator />
-                  <Row label="Required Reserves (2 mo PITI)" value={fmt(calc.requiredReserves)} />
+                  <Row label="Required Reserves (1-3 mo PITI)" value={fmt(calc.requiredReserves)} />
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm text-muted-foreground">Your Available Reserves</span>
-                    <span className={`text-sm font-semibold text-right ${inputs.reserves < calc.cashToClose ? "text-red-600" : ""}`}>
-                      {fmt(inputs.reserves)}
-                      {inputs.reserves < calc.cashToClose && (
+                    <span className={`text-sm font-semibold text-right ${calc.availableReserves < calc.requiredReserves ? "text-red-600" : ""}`}>
+                      {fmt(calc.availableReserves)}
+                      {calc.availableReserves < calc.requiredReserves && (
                         <span className="block text-xs font-normal text-red-500">
-                          Short {fmt(calc.cashToClose - inputs.reserves)} for cash to close
+                          Short {fmt(calc.requiredReserves - calc.availableReserves)} of required reserves
                         </span>
                       )}
                     </span>
