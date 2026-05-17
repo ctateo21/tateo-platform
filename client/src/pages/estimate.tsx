@@ -499,6 +499,13 @@ export default function Estimate() {
                         <SelectItem value="va">VA</SelectItem>
                       </SelectContent>
                     </Select>
+                    <p className="text-[11px] mt-1.5 leading-tight text-muted-foreground">
+                      {inputs.creditScore >= 720 ? (
+                        <span className="text-green-600 font-medium">Conventional best if credit score &gt; 720</span>
+                      ) : (
+                        <span className="text-amber-600 font-medium">FHA best if credit score &lt; 720</span>
+                      )}
+                    </p>
                   </div>
 
                   <SliderInput
