@@ -1337,36 +1337,6 @@ export default function Estimate() {
                     <span className="text-base font-bold text-primary">{fmt(calc.totalHousing)}</span>
                   </div>
 
-                  <div className="mt-4">
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-2">Loan Type Comparison</p>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="text-xs">Type</TableHead>
-                          <TableHead className="text-xs text-right">Rate</TableHead>
-                          <TableHead className="text-xs text-right">Down</TableHead>
-                          <TableHead className="text-xs text-right">P&I</TableHead>
-                          <TableHead className="text-xs text-right">Total/mo</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {calc.loanComparison.map((row) => (
-                          <TableRow key={row.lt} className={inputs.loanType === row.lt ? "bg-primary/5" : ""}>
-                            <TableCell className="text-xs font-medium">
-                              {row.lt.toUpperCase()}
-                              {inputs.loanType === row.lt && (
-                                <Badge className="ml-1 text-[10px] bg-primary text-white px-1 py-0">Active</Badge>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-xs text-right">{row.rate.toFixed(2)}%</TableCell>
-                            <TableCell className="text-xs text-right">{row.downPct}%</TableCell>
-                            <TableCell className="text-xs text-right">{fmt(row.pi)}</TableCell>
-                            <TableCell className="text-xs text-right font-semibold">{fmt(row.total)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
                 </CardContent>
               </Card>
 
