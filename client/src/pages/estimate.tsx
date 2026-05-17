@@ -125,6 +125,22 @@ interface Inputs {
 
 const FALLBACK_RATES = { conventional: 6.82, fha: 6.38, va: 6.25 };
 
+function creditAdjustment(score: number): number {
+  if (score >= 780) return -0.20;
+  if (score >= 760) return -0.05;
+  if (score >= 740) return  0;
+  if (score >= 720) return  0.125;
+  if (score >= 700) return  0.25;
+  if (score >= 680) return  0.50;
+  if (score >= 660) return  0.75;
+  if (score >= 640) return  1.00;
+  return 1.50;
+}
+
+function adjustedRate(base: number, score: number): number {
+  return Math.round((base + creditAdjustment(score)) * 1000) / 1000;
+}
+
 // ─── SliderInput component ───────────────────────────────────────────────────
 
 interface SliderInputProps {
@@ -245,17 +261,21 @@ export default function Estimate() {
     swr: false,
   });
 
-  // Sync interest rate to live rate when it first loads (only if user hasn't changed it)
+  // Sync interest rate to live rate (with credit adjustment) when rates first load
   const ratesLoadedRef = useRef(false);
   useEffect(() => {
     if (liveRates && !ratesLoadedRef.current) {
       ratesLoadedRef.current = true;
-      setInputs((p) => ({ ...p, interestRate: liveRates[p.loanType] }));
+      setInputs((p) => ({ ...p, interestRate: adjustedRate(liveRates[p.loanType], p.creditScore) }));
     }
   }, [liveRates]);
 
   function setLoanType(lt: "conventional" | "fha" | "va") {
-    setInputs((p) => ({ ...p, loanType: lt, interestRate: rates[lt] }));
+    setInputs((p) => ({ ...p, loanType: lt, interestRate: adjustedRate(rates[lt], p.creditScore) }));
+  }
+
+  function setCreditScore(score: number) {
+    setInputs((p) => ({ ...p, creditScore: score, interestRate: adjustedRate(rates[p.loanType], score) }));
   }
 
   function set<K extends keyof Inputs>(key: K, value: Inputs[K]) {
@@ -478,12 +498,31 @@ export default function Estimate() {
                       min={3} max={12} step={0.05}
                       suffix="%"
                     />
+                    {(() => {
+                      const base = rates[inputs.loanType];
+                      const adj = creditAdjustment(inputs.creditScore);
+                      const adjLabel = adj === 0 ? "no adjustment" : `${adj > 0 ? "+" : ""}${adj}%`;
+                      const scoreLabel =
+                        inputs.creditScore >= 780 ? "780+" :
+                        inputs.creditScore >= 760 ? "760–779" :
+                        inputs.creditScore >= 740 ? "740–759" :
+                        inputs.creditScore >= 720 ? "720–739" :
+                        inputs.creditScore >= 700 ? "700–719" :
+                        inputs.creditScore >= 680 ? "680–699" :
+                        inputs.creditScore >= 660 ? "660–679" :
+                        inputs.creditScore >= 640 ? "640–659" : "< 640";
+                      return (
+                        <p className="text-[10px] text-muted-foreground leading-tight">
+                          Base {base.toFixed(2)}% · Credit {scoreLabel}: <span className={adj < 0 ? "text-green-600 font-medium" : adj > 0 ? "text-orange-500 font-medium" : ""}>{adjLabel}</span>
+                        </p>
+                      );
+                    })()}
                   </div>
 
                   <SliderInput
                     label="Credit Score"
                     value={inputs.creditScore}
-                    onChange={(v) => set("creditScore", v)}
+                    onChange={setCreditScore}
                     min={580} max={850} step={10}
                   />
                 </CardContent>
