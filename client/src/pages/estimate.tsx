@@ -485,10 +485,20 @@ export default function Estimate() {
                   </p>
 
                   <div className="space-y-1">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-xs text-muted-foreground">Interest Rate</span>
                       {liveRates && (
                         <span className="text-[10px] font-semibold bg-green-100 text-green-700 rounded px-1 py-0.5 leading-none">LIVE</span>
+                      )}
+                      {liveRates && (
+                        <a
+                          href="https://www.mortgagenewsdaily.com/mortgage-rates"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[10px] text-primary/60 hover:text-primary underline underline-offset-2 leading-none"
+                        >
+                          mortgagenewsdaily.com
+                        </a>
                       )}
                     </div>
                     <SliderInput
@@ -498,25 +508,6 @@ export default function Estimate() {
                       min={3} max={12} step={0.05}
                       suffix="%"
                     />
-                    {(() => {
-                      const base = rates[inputs.loanType];
-                      const adj = creditAdjustment(inputs.creditScore);
-                      const adjLabel = adj === 0 ? "no adjustment" : `${adj > 0 ? "+" : ""}${adj}%`;
-                      const scoreLabel =
-                        inputs.creditScore >= 780 ? "780+" :
-                        inputs.creditScore >= 760 ? "760–779" :
-                        inputs.creditScore >= 740 ? "740–759" :
-                        inputs.creditScore >= 720 ? "720–739" :
-                        inputs.creditScore >= 700 ? "700–719" :
-                        inputs.creditScore >= 680 ? "680–699" :
-                        inputs.creditScore >= 660 ? "660–679" :
-                        inputs.creditScore >= 640 ? "640–659" : "< 640";
-                      return (
-                        <p className="text-[10px] text-muted-foreground leading-tight">
-                          Base {base.toFixed(2)}% · Credit {scoreLabel}: <span className={adj < 0 ? "text-green-600 font-medium" : adj > 0 ? "text-orange-500 font-medium" : ""}>{adjLabel}</span>
-                        </p>
-                      );
-                    })()}
                   </div>
 
                   <SliderInput
