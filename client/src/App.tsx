@@ -18,6 +18,7 @@ import PropertyManagement from "./pages/property-management";
 import HomeServices from "./pages/home-services";
 import Review from "./pages/review-new";
 import Estimate from "./pages/estimate";
+import SelectService from "./pages/select-service";
 import NotFound from "./pages/not-found";
 
 function App() {
@@ -40,6 +41,7 @@ function App() {
                 <Route path="/home-services" component={HomeServices} />
                 <Route path="/review" component={Review} />
                 <Route path="/estimate" component={Estimate} />
+                <Route path="/select-service" component={SelectService} />
                 <Route component={NotFound} />
               </Switch>
             </main>

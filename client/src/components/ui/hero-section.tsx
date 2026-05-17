@@ -33,7 +33,7 @@ export default function HeroSection() {
         autocompleteRef.current.addListener("place_changed", () => {
           const place = autocompleteRef.current.getPlace();
           if (place?.formatted_address) {
-            setLocation(`/estimate?address=${encodeURIComponent(place.formatted_address)}`);
+            setLocation(`/select-service?address=${encodeURIComponent(place.formatted_address)}`);
           }
         });
       } catch (err) {
@@ -48,7 +48,7 @@ export default function HeroSection() {
     e.preventDefault();
     const val = inputRef.current?.value?.trim();
     if (!val) return;
-    setLocation(`/estimate?address=${encodeURIComponent(val)}`);
+    setLocation(`/select-service?address=${encodeURIComponent(val)}`);
   };
 
   return (
