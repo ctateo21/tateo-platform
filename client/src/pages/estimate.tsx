@@ -961,8 +961,12 @@ export default function Estimate() {
               {/* Summary Banner */}
               <div className="overflow-hidden rounded-xl border-2 border-primary/20">
                 {/* Qualification header bar */}
-                <div className={`w-full py-2 px-4 text-center text-sm font-semibold tracking-wide ${calc.dti > 0.45 ? "bg-red-600 text-white" : "bg-green-600 text-white"}`}>
-                  {calc.dti > 0.45 ? "⚠ Needs Review — DTI exceeds 45%" : "✓ Likely Qualifies"}
+                <div className={`w-full py-2 px-4 text-center text-sm font-semibold tracking-wide ${calc.dti > 0.45 || inputs.reserves < calc.cashToClose ? "bg-red-600 text-white" : "bg-green-600 text-white"}`}>
+                  {calc.dti > 0.45
+                    ? "⚠ Needs Review — DTI exceeds 45%"
+                    : inputs.reserves < calc.cashToClose
+                    ? "⚠ Needs Review — Insufficient cash to close"
+                    : "✓ Likely Qualifies"}
                 </div>
                 {/* Metrics row */}
                 <div className="bg-primary/5 px-5 py-4">
