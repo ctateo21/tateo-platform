@@ -406,10 +406,10 @@ export default function Estimate() {
         </div>
 
         <div className="container mx-auto px-4 py-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="space-y-6">
 
-            {/* ── LEFT: Inputs ───────────────────────────────────────── */}
-            <div className="lg:col-span-1 space-y-4">
+            {/* ── INPUTS ─────────────────────────────────────────────── */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
 
               {/* 1. Borrower Profile — TOP */}
               <Card>
@@ -601,8 +601,8 @@ export default function Estimate() {
               </Card>
             </div>
 
-            {/* ── RIGHT: Results ──────────────────────────────────────── */}
-            <div className="lg:col-span-2 space-y-4">
+            {/* ── RESULTS ─────────────────────────────────────────────── */}
+            <div className="space-y-4">
 
               {/* Summary Banner */}
               <Card className="border-2 border-primary/20 bg-primary/5">
