@@ -655,7 +655,7 @@ export default function Estimate() {
     const maxDti = getMaxDTI(creditScore);
     const requiredIncome = Math.round((totalHousing + monthlyDebts) / maxDti);
     const requiredReserves = Math.round(totalHousing * 2);
-    const availableReserves = Math.max(0, downPaymentAmt - cashToClose);
+    const availableReserves = Math.max(0, reserves - cashToClose);
     const qualifies = qualifyingIncome >= requiredIncome && availableReserves >= requiredReserves;
 
     const estimatedHOIns = calcInsuranceEstimate(purchasePrice, impactWindows, roofAttachment, swr);
