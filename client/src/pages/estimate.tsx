@@ -215,6 +215,27 @@ function adjustedRate(base: number, score: number): number {
   return Math.round((base + creditAdjustment(score)) * 1000) / 1000;
 }
 
+function occupancyRateAdj(occupancy: "primary" | "secondary" | "investment", downPct: number): number {
+  if (occupancy === "secondary") {
+    if (downPct < 15)  return 1.50;
+    if (downPct < 20)  return 1.00;
+    if (downPct < 25)  return 0.75;
+    if (downPct < 35)  return 0.50;
+    return 0.25;
+  }
+  if (occupancy === "investment") {
+    if (downPct < 25)  return 1.00;
+    if (downPct < 30)  return 0.75;
+    if (downPct < 35)  return 0.50;
+    return 0.25;
+  }
+  return 0;
+}
+
+function fullRate(base: number, score: number, occupancy: "primary" | "secondary" | "investment", downPct: number): number {
+  return Math.round((base + creditAdjustment(score) + occupancyRateAdj(occupancy, downPct)) * 1000) / 1000;
+}
+
 // ─── SliderInput component ───────────────────────────────────────────────────
 
 interface SliderInputProps {
@@ -778,12 +799,12 @@ export default function Estimate() {
     }
   }, [inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice]);
 
-  // Sync interest rate to live rate (with credit adjustment) when rates first load
+  // Sync interest rate to live rate (with credit + occupancy adjustments) when rates first load
   const ratesLoadedRef = useRef(false);
   useEffect(() => {
     if (liveRates && !ratesLoadedRef.current) {
       ratesLoadedRef.current = true;
-      setInputs((p) => ({ ...p, interestRate: adjustedRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore) }));
+      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct) }));
     }
   }, [liveRates]);
 
@@ -810,11 +831,12 @@ export default function Estimate() {
   function setLoanType(lt: "conventional" | "fha" | "va" | "usda") {
     setInputs((p) => {
       const newMin = getMinDown(lt, p.hasMortgage, p.occupancy);
+      const newDown = Math.max(p.downPaymentPct, newMin);
       return {
         ...p,
         loanType: lt,
-        interestRate: adjustedRate((rates as any)[lt] ?? rates.fha, p.creditScore),
-        downPaymentPct: Math.max(p.downPaymentPct, newMin),
+        interestRate: fullRate((rates as any)[lt] ?? rates.fha, p.creditScore, p.occupancy, newDown),
+        downPaymentPct: newDown,
       };
     });
   }
@@ -823,12 +845,13 @@ export default function Estimate() {
     setInputs((p) => {
       const forcedLoan = occ !== "primary" ? "conventional" : p.loanType;
       const newMin = getMinDown(forcedLoan, p.hasMortgage, occ);
+      const newDown = Math.max(p.downPaymentPct, newMin);
       return {
         ...p,
         occupancy: occ,
         loanType: forcedLoan,
-        interestRate: forcedLoan !== p.loanType ? adjustedRate((rates as any)[forcedLoan], p.creditScore) : p.interestRate,
-        downPaymentPct: Math.max(p.downPaymentPct, newMin),
+        interestRate: fullRate((rates as any)[forcedLoan] ?? rates.conventional, p.creditScore, occ, newDown),
+        downPaymentPct: newDown,
         rentalType: occ === "investment" ? p.rentalType : null,
         annualTaxes: estimateAnnualTax(address, p.purchasePrice, occ === "primary"),
       };
@@ -838,6 +861,7 @@ export default function Estimate() {
   function setCreditScore(score: number) {
     setInputs((p) => {
       const autoLoanType =
+        p.occupancy !== "primary" ? "conventional" :
         score < 720 && p.loanType === "conventional" ? "fha" :
         score >= 720 && p.loanType === "fha" ? "conventional" :
         p.loanType;
@@ -845,7 +869,19 @@ export default function Estimate() {
         ...p,
         creditScore: score,
         loanType: autoLoanType,
-        interestRate: adjustedRate(rates[autoLoanType], score),
+        interestRate: fullRate(rates[autoLoanType], score, p.occupancy, p.downPaymentPct),
+      };
+    });
+  }
+
+  function setDownPayment(pct: number) {
+    setInputs((p) => {
+      const minDown = getMinDown(p.loanType, p.hasMortgage, p.occupancy);
+      const newDown = Math.max(pct, minDown);
+      return {
+        ...p,
+        downPaymentPct: newDown,
+        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown),
       };
     });
   }
@@ -1344,7 +1380,7 @@ export default function Estimate() {
                         <SliderInput
                           label="Down Payment"
                           value={inputs.downPaymentPct}
-                          onChange={(v) => set("downPaymentPct", Math.max(minDown, v))}
+                          onChange={(v) => setDownPayment(v)}
                           min={minDown} max={50} step={0.5}
                           suffix="%"
                         />
@@ -1357,7 +1393,7 @@ export default function Estimate() {
                               <button
                                 key={pct}
                                 disabled={isDisabled}
-                                onClick={() => set("downPaymentPct", pct)}
+                                onClick={() => setDownPayment(pct)}
                                 className={`flex flex-col items-center px-2 py-1 rounded border text-[10px] leading-tight transition-colors ${
                                   isDisabled
                                     ? "border-border/30 text-muted-foreground/30 cursor-not-allowed"
@@ -1443,6 +1479,33 @@ export default function Estimate() {
                       suffix="%"
                       decimals={3}
                     />
+                    {inputs.occupancy !== "primary" && (() => {
+                      const baseConv = (rates as any).conventional ?? FALLBACK_RATES.conventional;
+                      const baseWithCredit = adjustedRate(baseConv, inputs.creditScore);
+                      const occAdj = occupancyRateAdj(inputs.occupancy, inputs.downPaymentPct);
+                      return (
+                        <div className="text-[11px] leading-tight space-y-0.5 pt-0.5">
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Par rate (Conventional)</span>
+                            <span>{baseConv.toFixed(3)}%</span>
+                          </div>
+                          {creditAdjustment(inputs.creditScore) !== 0 && (
+                            <div className="flex justify-between text-muted-foreground">
+                              <span>Credit score adj.</span>
+                              <span>{creditAdjustment(inputs.creditScore) >= 0 ? "+" : ""}{creditAdjustment(inputs.creditScore).toFixed(3)}%</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between text-amber-600 font-medium">
+                            <span>{inputs.occupancy.charAt(0).toUpperCase() + inputs.occupancy.slice(1)} property adj. ({inputs.downPaymentPct}% down)</span>
+                            <span>+{occAdj.toFixed(2)}%</span>
+                          </div>
+                          <div className="flex justify-between font-semibold border-t border-border/40 pt-0.5 text-foreground">
+                            <span>Calculated rate</span>
+                            <span>{(baseWithCredit + occAdj).toFixed(3)}%</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                 </CardContent>
