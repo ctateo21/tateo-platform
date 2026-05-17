@@ -114,12 +114,13 @@ function getMaxSellerConcessions(
   return purchasePrice * 0.09;
 }
 
-function getMaxDTI(creditScore: number): number {
-  if (creditScore >= 740) return 0.45;
-  if (creditScore >= 700) return 0.43;
-  if (creditScore >= 660) return 0.41;
-  if (creditScore >= 640) return 0.38;
-  return 0.36;
+function getDTILimits(loanType: "conventional" | "fha" | "va" | "usda"): { housingMax: number; totalMax: number } {
+  switch (loanType) {
+    case "fha":   return { housingMax: 0.47, totalMax: 0.57 };
+    case "usda":  return { housingMax: 0.36, totalMax: 0.43 };
+    case "va":    return { housingMax: Infinity, totalMax: Infinity };
+    default:      return { housingMax: 0.45, totalMax: 0.50 };
+  }
 }
 
 function calcInsuranceEstimate(
@@ -685,11 +686,14 @@ export default function Estimate() {
 
     const housingDTI = qualifyingIncome > 0 ? totalHousing / qualifyingIncome : 0;
     const dti = qualifyingIncome > 0 ? (totalHousing + monthlyDebts) / qualifyingIncome : 0;
-    const maxDti = getMaxDTI(creditScore);
-    const requiredIncome = Math.round((totalHousing + monthlyDebts) / maxDti);
+    const { housingMax: maxHousingDti, totalMax: maxTotalDti } = getDTILimits(loanType);
+    const maxDti = maxTotalDti; // keep for backward compat in recs
+    const requiredIncome = maxTotalDti === Infinity ? 0 : Math.round((totalHousing + monthlyDebts) / maxTotalDti);
     const requiredReserves = Math.round(totalHousing * 2);
     const availableReserves = Math.max(0, reserves - cashToClose);
-    const qualifies = qualifyingIncome >= requiredIncome && availableReserves >= requiredReserves;
+    const housingDTIPass = maxHousingDti === Infinity || housingDTI <= maxHousingDti;
+    const totalDTIPass = maxTotalDti === Infinity || dti <= maxTotalDti;
+    const qualifies = (requiredIncome === 0 || qualifyingIncome >= requiredIncome) && housingDTIPass && totalDTIPass && availableReserves >= requiredReserves;
 
     const estimatedHOIns = calcInsuranceEstimate(purchasePrice, impactWindows, roofAttachment, swr);
 
@@ -722,7 +726,7 @@ export default function Estimate() {
     return {
       loanAmount, downPaymentAmt, pi, monthlyTax, monthlyHOIns, monthlyFlood,
       monthlyCDD, mortgageInsurance, pmi, mip, vaFee, totalHousing,
-      closingCosts, cashToClose, housingDTI, dti, maxDti, requiredIncome, requiredReserves, availableReserves,
+      closingCosts, cashToClose, housingDTI, dti, maxHousingDti, maxTotalDti, maxDti, requiredIncome, requiredReserves, availableReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
       rentalIncomeQualifying, qualifyingIncome,
     };
@@ -1420,24 +1424,35 @@ export default function Estimate() {
                   <Row
                     label="Housing DTI"
                     value={fmtPct(calc.housingDTI)}
-                    sub="New mortgage ÷ qualifying income"
+                    sub={
+                      calc.maxHousingDti === Infinity
+                        ? "No limit (VA) · New mortgage ÷ qualifying income"
+                        : `Max ${fmtPct(calc.maxHousingDti)} · New mortgage ÷ qualifying income`
+                    }
                     status={
-                      calc.housingDTI <= 0.28 ? "green"
-                      : calc.housingDTI <= 0.35 ? "yellow"
+                      calc.maxHousingDti === Infinity ? "green"
+                      : calc.housingDTI <= calc.maxHousingDti * 0.85 ? "green"
+                      : calc.housingDTI <= calc.maxHousingDti ? "yellow"
                       : "red"
                     }
                   />
                   <Row
                     label="Total DTI"
                     value={fmtPct(calc.dti)}
-                    sub={calc.dti > calc.maxDti ? "Exceeds max DTI — needs review" : "New mortgage + debts ÷ qualifying income"}
+                    sub={
+                      calc.maxTotalDti === Infinity
+                        ? "No limit (VA) · New mortgage + debts ÷ qualifying income"
+                        : calc.dti > calc.maxTotalDti
+                        ? `Exceeds max ${fmtPct(calc.maxTotalDti)} — needs review`
+                        : `Max ${fmtPct(calc.maxTotalDti)} · New mortgage + debts ÷ qualifying income`
+                    }
                     status={
-                      calc.dti < calc.maxDti * 0.85 ? "green"
-                      : calc.dti <= calc.maxDti ? "yellow"
+                      calc.maxTotalDti === Infinity ? "green"
+                      : calc.dti < calc.maxTotalDti * 0.85 ? "green"
+                      : calc.dti <= calc.maxTotalDti ? "yellow"
                       : "red"
                     }
                   />
-                  <Row label="Max Allowed DTI" value={fmtPct(calc.maxDti)} sub={`Based on credit score ${inputs.creditScore}`} />
                   <Separator />
                   <Row label="Required Reserves (1-3 mo PITI)" value={fmt(calc.requiredReserves)} />
                   <Row
