@@ -821,10 +821,13 @@ export default function Estimate() {
 
   function setOccupancy(occ: "primary" | "secondary" | "investment") {
     setInputs((p) => {
-      const newMin = getMinDown(p.loanType, p.hasMortgage, occ);
+      const forcedLoan = occ !== "primary" ? "conventional" : p.loanType;
+      const newMin = getMinDown(forcedLoan, p.hasMortgage, occ);
       return {
         ...p,
         occupancy: occ,
+        loanType: forcedLoan,
+        interestRate: forcedLoan !== p.loanType ? adjustedRate((rates as any)[forcedLoan], p.creditScore) : p.interestRate,
         downPaymentPct: Math.max(p.downPaymentPct, newMin),
         rentalType: occ === "investment" ? p.rentalType : null,
         annualTaxes: estimateAnnualTax(address, p.purchasePrice, occ === "primary"),
@@ -1300,19 +1303,25 @@ export default function Estimate() {
 
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1.5 block">Loan Type</Label>
-                    <Select value={inputs.loanType} onValueChange={(v) => setLoanType(v as any)}>
+                    <Select
+                      value={inputs.loanType}
+                      onValueChange={(v) => setLoanType(v as any)}
+                      disabled={inputs.occupancy !== "primary"}
+                    >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="conventional">
-                          Conventional{inputs.creditScore >= 720 ? " (Best Option)" : ""}
+                          Conventional{inputs.creditScore >= 720 && inputs.occupancy === "primary" ? " (Best Option)" : ""}
                         </SelectItem>
-                        <SelectItem value="fha">FHA</SelectItem>
-                        <SelectItem value="va">VA</SelectItem>
-                        <SelectItem value="usda">USDA</SelectItem>
+                        <SelectItem value="fha" disabled={inputs.occupancy !== "primary"}>FHA</SelectItem>
+                        <SelectItem value="va" disabled={inputs.occupancy !== "primary"}>VA</SelectItem>
+                        <SelectItem value="usda" disabled={inputs.occupancy !== "primary"}>USDA</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-[11px] mt-1.5 leading-tight text-muted-foreground">
-                      {inputs.creditScore >= 720 ? (
+                      {inputs.occupancy !== "primary" ? (
+                        <span className="text-amber-600 font-medium">Only Conventional available for {inputs.occupancy} properties</span>
+                      ) : inputs.creditScore >= 720 ? (
                         <span className="text-green-600 font-medium">Conventional best if credit score &gt; 720</span>
                       ) : (
                         <span className="text-amber-600 font-medium">FHA best if credit score &lt; 720</span>
