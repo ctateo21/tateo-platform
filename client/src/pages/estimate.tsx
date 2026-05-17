@@ -1,4 +1,5 @@
-import { useMemo, useState, useRef, useEffect } from "react";
+import { useMemo, useState, useRef, useEffect, useCallback } from "react";
+import { estimateAnnualTax } from "@/lib/county-tax-estimator";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
@@ -542,6 +543,18 @@ export default function Estimate() {
     }
   }, [liveRates]);
 
+  // Auto-recalculate property taxes whenever the address changes
+  const taxAddressRef = useRef<string>("");
+  useEffect(() => {
+    if (address && address !== taxAddressRef.current) {
+      taxAddressRef.current = address;
+      setInputs((p) => ({
+        ...p,
+        annualTaxes: estimateAnnualTax(address, p.purchasePrice, p.occupancy === "primary"),
+      }));
+    }
+  }, [address]);
+
   function getMinDown(lt: "conventional" | "fha" | "va" | "usda", hasMortgage: boolean | null, occupancy?: "primary" | "secondary" | "investment"): number {
     if (occupancy === "investment") return 20;
     if (occupancy === "secondary") return 10;
@@ -570,6 +583,7 @@ export default function Estimate() {
         occupancy: occ,
         downPaymentPct: Math.max(p.downPaymentPct, newMin),
         rentalType: occ === "investment" ? p.rentalType : null,
+        annualTaxes: estimateAnnualTax(address, p.purchasePrice, occ === "primary"),
       };
     });
   }
