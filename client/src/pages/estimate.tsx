@@ -650,6 +650,7 @@ export default function Estimate() {
     const rentalIncomeQualifying = Math.round((monthlyRentalIncome ?? 0) * 0.75);
     const qualifyingIncome = monthlyIncome + rentalIncomeQualifying;
 
+    const housingDTI = qualifyingIncome > 0 ? totalHousing / qualifyingIncome : 0;
     const dti = qualifyingIncome > 0 ? (totalHousing + monthlyDebts) / qualifyingIncome : 0;
     const maxDti = getMaxDTI(creditScore);
     const requiredIncome = Math.round((totalHousing + monthlyDebts) / maxDti);
@@ -687,7 +688,7 @@ export default function Estimate() {
     return {
       loanAmount, downPaymentAmt, pi, monthlyTax, monthlyHOIns, monthlyFlood,
       monthlyCDD, mortgageInsurance, pmi, mip, vaFee, totalHousing,
-      closingCosts, cashToClose, dti, maxDti, requiredIncome, requiredReserves,
+      closingCosts, cashToClose, housingDTI, dti, maxDti, requiredIncome, requiredReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
       rentalIncomeQualifying, qualifyingIncome,
     };
@@ -1328,9 +1329,14 @@ export default function Estimate() {
                   <Row label="Required Monthly Income" value={fmt(calc.requiredIncome)} />
                   <Separator />
                   <Row
-                    label="Your DTI"
+                    label="Housing DTI"
+                    value={fmtPct(calc.housingDTI)}
+                    sub="New mortgage ÷ qualifying income"
+                  />
+                  <Row
+                    label="Total DTI"
                     value={fmtPct(calc.dti)}
-                    sub={calc.dti > calc.maxDti ? "Exceeds max DTI" : "Within limit"}
+                    sub={calc.dti > calc.maxDti ? "Exceeds max DTI — needs review" : "New mortgage + debts ÷ qualifying income"}
                   />
                   <Row label="Max Allowed DTI" value={fmtPct(calc.maxDti)} sub={`Based on credit score ${inputs.creditScore}`} />
                   <Separator />
