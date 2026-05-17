@@ -803,7 +803,7 @@ export default function Estimate() {
           <div className="space-y-6">
 
             {/* ── INPUTS ─────────────────────────────────────────────── */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
               {/* 1. Borrower Profile — TOP */}
               <Card>
@@ -902,8 +902,20 @@ export default function Estimate() {
                     min={580} max={850} step={10}
                   />
 
+                </CardContent>
+              </Card>
+
+              {/* 2. Additional Info */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-primary" />
+                    Additional Info
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
                   {/* Current mortgage questions */}
-                  <div className="space-y-3 pt-1">
+                  <div className="space-y-3">
                     <div>
                       <p className="text-xs text-muted-foreground mb-2">Do you currently have a mortgage?</p>
                       <div className="flex gap-2">
@@ -969,7 +981,7 @@ export default function Estimate() {
                 </CardContent>
               </Card>
 
-              {/* 2. Purchase Details */}
+              {/* 3. Purchase Details */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
