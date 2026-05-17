@@ -1295,31 +1295,6 @@ export default function Estimate() {
                 <CardContent>
                   <Row label="Homeowners Insurance (annual)" value={fmt(inputs.annualHOIns)} sub={`${fmt(inputs.annualHOIns / 12)}/mo`} />
                   <Row label="Flood Insurance (annual)" value={fmt(inputs.annualFloodIns)} sub={`${fmt(inputs.annualFloodIns / 12)}/mo`} />
-                  <Separator />
-                  <p className="text-xs text-muted-foreground my-2 font-medium uppercase tracking-wide">Wind Mitigation Applied</p>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <Badge variant={inputs.impactWindows ? "default" : "outline"} className={inputs.impactWindows ? "bg-green-600" : ""}>
-                      {inputs.impactWindows ? <CheckCircle2 className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
-                      Impact Windows
-                    </Badge>
-                    <Badge variant={inputs.swr ? "default" : "outline"} className={inputs.swr ? "bg-green-600" : ""}>
-                      {inputs.swr ? <CheckCircle2 className="h-3 w-3 mr-1" /> : <XCircle className="h-3 w-3 mr-1" />}
-                      SWR Barrier
-                    </Badge>
-                    <Badge variant="outline" className="capitalize">
-                      Roof: {inputs.roofAttachment.replace("-", " ")}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center py-2 bg-green-50 rounded-lg px-3">
-                    <span className="text-sm font-semibold">Estimated HO Premium (with mitigation)</span>
-                    <span className="text-base font-bold text-green-700">{fmt(calc.estimatedHOIns)}/yr</span>
-                  </div>
-                  {calc.estimatedHOIns < inputs.annualHOIns && (
-                    <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                      <TrendingDown className="h-3 w-3" />
-                      Wind mitigation saves an estimated {fmt(inputs.annualHOIns - calc.estimatedHOIns)}/yr
-                    </p>
-                  )}
                 </CardContent>
               </Card>
 
