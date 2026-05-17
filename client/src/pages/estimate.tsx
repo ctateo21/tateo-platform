@@ -814,9 +814,6 @@ export default function Estimate() {
                           min={minDown} max={50} step={0.5}
                           suffix="%"
                         />
-                        <p className="text-xs text-muted-foreground -mt-1">
-                          {fmt(calc.downPaymentAmt)} down · {fmt(calc.loanAmount)} loan
-                        </p>
                         <div className="flex gap-1 flex-wrap pt-0.5">
                           {snapPoints.map(({ pct, label, sub }) => {
                             const isMin = pct === minDown;
