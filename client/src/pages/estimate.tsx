@@ -114,6 +114,7 @@ function calcInsuranceEstimate(
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 interface Inputs {
+  occupancy: "primary" | "secondary" | "investment";
   purchasePrice: number;
   downPaymentPct: number;
   loanType: "conventional" | "fha" | "va" | "usda";
@@ -271,6 +272,7 @@ export default function Estimate() {
   const rates = liveRates ?? FALLBACK_RATES;
 
   const [inputs, setInputs] = useState<Inputs>({
+    occupancy: "primary",
     purchasePrice: defaultPrice,
     downPaymentPct: 20,
     loanType: "conventional",
@@ -300,7 +302,9 @@ export default function Estimate() {
     }
   }, [liveRates]);
 
-  function getMinDown(lt: "conventional" | "fha" | "va" | "usda", hasMortgage: boolean | null): number {
+  function getMinDown(lt: "conventional" | "fha" | "va" | "usda", hasMortgage: boolean | null, occupancy?: "primary" | "secondary" | "investment"): number {
+    if (occupancy === "investment") return 20;
+    if (occupancy === "secondary") return 10;
     if (lt === "va" || lt === "usda") return 0;
     if (lt === "fha") return 3.5;
     return hasMortgage === true ? 5 : 3;
@@ -308,13 +312,20 @@ export default function Estimate() {
 
   function setLoanType(lt: "conventional" | "fha" | "va" | "usda") {
     setInputs((p) => {
-      const newMin = getMinDown(lt, p.hasMortgage);
+      const newMin = getMinDown(lt, p.hasMortgage, p.occupancy);
       return {
         ...p,
         loanType: lt,
         interestRate: adjustedRate((rates as any)[lt] ?? rates.fha, p.creditScore),
         downPaymentPct: Math.max(p.downPaymentPct, newMin),
       };
+    });
+  }
+
+  function setOccupancy(occ: "primary" | "secondary" | "investment") {
+    setInputs((p) => {
+      const newMin = getMinDown(p.loanType, p.hasMortgage, occ);
+      return { ...p, occupancy: occ, downPaymentPct: Math.max(p.downPaymentPct, newMin) };
     });
   }
 
@@ -475,6 +486,33 @@ export default function Estimate() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-5">
+                  {/* Occupancy Type */}
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-2">Property Use</p>
+                    <div className="flex gap-2">
+                      {(["primary", "secondary", "investment"] as const).map((occ) => (
+                        <button
+                          key={occ}
+                          onClick={() => setOccupancy(occ)}
+                          className={`flex-1 py-1.5 rounded-md text-xs font-semibold border capitalize transition-colors ${
+                            inputs.occupancy === occ
+                              ? "bg-primary text-white border-primary"
+                              : "border-border text-muted-foreground hover:border-primary"
+                          }`}
+                        >
+                          {occ}
+                        </button>
+                      ))}
+                    </div>
+                    {inputs.occupancy !== "primary" && (
+                      <p className="text-[11px] mt-1.5 text-amber-600 font-medium">
+                        {inputs.occupancy === "secondary"
+                          ? "Secondary home requires minimum 10% down"
+                          : "Investment property requires minimum 20% down"}
+                      </p>
+                    )}
+                  </div>
+
                   <div className="space-y-1">
                     <SliderInput
                       label="Monthly Gross Income"
@@ -518,8 +556,8 @@ export default function Estimate() {
                       <div className="flex gap-2">
                         <button
                           onClick={() => setInputs((p) => {
-                            const clampedDown = p.loanType === "conventional" ? Math.max(p.downPaymentPct, 5) : p.downPaymentPct;
-                            return { ...p, hasMortgage: true, downPaymentPct: clampedDown };
+                            const newMin = getMinDown(p.loanType, true, p.occupancy);
+                            return { ...p, hasMortgage: true, downPaymentPct: Math.max(p.downPaymentPct, newMin) };
                           })}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasMortgage === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                         >
@@ -618,13 +656,14 @@ export default function Estimate() {
                   </div>
 
                   {(() => {
-                    const minDown = getMinDown(inputs.loanType, inputs.hasMortgage);
+                    const minDown = getMinDown(inputs.loanType, inputs.hasMortgage, inputs.occupancy);
                     const snapPoints = [
                       { pct: 0,   label: "0%",   sub: "VA / USDA" },
                       { pct: 3,   label: "3%",   sub: "Conv (no mtg)" },
                       { pct: 3.5, label: "3.5%", sub: "FHA" },
                       { pct: 5,   label: "5%",   sub: "Conv (w/ mtg)" },
-                      { pct: 20,  label: "20%",  sub: "No PMI" },
+                      { pct: 10,  label: "10%",  sub: "Secondary" },
+                      { pct: 20,  label: "20%",  sub: "Investment" },
                     ];
                     return (
                       <div className="space-y-2">
