@@ -339,13 +339,16 @@ export default function Estimate() {
     retry: false,
   });
 
-  // Auto-zero flood insurance when zone is low-risk (only on first load per address)
+  // Sync flood insurance with zone data whenever address changes
   const floodLoadedRef = useRef<string | null>(null);
   useEffect(() => {
     if (floodData && floodLoadedRef.current !== address) {
       floodLoadedRef.current = address;
       if (!floodData.requiresFloodInsurance) {
         setInputs((p) => ({ ...p, annualFloodIns: 0 }));
+      } else {
+        // Restore default flood insurance when switching to a high-risk zone
+        setInputs((p) => ({ ...p, annualFloodIns: p.annualFloodIns === 0 ? 2000 : p.annualFloodIns }));
       }
     }
   }, [floodData, address]);
