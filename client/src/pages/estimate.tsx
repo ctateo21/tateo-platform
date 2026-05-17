@@ -147,6 +147,7 @@ interface Inputs {
   swr: boolean;
   hasMortgage: boolean | null;
   currentLoanFHA: boolean | null;
+  hasRentalIncome: boolean | null;
   rentalType: "annual" | "short-term" | null;
 }
 
@@ -167,7 +168,7 @@ function makeDefaultInputs(price = 400000): Inputs {
     annualHOIns: Math.round(price * 0.0075), annualFloodIns: 2000,
     monthlyDebts: 500, monthlyIncome: 8000, reserves: 15000,
     impactWindows: false, roofAttachment: "toenails", swr: false,
-    hasMortgage: null, currentLoanFHA: null, rentalType: null,
+    hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, rentalType: null,
   };
 }
 
@@ -531,6 +532,7 @@ export default function Estimate() {
     swr: false,
     hasMortgage: null,
     currentLoanFHA: null,
+    hasRentalIncome: null,
     rentalType: null,
   });
 
@@ -882,7 +884,7 @@ export default function Estimate() {
                     )}
                   </div>
                   <SliderInput
-                    label="Monthly Debts (auto, cards, etc.)"
+                    label="Monthly Debts (mortgage, auto, cards, etc.)"
                     value={inputs.monthlyDebts}
                     onChange={(v) => set("monthlyDebts", v)}
                     min={0} max={10000} step={50}
@@ -938,43 +940,64 @@ export default function Estimate() {
                     </div>
 
                     {inputs.hasMortgage === true && (
-                      <div>
-                        <p className="text-xs text-muted-foreground mb-2">Is your current loan FHA?</p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => set("currentLoanFHA", true)}
-                            className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.currentLoanFHA === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
-                          >
-                            Yes
-                          </button>
-                          <button
-                            onClick={() => set("currentLoanFHA", false)}
-                            className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.currentLoanFHA === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
-                          >
-                            No
-                          </button>
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-2">Is your current loan FHA?</p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => set("currentLoanFHA", true)}
+                              className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.currentLoanFHA === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                            >
+                              Yes
+                            </button>
+                            <button
+                              onClick={() => set("currentLoanFHA", false)}
+                              className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.currentLoanFHA === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                            >
+                              No
+                            </button>
+                          </div>
+
+                          {inputs.currentLoanFHA === true && (
+                            <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                              <p className="text-xs font-semibold text-amber-800 mb-1.5">FHA allows only one loan at a time.</p>
+                              <p className="text-xs text-amber-700 mb-1.5">A second FHA loan is only permitted if you qualify for one of these exceptions:</p>
+                              <ul className="text-xs text-amber-700 space-y-1 list-none">
+                                <li className="flex items-start gap-1.5"><span className="mt-0.5 shrink-0">1.</span> Growing family size</li>
+                                <li className="flex items-start gap-1.5"><span className="mt-0.5 shrink-0">2.</span> Co-signer / co-borrower situation</li>
+                                <li className="flex items-start gap-1.5"><span className="mt-0.5 shrink-0">3.</span> Divorcing from co-borrower</li>
+                                <li className="flex items-start gap-1.5"><span className="mt-0.5 shrink-0">4.</span> Relocating more than 100 miles from current home</li>
+                              </ul>
+                              <a
+                                href="https://answers.hud.gov/FHA/s/article/Can-a-person-have-more-than-one-FHA-loan"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] text-primary underline underline-offset-2 mt-2 inline-block"
+                              >
+                                HUD.gov — FHA multiple loan policy
+                              </a>
+                            </div>
+                          )}
                         </div>
 
-                        {inputs.currentLoanFHA === true && (
-                          <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                            <p className="text-xs font-semibold text-amber-800 mb-1.5">FHA allows only one loan at a time.</p>
-                            <p className="text-xs text-amber-700 mb-1.5">A second FHA loan is only permitted if you qualify for one of these exceptions:</p>
-                            <ul className="text-xs text-amber-700 space-y-1 list-none">
-                              <li className="flex items-start gap-1.5"><span className="mt-0.5 shrink-0">1.</span> Growing family size</li>
-                              <li className="flex items-start gap-1.5"><span className="mt-0.5 shrink-0">2.</span> Co-signer / co-borrower situation</li>
-                              <li className="flex items-start gap-1.5"><span className="mt-0.5 shrink-0">3.</span> Divorcing from co-borrower</li>
-                              <li className="flex items-start gap-1.5"><span className="mt-0.5 shrink-0">4.</span> Relocating more than 100 miles from current home</li>
-                            </ul>
-                            <a
-                              href="https://answers.hud.gov/FHA/s/article/Can-a-person-have-more-than-one-FHA-loan"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[10px] text-primary underline underline-offset-2 mt-2 inline-block"
+                        {/* Rental income question */}
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-2">Do you receive any rental income to help pay for these mortgages?</p>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => set("hasRentalIncome", true)}
+                              className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasRentalIncome === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                             >
-                              HUD.gov — FHA multiple loan policy
-                            </a>
+                              Yes
+                            </button>
+                            <button
+                              onClick={() => set("hasRentalIncome", false)}
+                              className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasRentalIncome === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                            >
+                              No
+                            </button>
                           </div>
-                        )}
+                        </div>
                       </div>
                     )}
                   </div>
