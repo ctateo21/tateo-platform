@@ -160,14 +160,14 @@ interface Scenario {
   savedInputs: Inputs | null;
 }
 
-function makeDefaultInputs(price = 400000): Inputs {
+function makeDefaultInputs(price = 350000): Inputs {
   return {
     occupancy: "primary", purchasePrice: price, downPaymentPct: 5,
-    loanType: "conventional", creditScore: 740,
+    loanType: "conventional", creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
     annualHOIns: Math.round(price * 0.0075), annualFloodIns: 2000,
-    monthlyDebts: 500, monthlyIncome: 8000, reserves: 15000,
+    monthlyDebts: 0, monthlyIncome: 8000, reserves: 25000,
     impactWindows: false, roofAttachment: "toenails", swr: false,
     hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, monthlyRentalIncome: 0, rentalType: null,
   };
