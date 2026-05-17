@@ -39,7 +39,10 @@ import {
   XCircle,
   AlertCircle,
   DollarSign,
+  Pencil,
+  MapPin,
 } from "lucide-react";
+import { loadGoogleMapsApi } from "@/lib/script-loader";
 
 // ─── Calculation helpers ────────────────────────────────────────────────────
 
@@ -244,6 +247,54 @@ export default function Estimate() {
   const [, setLocation] = useLocation();
   const params = new URLSearchParams(search);
   const address = params.get("address") || "Unknown Address";
+
+  // Editable address
+  const [isEditingAddress, setIsEditingAddress] = useState(false);
+  const [editAddressVal, setEditAddressVal] = useState(address);
+  const addressInputRef = useRef<HTMLInputElement>(null);
+  const addressAutocompleteRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!isEditingAddress) return;
+    setEditAddressVal(address);
+    setTimeout(() => addressInputRef.current?.select(), 30);
+
+    async function initAutocomplete() {
+      try {
+        let apiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || "";
+        if (!apiKey) {
+          const res = await fetch("/api/config/google-maps-api-key");
+          const data = await res.json();
+          apiKey = data.apiKey || "";
+        }
+        if (!apiKey || !addressInputRef.current) return;
+        await loadGoogleMapsApi(apiKey);
+        if (!window.google?.maps?.places?.Autocomplete || !addressInputRef.current) return;
+        addressAutocompleteRef.current = new window.google.maps.places.Autocomplete(addressInputRef.current, {
+          types: ["address"],
+          componentRestrictions: { country: "us" },
+          fields: ["formatted_address"],
+        });
+        addressAutocompleteRef.current.addListener("place_changed", () => {
+          const place = addressAutocompleteRef.current.getPlace();
+          if (place?.formatted_address) {
+            setIsEditingAddress(false);
+            setLocation(`/estimate?address=${encodeURIComponent(place.formatted_address)}`);
+          }
+        });
+      } catch (err) {
+        console.warn("Address autocomplete unavailable:", err);
+      }
+    }
+    initAutocomplete();
+
+    return () => {
+      if (addressAutocompleteRef.current) {
+        window.google?.maps?.event?.clearInstanceListeners?.(addressAutocompleteRef.current);
+        addressAutocompleteRef.current = null;
+      }
+    };
+  }, [isEditingAddress]);
 
   const defaultPrice = 400000;
 
@@ -457,7 +508,41 @@ export default function Estimate() {
               </button>
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">Property Estimate</p>
-                <p className="font-semibold text-sm leading-tight">{address}</p>
+                {isEditingAddress ? (
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <input
+                      ref={addressInputRef}
+                      type="text"
+                      value={editAddressVal}
+                      onChange={(e) => setEditAddressVal(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const val = editAddressVal.trim();
+                          if (val) setLocation(`/estimate?address=${encodeURIComponent(val)}`);
+                          setIsEditingAddress(false);
+                        } else if (e.key === "Escape") {
+                          setIsEditingAddress(false);
+                        }
+                      }}
+                      onBlur={(e) => {
+                        // Delay to allow autocomplete click to fire first
+                        setTimeout(() => setIsEditingAddress(false), 200);
+                      }}
+                      className="text-sm font-semibold bg-transparent border-b border-primary outline-none w-72 max-w-full leading-tight pb-0.5"
+                      autoComplete="off"
+                    />
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setIsEditingAddress(true)}
+                    className="group flex items-center gap-1.5 mt-0.5 hover:text-primary transition-colors text-left"
+                  >
+                    <MapPin className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0" />
+                    <span className="font-semibold text-sm leading-tight">{address}</span>
+                    <Pencil className="h-3 w-3 text-muted-foreground/50 group-hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </button>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2">
