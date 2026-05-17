@@ -607,7 +607,7 @@ export default function Estimate() {
               {/* Summary Banner */}
               <Card className="border-2 border-primary/20 bg-primary/5">
                 <CardContent className="pt-5">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground mb-1">Total Monthly Payment</p>
                       <p className="text-2xl font-bold text-primary">{fmt(calc.totalHousing)}</p>
@@ -621,6 +621,14 @@ export default function Estimate() {
                       <p className={`text-2xl font-bold ${calc.dti > calc.maxDti ? "text-red-600" : "text-green-600"}`}>
                         {fmtPct(calc.dti)}
                       </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground mb-1">Assumed Debts</p>
+                      <p className="text-2xl font-bold text-primary">{fmt(inputs.monthlyDebts)}</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground mb-1">Monthly Income Needed</p>
+                      <p className="text-2xl font-bold text-primary">{fmt(calc.requiredIncome)}</p>
                     </div>
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground mb-1">Qualification</p>
