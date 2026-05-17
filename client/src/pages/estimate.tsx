@@ -251,6 +251,23 @@ export default function Estimate() {
     queryKey: ["/api/mortgage-rates"],
     staleTime: 60 * 60 * 1000,
   });
+
+  // Area Median Income for the entered address
+  const { data: amiData } = useQuery<{ areaName: string; annualAMI: number; monthlyAMI: number; source: string }>({
+    queryKey: ["/api/ami", address],
+    queryFn: () => fetch(`/api/ami?address=${encodeURIComponent(address)}`).then(r => { if (!r.ok) throw new Error("AMI not found"); return r.json(); }),
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: false,
+  });
+
+  // Set monthly income to AMI once loaded (only on first load)
+  const amiLoadedRef = useRef(false);
+  useEffect(() => {
+    if (amiData && !amiLoadedRef.current) {
+      amiLoadedRef.current = true;
+      setInputs((p) => ({ ...p, monthlyIncome: amiData.monthlyAMI }));
+    }
+  }, [amiData]);
   const rates = liveRates ?? FALLBACK_RATES;
 
   const [inputs, setInputs] = useState<Inputs>({
@@ -444,13 +461,21 @@ export default function Estimate() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-5">
-                  <SliderInput
-                    label="Monthly Gross Income"
-                    value={inputs.monthlyIncome}
-                    onChange={(v) => set("monthlyIncome", v)}
-                    min={1000} max={50000} step={100}
-                    prefix="$"
-                  />
+                  <div className="space-y-1">
+                    <SliderInput
+                      label="Monthly Gross Income"
+                      value={inputs.monthlyIncome}
+                      onChange={(v) => set("monthlyIncome", v)}
+                      min={1000} max={50000} step={100}
+                      prefix="$"
+                    />
+                    {amiData && (
+                      <p className="text-[10px] text-muted-foreground leading-tight">
+                        <span className="text-green-600 font-medium">Auto-set from Area Median Income</span>
+                        {" · "}{amiData.areaName.split(",").slice(0, 2).join(",")}
+                      </p>
+                    )}
+                  </div>
                   <SliderInput
                     label="Monthly Debts (auto, cards, etc.)"
                     value={inputs.monthlyDebts}

@@ -262,6 +262,106 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ apiKey });
   });
   
+  // Area Median Income lookup: geocode → Census tract → ACS median household income
+  let _amiCache: Map<string, { data: Record<string, any>; ts: number }> = new Map();
+  app.get("/api/ami", async (req, res) => {
+    const address = (req.query.address as string || "").trim();
+    if (!address) return res.status(400).json({ error: "address required" });
+
+    const cacheKey = address.toLowerCase();
+    const cached = _amiCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < 24 * 60 * 60 * 1000) {
+      return res.json(cached.data);
+    }
+
+    try {
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY || "";
+
+      // 1. Geocode address → lat/lng + address components via Google Maps
+      const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
+      const geoRes = await fetch(geoUrl);
+      const geoJson = await geoRes.json();
+      if (!geoJson.results?.length) return res.status(404).json({ error: "Address not found" });
+
+      const { lat, lng } = geoJson.results[0].geometry.location;
+      const components: Array<{ long_name: string; short_name: string; types: string[] }> =
+        geoJson.results[0].address_components || [];
+      const stateComp = components.find((c) => c.types.includes("administrative_area_level_1"));
+      const countyComp = components.find((c) => c.types.includes("administrative_area_level_2"));
+      const stateName = stateComp?.short_name ?? "";
+      const countyName = countyComp?.long_name.replace(" County", "").replace(" Parish", "").trim() ?? "";
+
+      // 2. Census Geocoder: lat/lng → FIPS state + county codes
+      const censusUrl = `https://geocoding.geo.census.gov/geocoder/geographies/coordinates?x=${lng}&y=${lat}&benchmark=Public_AR_Current&vintage=Current_Current&layers=Counties&format=json`;
+      const censusRes = await fetch(censusUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; TateoApp/1.0)" },
+      });
+      const censusText = await censusRes.text();
+      let stateFips = "";
+      let countyFips = "";
+      if (censusText.trim().startsWith("{")) {
+        const censusJson = JSON.parse(censusText);
+        const county = censusJson?.result?.geographies?.["Counties"]?.[0];
+        if (county) {
+          stateFips = String(county.STATE).padStart(2, "0");
+          countyFips = String(county.COUNTY).padStart(3, "0");
+        }
+      }
+
+      // Fall back: look up FIPS via address endpoint if coordinates didn't work
+      if (!stateFips || !countyFips) {
+        const addrUrl = `https://geocoding.geo.census.gov/geocoder/geographies/address?street=${encodeURIComponent(address)}&benchmark=Public_AR_Current&vintage=Current_Current&layers=Counties&format=json`;
+        const addrRes = await fetch(addrUrl, {
+          headers: { "User-Agent": "Mozilla/5.0 (compatible; TateoApp/1.0)" },
+        });
+        const addrText = await addrRes.text();
+        if (addrText.trim().startsWith("{")) {
+          const addrJson = JSON.parse(addrText);
+          const match = addrJson?.result?.addressMatches?.[0]?.geographies?.["Counties"]?.[0];
+          if (match) {
+            stateFips = String(match.STATE).padStart(2, "0");
+            countyFips = String(match.COUNTY).padStart(3, "0");
+          }
+        }
+      }
+
+      if (!stateFips || !countyFips) {
+        return res.status(404).json({ error: "Could not determine county for this address" });
+      }
+
+      // 3. Census Reporter API (free, no key) — median household income for this county
+      const geoId = `05000US${stateFips}${countyFips}`;
+      const crUrl = `https://api.censusreporter.org/1.0/data/show/latest?table_ids=B19013&geo_ids=${geoId}`;
+      const crRes = await fetch(crUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; TateoApp/1.0)" },
+      });
+      const crText = await crRes.text();
+      if (!crText.trim().startsWith("{")) {
+        console.error("Census Reporter returned non-JSON:", crText.substring(0, 200));
+        return res.status(500).json({ error: "Census income data unavailable" });
+      }
+      const crJson = JSON.parse(crText);
+      const annualMedian = Math.round(crJson?.data?.[geoId]?.B19013?.estimate?.B19013001 ?? 0);
+      const areaName = crJson?.geography?.[geoId]?.name ?? `${countyName}, ${stateName}`;
+
+      if (!annualMedian || annualMedian <= 0) {
+        return res.status(404).json({ error: "Income data not available for this area" });
+      }
+
+      const result = {
+        areaName,
+        annualAMI: annualMedian,
+        monthlyAMI: Math.round(annualMedian / 12),
+        source: "U.S. Census Bureau ACS 5-Year",
+      };
+      _amiCache.set(cacheKey, { data: result, ts: Date.now() });
+      res.json(result);
+    } catch (err) {
+      console.error("AMI lookup failed:", err);
+      res.status(500).json({ error: "Failed to fetch AMI data" });
+    }
+  });
+
   // Live mortgage rates scraped from mortgagenewsdaily.com (cached 1 hr)
   let _ratesCache: { rates: Record<string, any>; ts: number } | null = null;
   app.get("/api/mortgage-rates", async (req, res) => {
