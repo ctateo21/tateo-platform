@@ -44,7 +44,7 @@ const REGION_TABLE: { key: RegionKey; label: string; counties: string; rateRange
 
 const ROOF_ADJ  = [0.90, 1.00, 1.20, 1.38];
 const WIND_ADJ  = [1.14, 1.00, 0.82];
-const HURR_ADJ  = [1.10, 1.00, 0.85];
+const HURR_ADJ  = [1.10, 1.05, 1.00];
 const CONST_ADJ = [0.93, 1.00, 1.08];
 const YEAR_ADJ  = [0.90, 1.00, 1.10, 1.28];
 const CLAIM_ADJ = [1.00, 1.14, 1.26, 1.40];
@@ -174,7 +174,7 @@ export default function InsuranceDashboard() {
   const [rebuild, setRebuild] = useState(400000);
   const [roofIdx, setRoofIdx] = useState(1);
   const [windIdx, setWindIdx] = useState(1);
-  const [hurrIdx, setHurrIdx] = useState(1);
+  const [hurrIdx, setHurrIdx] = useState(0);
   const [constIdx, setConstIdx] = useState(0);
   const [yearIdx, setYearIdx] = useState(1);
   const [claimsIdx, setClaimsIdx] = useState(0);
@@ -185,7 +185,7 @@ export default function InsuranceDashboard() {
     const lowRate  = region.low  * adj;
     const highRate = region.high * adj;
     const midRate  = (lowRate + highRate) / 2;
-    const hurrDeductiblePct = [0.02, 0.05, 0.10][hurrIdx];
+    const hurrDeductiblePct = [0.02, 0.03, 0.05][hurrIdx];
     return {
       low: rebuild * lowRate,
       mid: rebuild * midRate,
@@ -196,7 +196,7 @@ export default function InsuranceDashboard() {
       adj,
       windEffect: windIdx === 2 ? { label: "−18%", dir: "save" } : windIdx === 0 ? { label: "+14%", dir: "cost" } : { label: "Baseline", dir: "neutral" },
       roofEffect: roofIdx === 0 ? { label: "−10%", dir: "save" } : roofIdx === 1 ? { label: "Baseline", dir: "neutral" } : roofIdx === 2 ? { label: "+20%", dir: "cost" } : { label: "+38%", dir: "cost" },
-      hurrEffect: hurrIdx === 2 ? { label: "−15%", dir: "save" } : hurrIdx === 0 ? { label: "+10%", dir: "cost" } : { label: "Baseline", dir: "neutral" },
+      hurrEffect: hurrIdx === 0 ? { label: "Standard (2%)", dir: "neutral" } : hurrIdx === 1 ? { label: "−5% vs 2%", dir: "save" } : { label: "−10% vs 2%", dir: "save" },
       constEffect: constIdx === 0 ? { label: "−7%", dir: "save" } : constIdx === 2 ? { label: "+8%", dir: "cost" } : { label: "Baseline", dir: "neutral" },
     };
   }, [regionKey, rebuild, roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx]);
@@ -301,9 +301,9 @@ export default function InsuranceDashboard() {
                 value={hurrIdx}
                 onChange={setHurrIdx}
                 options={[
-                  { value: 0, label: "2% of dwelling — lowest out-of-pocket (+10%)" },
-                  { value: 1, label: "5% of dwelling — baseline (saves 15–20%)" },
-                  { value: 2, label: "10% of dwelling — saves 25–30% on premium" },
+                  { value: 0, label: "2% of dwelling — standard" },
+                  { value: 1, label: "3% of dwelling — saves ~5% on premium" },
+                  { value: 2, label: "5% of dwelling — saves ~10% on premium" },
                 ]}
               />
 
