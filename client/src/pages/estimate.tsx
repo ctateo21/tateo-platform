@@ -206,37 +206,38 @@ interface SliderInputProps {
   prefix?: string;
   suffix?: string;
   disabled?: boolean;
+  decimals?: number;
 }
 
-function formatWithCommas(n: number): string {
+function formatWithCommas(n: number, decimals = 0): string {
+  if (decimals > 0) return n.toFixed(decimals);
   return Math.round(n).toLocaleString("en-US");
 }
 
-function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffix, disabled }: SliderInputProps) {
-  const [text, setText] = useState(formatWithCommas(value));
+function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffix, disabled, decimals = 0 }: SliderInputProps) {
+  const [text, setText] = useState(formatWithCommas(value, decimals));
   const isFocused = useRef(false);
 
   // Sync display from parent only when not being edited
   useEffect(() => {
     if (!isFocused.current) {
-      setText(formatWithCommas(value));
+      setText(formatWithCommas(value, decimals));
     }
-  }, [value]);
+  }, [value, decimals]);
 
   function handleFocus(e: React.FocusEvent<HTMLInputElement>) {
     isFocused.current = true;
-    // Show plain number (no commas) while editing
-    setText(String(Math.round(value)));
+    setText(decimals > 0 ? value.toFixed(decimals) : String(Math.round(value)));
     e.target.select();
   }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const raw = e.target.value;
     setText(raw);
-    // Strip commas before parsing (in case user types or pastes "400,000")
     const n = parseFloat(raw.replace(/,/g, ""));
     if (!isNaN(n)) {
-      onChange(Math.min(max, Math.max(min, Math.round(n))));
+      const rounded = decimals > 0 ? parseFloat(n.toFixed(decimals)) : Math.round(n);
+      onChange(Math.min(max, Math.max(min, rounded)));
     }
   }
 
@@ -244,11 +245,12 @@ function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffi
     isFocused.current = false;
     const n = parseFloat(text.replace(/,/g, ""));
     if (!isNaN(n)) {
-      const clamped = Math.min(max, Math.max(min, Math.round(n)));
+      const rounded = decimals > 0 ? parseFloat(n.toFixed(decimals)) : Math.round(n);
+      const clamped = Math.min(max, Math.max(min, rounded));
       onChange(clamped);
-      setText(formatWithCommas(clamped));
+      setText(formatWithCommas(clamped, decimals));
     } else {
-      setText(formatWithCommas(value));
+      setText(formatWithCommas(value, decimals));
     }
   }
 
@@ -1146,8 +1148,9 @@ export default function Estimate() {
                       label=""
                       value={inputs.interestRate}
                       onChange={(v) => set("interestRate", v)}
-                      min={3} max={12} step={0.05}
+                      min={3} max={12} step={0.005}
                       suffix="%"
+                      decimals={3}
                     />
                   </div>
 
