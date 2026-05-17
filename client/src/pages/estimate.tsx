@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
-import { estimateAnnualTax, getCountyTaxLink } from "@/lib/county-tax-estimator";
+import { estimateAnnualTax, getCountyTaxLink, getCountyName } from "@/lib/county-tax-estimator";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
@@ -46,6 +46,10 @@ import {
   X,
   Mail,
   FileDown,
+  Info,
+  AlertTriangle,
+  Minus,
+  ChevronDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -144,6 +148,46 @@ function calcInsuranceEstimate(
   base *= roofMultiplier[roofAttachment] ?? 1.0;
   return Math.round(base);
 }
+
+// ─── Insurance engine ────────────────────────────────────────────────────────
+
+type InsRegionKey = "keys" | "sefl" | "swfl" | "tampa" | "nefljax" | "central" | "ncfl";
+
+const INS_REGIONS: Record<InsRegionKey, { name: string; counties: string; low: number; high: number; tier: string; tierColor: string; note: string }> = {
+  keys:    { name: "Keys / Barrier Islands",    counties: "Monroe, barrier islands",                 low: 0.0495, high: 0.0665, tier: "Extreme",  tierColor: "bg-red-100 text-red-800",      note: "Extreme hurricane surge risk. Most major carriers have exited this market." },
+  sefl:    { name: "SE FL Coastal",             counties: "Miami-Dade, Broward, Palm Beach",         low: 0.0233, high: 0.0407, tier: "High",     tierColor: "bg-orange-100 text-orange-800", note: "Hurricane exposure and high rebuild costs define this market." },
+  swfl:    { name: "SW FL Coastal",             counties: "Lee, Collier, Charlotte, Manatee, Sarasota", low: 0.0134, high: 0.0207, tier: "High",  tierColor: "bg-orange-100 text-orange-800", note: "Post-Hurricane Ian reinsurance pricing continues to elevate rates." },
+  tampa:   { name: "Tampa Bay Area",            counties: "Hillsborough, Pinellas, Pasco",           low: 0.0110, high: 0.0170, tier: "Mod-High", tierColor: "bg-yellow-100 text-yellow-800",  note: "Growing storm risk recognition and significant flood zone coverage push rates above Central FL." },
+  nefljax: { name: "NE FL / Jacksonville",      counties: "Duval, Clay, St. Johns, Flagler",         low: 0.0080, high: 0.0127, tier: "Moderate", tierColor: "bg-blue-100 text-blue-800",     note: "Moderate coastal exposure with better carrier availability than South Florida." },
+  central: { name: "Central FL Inland",         counties: "Orange, Osceola, Polk, Seminole",         low: 0.0078, high: 0.0122, tier: "Moderate", tierColor: "bg-blue-100 text-blue-800",     note: "Good carrier availability and shielded from direct coastal wind." },
+  ncfl:    { name: "North-Central FL Inland",   counties: "Alachua, Marion, Sumter, Lake, Columbia", low: 0.0054, high: 0.0080, tier: "Low",      tierColor: "bg-green-100 text-green-800",   note: "Consistently the lowest rates in Florida — 60+ miles from the coast." },
+};
+
+const INS_COUNTY_TO_REGION: Record<string, InsRegionKey> = {
+  "monroe": "keys",
+  "miami-dade": "sefl", "broward": "sefl", "palm beach": "sefl", "st. lucie": "sefl", "martin": "sefl",
+  "lee": "swfl", "collier": "swfl", "charlotte": "swfl", "manatee": "swfl", "sarasota": "swfl",
+  "hillsborough": "tampa", "pinellas": "tampa", "pasco": "tampa", "hernando": "tampa",
+  "duval": "nefljax", "clay": "nefljax", "st. johns": "nefljax", "st johns": "nefljax", "flagler": "nefljax", "nassau": "nefljax",
+  "okaloosa": "nefljax", "santa rosa": "nefljax", "escambia": "nefljax",
+  "orange": "central", "osceola": "central", "polk": "central", "seminole": "central", "lake": "central", "volusia": "central",
+  "brevard": "central", "indian river": "central",
+  "alachua": "ncfl", "marion": "ncfl", "sumter": "ncfl", "columbia": "ncfl", "putnam": "ncfl",
+  "leon": "ncfl", "gadsden": "ncfl", "wakulla": "ncfl",
+};
+
+function getInsRegionFromAddress(address: string): InsRegionKey {
+  const county = getCountyName(address);
+  if (county && INS_COUNTY_TO_REGION[county]) return INS_COUNTY_TO_REGION[county];
+  return "tampa";
+}
+
+const INS_ROOF_ADJ  = [0.90, 1.00, 1.20, 1.38];
+const INS_WIND_ADJ  = [1.14, 1.00, 0.82];
+const INS_HURR_ADJ  = [1.10, 1.05, 1.00];
+const INS_CONST_ADJ = [0.93, 1.00, 1.08];
+const INS_YEAR_ADJ  = [0.90, 1.00, 1.10, 1.28];
+const INS_CLAIM_ADJ = [1.00, 1.14, 1.26, 1.40];
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -786,6 +830,47 @@ export default function Estimate() {
     rentalType: null,
   });
 
+  // ── Insurance panel state ───────────────────────────────────────────────────
+  const insuranceSectionRef = useRef<HTMLDivElement>(null);
+  const [insRegionKey, setInsRegionKey] = useState<InsRegionKey>(() => getInsRegionFromAddress(address));
+  const [insRoofIdx, setInsRoofIdx] = useState(1);
+  const [insWindIdx, setInsWindIdx] = useState(1);
+  const [insHurrIdx, setInsHurrIdx] = useState(0);
+  const [insConstIdx, setInsConstIdx] = useState(0);
+  const [insYearIdx, setInsYearIdx] = useState(1);
+  const [insClaimsIdx, setInsClaimsIdx] = useState(0);
+
+  // Auto-detect region whenever address changes
+  useEffect(() => {
+    if (address && address !== "Unknown Address") {
+      setInsRegionKey(getInsRegionFromAddress(address));
+    }
+  }, [address]);
+
+  // Calculate insurance premium from the engine
+  const insPremiumCalc = useMemo(() => {
+    const region = INS_REGIONS[insRegionKey];
+    const rebuild = inputs.purchasePrice;
+    const adj = INS_ROOF_ADJ[insRoofIdx] * INS_WIND_ADJ[insWindIdx] * INS_HURR_ADJ[insHurrIdx]
+              * INS_CONST_ADJ[insConstIdx] * INS_YEAR_ADJ[insYearIdx] * INS_CLAIM_ADJ[insClaimsIdx];
+    const lowRate  = region.low  * adj;
+    const highRate = region.high * adj;
+    const midRate  = (lowRate + highRate) / 2;
+    return {
+      low:   Math.round(rebuild * lowRate),
+      mid:   Math.round(rebuild * midRate),
+      high:  Math.round(rebuild * highRate),
+      monthly: Math.round(rebuild * midRate / 12),
+      hurrDeductible: Math.round(rebuild * [0.02, 0.03, 0.05][insHurrIdx]),
+      hurrPct: [2, 3, 5][insHurrIdx],
+    };
+  }, [inputs.purchasePrice, insRegionKey, insRoofIdx, insWindIdx, insHurrIdx, insConstIdx, insYearIdx, insClaimsIdx]);
+
+  // Wire insurance midpoint into annualHOIns
+  useEffect(() => {
+    setInputs(prev => ({ ...prev, annualHOIns: insPremiumCalc.mid }));
+  }, [insPremiumCalc.mid]);
+
   // Clamp seller concessions whenever loan type, occupancy, or down payment changes
   useEffect(() => {
     const maxC = getMaxSellerConcessions(inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice);
@@ -978,15 +1063,19 @@ export default function Estimate() {
     return (n * 100).toFixed(1) + "%";
   }
 
-  function Row({ label, value, sub, status, link }: { label: string; value: string; sub?: string; status?: "green" | "yellow" | "red"; link?: { url: string; label: string } }) {
+  function Row({ label, value, sub, status, link, onClick }: { label: string; value: string; sub?: string; status?: "green" | "yellow" | "red"; link?: { url: string; label: string }; onClick?: () => void }) {
     const bg = status === "green" ? "bg-green-50" : status === "yellow" ? "bg-yellow-50" : status === "red" ? "bg-red-50" : "";
     const labelColor = status === "green" ? "text-green-800" : status === "yellow" ? "text-yellow-800" : status === "red" ? "text-red-800" : "text-muted-foreground";
     const valueColor = status === "green" ? "text-green-700 font-bold" : status === "yellow" ? "text-yellow-700 font-bold" : status === "red" ? "text-red-700 font-bold" : "font-semibold";
     const subColor = status === "green" ? "text-green-600" : status === "yellow" ? "text-yellow-600" : status === "red" ? "text-red-600" : "text-muted-foreground";
     return (
-      <div className={`flex justify-between items-center py-2 px-2 rounded-md transition-colors ${bg}`}>
+      <div
+        className={`flex justify-between items-center py-2 px-2 rounded-md transition-colors ${bg} ${onClick ? "cursor-pointer hover:bg-primary/5 group" : ""}`}
+        onClick={onClick}
+      >
         <span className={`text-sm ${labelColor} flex items-center gap-1.5`}>
           {label}
+          {onClick && <ChevronDown className="h-3 w-3 opacity-0 group-hover:opacity-60 transition-opacity" />}
           {link && (
             <a
               href={link.url}
@@ -1626,7 +1715,11 @@ export default function Estimate() {
                     sub={`${fmt(inputs.annualTaxes)}/yr`}
                     link={address && address !== "Unknown Address" ? getCountyTaxLink(address) ?? undefined : undefined}
                   />
-                  <Row label="Homeowners Insurance" value={`${fmt(calc.monthlyHOIns)}/mo`} />
+                  <Row
+                    label="Homeowners Insurance"
+                    value={`${fmt(calc.monthlyHOIns)}/mo`}
+                    onClick={() => insuranceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  />
                   <Row label="Flood Insurance" value={`${fmt(calc.monthlyFlood)}/mo`} />
                   {inputs.hoaMonthly > 0 && <Row label="HOA" value={fmt(inputs.hoaMonthly)} />}
                   {inputs.cddAnnual > 0 && <Row label="CDD" value={`${fmt(calc.monthlyCDD)}/mo`} />}
@@ -1645,19 +1738,160 @@ export default function Estimate() {
                 </CardContent>
               </Card>
 
-              {/* Insurance Section */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2 text-primary">
-                    <Shield className="h-4 w-4" />
-                    Insurance
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Row label="Homeowners Insurance (annual)" value={fmt(inputs.annualHOIns)} sub={`${fmt(inputs.annualHOIns / 12)}/mo`} />
-                  <Row label="Flood Insurance (annual)" value={fmt(inputs.annualFloodIns)} sub={`${fmt(inputs.annualFloodIns / 12)}/mo`} />
-                </CardContent>
-              </Card>
+              {/* ── Full Insurance Panel ── */}
+              <div ref={insuranceSectionRef} className="scroll-mt-6">
+                <Card className="border-2 border-primary/20 shadow-md">
+                  <CardHeader className="pb-3 bg-primary/5 rounded-t-lg">
+                    <CardTitle className="text-base flex items-center gap-2 text-primary">
+                      <Shield className="h-4 w-4" />
+                      Homeowners Insurance Estimate
+                      <Badge className="ml-auto bg-primary/10 text-primary border-primary/30 font-mono text-sm">
+                        {fmt(insPremiumCalc.mid)}/yr midpoint
+                      </Badge>
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Midpoint premium feeds into your monthly payment above. Adjust factors below to refine the estimate.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="pt-4">
+
+                    {/* Premium hero */}
+                    <div className="bg-primary rounded-xl p-4 text-white mb-5">
+                      <div className="text-[10px] font-semibold text-white/60 uppercase tracking-widest mb-1">Estimated Annual Premium — {INS_REGIONS[insRegionKey].name}</div>
+                      <div className="grid grid-cols-3 gap-2 mt-2">
+                        <div className="bg-white/10 rounded-lg p-3 border border-white/10">
+                          <div className="text-[9px] font-medium text-white/50 uppercase tracking-wide mb-1">Low</div>
+                          <div className="text-sm font-bold font-mono">{fmt(insPremiumCalc.low)}</div>
+                          <div className="text-[9px] text-white/40 mt-0.5">{(insPremiumCalc.low / inputs.purchasePrice * 100).toFixed(2)}% of price</div>
+                        </div>
+                        <div className="bg-white/20 rounded-lg p-3 border border-white/30 ring-1 ring-white/30">
+                          <div className="text-[9px] font-medium text-white/70 uppercase tracking-wide mb-1">Midpoint</div>
+                          <div className="text-base font-bold font-mono text-yellow-300">{fmt(insPremiumCalc.mid)}</div>
+                          <div className="text-[9px] text-yellow-300/70 mt-0.5">{(insPremiumCalc.mid / inputs.purchasePrice * 100).toFixed(2)}% of price</div>
+                        </div>
+                        <div className="bg-white/10 rounded-lg p-3 border border-white/10">
+                          <div className="text-[9px] font-medium text-white/50 uppercase tracking-wide mb-1">High</div>
+                          <div className="text-sm font-bold font-mono">{fmt(insPremiumCalc.high)}</div>
+                          <div className="text-[9px] text-white/40 mt-0.5">{(insPremiumCalc.high / inputs.purchasePrice * 100).toFixed(2)}% of price</div>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        <div className="bg-white/10 rounded-lg p-2.5 border border-white/10">
+                          <div className="text-[9px] text-white/50 uppercase tracking-wide">Monthly (midpoint)</div>
+                          <div className="text-sm font-bold font-mono">{fmt(insPremiumCalc.monthly)}/mo</div>
+                        </div>
+                        <div className="bg-white/10 rounded-lg p-2.5 border border-white/10">
+                          <div className="text-[9px] text-white/50 uppercase tracking-wide">Hurricane Deductible ({insPremiumCalc.hurrPct}%)</div>
+                          <div className="text-sm font-bold font-mono">{fmt(insPremiumCalc.hurrDeductible)}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Controls */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+                      {/* Region */}
+                      <div className="sm:col-span-2 space-y-1">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Region / Risk Tier</label>
+                        <select
+                          value={insRegionKey}
+                          onChange={e => setInsRegionKey(e.target.value as InsRegionKey)}
+                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        >
+                          {(Object.entries(INS_REGIONS) as [InsRegionKey, typeof INS_REGIONS[InsRegionKey]][]).map(([key, r]) => (
+                            <option key={key} value={key}>{r.name} — {r.counties}</option>
+                          ))}
+                        </select>
+                        <p className="text-xs text-muted-foreground leading-relaxed pt-1">{INS_REGIONS[insRegionKey].note}</p>
+                      </div>
+
+                      {/* Roof Age */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Roof Age</label>
+                        <select value={insRoofIdx} onChange={e => setInsRoofIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                          <option value={0}>Under 5 years</option>
+                          <option value={1}>5–14 years — standard</option>
+                          <option value={2}>15–20 years</option>
+                          <option value={3}>20+ years</option>
+                        </select>
+                      </div>
+
+                      {/* Wind Mitigation */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Wind Mitigation</label>
+                        <select value={insWindIdx} onChange={e => setInsWindIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                          <option value={0}>No inspection / no features</option>
+                          <option value={1}>Basic inspection — standard</option>
+                          <option value={2}>Full mitigation: hip roof, shutters, SWR</option>
+                        </select>
+                      </div>
+
+                      {/* Hurricane Deductible */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Hurricane Deductible</label>
+                        <select value={insHurrIdx} onChange={e => setInsHurrIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                          <option value={0}>2% of dwelling — standard</option>
+                          <option value={1}>3% of dwelling</option>
+                          <option value={2}>5% of dwelling</option>
+                        </select>
+                      </div>
+
+                      {/* Construction */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Construction Type</label>
+                        <select value={insConstIdx} onChange={e => setInsConstIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                          <option value={0}>Concrete block / CBS — preferred</option>
+                          <option value={1}>Mixed / unknown — standard</option>
+                          <option value={2}>Frame construction</option>
+                        </select>
+                      </div>
+
+                      {/* Year Built */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Year Built</label>
+                        <select value={insYearIdx} onChange={e => setInsYearIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                          <option value={0}>2002 or newer — Florida Building Code</option>
+                          <option value={1}>1990–2001 — standard</option>
+                          <option value={2}>1970–1989</option>
+                          <option value={3}>Pre-1970</option>
+                        </select>
+                      </div>
+
+                      {/* Claims */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Claims History (5 yrs)</label>
+                        <select value={insClaimsIdx} onChange={e => setInsClaimsIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                          <option value={0}>No claims — clean history</option>
+                          <option value={1}>1 claim filed</option>
+                          <option value={2}>2 claims filed</option>
+                          <option value={3}>3+ claims</option>
+                        </select>
+                      </div>
+
+                    </div>
+
+                    {/* Flood warning */}
+                    <div className="flex gap-2.5 bg-amber-50 border border-amber-200 rounded-lg p-3 mt-4">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                      <p className="text-xs text-amber-900 leading-relaxed">
+                        <strong>Flood insurance not included.</strong> Properties in AE/VE flood zones require a separate NFIP or private policy — typically $800–$3,500+/year. Check FEMA's flood map for this address.
+                      </p>
+                    </div>
+
+                    {/* Region insight */}
+                    <div className="flex gap-2.5 bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
+                      <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+                      <p className="text-xs text-blue-900 leading-relaxed">
+                        <strong>Risk tier: {INS_REGIONS[insRegionKey].tier}.</strong> {INS_REGIONS[insRegionKey].note}
+                      </p>
+                    </div>
+
+                    <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
+                      Estimates sourced from FL OIR CHOICES filings, 2026. For planning only — not a binding quote.
+                    </p>
+                  </CardContent>
+                </Card>
+              </div>
 
               {/* Qualification Section */}
               <Card className={`border-2 ${calc.qualifies ? "border-green-200" : "border-red-200"}`}>
