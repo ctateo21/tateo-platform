@@ -170,9 +170,10 @@ interface SliderInputProps {
   step?: number;
   prefix?: string;
   suffix?: string;
+  disabled?: boolean;
 }
 
-function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffix }: SliderInputProps) {
+function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffix, disabled }: SliderInputProps) {
   const [text, setText] = useState(String(value));
   const isFocused = useRef(false);
 
@@ -215,7 +216,7 @@ function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffi
   }
 
   return (
-    <div className="space-y-2">
+    <div className={`space-y-2 ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
       <div className="flex items-center justify-between">
         <Label className="text-xs text-muted-foreground">{label}</Label>
         <div className="flex items-center gap-0.5 bg-muted rounded-md px-2 py-1 min-w-[88px]">
@@ -228,6 +229,7 @@ function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffi
             onChange={handleChange}
             onKeyDown={handleKeyDown}
             inputMode="decimal"
+            disabled={disabled}
           />
           {suffix && <span className="text-xs text-muted-foreground ml-0.5">{suffix}</span>}
         </div>
@@ -238,6 +240,7 @@ function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffi
         step={step}
         value={[Math.min(max, Math.max(min, value))]}
         onValueChange={([v]) => onChange(v)}
+        disabled={disabled}
       />
     </div>
   );
@@ -327,6 +330,25 @@ export default function Estimate() {
     queryKey: ["/api/mortgage-rates"],
     staleTime: 60 * 60 * 1000,
   });
+
+  // FEMA flood zone for the entered address
+  const { data: floodData } = useQuery<{ zone: string; subtype: string; requiresFloodInsurance: boolean }>({
+    queryKey: ["/api/flood-zone", address],
+    queryFn: () => fetch(`/api/flood-zone?address=${encodeURIComponent(address)}`).then(r => { if (!r.ok) throw new Error("Flood zone not found"); return r.json(); }),
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: false,
+  });
+
+  // Auto-zero flood insurance when zone is low-risk (only on first load per address)
+  const floodLoadedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (floodData && floodLoadedRef.current !== address) {
+      floodLoadedRef.current = address;
+      if (!floodData.requiresFloodInsurance) {
+        setInputs((p) => ({ ...p, annualFloodIns: 0 }));
+      }
+    }
+  }, [floodData, address]);
 
   // Area Median Income for the entered address
   const { data: amiData } = useQuery<{ areaName: string; annualAMI: number; monthlyAMI: number; source: string }>({
@@ -922,13 +944,23 @@ export default function Estimate() {
                     min={0} max={30000} step={100}
                     prefix="$"
                   />
-                  <SliderInput
-                    label="Flood Insurance (annual)"
-                    value={inputs.annualFloodIns}
-                    onChange={(v) => set("annualFloodIns", v)}
-                    min={0} max={20000} step={100}
-                    prefix="$"
-                  />
+                  <div className="space-y-1">
+                    <SliderInput
+                      label="Flood Insurance (annual)"
+                      value={inputs.annualFloodIns}
+                      onChange={(v) => set("annualFloodIns", v)}
+                      min={0} max={20000} step={100}
+                      prefix="$"
+                      disabled={floodData != null && !floodData.requiresFloodInsurance}
+                    />
+                    {floodData && (
+                      <p className={`text-[10px] font-medium leading-tight flex items-center gap-1 ${floodData.requiresFloodInsurance ? "text-red-600" : "text-green-600"}`}>
+                        {floodData.requiresFloodInsurance
+                          ? `⚠ Flood Zone ${floodData.zone} — flood insurance required`
+                          : `✓ Flood Zone ${floodData.zone} — no flood insurance required`}
+                      </p>
+                    )}
+                  </div>
                   <Separator />
                   <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Wind Mitigation</p>
                   <div className="flex items-center justify-between">

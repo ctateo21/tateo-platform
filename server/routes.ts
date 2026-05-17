@@ -362,6 +362,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // FEMA flood zone lookup: geocode → NFHL ArcGIS query
+  let _floodCache: Map<string, { data: Record<string, any>; ts: number }> = new Map();
+  app.get("/api/flood-zone", async (req, res) => {
+    const address = (req.query.address as string || "").trim();
+    if (!address) return res.status(400).json({ error: "address required" });
+
+    const cacheKey = address.toLowerCase();
+    const cached = _floodCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < 24 * 60 * 60 * 1000) {
+      return res.json(cached.data);
+    }
+
+    try {
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY || "";
+
+      // 1. Geocode address → lat/lng
+      const geoUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
+      const geoRes = await fetch(geoUrl);
+      const geoJson = await geoRes.json();
+      if (!geoJson.results?.length) return res.status(404).json({ error: "Address not found" });
+
+      const { lat, lng } = geoJson.results[0].geometry.location;
+
+      // 2. Query FEMA NFHL ArcGIS – Flood Hazard Areas (layer 28)
+      const femaUrl = `https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28/query?geometry=${lng},${lat}&geometryType=esriGeometryPoint&spatialRel=esriSpatialRelIntersects&outFields=FLD_ZONE,ZONE_SUBTY&returnGeometry=false&f=json&inSR=4326`;
+      const femaRes = await fetch(femaUrl, {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; TateoApp/1.0)" },
+      });
+      const femaJson = await femaRes.json();
+
+      const feature = femaJson?.features?.[0]?.attributes;
+      const zone: string = (feature?.FLD_ZONE ?? "UNKNOWN").trim().toUpperCase();
+      const subtype: string = (feature?.ZONE_SUBTY ?? "").trim().toUpperCase();
+
+      // X and X500 (0.2% annual chance) are low-risk — no required flood insurance
+      const isLowRisk =
+        zone === "X" ||
+        zone === "X500" ||
+        subtype.includes("0.2 PCT") ||
+        subtype.includes("MINIMAL");
+
+      const data = { zone, subtype, requiresFloodInsurance: !isLowRisk, lat, lng };
+      _floodCache.set(cacheKey, { data, ts: Date.now() });
+      return res.json(data);
+    } catch (err) {
+      console.error("Flood zone lookup failed:", err);
+      res.status(500).json({ error: "Failed to fetch flood zone data" });
+    }
+  });
+
   // Live mortgage rates scraped from mortgagenewsdaily.com (cached 1 hr)
   let _ratesCache: { rates: Record<string, any>; ts: number } | null = null;
   app.get("/api/mortgage-rates", async (req, res) => {
