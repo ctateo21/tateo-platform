@@ -702,13 +702,17 @@ export default function Estimate() {
     return (n * 100).toFixed(1) + "%";
   }
 
-  function Row({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  function Row({ label, value, sub, status }: { label: string; value: string; sub?: string; status?: "green" | "yellow" | "red" }) {
+    const bg = status === "green" ? "bg-green-50" : status === "yellow" ? "bg-yellow-50" : status === "red" ? "bg-red-50" : "";
+    const labelColor = status === "green" ? "text-green-800" : status === "yellow" ? "text-yellow-800" : status === "red" ? "text-red-800" : "text-muted-foreground";
+    const valueColor = status === "green" ? "text-green-700 font-bold" : status === "yellow" ? "text-yellow-700 font-bold" : status === "red" ? "text-red-700 font-bold" : "font-semibold";
+    const subColor = status === "green" ? "text-green-600" : status === "yellow" ? "text-yellow-600" : status === "red" ? "text-red-600" : "text-muted-foreground";
     return (
-      <div className="flex justify-between items-center py-2">
-        <span className="text-sm text-muted-foreground">{label}</span>
-        <span className="text-sm font-semibold text-right">
+      <div className={`flex justify-between items-center py-2 px-2 rounded-md transition-colors ${bg}`}>
+        <span className={`text-sm ${labelColor}`}>{label}</span>
+        <span className={`text-sm text-right ${valueColor}`}>
           {value}
-          {sub && <span className="block text-xs font-normal text-muted-foreground">{sub}</span>}
+          {sub && <span className={`block text-xs font-normal ${subColor}`}>{sub}</span>}
         </span>
       </div>
     );
@@ -1326,33 +1330,50 @@ export default function Estimate() {
                       sub={`of ${fmt(inputs.monthlyRentalIncome)}/mo gross`}
                     />
                   )}
-                  <Row label="Total Qualifying Income" value={fmt(calc.qualifyingIncome)} />
+                  <Row
+                    label="Total Qualifying Income"
+                    value={fmt(calc.qualifyingIncome)}
+                    status={
+                      calc.qualifyingIncome >= calc.requiredIncome * 1.15 ? "green"
+                      : calc.qualifyingIncome >= calc.requiredIncome ? "yellow"
+                      : "red"
+                    }
+                  />
                   <Row label="Required Monthly Income" value={fmt(calc.requiredIncome)} />
                   <Separator />
                   <Row
                     label="Housing DTI"
                     value={fmtPct(calc.housingDTI)}
                     sub="New mortgage ÷ qualifying income"
+                    status={
+                      calc.housingDTI <= 0.28 ? "green"
+                      : calc.housingDTI <= 0.35 ? "yellow"
+                      : "red"
+                    }
                   />
                   <Row
                     label="Total DTI"
                     value={fmtPct(calc.dti)}
                     sub={calc.dti > calc.maxDti ? "Exceeds max DTI — needs review" : "New mortgage + debts ÷ qualifying income"}
+                    status={
+                      calc.dti < calc.maxDti * 0.85 ? "green"
+                      : calc.dti <= calc.maxDti ? "yellow"
+                      : "red"
+                    }
                   />
                   <Row label="Max Allowed DTI" value={fmtPct(calc.maxDti)} sub={`Based on credit score ${inputs.creditScore}`} />
                   <Separator />
                   <Row label="Required Reserves (1-3 mo PITI)" value={fmt(calc.requiredReserves)} />
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-sm text-muted-foreground">Your Available Reserves</span>
-                    <span className={`text-sm font-semibold text-right ${calc.availableReserves < calc.requiredReserves ? "text-red-600" : ""}`}>
-                      {fmt(calc.availableReserves)}
-                      {calc.availableReserves < calc.requiredReserves && (
-                        <span className="block text-xs font-normal text-red-500">
-                          Short {fmt(calc.requiredReserves - calc.availableReserves)} of required reserves
-                        </span>
-                      )}
-                    </span>
-                  </div>
+                  <Row
+                    label="Your Available Reserves"
+                    value={fmt(calc.availableReserves)}
+                    sub={calc.availableReserves < calc.requiredReserves ? `Short ${fmt(calc.requiredReserves - calc.availableReserves)} of required reserves` : undefined}
+                    status={
+                      calc.availableReserves >= calc.requiredReserves * 1.5 ? "green"
+                      : calc.availableReserves >= calc.requiredReserves ? "yellow"
+                      : "red"
+                    }
+                  />
                   <Separator />
                   <Row label="Cash Needed to Close" value={fmt(calc.cashToClose)} />
                   <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${inputs.downPaymentPct}%)`} />
