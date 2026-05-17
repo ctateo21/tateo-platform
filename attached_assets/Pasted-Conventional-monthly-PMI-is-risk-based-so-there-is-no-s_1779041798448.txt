@@ -1,0 +1,60 @@
+Conventional monthly PMI is **risk-based**, so there is no single official PMI rate by credit score. It changes by **credit score, LTV/down payment, loan term, occupancy, property type, DTI, and MI coverage requirement**. Fannie Mae says PMI is a percentage of the loan amount and depends on several factors, while NerdWallet/Urban Institute estimates typical PMI around **0.46%–1.50% annually**. MGIC also shows that required MI coverage changes by LTV, which affects pricing. ([Fannie Mae][1])
+
+For your app/quote model, I would use this **credit-score adjustment curve** against a **780+ base PMI quote**:
+
+| Credit Score Range | Suggested PMI Increase vs. 780+ | Multiplier |
+| -----------------: | ------------------------------: | ---------: |
+|               780+ |                            Base |      1.00x |
+|            760–779 |                             +5% |      1.05x |
+|            740–759 |                            +12% |      1.12x |
+|            720–739 |                            +25% |      1.25x |
+|            700–719 |                            +50% |      1.50x |
+|            680–699 |                            +85% |      1.85x |
+
+### Example using a 780+ base PMI of 0.40%
+
+| Credit Score Range | Annual PMI Estimate | Monthly Cost per $100,000 Loan |
+| -----------------: | ------------------: | -----------------------------: |
+|               780+ |               0.40% |                         $33.33 |
+|            760–779 |               0.42% |                         $35.00 |
+|            740–759 |               0.45% |                         $37.33 |
+|            720–739 |               0.50% |                         $41.67 |
+|            700–719 |               0.60% |                         $50.00 |
+|            680–699 |               0.74% |                         $61.67 |
+
+### My recommended app logic
+
+Use this as your simplified estimate:
+
+```text
+Estimated Annual PMI = Base PMI Rate × Credit Score Multiplier
+Monthly PMI = Loan Amount × Estimated Annual PMI ÷ 12
+```
+
+For the **base PMI rate**, I would set different defaults by down payment:
+
+| Down Payment | Approx. LTV | Suggested 780+ Base PMI |
+| -----------: | ----------: | ----------------------: |
+|     15% down |     85% LTV |             0.18%–0.25% |
+|     10% down |     90% LTV |             0.25%–0.38% |
+|      5% down |     95% LTV |             0.35%–0.55% |
+|      3% down |     97% LTV |             0.45%–0.70% |
+
+For a consumer-facing estimator, I’d use the **middle of the range** and label it as an estimate.
+
+### Best simple version for your app
+
+For each 20-point bucket:
+
+```text
+780+      Base PMI
+760–779   Base × 1.05
+740–759   Base × 1.12
+720–739   Base × 1.25
+700–719   Base × 1.50
+680–699   Base × 1.85
+```
+
+The biggest conventional PMI pricing jumps should happen around **720**, **700**, and especially **below 700**. That is where conventional PMI starts to become meaningfully worse compared with FHA’s flat monthly MIP structure.
+
+[1]: https://yourhome.fanniemae.com/buy/private-mortgage-insurance?utm_source=chatgpt.com "What to Know About Private Mortgage Insurance"

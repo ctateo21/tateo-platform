@@ -441,6 +441,12 @@ export default function Estimate() {
                     min={0} max={500000} step={1000}
                     prefix="$"
                   />
+                  <SliderInput
+                    label="Credit Score"
+                    value={inputs.creditScore}
+                    onChange={setCreditScore}
+                    min={580} max={850} step={10}
+                  />
                 </CardContent>
               </Card>
 
@@ -510,12 +516,6 @@ export default function Estimate() {
                     />
                   </div>
 
-                  <SliderInput
-                    label="Credit Score"
-                    value={inputs.creditScore}
-                    onChange={setCreditScore}
-                    min={580} max={850} step={10}
-                  />
                 </CardContent>
               </Card>
 
