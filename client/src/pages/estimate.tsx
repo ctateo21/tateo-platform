@@ -325,7 +325,7 @@ export default function Estimate() {
   const [inputs, setInputs] = useState<Inputs>({
     occupancy: "primary",
     purchasePrice: defaultPrice,
-    downPaymentPct: 20,
+    downPaymentPct: 5,
     loanType: "conventional",
     creditScore: 740,
     interestRate: FALLBACK_RATES.conventional,
