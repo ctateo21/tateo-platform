@@ -852,6 +852,90 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Lead Capture ──────────────────────────────────────────────────────────
+  // In-memory stores (survives process lifetime; use a DB for persistence)
+  const _verifyCodes = new Map<string, { code: string; expiresAt: number }>();
+  type CapturedLead = { email: string; phone: string; address: string; createdAt: string };
+  const _leads: CapturedLead[] = [];
+
+  async function sendSms(to: string, body: string): Promise<void> {
+    const sid   = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    const from  = process.env.TWILIO_PHONE_NUMBER;
+    if (!sid || !token || !from) {
+      console.log(`[DEV] SMS to ${to}: ${body}`);
+      return;
+    }
+    const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
+    const params = new URLSearchParams({ To: to, From: from, Body: body });
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + Buffer.from(`${sid}:${token}`).toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Twilio error: ${err}`);
+    }
+  }
+
+  // POST /api/leads/send-code
+  app.post("/api/leads/send-code", async (req, res) => {
+    try {
+      const { phone } = z.object({ phone: z.string().min(10) }).parse(req.body);
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length < 10) return res.status(400).json({ error: "Invalid phone number" });
+      const e164 = digits.startsWith("1") ? `+${digits}` : `+1${digits}`;
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      _verifyCodes.set(e164, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
+      const isTwilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
+      await sendSms(e164, `Your Tateo & Co verification code is: ${code}`);
+      res.json({ ok: true, ...(!isTwilioConfigured && { devCode: code }) });
+    } catch (err: any) {
+      console.error("send-code error:", err);
+      res.status(500).json({ error: err.message || "Failed to send code" });
+    }
+  });
+
+  // POST /api/leads/verify
+  app.post("/api/leads/verify", async (req, res) => {
+    try {
+      const { email, phone, code, address } = z.object({
+        email: z.string().email(),
+        phone: z.string().min(10),
+        code: z.string().length(6),
+        address: z.string().optional(),
+      }).parse(req.body);
+      const digits = phone.replace(/\D/g, "");
+      const e164 = digits.startsWith("1") ? `+${digits}` : `+1${digits}`;
+      const stored = _verifyCodes.get(e164);
+      if (!stored) return res.status(400).json({ error: "No code sent to this number. Request a new code." });
+      if (Date.now() > stored.expiresAt) {
+        _verifyCodes.delete(e164);
+        return res.status(400).json({ error: "Code expired. Request a new code." });
+      }
+      if (stored.code !== code) return res.status(400).json({ error: "Incorrect code. Please try again." });
+      _verifyCodes.delete(e164);
+      // Save lead
+      if (!_leads.find(l => l.email === email || l.phone === e164)) {
+        _leads.push({ email, phone: e164, address: address || "", createdAt: new Date().toISOString() });
+        console.log(`[LEAD] New lead: ${email} | ${e164} | ${address || "no address"}`);
+      }
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("verify error:", err);
+      res.status(400).json({ error: err.message || "Verification failed" });
+    }
+  });
+
+  // GET /api/leads (simple admin view — protect in production)
+  app.get("/api/leads", (_req, res) => {
+    res.json({ count: _leads.length, leads: _leads });
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }

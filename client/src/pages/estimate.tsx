@@ -43,6 +43,8 @@ import {
   MapPin,
 } from "lucide-react";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
+import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
+import { useToast } from "@/hooks/use-toast";
 
 // ─── Calculation helpers ────────────────────────────────────────────────────
 
@@ -247,6 +249,27 @@ export default function Estimate() {
   const [, setLocation] = useLocation();
   const params = new URLSearchParams(search);
   const address = params.get("address") || "Unknown Address";
+
+  const { toast } = useToast();
+
+  // Lead capture dialog
+  const [leadDialogOpen, setLeadDialogOpen] = useState(false);
+  const [leadDialogAction, setLeadDialogAction] = useState<"share" | "save">("share");
+
+  function openLeadDialog(action: "share" | "save") {
+    setLeadDialogAction(action);
+    setLeadDialogOpen(true);
+  }
+
+  function handleLeadSuccess() {
+    if (leadDialogAction === "share") {
+      const url = window.location.href;
+      navigator.clipboard.writeText(url).catch(() => {});
+      toast({ title: "Link copied!", description: "Share the URL with anyone to show this estimate." });
+    } else {
+      toast({ title: "Scenario saved!", description: "Your estimate scenario has been saved." });
+    }
+  }
 
   // Editable address
   const [isEditingAddress, setIsEditingAddress] = useState(false);
@@ -546,10 +569,10 @@ export default function Estimate() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openLeadDialog("share")}>
                 <Share2 className="h-4 w-4" /> Share
               </Button>
-              <Button size="sm" className="gap-1.5 bg-secondary hover:bg-secondary/90 text-white">
+              <Button size="sm" className="gap-1.5 bg-secondary hover:bg-secondary/90 text-white" onClick={() => openLeadDialog("save")}>
                 <Save className="h-4 w-4" /> Save Scenario
               </Button>
             </div>
@@ -1132,6 +1155,14 @@ export default function Estimate() {
           </div>
         </div>
       </div>
+
+      <LeadCaptureDialog
+        open={leadDialogOpen}
+        onOpenChange={setLeadDialogOpen}
+        action={leadDialogAction}
+        address={address}
+        onSuccess={handleLeadSuccess}
+      />
     </>
   );
 }
