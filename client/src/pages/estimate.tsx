@@ -338,6 +338,7 @@ export default function Estimate() {
   const [, setLocation] = useLocation();
   const params = new URLSearchParams(search);
   const address = params.get("address") || "Unknown Address";
+  const servicesAll = params.get("services") === "all";
 
   const { toast } = useToast();
 
@@ -1111,6 +1112,22 @@ export default function Estimate() {
 
         <div className="container mx-auto px-4 py-6">
           <div className="space-y-6">
+
+            {/* ── All Services: insurance link banner ── */}
+            {servicesAll && (
+              <div className="flex items-center justify-between gap-4 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                <div className="flex items-center gap-2 text-sm text-emerald-800">
+                  <span className="text-base">🛡️</span>
+                  <span><strong>All Services selected</strong> — your insurance estimate uses your purchase price as the rebuild cost.</span>
+                </div>
+                <a
+                  href={`/insurance?address=${encodeURIComponent(address)}&price=${inputs.purchasePrice}`}
+                  className="shrink-0 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  View Insurance Estimate →
+                </a>
+              </div>
+            )}
 
             {/* ── INPUTS ─────────────────────────────────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
