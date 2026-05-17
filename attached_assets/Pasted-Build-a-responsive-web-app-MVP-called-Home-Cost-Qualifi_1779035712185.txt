@@ -1,0 +1,129 @@
+Build a responsive web app MVP called “Home Cost & Qualification Engine.”
+
+Goal:
+An agent or buyer enters a property address and the app instantly estimates the full cost to buy the home, including real estate costs, mortgage payment, insurance estimates, and qualification requirements.
+
+Tech stack:
+- React frontend
+- Node/Express backend or Replit-compatible full-stack setup
+- Firebase or Supabase for user/session/scenario storage
+- Use mock data first for APIs so the app works before live integrations
+
+Core user flow:
+1. User enters property address
+2. App creates a property scenario
+3. App displays four sections:
+   - Real Estate
+   - Mortgage
+   - Insurance
+   - Qualification
+4. User can adjust assumptions with toggles/sliders
+5. App recalculates monthly payment, cash-to-close, DTI, required income, and qualification result in real time
+6. User can save the scenario
+
+Inputs:
+- Property address
+- Purchase price
+- Down payment percentage
+- Loan type: Conventional, FHA, VA
+- Credit score
+- Interest rate
+- Annual taxes
+- HOA monthly amount
+- CDD annual amount
+- Estimated homeowners insurance
+- Estimated flood insurance
+- Monthly debts
+- Borrower monthly income
+- Estimated reserves
+
+Real Estate section:
+Display:
+- Estimated property taxes
+- HOA
+- CDD
+- Estimated closing costs
+- Estimated cash-to-close
+
+Mortgage section:
+Display:
+- Estimated principal and interest
+- Estimated taxes
+- Estimated insurance
+- Estimated HOA/CDD
+- Estimated PMI/MIP/VA funding fee logic
+- Total monthly payment
+- Loan options comparison:
+  - Conventional
+  - FHA
+  - VA
+
+Insurance section:
+Display:
+- Estimated homeowners premium
+- Estimated flood premium
+- Wind mitigation assumptions:
+  - impact windows/doors: yes/no
+  - roof-to-wall attachment: toenails, clips, single wraps, double wraps
+  - secondary water resistance barrier: yes/no
+- Allow user to adjust these assumptions and recalculate insurance estimate
+
+Qualification section:
+Display:
+- Buyer likely qualifies: yes/no
+- Required monthly income
+- Current DTI
+- Max allowed DTI threshold
+- Required reserves
+- Cash needed to close
+- Recommendation if they do not qualify:
+  - increase down payment
+  - lower purchase price
+  - reduce monthly debts
+  - improve credit score
+  - consider FHA/VA/Conventional alternative
+
+Calculation requirements:
+- Monthly principal and interest using standard amortization formula
+- Property taxes = annual taxes / 12
+- Insurance = annual premium / 12
+- HOA = monthly HOA
+- CDD = annual CDD / 12
+- Conventional PMI estimate based on credit score and LTV
+- FHA MIP estimate
+- VA funding fee estimate placeholder
+- DTI = total monthly housing payment + monthly debts divided by gross monthly income
+- Required income = total monthly obligations divided by max DTI threshold
+
+UI requirements:
+- Clean dashboard layout
+- Left side: inputs/toggles
+- Right side: results
+- Use cards for each section
+- Real-time recalculation when inputs change
+- Add “Save Scenario” button
+- Add “Compare Loan Types” table
+- Add “Share with Client” placeholder button
+
+Data model:
+Create objects for:
+- User
+- PropertyScenario
+- MortgageScenario
+- InsuranceScenario
+- QualificationResult
+
+Mock API placeholders:
+Create placeholder functions for future integrations:
+- fetchPropertyData(address)
+- fetchMLSData(address)
+- fetchTaxData(address)
+- fetchInsuranceEstimate(propertyData)
+- fetchMortgagePricing(loanScenario)
+- saveScenario(userId, scenario)
+
+Important:
+Do not require login for the first MVP.
+Allow anonymous scenario creation.
+Add login/save functionality as a second phase.
+Use clean, modular code so API integrations can be added later.
