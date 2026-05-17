@@ -605,22 +605,17 @@ export default function Estimate() {
             <div className="space-y-4">
 
               {/* Summary Banner */}
-              <Card className="border-2 border-primary/20 bg-primary/5">
-                <CardContent className="pt-5">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+              <div className="overflow-hidden rounded-xl border-2 border-primary/20">
+                {/* Qualification header bar */}
+                <div className={`w-full py-2 px-4 text-center text-sm font-semibold tracking-wide ${calc.dti > 0.45 ? "bg-red-600 text-white" : "bg-green-600 text-white"}`}>
+                  {calc.dti > 0.45 ? "⚠ Needs Review — DTI exceeds 45%" : "✓ Likely Qualifies"}
+                </div>
+                {/* Metrics row */}
+                <div className="bg-primary/5 px-5 py-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground mb-1">New Monthly Mortgage Payment</p>
                       <p className="text-2xl font-bold text-primary">{fmt(calc.totalHousing)}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-muted-foreground mb-1">Cash to Close</p>
-                      <p className="text-2xl font-bold text-primary">{fmt(calc.cashToClose)}</p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-muted-foreground mb-1">Your DTI</p>
-                      <p className={`text-2xl font-bold ${calc.dti > calc.maxDti ? "text-red-600" : "text-green-600"}`}>
-                        {fmtPct(calc.dti)}
-                      </p>
                     </div>
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground mb-1">Assumed Debts</p>
@@ -631,18 +626,18 @@ export default function Estimate() {
                       <p className="text-2xl font-bold text-primary">{fmt(calc.requiredIncome)}</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-xs text-muted-foreground mb-1">Qualification</p>
-                      <div className="flex justify-center mt-1">
-                        {calc.qualifies ? (
-                          <Badge className="bg-green-100 text-green-700 border-green-300 text-sm px-3">Likely Qualifies</Badge>
-                        ) : (
-                          <Badge className="bg-red-100 text-red-700 border-red-300 text-sm px-3">Needs Review</Badge>
-                        )}
-                      </div>
+                      <p className="text-xs text-muted-foreground mb-1">Your DTI</p>
+                      <p className={`text-2xl font-bold ${calc.dti > 0.45 ? "text-red-600" : "text-green-600"}`}>
+                        {fmtPct(calc.dti)}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground mb-1">Cash to Close</p>
+                      <p className="text-2xl font-bold text-primary">{fmt(calc.cashToClose)}</p>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
+                </div>
+              </div>
 
               {/* Real Estate Section */}
               <Card>
