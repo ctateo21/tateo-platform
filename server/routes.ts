@@ -262,6 +262,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json({ apiKey });
   });
   
+  // Live mortgage rates scraped from mortgagenewsdaily.com (cached 1 hr)
+  let _ratesCache: { rates: Record<string, any>; ts: number } | null = null;
+  app.get("/api/mortgage-rates", async (req, res) => {
+    try {
+      if (_ratesCache && Date.now() - _ratesCache.ts < 60 * 60 * 1000) {
+        return res.json(_ratesCache.rates);
+      }
+      const response = await fetch("https://www.mortgagenewsdaily.com/mortgage-rates", {
+        headers: { "User-Agent": "Mozilla/5.0 (compatible; Tateo/1.0)" },
+      });
+      const html = await response.text();
+
+      function extractRate(text: string, label: string): number | null {
+        // Find the "30 Yr. <label>" heading, then grab the first rate% within the next 1000 chars
+        const anchor = `30 Yr. ${label}`;
+        const headIdx = text.indexOf(anchor);
+        if (headIdx === -1) return null;
+        const section = text.substring(headIdx, headIdx + 1000);
+        // Look for the <div class="rate"> block
+        const rateDiv = section.indexOf('<div class="rate">');
+        if (rateDiv === -1) return null;
+        const after = section.substring(rateDiv, rateDiv + 80);
+        const m = after.match(/([\d.]+)%/);
+        if (!m) return null;
+        const v = parseFloat(m[1]);
+        return v >= 3 && v <= 15 ? v : null;
+      }
+
+      const rates = {
+        conventional: extractRate(html, "Fixed") ?? 6.82,
+        fha:          extractRate(html, "FHA")   ?? 6.38,
+        va:           extractRate(html, "VA")    ?? 6.25,
+        source: "mortgagenewsdaily.com",
+        lastUpdated: new Date().toISOString(),
+      };
+      _ratesCache = { rates, ts: Date.now() };
+      res.json(rates);
+    } catch (err) {
+      console.error("Failed to fetch mortgage rates:", err);
+      res.json({ conventional: 6.82, fha: 6.38, va: 6.25, source: "fallback", lastUpdated: null });
+    }
+  });
+
   // Get Google Reviews for Tateo & Co
   app.get("/api/reviews/google", async (req, res) => {
     try {

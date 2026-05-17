@@ -1,4 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -122,7 +123,7 @@ interface Inputs {
   swr: boolean;
 }
 
-const RATES = { conventional: 0.069, fha: 0.066, va: 0.0668 };
+const FALLBACK_RATES = { conventional: 6.82, fha: 6.38, va: 6.25 };
 
 // ─── SliderInput component ───────────────────────────────────────────────────
 
@@ -218,12 +219,19 @@ export default function Estimate() {
 
   const defaultPrice = 400000;
 
+  // Live mortgage rates from mortgagenewsdaily.com
+  const { data: liveRates } = useQuery<{ conventional: number; fha: number; va: number; source: string; lastUpdated: string | null }>({
+    queryKey: ["/api/mortgage-rates"],
+    staleTime: 60 * 60 * 1000,
+  });
+  const rates = liveRates ?? FALLBACK_RATES;
+
   const [inputs, setInputs] = useState<Inputs>({
     purchasePrice: defaultPrice,
     downPaymentPct: 20,
     loanType: "conventional",
     creditScore: 740,
-    interestRate: RATES.conventional * 100,
+    interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(defaultPrice * 0.015),
     hoaMonthly: 0,
     cddAnnual: 0,
@@ -237,8 +245,17 @@ export default function Estimate() {
     swr: false,
   });
 
+  // Sync interest rate to live rate when it first loads (only if user hasn't changed it)
+  const ratesLoadedRef = useRef(false);
+  useEffect(() => {
+    if (liveRates && !ratesLoadedRef.current) {
+      ratesLoadedRef.current = true;
+      setInputs((p) => ({ ...p, interestRate: liveRates[p.loanType] }));
+    }
+  }, [liveRates]);
+
   function setLoanType(lt: "conventional" | "fha" | "va") {
-    setInputs((p) => ({ ...p, loanType: lt, interestRate: RATES[lt] * 100 }));
+    setInputs((p) => ({ ...p, loanType: lt, interestRate: rates[lt] }));
   }
 
   function set<K extends keyof Inputs>(key: K, value: Inputs[K]) {
@@ -281,7 +298,7 @@ export default function Estimate() {
     const estimatedHOIns = calcInsuranceEstimate(purchasePrice, impactWindows, roofAttachment, swr);
 
     const loanComparison = (["conventional", "fha", "va"] as const).map((lt) => {
-      const ltRate = RATES[lt];
+      const ltRate = rates[lt] / 100;
       const ltDown = lt === "va" ? 0 : lt === "fha" ? 3.5 : downPaymentPct;
       const ltLoan = purchasePrice * (1 - ltDown / 100);
       const ltPI = calcPI(ltLoan, ltRate);
@@ -447,13 +464,21 @@ export default function Estimate() {
                     {fmt(calc.downPaymentAmt)} down · {fmt(calc.loanAmount)} loan
                   </p>
 
-                  <SliderInput
-                    label="Interest Rate"
-                    value={inputs.interestRate}
-                    onChange={(v) => set("interestRate", v)}
-                    min={3} max={12} step={0.05}
-                    suffix="%"
-                  />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground">Interest Rate</span>
+                      {liveRates && (
+                        <span className="text-[10px] font-semibold bg-green-100 text-green-700 rounded px-1 py-0.5 leading-none">LIVE</span>
+                      )}
+                    </div>
+                    <SliderInput
+                      label=""
+                      value={inputs.interestRate}
+                      onChange={(v) => set("interestRate", v)}
+                      min={3} max={12} step={0.05}
+                      suffix="%"
+                    />
+                  </div>
 
                   <SliderInput
                     label="Credit Score"
