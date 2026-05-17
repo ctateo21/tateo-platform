@@ -1144,7 +1144,17 @@ export default function Estimate() {
                   <Row label="Max Allowed DTI" value={fmtPct(calc.maxDti)} sub={`Based on credit score ${inputs.creditScore}`} />
                   <Separator />
                   <Row label="Required Reserves (2 mo PITI)" value={fmt(calc.requiredReserves)} />
-                  <Row label="Your Available Reserves" value={fmt(inputs.reserves)} />
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm text-muted-foreground">Your Available Reserves</span>
+                    <span className={`text-sm font-semibold text-right ${inputs.reserves < calc.cashToClose ? "text-red-600" : ""}`}>
+                      {fmt(inputs.reserves)}
+                      {inputs.reserves < calc.cashToClose && (
+                        <span className="block text-xs font-normal text-red-500">
+                          Short {fmt(calc.cashToClose - inputs.reserves)} for cash to close
+                        </span>
+                      )}
+                    </span>
+                  </div>
                   <Separator />
                   <Row label="Cash Needed to Close" value={fmt(calc.cashToClose)} />
                   <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${inputs.downPaymentPct}%)`} />
