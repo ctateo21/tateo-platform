@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -125,7 +125,6 @@ interface Inputs {
 const RATES = { conventional: 0.069, fha: 0.066, va: 0.0668 };
 
 // ─── SliderInput component ───────────────────────────────────────────────────
-// Shows a slider + an editable number field. Either control updates the other.
 
 interface SliderInputProps {
   label: string;
@@ -136,40 +135,44 @@ interface SliderInputProps {
   step?: number;
   prefix?: string;
   suffix?: string;
-  displayValue?: string;
 }
 
-function SliderInput({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step = 1,
-  prefix,
-  suffix,
-  displayValue,
-}: SliderInputProps) {
-  const [inputVal, setInputVal] = useState<string>("");
-  const [editing, setEditing] = useState(false);
+function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffix }: SliderInputProps) {
+  const [text, setText] = useState(String(value));
+  const isFocused = useRef(false);
 
-  const displayed = editing ? inputVal : (displayValue ?? String(value));
-
-  function handleFocus() {
-    setEditing(true);
-    setInputVal(String(value));
-  }
-
-  function handleBlur() {
-    setEditing(false);
-    const parsed = parseFloat(inputVal);
-    if (!isNaN(parsed)) {
-      onChange(Math.min(max, Math.max(min, parsed)));
+  // Sync display from parent only when not being edited
+  useEffect(() => {
+    if (!isFocused.current) {
+      setText(String(value));
     }
+  }, [value]);
+
+  function handleFocus(e: React.FocusEvent<HTMLInputElement>) {
+    isFocused.current = true;
+    setText(String(value));
+    e.target.select();
   }
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    setInputVal(e.target.value);
+    const raw = e.target.value;
+    setText(raw);
+    const n = parseFloat(raw);
+    if (!isNaN(n)) {
+      onChange(Math.min(max, Math.max(min, n)));
+    }
+  }
+
+  function handleBlur() {
+    isFocused.current = false;
+    const n = parseFloat(text);
+    if (!isNaN(n)) {
+      const clamped = Math.min(max, Math.max(min, n));
+      onChange(clamped);
+      setText(String(clamped));
+    } else {
+      setText(String(value));
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -184,7 +187,7 @@ function SliderInput({
           {prefix && <span className="text-xs text-muted-foreground">{prefix}</span>}
           <input
             className="w-full bg-transparent text-xs font-semibold text-right text-foreground outline-none min-w-0"
-            value={displayed}
+            value={text}
             onFocus={handleFocus}
             onBlur={handleBlur}
             onChange={handleChange}
@@ -386,7 +389,6 @@ export default function Estimate() {
                     onChange={(v) => set("monthlyIncome", v)}
                     min={1000} max={50000} step={100}
                     prefix="$"
-                    displayValue={Math.round(inputs.monthlyIncome).toLocaleString()}
                   />
                   <SliderInput
                     label="Monthly Debts (auto, cards, etc.)"
@@ -394,7 +396,6 @@ export default function Estimate() {
                     onChange={(v) => set("monthlyDebts", v)}
                     min={0} max={10000} step={50}
                     prefix="$"
-                    displayValue={Math.round(inputs.monthlyDebts).toLocaleString()}
                   />
                   <SliderInput
                     label="Available Reserves / Savings"
@@ -402,7 +403,6 @@ export default function Estimate() {
                     onChange={(v) => set("reserves", v)}
                     min={0} max={500000} step={1000}
                     prefix="$"
-                    displayValue={Math.round(inputs.reserves).toLocaleString()}
                   />
                 </CardContent>
               </Card>
@@ -422,7 +422,6 @@ export default function Estimate() {
                     onChange={(v) => set("purchasePrice", v)}
                     min={50000} max={3000000} step={5000}
                     prefix="$"
-                    displayValue={Math.round(inputs.purchasePrice).toLocaleString()}
                   />
 
                   <div>
@@ -443,7 +442,6 @@ export default function Estimate() {
                     onChange={(v) => set("downPaymentPct", v)}
                     min={0} max={50} step={0.5}
                     suffix="%"
-                    displayValue={inputs.downPaymentPct.toFixed(1)}
                   />
                   <p className="text-xs text-muted-foreground -mt-3">
                     {fmt(calc.downPaymentAmt)} down · {fmt(calc.loanAmount)} loan
@@ -455,7 +453,6 @@ export default function Estimate() {
                     onChange={(v) => set("interestRate", v)}
                     min={3} max={12} step={0.05}
                     suffix="%"
-                    displayValue={inputs.interestRate.toFixed(2)}
                   />
 
                   <SliderInput
@@ -463,7 +460,6 @@ export default function Estimate() {
                     value={inputs.creditScore}
                     onChange={(v) => set("creditScore", v)}
                     min={580} max={850} step={10}
-                    displayValue={String(inputs.creditScore)}
                   />
                 </CardContent>
               </Card>
@@ -483,7 +479,6 @@ export default function Estimate() {
                     onChange={(v) => set("annualTaxes", v)}
                     min={0} max={30000} step={100}
                     prefix="$"
-                    displayValue={Math.round(inputs.annualTaxes).toLocaleString()}
                   />
                   <SliderInput
                     label="HOA (monthly)"
@@ -491,7 +486,6 @@ export default function Estimate() {
                     onChange={(v) => set("hoaMonthly", v)}
                     min={0} max={2000} step={10}
                     prefix="$"
-                    displayValue={Math.round(inputs.hoaMonthly).toLocaleString()}
                   />
                   <SliderInput
                     label="CDD (annual)"
@@ -499,7 +493,6 @@ export default function Estimate() {
                     onChange={(v) => set("cddAnnual", v)}
                     min={0} max={10000} step={100}
                     prefix="$"
-                    displayValue={Math.round(inputs.cddAnnual).toLocaleString()}
                   />
                 </CardContent>
               </Card>
@@ -519,7 +512,6 @@ export default function Estimate() {
                     onChange={(v) => set("annualHOIns", v)}
                     min={0} max={30000} step={100}
                     prefix="$"
-                    displayValue={Math.round(inputs.annualHOIns).toLocaleString()}
                   />
                   <SliderInput
                     label="Flood Insurance (annual)"
@@ -527,7 +519,6 @@ export default function Estimate() {
                     onChange={(v) => set("annualFloodIns", v)}
                     min={0} max={20000} step={100}
                     prefix="$"
-                    displayValue={Math.round(inputs.annualFloodIns).toLocaleString()}
                   />
                   <Separator />
                   <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Wind Mitigation</p>

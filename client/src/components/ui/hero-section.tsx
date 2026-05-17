@@ -1,31 +1,28 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Search } from "lucide-react";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 
 export default function HeroSection() {
-  const [address, setAddress] = useState("");
   const [, setLocation] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<any>(null);
 
-  // Load Google Maps API and init autocomplete
   useEffect(() => {
     async function init() {
       try {
-        // Try env var first, fall back to server endpoint
         let apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
         if (!apiKey) {
           const res = await fetch("/api/config/google-maps-api-key");
           const data = await res.json();
           apiKey = data.apiKey || "";
         }
-        if (!apiKey) return;
+        if (!apiKey || !inputRef.current) return;
 
         await loadGoogleMapsApi(apiKey);
 
-        if (!inputRef.current || !window.google?.maps?.places?.Autocomplete) return;
+        if (!window.google?.maps?.places?.Autocomplete) return;
 
         autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
           types: ["address"],
@@ -36,13 +33,10 @@ export default function HeroSection() {
         autocompleteRef.current.addListener("place_changed", () => {
           const place = autocompleteRef.current.getPlace();
           if (place?.formatted_address) {
-            setAddress(place.formatted_address);
-            // Navigate immediately on selection
             setLocation(`/estimate?address=${encodeURIComponent(place.formatted_address)}`);
           }
         });
       } catch (err) {
-        // Autocomplete unavailable — form still works manually
         console.warn("Google Maps autocomplete unavailable:", err);
       }
     }
@@ -52,8 +46,9 @@ export default function HeroSection() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!address.trim()) return;
-    setLocation(`/estimate?address=${encodeURIComponent(address.trim())}`);
+    const val = inputRef.current?.value?.trim();
+    if (!val) return;
+    setLocation(`/estimate?address=${encodeURIComponent(val)}`);
   };
 
   return (
@@ -77,8 +72,6 @@ export default function HeroSection() {
               ref={inputRef}
               type="text"
               placeholder="Enter a property address..."
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
               className="w-full pl-10 pr-4 h-14 text-base rounded-xl bg-white border-0 shadow-lg outline-none focus:ring-2 focus:ring-secondary"
             />
           </div>
