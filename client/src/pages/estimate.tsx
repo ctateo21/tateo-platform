@@ -44,6 +44,8 @@ import {
   MapPin,
   Plus,
   X,
+  Mail,
+  FileDown,
 } from "lucide-react";
 import {
   Dialog,
@@ -54,6 +56,7 @@ import {
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { jsPDF } from "jspdf";
 
 // ─── Calculation helpers ────────────────────────────────────────────────────
 
@@ -416,6 +419,202 @@ export default function Estimate() {
     ratesLoadedRef.current = false;
     setNewScenarioAddress("");
     setShowAddressPrompt(false);
+  }
+
+  // Share dialog
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+
+  function generateEstimatePDF() {
+    const doc = new jsPDF({ unit: "pt", format: "letter" });
+    const W = doc.internal.pageSize.getWidth();
+    const margin = 48;
+    const col2 = W / 2 + 8;
+    let y = margin;
+
+    function addPage() {
+      doc.addPage();
+      y = margin;
+    }
+    function checkPage(needed = 60) {
+      if (y + needed > doc.internal.pageSize.getHeight() - margin) addPage();
+    }
+    function hLine(yy = y) {
+      doc.setDrawColor(220, 220, 220);
+      doc.line(margin, yy, W - margin, yy);
+    }
+    function sectionHeader(title: string) {
+      checkPage(40);
+      doc.setFillColor(23, 55, 94);
+      doc.roundedRect(margin, y, W - margin * 2, 22, 3, 3, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text(title.toUpperCase(), margin + 10, y + 15);
+      doc.setTextColor(30, 30, 30);
+      y += 30;
+    }
+    function row(label: string, value: string, sub?: string) {
+      checkPage(sub ? 36 : 22);
+      doc.setFontSize(9.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(80, 80, 80);
+      doc.text(label, margin + 4, y + 12);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 30, 30);
+      doc.text(value, W - margin - 4, y + 12, { align: "right" });
+      if (sub) {
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(130, 130, 130);
+        doc.text(sub, W - margin - 4, y + 22, { align: "right" });
+      }
+      y += sub ? 34 : 22;
+      doc.setDrawColor(235, 235, 235);
+      doc.line(margin, y, W - margin, y);
+    }
+    function metricBox(label: string, value: string, x: number, boxY: number, color?: [number, number, number]) {
+      const bw = (W - margin * 2) / 3 - 6;
+      doc.setFillColor(248, 249, 252);
+      doc.roundedRect(x, boxY, bw, 52, 4, 4, "F");
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 100, 100);
+      doc.text(label, x + bw / 2, boxY + 16, { align: "center" });
+      doc.setFontSize(16);
+      doc.setFont("helvetica", "bold");
+      const [r, g, b] = color ?? [23, 55, 94];
+      doc.setTextColor(r, g, b);
+      doc.text(value, x + bw / 2, boxY + 38, { align: "center" });
+      doc.setTextColor(30, 30, 30);
+    }
+
+    // ── Header ──────────────────────────────────────────────────────────
+    doc.setFillColor(23, 55, 94);
+    doc.rect(0, 0, W, 70, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(20);
+    doc.setFont("helvetica", "bold");
+    doc.text("Tateo & Co", margin, 35);
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text("Home Cost & Qualification Estimate", margin, 52);
+    const dateStr = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    doc.setFontSize(9);
+    doc.text(dateStr, W - margin, 35, { align: "right" });
+    doc.text(address, W - margin, 52, { align: "right" });
+    doc.setTextColor(30, 30, 30);
+    y = 90;
+
+    // ── Qualification status bar ─────────────────────────────────────────
+    const qualColor: [number, number, number] = calc.qualifies ? [22, 163, 74] : [220, 38, 38];
+    doc.setFillColor(...qualColor);
+    doc.roundedRect(margin, y, W - margin * 2, 28, 4, 4, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    const qualText = calc.qualifies ? "✓  Likely Qualifies" : "⚠  Needs Review";
+    doc.text(qualText, W / 2, y + 19, { align: "center" });
+    doc.setTextColor(30, 30, 30);
+    y += 38;
+
+    // ── Key metrics ──────────────────────────────────────────────────────
+    const bw = (W - margin * 2) / 3 - 6;
+    const mx = [margin, margin + bw + 6, margin + (bw + 6) * 2];
+    const dtiColor: [number, number, number] = calc.dti > calc.maxTotalDti ? [220, 38, 38] : [22, 163, 74];
+    metricBox("Monthly Payment", fmt(calc.totalHousing), mx[0], y);
+    metricBox("Total DTI", fmtPct(calc.dti), mx[1], y, dtiColor);
+    metricBox("Cash to Close", fmt(calc.cashToClose), mx[2], y);
+    y += 62;
+
+    // ── Inputs summary ────────────────────────────────────────────────────
+    sectionHeader("Loan Parameters");
+    const half = (W - margin * 2) / 2 - 6;
+    const leftX = margin;
+    const rightX = margin + half + 6;
+    const paramRows: [string, string][] = [
+      ["Purchase Price", fmt(inputs.purchasePrice)],
+      ["Loan Type", inputs.loanType.toUpperCase()],
+      ["Down Payment", `${fmt(calc.downPaymentAmt)} (${inputs.downPaymentPct}%)`],
+      ["Interest Rate", `${inputs.interestRate.toFixed(3)}%`],
+      ["Occupancy", inputs.occupancy.charAt(0).toUpperCase() + inputs.occupancy.slice(1)],
+      ["Credit Score", String(inputs.creditScore)],
+    ];
+    const startY = y;
+    paramRows.forEach(([lbl, val], i) => {
+      const px = i % 2 === 0 ? leftX : rightX;
+      const py = startY + Math.floor(i / 2) * 26;
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(100, 100, 100);
+      doc.text(lbl, px + 4, py + 12);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 30, 30);
+      doc.text(val, px + half - 4, py + 12, { align: "right" });
+    });
+    y = startY + Math.ceil(paramRows.length / 2) * 26 + 8;
+
+    // ── Real Estate ───────────────────────────────────────────────────────
+    sectionHeader("Real Estate");
+    row("Purchase Price", fmt(inputs.purchasePrice));
+    row("Down Payment", `${fmt(calc.downPaymentAmt)} (${inputs.downPaymentPct}%)`);
+    row("Loan Amount", fmt(calc.loanAmount), `LTV ${fmtPct(calc.ltv)}`);
+    row("Estimated Closing Costs (~3%)", fmt(calc.closingCosts));
+    if (inputs.sellerConcessions > 0) row("Seller Concessions", `− ${fmt(inputs.sellerConcessions)}`);
+    row("Estimated Cash to Close", fmt(calc.cashToClose));
+
+    // ── Mortgage ──────────────────────────────────────────────────────────
+    checkPage(20);
+    sectionHeader("Monthly Mortgage Breakdown");
+    row("Principal & Interest", fmt(calc.pi), `${inputs.interestRate.toFixed(3)}% / 30 yr`);
+    row("Property Taxes", `${fmt(calc.monthlyTax)}/mo`, `${fmt(inputs.annualTaxes)}/yr`);
+    row("Homeowners Insurance", `${fmt(calc.monthlyHOIns)}/mo`);
+    row("Flood Insurance", `${fmt(calc.monthlyFlood)}/mo`);
+    if (inputs.hoaMonthly > 0) row("HOA", fmt(inputs.hoaMonthly));
+    if (inputs.cddAnnual > 0) row("CDD", `${fmt(calc.monthlyCDD)}/mo`);
+    if (calc.mortgageInsurance > 0) {
+      const miLabel = inputs.loanType === "fha" ? "FHA MIP" : inputs.loanType === "va" ? "VA Funding Fee" : "PMI";
+      row(miLabel, fmt(calc.mortgageInsurance));
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setFillColor(23, 55, 94);
+    doc.rect(margin, y, W - margin * 2, 24, "F");
+    doc.setTextColor(255, 255, 255);
+    doc.text("Total Monthly Payment", margin + 8, y + 16);
+    doc.text(fmt(calc.totalHousing), W - margin - 8, y + 16, { align: "right" });
+    doc.setTextColor(30, 30, 30);
+    y += 32;
+
+    // ── Qualification ─────────────────────────────────────────────────────
+    checkPage(20);
+    sectionHeader("Qualification Analysis");
+    row("Monthly Income", fmt(inputs.monthlyIncome));
+    if (inputs.hasRentalIncome && calc.rentalIncomeQualifying > 0)
+      row("Rental Income (75%)", fmt(calc.rentalIncomeQualifying));
+    row("Total Qualifying Income", fmt(calc.qualifyingIncome));
+    row("Required Monthly Income", fmt(calc.requiredIncome));
+    const hDTIMax = calc.maxHousingDti === Infinity ? "No limit (VA)" : `Max ${fmtPct(calc.maxHousingDti)}`;
+    const tDTIMax = calc.maxTotalDti === Infinity ? "No limit (VA)" : `Max ${fmtPct(calc.maxTotalDti)}`;
+    row("Housing DTI", fmtPct(calc.housingDTI), hDTIMax);
+    row("Total DTI", fmtPct(calc.dti), tDTIMax);
+    row("Required Reserves (1-3 mo PITI)", fmt(calc.requiredReserves));
+    row("Available Reserves", fmt(calc.availableReserves));
+    row("Monthly Debts", fmt(inputs.monthlyDebts));
+
+    // ── Footer ─────────────────────────────────────────────────────────────
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      const pageH = doc.internal.pageSize.getHeight();
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(160, 160, 160);
+      hLine(pageH - 30);
+      doc.text("Tateo & Co · admin@tateoco.com · (813) 214-8356 · This estimate is for informational purposes only.", margin, pageH - 16);
+      doc.text(`Page ${i} of ${totalPages}`, W - margin, pageH - 16, { align: "right" });
+    }
+
+    doc.save(`Tateo-Estimate-${address.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 40)}.pdf`);
   }
 
   // Lead capture dialog
@@ -849,7 +1048,7 @@ export default function Estimate() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => openLeadDialog("share")}>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShareDialogOpen(true)}>
                 <Share2 className="h-4 w-4" /> Share
               </Button>
               <Button size="sm" className="gap-1.5 bg-secondary hover:bg-secondary/90 text-white" onClick={() => openLeadDialog("save")}>
@@ -1471,6 +1670,51 @@ export default function Estimate() {
           </div>
         </div>
       </div>
+
+      {/* Share dialog */}
+      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Share2 className="h-4 w-4 text-primary" /> Share Estimate
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground mb-4">
+            Share this estimate by email or download a PDF summary.
+          </p>
+          <div className="flex flex-col gap-3">
+            <Button
+              className="w-full gap-2"
+              variant="outline"
+              onClick={() => {
+                const subject = encodeURIComponent(`Home Cost Estimate — ${address}`);
+                const body = encodeURIComponent(
+                  `Hi,\n\nHere is your Home Cost & Qualification Estimate from Tateo & Co for:\n${address}\n\n` +
+                  `Monthly Payment: ${fmt(calc.totalHousing)}\n` +
+                  `Cash to Close: ${fmt(calc.cashToClose)}\n` +
+                  `Total DTI: ${fmtPct(calc.dti)}\n` +
+                  `Qualification: ${calc.qualifies ? "Likely Qualifies" : "Needs Review"}\n\n` +
+                  `View full estimate: ${window.location.href}\n\n` +
+                  `— Tateo & Co\nadmin@tateoco.com | (813) 214-8356`
+                );
+                window.location.href = `mailto:?subject=${subject}&body=${body}`;
+                setShareDialogOpen(false);
+              }}
+            >
+              <Mail className="h-4 w-4" /> Send via Email
+            </Button>
+            <Button
+              className="w-full gap-2"
+              onClick={() => {
+                generateEstimatePDF();
+                setShareDialogOpen(false);
+              }}
+            >
+              <FileDown className="h-4 w-4" /> Download PDF Summary
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <LeadCaptureDialog
         open={leadDialogOpen}
