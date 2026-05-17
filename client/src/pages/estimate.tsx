@@ -98,6 +98,22 @@ function calcVAFundingFee(loanAmount: number, downPaymentPct: number): number {
   return (loanAmount * rate) / 12;
 }
 
+function getMaxSellerConcessions(
+  loanType: "conventional" | "fha" | "va" | "usda",
+  occupancy: "primary" | "secondary" | "investment",
+  downPaymentPct: number,
+  purchasePrice: number,
+): number {
+  if (loanType === "fha" || loanType === "usda") return purchasePrice * 0.06;
+  if (loanType === "va") return purchasePrice * 0.04;
+  // Conventional
+  if (occupancy === "secondary" || occupancy === "investment") return purchasePrice * 0.02;
+  // Primary conventional
+  if (downPaymentPct < 10) return purchasePrice * 0.03;
+  if (downPaymentPct < 20) return purchasePrice * 0.06;
+  return purchasePrice * 0.09;
+}
+
 function getMaxDTI(creditScore: number): number {
   if (creditScore >= 740) return 0.45;
   if (creditScore >= 700) return 0.43;
@@ -131,6 +147,7 @@ interface Inputs {
   occupancy: "primary" | "secondary" | "investment";
   purchasePrice: number;
   downPaymentPct: number;
+  sellerConcessions: number;
   loanType: "conventional" | "fha" | "va" | "usda";
   creditScore: number;
   interestRate: number;
@@ -162,7 +179,7 @@ interface Scenario {
 
 function makeDefaultInputs(price = 350000): Inputs {
   return {
-    occupancy: "primary", purchasePrice: price, downPaymentPct: 5,
+    occupancy: "primary", purchasePrice: price, downPaymentPct: 5, sellerConcessions: 0,
     loanType: "conventional", creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
@@ -525,6 +542,7 @@ export default function Estimate() {
     occupancy: "primary",
     purchasePrice: defaultPrice,
     downPaymentPct: 5,
+    sellerConcessions: 0,
     loanType: "conventional",
     creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
@@ -545,6 +563,20 @@ export default function Estimate() {
     monthlyRentalIncome: 0,
     rentalType: null,
   });
+
+  // Clamp seller concessions whenever loan type, occupancy, or down payment changes
+  useEffect(() => {
+    const maxC = getMaxSellerConcessions(inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice);
+    const allowed = !(
+      (inputs.loanType === "fha" || inputs.loanType === "usda" || inputs.loanType === "va") &&
+      inputs.occupancy !== "primary"
+    );
+    if (!allowed) {
+      setInputs((p) => ({ ...p, sellerConcessions: 0 }));
+    } else if (inputs.sellerConcessions > maxC) {
+      setInputs((p) => ({ ...p, sellerConcessions: Math.round(maxC) }));
+    }
+  }, [inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice]);
 
   // Sync interest rate to live rate (with credit adjustment) when rates first load
   const ratesLoadedRef = useRef(false);
@@ -644,7 +676,8 @@ export default function Estimate() {
 
     const totalHousing = pi + monthlyTax + monthlyHOIns + monthlyFlood + hoaMonthly + monthlyCDD + mortgageInsurance;
     const closingCosts = Math.round(purchasePrice * 0.03);
-    const cashToClose = Math.round(downPaymentAmt + closingCosts);
+    const sellerConcessions = inputs.sellerConcessions ?? 0;
+    const cashToClose = Math.round(downPaymentAmt + closingCosts - sellerConcessions);
 
     // Rental income: lenders allow 75% of gross rental income to count toward qualifying income
     const rentalIncomeQualifying = Math.round((monthlyRentalIncome ?? 0) * 0.75);
@@ -1133,6 +1166,46 @@ export default function Estimate() {
                     );
                   })()}
 
+                  {(() => {
+                    const maxConcessions = getMaxSellerConcessions(inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice);
+                    const pct = inputs.purchasePrice > 0 ? (inputs.sellerConcessions / inputs.purchasePrice) * 100 : 0;
+                    const isLoanAllowed = !(
+                      (inputs.loanType === "fha" || inputs.loanType === "usda" || inputs.loanType === "va") &&
+                      inputs.occupancy !== "primary"
+                    );
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between flex-wrap gap-1">
+                          <span className="text-xs text-muted-foreground">Seller Concessions</span>
+                          {isLoanAllowed ? (
+                            <span className="text-[10px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
+                              Max {(maxConcessions / inputs.purchasePrice * 100).toFixed(0)}% · {fmt(maxConcessions)}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-red-50 text-red-600 rounded px-1.5 py-0.5">
+                              Not allowed on {inputs.occupancy} with {inputs.loanType.toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                        <SliderInput
+                          label=""
+                          value={inputs.sellerConcessions}
+                          onChange={(v) => set("sellerConcessions", Math.min(v, maxConcessions))}
+                          min={0}
+                          max={Math.round(maxConcessions)}
+                          step={500}
+                          prefix="$"
+                          disabled={!isLoanAllowed}
+                        />
+                        {inputs.sellerConcessions > 0 && (
+                          <p className="text-[10px] text-green-700 text-right">
+                            {pct.toFixed(1)}% of purchase price · reduces cash to close
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   <div className="space-y-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-xs text-muted-foreground">Interest Rate</span>
@@ -1222,6 +1295,9 @@ export default function Estimate() {
                   <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={`LTV ${fmtPct(calc.ltv)}`} />
                   <Separator />
                   <Row label="Estimated Closing Costs (~3%)" value={fmt(calc.closingCosts)} />
+                  {inputs.sellerConcessions > 0 && (
+                    <Row label="Seller Concessions" value={`− ${fmt(inputs.sellerConcessions)}`} sub={`${((inputs.sellerConcessions / inputs.purchasePrice) * 100).toFixed(1)}% of purchase price`} />
+                  )}
                   <Separator />
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm font-semibold">Estimated Cash to Close</span>
