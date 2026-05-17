@@ -92,15 +92,46 @@ function fmtK(n: number) { return n >= 1_000_000 ? "$" + (n / 1_000_000).toFixed
 
 // ─── Slider component ─────────────────────────────────────────────────────────
 
-function SliderRow({ label, value, onChange, min, max, step, display }: {
+function SliderRow({ label, value, onChange, min, max, step }: {
   label: string; value: number; onChange: (v: number) => void;
-  min: number; max: number; step: number; display: string;
+  min: number; max: number; step: number;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [raw, setRaw] = useState("");
+
+  function startEdit() {
+    setRaw(String(value));
+    setEditing(true);
+  }
+  function commitEdit() {
+    const parsed = parseInt(raw.replace(/[^0-9]/g, ""), 10);
+    if (!isNaN(parsed)) onChange(Math.min(max, Math.max(min, parsed)));
+    setEditing(false);
+  }
+
   return (
     <div className="space-y-1.5">
       <div className="flex justify-between items-baseline">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</span>
-        <span className="text-sm font-bold text-primary font-mono">{display}</span>
+        {editing ? (
+          <input
+            autoFocus
+            type="text"
+            value={raw}
+            onChange={e => setRaw(e.target.value)}
+            onBlur={commitEdit}
+            onKeyDown={e => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditing(false); }}
+            className="w-32 text-right text-sm font-bold text-primary font-mono border border-primary rounded px-2 py-0.5 focus:outline-none"
+          />
+        ) : (
+          <button
+            onClick={startEdit}
+            title="Click to edit"
+            className="text-sm font-bold text-primary font-mono hover:underline underline-offset-2 cursor-text"
+          >
+            ${value.toLocaleString()}
+          </button>
+        )}
       </div>
       <input
         type="range"
@@ -238,7 +269,6 @@ export default function InsuranceDashboard() {
                 value={rebuild}
                 onChange={setRebuild}
                 min={150000} max={1500000} step={25000}
-                display={fmtK(rebuild)}
               />
 
               <Separator />
@@ -321,7 +351,7 @@ export default function InsuranceDashboard() {
             {/* Premium hero */}
             <div className="bg-primary rounded-2xl p-6 text-white shadow-lg">
               <div className="text-xs font-semibold text-white/60 uppercase tracking-widest mb-1">Estimated Annual Premium</div>
-              <div className="text-xs text-white/50 mb-5">{region.name} · {fmtK(rebuild)} rebuild · HO-3 wind policy</div>
+              <div className="text-xs text-white/50 mb-5">{region.name} · ${rebuild.toLocaleString()} rebuild · HO-3 wind policy</div>
               <div className="grid grid-cols-3 gap-3">
                 <div className="bg-white/10 rounded-xl p-4 border border-white/10">
                   <div className="text-[10px] font-medium text-white/50 uppercase tracking-wide mb-2">Low Estimate</div>
