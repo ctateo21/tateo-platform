@@ -1202,22 +1202,6 @@ export default function Estimate() {
         <div className="container mx-auto px-4 py-6">
           <div className="space-y-6">
 
-            {/* ── All Services: insurance link banner ── */}
-            {servicesAll && (
-              <div className="flex items-center justify-between gap-4 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
-                <div className="flex items-center gap-2 text-sm text-emerald-800">
-                  <span className="text-base">🛡️</span>
-                  <span><strong>All Services selected</strong> — your insurance estimate uses your purchase price as the rebuild cost.</span>
-                </div>
-                <a
-                  href={`/insurance?address=${encodeURIComponent(address)}&price=${inputs.purchasePrice}`}
-                  className="shrink-0 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg transition-colors"
-                >
-                  View Insurance Estimate →
-                </a>
-              </div>
-            )}
-
             {/* ── INPUTS ─────────────────────────────────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
@@ -1738,6 +1722,116 @@ export default function Estimate() {
                 </CardContent>
               </Card>
 
+              {/* Qualification Section */}
+              <Card className={`border-2 ${calc.qualifies ? "border-green-200" : "border-red-200"}`}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <UserCheck className="h-4 w-4 text-primary" />
+                    Qualification
+                    {calc.qualifies ? (
+                      <Badge className="ml-auto bg-green-100 text-green-700 border border-green-300">
+                        <CheckCircle2 className="h-3 w-3 mr-1" /> Likely Qualifies
+                      </Badge>
+                    ) : (
+                      <Badge className="ml-auto bg-red-100 text-red-700 border border-red-300">
+                        <XCircle className="h-3 w-3 mr-1" /> Needs Review
+                      </Badge>
+                    )}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Row label="Your Monthly Income" value={fmt(inputs.monthlyIncome)} />
+                  {inputs.hasRentalIncome === true && calc.rentalIncomeQualifying > 0 && (
+                    <Row
+                      label="Rental Income (75% qualifying)"
+                      value={fmt(calc.rentalIncomeQualifying)}
+                      sub={`of ${fmt(inputs.monthlyRentalIncome)}/mo gross`}
+                    />
+                  )}
+                  <Row
+                    label="Total Qualifying Income"
+                    value={fmt(calc.qualifyingIncome)}
+                    status={
+                      calc.qualifyingIncome >= calc.requiredIncome * 1.15 ? "green"
+                      : calc.qualifyingIncome >= calc.requiredIncome ? "yellow"
+                      : "red"
+                    }
+                  />
+                  <Row label="Required Monthly Income" value={fmt(calc.requiredIncome)} />
+                  <Separator />
+                  <Row
+                    label="Housing DTI"
+                    value={fmtPct(calc.housingDTI)}
+                    sub={
+                      calc.maxHousingDti === Infinity
+                        ? "No limit (VA) · New mortgage ÷ qualifying income"
+                        : `Max ${fmtPct(calc.maxHousingDti)} · New mortgage ÷ qualifying income`
+                    }
+                    status={
+                      calc.maxHousingDti === Infinity ? "green"
+                      : calc.housingDTI <= calc.maxHousingDti * 0.85 ? "green"
+                      : calc.housingDTI <= calc.maxHousingDti ? "yellow"
+                      : "red"
+                    }
+                  />
+                  <Row
+                    label="Total DTI"
+                    value={fmtPct(calc.dti)}
+                    sub={
+                      calc.maxTotalDti === Infinity
+                        ? "No limit (VA) · New mortgage + debts ÷ qualifying income"
+                        : calc.dti > calc.maxTotalDti
+                        ? `Exceeds max ${fmtPct(calc.maxTotalDti)} — needs review`
+                        : `Max ${fmtPct(calc.maxTotalDti)} · New mortgage + debts ÷ qualifying income`
+                    }
+                    status={
+                      calc.maxTotalDti === Infinity ? "green"
+                      : calc.dti < calc.maxTotalDti * 0.85 ? "green"
+                      : calc.dti <= calc.maxTotalDti ? "yellow"
+                      : "red"
+                    }
+                  />
+                  <Separator />
+                  <Row label="Required Reserves (1-3 mo PITI)" value={fmt(calc.requiredReserves)} />
+                  <Row
+                    label="Your Available Reserves"
+                    value={fmt(calc.availableReserves)}
+                    sub={calc.availableReserves < calc.requiredReserves ? `Short ${fmt(calc.requiredReserves - calc.availableReserves)} of required reserves` : undefined}
+                    status={
+                      calc.availableReserves >= calc.requiredReserves * 1.5 ? "green"
+                      : calc.availableReserves >= calc.requiredReserves ? "yellow"
+                      : "red"
+                    }
+                  />
+                  <Separator />
+                  <Row label="Cash Needed to Close" value={fmt(calc.cashToClose)} />
+                  <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${inputs.downPaymentPct}%)`} />
+                  <Row label="Closing Costs Est." value={fmt(calc.closingCosts)} />
+
+                  {calc.recs.length > 0 && (
+                    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
+                      <p className="text-xs font-semibold text-amber-800 flex items-center gap-1 uppercase tracking-wide">
+                        <AlertCircle className="h-3 w-3" /> Recommendations
+                      </p>
+                      {calc.recs.map((rec, i) => (
+                        <p key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
+                          <TrendingUp className="h-3 w-3 mt-0.5 shrink-0" />
+                          {rec}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+
+                  {calc.qualifies && (
+                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-xs font-semibold text-green-800 flex items-center gap-1">
+                        <CheckCircle2 className="h-3 w-3" /> Based on the information provided, this buyer likely qualifies for this property.
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
               {/* ── Full Insurance Panel ── */}
               <div ref={insuranceSectionRef} className="scroll-mt-6">
                 <Card className="border-2 border-primary/20 shadow-md">
@@ -1892,116 +1986,6 @@ export default function Estimate() {
                   </CardContent>
                 </Card>
               </div>
-
-              {/* Qualification Section */}
-              <Card className={`border-2 ${calc.qualifies ? "border-green-200" : "border-red-200"}`}>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <UserCheck className="h-4 w-4 text-primary" />
-                    Qualification
-                    {calc.qualifies ? (
-                      <Badge className="ml-auto bg-green-100 text-green-700 border border-green-300">
-                        <CheckCircle2 className="h-3 w-3 mr-1" /> Likely Qualifies
-                      </Badge>
-                    ) : (
-                      <Badge className="ml-auto bg-red-100 text-red-700 border border-red-300">
-                        <XCircle className="h-3 w-3 mr-1" /> Needs Review
-                      </Badge>
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Row label="Your Monthly Income" value={fmt(inputs.monthlyIncome)} />
-                  {inputs.hasRentalIncome === true && calc.rentalIncomeQualifying > 0 && (
-                    <Row
-                      label="Rental Income (75% qualifying)"
-                      value={fmt(calc.rentalIncomeQualifying)}
-                      sub={`of ${fmt(inputs.monthlyRentalIncome)}/mo gross`}
-                    />
-                  )}
-                  <Row
-                    label="Total Qualifying Income"
-                    value={fmt(calc.qualifyingIncome)}
-                    status={
-                      calc.qualifyingIncome >= calc.requiredIncome * 1.15 ? "green"
-                      : calc.qualifyingIncome >= calc.requiredIncome ? "yellow"
-                      : "red"
-                    }
-                  />
-                  <Row label="Required Monthly Income" value={fmt(calc.requiredIncome)} />
-                  <Separator />
-                  <Row
-                    label="Housing DTI"
-                    value={fmtPct(calc.housingDTI)}
-                    sub={
-                      calc.maxHousingDti === Infinity
-                        ? "No limit (VA) · New mortgage ÷ qualifying income"
-                        : `Max ${fmtPct(calc.maxHousingDti)} · New mortgage ÷ qualifying income`
-                    }
-                    status={
-                      calc.maxHousingDti === Infinity ? "green"
-                      : calc.housingDTI <= calc.maxHousingDti * 0.85 ? "green"
-                      : calc.housingDTI <= calc.maxHousingDti ? "yellow"
-                      : "red"
-                    }
-                  />
-                  <Row
-                    label="Total DTI"
-                    value={fmtPct(calc.dti)}
-                    sub={
-                      calc.maxTotalDti === Infinity
-                        ? "No limit (VA) · New mortgage + debts ÷ qualifying income"
-                        : calc.dti > calc.maxTotalDti
-                        ? `Exceeds max ${fmtPct(calc.maxTotalDti)} — needs review`
-                        : `Max ${fmtPct(calc.maxTotalDti)} · New mortgage + debts ÷ qualifying income`
-                    }
-                    status={
-                      calc.maxTotalDti === Infinity ? "green"
-                      : calc.dti < calc.maxTotalDti * 0.85 ? "green"
-                      : calc.dti <= calc.maxTotalDti ? "yellow"
-                      : "red"
-                    }
-                  />
-                  <Separator />
-                  <Row label="Required Reserves (1-3 mo PITI)" value={fmt(calc.requiredReserves)} />
-                  <Row
-                    label="Your Available Reserves"
-                    value={fmt(calc.availableReserves)}
-                    sub={calc.availableReserves < calc.requiredReserves ? `Short ${fmt(calc.requiredReserves - calc.availableReserves)} of required reserves` : undefined}
-                    status={
-                      calc.availableReserves >= calc.requiredReserves * 1.5 ? "green"
-                      : calc.availableReserves >= calc.requiredReserves ? "yellow"
-                      : "red"
-                    }
-                  />
-                  <Separator />
-                  <Row label="Cash Needed to Close" value={fmt(calc.cashToClose)} />
-                  <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${inputs.downPaymentPct}%)`} />
-                  <Row label="Closing Costs Est." value={fmt(calc.closingCosts)} />
-
-                  {calc.recs.length > 0 && (
-                    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
-                      <p className="text-xs font-semibold text-amber-800 flex items-center gap-1 uppercase tracking-wide">
-                        <AlertCircle className="h-3 w-3" /> Recommendations
-                      </p>
-                      {calc.recs.map((rec, i) => (
-                        <p key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
-                          <TrendingUp className="h-3 w-3 mt-0.5 shrink-0" />
-                          {rec}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-
-                  {calc.qualifies && (
-                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <p className="text-xs font-semibold text-green-800 flex items-center gap-1">
-                        <CheckCircle2 className="h-3 w-3" /> Based on the information provided, this buyer likely qualifies for this property.
-                      </p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
 
               <p className="text-xs text-muted-foreground text-center px-4 pb-4">
                 All estimates are for informational purposes only and are not a commitment to lend. Actual rates, payments, and qualification requirements may vary. Contact a licensed mortgage professional for a full analysis.
