@@ -14,7 +14,7 @@ import { Mail, Lock, Phone, KeyRound, CheckCircle2, Loader2, Eye, EyeOff } from 
 interface LeadCaptureDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  action: "share" | "save";
+  action: "share" | "save" | "new-scenario";
   address?: string;
   onSuccess: () => void;
 }
@@ -172,10 +172,15 @@ export default function LeadCaptureDialog({
     }
   }
 
-  const title = action === "share" ? "Share Your Estimate" : "Save This Scenario";
+  const title =
+    action === "share" ? "Share Your Estimate" :
+    action === "new-scenario" ? "Create Your Free Account" :
+    "Save This Scenario";
   const subtitle =
     action === "share"
       ? "Create a free account to get a shareable link for this estimate."
+      : action === "new-scenario"
+      ? "Verify your identity once to compare up to 5 properties side by side."
       : "Create a free account to save and revisit this scenario anytime.";
 
   return (

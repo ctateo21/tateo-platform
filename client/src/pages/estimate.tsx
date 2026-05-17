@@ -41,7 +41,15 @@ import {
   DollarSign,
   Pencil,
   MapPin,
+  Plus,
+  X,
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -142,6 +150,30 @@ interface Inputs {
 }
 
 const FALLBACK_RATES = { conventional: 6.82, fha: 6.38, va: 6.25, usda: 6.38 };
+
+interface Scenario {
+  id: string;
+  address: string;
+  savedInputs: Inputs | null;
+}
+
+function makeDefaultInputs(price = 400000): Inputs {
+  return {
+    occupancy: "primary", purchasePrice: price, downPaymentPct: 5,
+    loanType: "conventional", creditScore: 740,
+    interestRate: FALLBACK_RATES.conventional,
+    annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
+    annualHOIns: Math.round(price * 0.0075), annualFloodIns: 2000,
+    monthlyDebts: 500, monthlyIncome: 8000, reserves: 15000,
+    impactWindows: false, roofAttachment: "toenails", swr: false,
+    hasMortgage: null, currentLoanFHA: null, rentalType: null,
+  };
+}
+
+function shortLabel(addr: string): string {
+  const parts = addr.split(",")[0].trim().split(" ");
+  return parts.slice(0, 3).join(" ");
+}
 
 function creditAdjustment(score: number): number {
   if (score >= 780) return -0.20;
@@ -256,17 +288,124 @@ export default function Estimate() {
 
   const { toast } = useToast();
 
+  // ── Auth & multi-scenario state ─────────────────────────────────────────────
+  const [isAuthenticated, setIsAuthenticated] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem("tateo_auth") === "1"
+  );
+  const [scenarios, setScenarios] = useState<Scenario[]>([
+    { id: "sc0", address, savedInputs: null },
+  ]);
+  const [activeScenarioId, setActiveScenarioId] = useState("sc0");
+  const [showAddressPrompt, setShowAddressPrompt] = useState(false);
+  const [newScenarioAddress, setNewScenarioAddress] = useState("");
+  const newScenarioInputRef = useRef<HTMLInputElement>(null);
+  const newScenarioAcRef = useRef<any>(null);
+  const [leadDialogForScenario, setLeadDialogForScenario] = useState(false);
+
+  // Keep active scenario's address in sync when URL changes (inline edit)
+  useEffect(() => {
+    setScenarios(prev =>
+      prev.map(s => s.id === activeScenarioId ? { ...s, address } : s)
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]);
+
+  // Init Google Maps autocomplete on the new-scenario address prompt
+  useEffect(() => {
+    if (!showAddressPrompt) return;
+    const timer = setTimeout(() => {
+      if (!newScenarioInputRef.current) return;
+      loadGoogleMapsApi().then(() => {
+        const ac = new (window as any).google.maps.places.Autocomplete(
+          newScenarioInputRef.current, { types: ["address"] }
+        );
+        ac.addListener("place_changed", () => {
+          const place = ac.getPlace();
+          if (place.formatted_address) setNewScenarioAddress(place.formatted_address);
+        });
+        newScenarioAcRef.current = ac;
+      });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [showAddressPrompt]);
+
+  function switchScenario(targetId: string) {
+    if (targetId === activeScenarioId) return;
+    const target = scenarios.find(s => s.id === targetId);
+    if (!target) return;
+    // Snapshot current inputs into active scenario
+    setScenarios(prev =>
+      prev.map(s => s.id === activeScenarioId ? { ...s, savedInputs: inputs } : s)
+    );
+    setActiveScenarioId(targetId);
+    setLocation(`/estimate?address=${encodeURIComponent(target.address)}`);
+    if (target.savedInputs) setInputs(target.savedInputs);
+    else setInputs(makeDefaultInputs());
+  }
+
+  function removeScenario(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (scenarios.length === 1) return;
+    const idx = scenarios.findIndex(s => s.id === id);
+    const remaining = scenarios.filter(s => s.id !== id);
+    setScenarios(remaining);
+    if (id === activeScenarioId) {
+      const next = remaining[Math.max(0, idx - 1)];
+      setActiveScenarioId(next.id);
+      setLocation(`/estimate?address=${encodeURIComponent(next.address)}`);
+      if (next.savedInputs) setInputs(next.savedInputs);
+      else setInputs(makeDefaultInputs());
+    }
+  }
+
+  function requestAddScenario() {
+    if (scenarios.length >= 5) {
+      toast({ title: "Maximum 5 scenarios", description: "Remove a tab to add a new property." });
+      return;
+    }
+    if (!isAuthenticated) {
+      setLeadDialogForScenario(true);
+      setLeadDialogOpen(true);
+    } else {
+      setShowAddressPrompt(true);
+    }
+  }
+
+  function confirmNewScenario() {
+    const addr = newScenarioAddress.trim();
+    if (!addr) return;
+    const newId = `sc_${Date.now()}`;
+    setScenarios(prev => [
+      ...prev.map(s => s.id === activeScenarioId ? { ...s, savedInputs: inputs } : s),
+      { id: newId, address: addr, savedInputs: null },
+    ]);
+    setActiveScenarioId(newId);
+    setLocation(`/estimate?address=${encodeURIComponent(addr)}`);
+    setInputs(makeDefaultInputs());
+    amiLoadedRef.current = false;
+    floodLoadedRef.current = null;
+    ratesLoadedRef.current = false;
+    setNewScenarioAddress("");
+    setShowAddressPrompt(false);
+  }
+
   // Lead capture dialog
   const [leadDialogOpen, setLeadDialogOpen] = useState(false);
   const [leadDialogAction, setLeadDialogAction] = useState<"share" | "save">("share");
 
   function openLeadDialog(action: "share" | "save") {
+    setLeadDialogForScenario(false);
     setLeadDialogAction(action);
     setLeadDialogOpen(true);
   }
 
   function handleLeadSuccess() {
-    if (leadDialogAction === "share") {
+    if (leadDialogForScenario) {
+      setLeadDialogForScenario(false);
+      localStorage.setItem("tateo_auth", "1");
+      setIsAuthenticated(true);
+      setShowAddressPrompt(true);
+    } else if (leadDialogAction === "share") {
       const url = window.location.href;
       navigator.clipboard.writeText(url).catch(() => {});
       toast({ title: "Link copied!", description: "Share the URL with anyone to show this estimate." });
@@ -553,6 +692,41 @@ export default function Estimate() {
       <div className="min-h-screen bg-gray-50">
         {/* Top bar */}
         <div className="bg-white border-b shadow-sm sticky top-[73px] z-40">
+          {/* Scenario tabs */}
+          <div className="container mx-auto px-4 pt-2 flex items-center gap-1 overflow-x-auto scrollbar-none">
+            {scenarios.map((sc, idx) => (
+              <div
+                key={sc.id}
+                onClick={() => switchScenario(sc.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium cursor-pointer whitespace-nowrap border border-b-0 transition-colors ${
+                  sc.id === activeScenarioId
+                    ? "bg-white border-border text-foreground shadow-sm -mb-px relative z-10"
+                    : "bg-gray-100 border-transparent text-muted-foreground hover:bg-gray-200"
+                }`}
+              >
+                <MapPin className="h-3 w-3 shrink-0" />
+                <span>{shortLabel(sc.address)}</span>
+                {scenarios.length > 1 && (
+                  <button
+                    onClick={(e) => removeScenario(sc.id, e)}
+                    className="ml-0.5 rounded-full hover:bg-black/10 p-0.5 transition-colors"
+                    aria-label="Remove scenario"
+                  >
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                )}
+              </div>
+            ))}
+            {scenarios.length < 5 && (
+              <button
+                onClick={requestAddScenario}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-t-md text-xs text-muted-foreground hover:text-primary hover:bg-gray-100 border border-transparent border-b-0 transition-colors"
+                title="Compare a new property"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add Property
+              </button>
+            )}
+          </div>
           <div className="container mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <button
@@ -1233,11 +1407,44 @@ export default function Estimate() {
 
       <LeadCaptureDialog
         open={leadDialogOpen}
-        onOpenChange={setLeadDialogOpen}
-        action={leadDialogAction}
+        onOpenChange={(open) => { setLeadDialogOpen(open); if (!open) setLeadDialogForScenario(false); }}
+        action={leadDialogForScenario ? "new-scenario" : leadDialogAction}
         address={address}
         onSuccess={handleLeadSuccess}
       />
+
+      {/* New scenario address prompt */}
+      <Dialog open={showAddressPrompt} onOpenChange={setShowAddressPrompt}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add New Property</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <p className="text-sm text-muted-foreground">Enter the address for your new scenario (up to 5 total).</p>
+            <div className="relative">
+              <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <input
+                ref={newScenarioInputRef}
+                type="text"
+                value={newScenarioAddress}
+                onChange={(e) => setNewScenarioAddress(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && confirmNewScenario()}
+                placeholder="123 Main St, City, State…"
+                autoComplete="off"
+                className="w-full pl-9 pr-3 py-2 text-sm border rounded-md outline-none focus:ring-2 ring-primary/30 focus:border-primary"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => { setShowAddressPrompt(false); setNewScenarioAddress(""); }}>
+                Cancel
+              </Button>
+              <Button className="flex-1" onClick={confirmNewScenario} disabled={!newScenarioAddress.trim()}>
+                Add Property
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
