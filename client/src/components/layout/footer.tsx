@@ -113,18 +113,8 @@ export default function Footer() {
                   </Link>
                 </li>
                 <li>
-                  <Link href="/construction-bid" className="text-white/90 hover:text-[#f6921e]">
-                    Construction Bid
-                  </Link>
-                </li>
-                <li>
                   <Link href="/property-management" className="text-white/90 hover:text-[#f6921e]">
                     Prop Mgmt / Rentals
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/home-services" className="text-white/90 hover:text-[#f6921e]">
-                    Home Services
                   </Link>
                 </li>
               </ul>

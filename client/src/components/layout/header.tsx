@@ -24,9 +24,7 @@ export default function Header() {
         { href: "/real-estate", label: "Real Estate" },
         { href: "/mortgage", label: "Mortgage" },
         { href: "/insurance", label: "Insurance" },
-        { href: "/construction", label: "Construction" },
         { href: "/property-management", label: "Property Management" },
-        { href: "/home-services", label: "Home Services" }
       ]
     },
     { href: "/review", label: "REVIEWS", icon: <HelpCircle className="mr-2 h-4 w-4" /> },
@@ -39,12 +37,11 @@ export default function Header() {
       <div className="bg-primary py-2 text-white">
         <div className="container mx-auto px-4 flex justify-between items-center">
           <div className="text-sm hidden md:block">
-            <span className="mr-4">123 Main Street, City, State</span>
-            <span>(555) 123-4567</span>
+            <span>(813) 214-8356</span>
           </div>
           <div className="flex items-center space-x-4">
-            <a href="mailto:info@tateoco.com" className="text-white hover:text-white/80 text-sm">
-              info@tateoco.com
+            <a href="mailto:admin@tateoco.com" className="text-white hover:text-white/80 text-sm">
+              admin@tateoco.com
             </a>
             <a href="#" className="text-white hover:text-white/80">
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
