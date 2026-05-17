@@ -425,18 +425,6 @@ export default function Estimate() {
                     displayValue={Math.round(inputs.purchasePrice).toLocaleString()}
                   />
 
-                  <SliderInput
-                    label="Down Payment"
-                    value={inputs.downPaymentPct}
-                    onChange={(v) => set("downPaymentPct", v)}
-                    min={0} max={50} step={0.5}
-                    suffix="%"
-                    displayValue={inputs.downPaymentPct.toFixed(1)}
-                  />
-                  <p className="text-xs text-muted-foreground -mt-3">
-                    {fmt(calc.downPaymentAmt)} down · {fmt(calc.loanAmount)} loan
-                  </p>
-
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1.5 block">Loan Type</Label>
                     <Select value={inputs.loanType} onValueChange={(v) => setLoanType(v as any)}>
@@ -448,6 +436,18 @@ export default function Estimate() {
                       </SelectContent>
                     </Select>
                   </div>
+
+                  <SliderInput
+                    label="Down Payment"
+                    value={inputs.downPaymentPct}
+                    onChange={(v) => set("downPaymentPct", v)}
+                    min={0} max={50} step={0.5}
+                    suffix="%"
+                    displayValue={inputs.downPaymentPct.toFixed(1)}
+                  />
+                  <p className="text-xs text-muted-foreground -mt-3">
+                    {fmt(calc.downPaymentAmt)} down · {fmt(calc.loanAmount)} loan
+                  </p>
 
                   <SliderInput
                     label="Interest Rate"
