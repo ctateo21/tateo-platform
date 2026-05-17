@@ -473,7 +473,7 @@ export default function Estimate() {
     };
   }, [isEditingAddress]);
 
-  const defaultPrice = 400000;
+  const defaultPrice = 350000;
 
   // Live mortgage rates from mortgagenewsdaily.com
   const { data: liveRates } = useQuery<{ conventional: number; fha: number; va: number; usda?: number; source: string; lastUpdated: string | null }>({
@@ -526,16 +526,16 @@ export default function Estimate() {
     purchasePrice: defaultPrice,
     downPaymentPct: 5,
     loanType: "conventional",
-    creditScore: 740,
+    creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(defaultPrice * 0.015),
     hoaMonthly: 0,
     cddAnnual: 0,
     annualHOIns: Math.round(defaultPrice * 0.0075),
     annualFloodIns: 2000,
-    monthlyDebts: 500,
+    monthlyDebts: 0,
     monthlyIncome: 8000,
-    reserves: 15000,
+    reserves: 25000,
     impactWindows: false,
     roofAttachment: "toenails",
     swr: false,
