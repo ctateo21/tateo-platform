@@ -116,7 +116,7 @@ function calcInsuranceEstimate(
 interface Inputs {
   purchasePrice: number;
   downPaymentPct: number;
-  loanType: "conventional" | "fha" | "va";
+  loanType: "conventional" | "fha" | "va" | "usda";
   creditScore: number;
   interestRate: number;
   annualTaxes: number;
@@ -134,7 +134,7 @@ interface Inputs {
   currentLoanFHA: boolean | null;
 }
 
-const FALLBACK_RATES = { conventional: 6.82, fha: 6.38, va: 6.25 };
+const FALLBACK_RATES = { conventional: 6.82, fha: 6.38, va: 6.25, usda: 6.38 };
 
 function creditAdjustment(score: number): number {
   if (score >= 780) return -0.20;
@@ -247,7 +247,7 @@ export default function Estimate() {
   const defaultPrice = 400000;
 
   // Live mortgage rates from mortgagenewsdaily.com
-  const { data: liveRates } = useQuery<{ conventional: number; fha: number; va: number; source: string; lastUpdated: string | null }>({
+  const { data: liveRates } = useQuery<{ conventional: number; fha: number; va: number; usda?: number; source: string; lastUpdated: string | null }>({
     queryKey: ["/api/mortgage-rates"],
     staleTime: 60 * 60 * 1000,
   });
@@ -296,12 +296,26 @@ export default function Estimate() {
   useEffect(() => {
     if (liveRates && !ratesLoadedRef.current) {
       ratesLoadedRef.current = true;
-      setInputs((p) => ({ ...p, interestRate: adjustedRate(liveRates[p.loanType], p.creditScore) }));
+      setInputs((p) => ({ ...p, interestRate: adjustedRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore) }));
     }
   }, [liveRates]);
 
-  function setLoanType(lt: "conventional" | "fha" | "va") {
-    setInputs((p) => ({ ...p, loanType: lt, interestRate: adjustedRate(rates[lt], p.creditScore) }));
+  function getMinDown(lt: "conventional" | "fha" | "va" | "usda", hasMortgage: boolean | null): number {
+    if (lt === "va" || lt === "usda") return 0;
+    if (lt === "fha") return 3.5;
+    return hasMortgage === true ? 5 : 3;
+  }
+
+  function setLoanType(lt: "conventional" | "fha" | "va" | "usda") {
+    setInputs((p) => {
+      const newMin = getMinDown(lt, p.hasMortgage);
+      return {
+        ...p,
+        loanType: lt,
+        interestRate: adjustedRate((rates as any)[lt] ?? rates.fha, p.creditScore),
+        downPaymentPct: Math.max(p.downPaymentPct, newMin),
+      };
+    });
   }
 
   function setCreditScore(score: number) {
@@ -503,7 +517,10 @@ export default function Estimate() {
                       <p className="text-xs text-muted-foreground mb-2">Do you currently have a mortgage?</p>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => set("hasMortgage", true)}
+                          onClick={() => setInputs((p) => {
+                            const clampedDown = p.loanType === "conventional" ? Math.max(p.downPaymentPct, 5) : p.downPaymentPct;
+                            return { ...p, hasMortgage: true, downPaymentPct: clampedDown };
+                          })}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasMortgage === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                         >
                           Yes
@@ -588,6 +605,7 @@ export default function Estimate() {
                         </SelectItem>
                         <SelectItem value="fha">FHA</SelectItem>
                         <SelectItem value="va">VA</SelectItem>
+                        <SelectItem value="usda">USDA</SelectItem>
                       </SelectContent>
                     </Select>
                     <p className="text-[11px] mt-1.5 leading-tight text-muted-foreground">
@@ -599,16 +617,56 @@ export default function Estimate() {
                     </p>
                   </div>
 
-                  <SliderInput
-                    label="Down Payment"
-                    value={inputs.downPaymentPct}
-                    onChange={(v) => set("downPaymentPct", v)}
-                    min={0} max={50} step={0.5}
-                    suffix="%"
-                  />
-                  <p className="text-xs text-muted-foreground -mt-3">
-                    {fmt(calc.downPaymentAmt)} down · {fmt(calc.loanAmount)} loan
-                  </p>
+                  {(() => {
+                    const minDown = getMinDown(inputs.loanType, inputs.hasMortgage);
+                    const snapPoints = [
+                      { pct: 0,   label: "0%",   sub: "VA / USDA" },
+                      { pct: 3,   label: "3%",   sub: "Conv (no mtg)" },
+                      { pct: 3.5, label: "3.5%", sub: "FHA" },
+                      { pct: 5,   label: "5%",   sub: "Conv (w/ mtg)" },
+                      { pct: 20,  label: "20%",  sub: "No PMI" },
+                    ];
+                    return (
+                      <div className="space-y-2">
+                        <SliderInput
+                          label="Down Payment"
+                          value={inputs.downPaymentPct}
+                          onChange={(v) => set("downPaymentPct", Math.max(minDown, v))}
+                          min={minDown} max={50} step={0.5}
+                          suffix="%"
+                        />
+                        <p className="text-xs text-muted-foreground -mt-1">
+                          {fmt(calc.downPaymentAmt)} down · {fmt(calc.loanAmount)} loan
+                        </p>
+                        <div className="flex gap-1 flex-wrap pt-0.5">
+                          {snapPoints.map(({ pct, label, sub }) => {
+                            const isMin = pct === minDown;
+                            const isCurrent = inputs.downPaymentPct === pct;
+                            const isDisabled = pct < minDown;
+                            return (
+                              <button
+                                key={pct}
+                                disabled={isDisabled}
+                                onClick={() => set("downPaymentPct", pct)}
+                                className={`flex flex-col items-center px-2 py-1 rounded border text-[10px] leading-tight transition-colors ${
+                                  isDisabled
+                                    ? "border-border/30 text-muted-foreground/30 cursor-not-allowed"
+                                    : isMin
+                                    ? "border-primary bg-primary/5 text-primary font-semibold"
+                                    : isCurrent
+                                    ? "border-primary/60 text-primary"
+                                    : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                                }`}
+                              >
+                                <span className="font-semibold">{label}</span>
+                                <span className="text-[9px] opacity-70">{sub}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
                   <div className="space-y-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
