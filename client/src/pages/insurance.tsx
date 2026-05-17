@@ -127,7 +127,7 @@ function SliderRow({ label, value, onChange, min, max, step }: {
           <button
             onClick={startEdit}
             title="Click to edit"
-            className="text-sm font-bold text-primary font-mono hover:underline underline-offset-2 cursor-text"
+            className="text-sm font-bold text-primary font-mono border border-primary/40 bg-primary/5 hover:bg-primary/10 hover:border-primary rounded-md px-2.5 py-0.5 cursor-text transition-colors"
           >
             ${value.toLocaleString()}
           </button>
@@ -278,10 +278,10 @@ export default function InsuranceDashboard() {
                 value={roofIdx}
                 onChange={setRoofIdx}
                 options={[
-                  { value: 0, label: "Under 5 years — best rate (−10%)" },
-                  { value: 1, label: "5–14 years — standard baseline" },
-                  { value: 2, label: "15–20 years — surcharge (+20%)" },
-                  { value: 3, label: "20+ years — limited options (+38%)" },
+                  { value: 0, label: "Under 5 years" },
+                  { value: 1, label: "5–14 years — standard" },
+                  { value: 2, label: "15–20 years" },
+                  { value: 3, label: "20+ years — limited carrier options" },
                 ]}
               />
 
@@ -290,9 +290,9 @@ export default function InsuranceDashboard() {
                 value={windIdx}
                 onChange={setWindIdx}
                 options={[
-                  { value: 0, label: "No inspection / no features on file (+14%)" },
-                  { value: 1, label: "Basic inspection on file — baseline" },
-                  { value: 2, label: "Full mitigation: hip roof, shutters, SWR (−18%)" },
+                  { value: 0, label: "No inspection / no features on file" },
+                  { value: 1, label: "Basic inspection on file — standard" },
+                  { value: 2, label: "Full mitigation: hip roof, shutters, SWR" },
                 ]}
               />
 
@@ -302,8 +302,8 @@ export default function InsuranceDashboard() {
                 onChange={setHurrIdx}
                 options={[
                   { value: 0, label: "2% of dwelling — standard" },
-                  { value: 1, label: "3% of dwelling — saves ~5% on premium" },
-                  { value: 2, label: "5% of dwelling — saves ~10% on premium" },
+                  { value: 1, label: "3% of dwelling" },
+                  { value: 2, label: "5% of dwelling" },
                 ]}
               />
 
@@ -312,9 +312,9 @@ export default function InsuranceDashboard() {
                 value={constIdx}
                 onChange={setConstIdx}
                 options={[
-                  { value: 0, label: "Concrete block / CBS — preferred (−7%)" },
-                  { value: 1, label: "Mixed / unknown — baseline" },
-                  { value: 2, label: "Frame construction (+8%)" },
+                  { value: 0, label: "Concrete block / CBS — preferred" },
+                  { value: 1, label: "Mixed / unknown — standard" },
+                  { value: 2, label: "Frame construction" },
                 ]}
               />
 
@@ -323,10 +323,10 @@ export default function InsuranceDashboard() {
                 value={yearIdx}
                 onChange={setYearIdx}
                 options={[
-                  { value: 0, label: "2002 or newer — Florida Building Code (−10%)" },
-                  { value: 1, label: "1990–2001 — baseline" },
-                  { value: 2, label: "1970–1989 (+10%)" },
-                  { value: 3, label: "Pre-1970 — significant surcharge (+28%)" },
+                  { value: 0, label: "2002 or newer — Florida Building Code" },
+                  { value: 1, label: "1990–2001 — standard" },
+                  { value: 2, label: "1970–1989" },
+                  { value: 3, label: "Pre-1970" },
                 ]}
               />
 
@@ -336,9 +336,9 @@ export default function InsuranceDashboard() {
                 onChange={setClaimsIdx}
                 options={[
                   { value: 0, label: "No claims — clean history" },
-                  { value: 1, label: "1 claim filed (+14%)" },
-                  { value: 2, label: "2 claims filed (+26%)" },
-                  { value: 3, label: "3+ claims — high-risk surcharge (+40%)" },
+                  { value: 1, label: "1 claim filed" },
+                  { value: 2, label: "2 claims filed" },
+                  { value: 3, label: "3+ claims" },
                 ]}
               />
 
