@@ -52,19 +52,28 @@ function calcPI(loanAmount: number, annualRate: number, termMonths = 360): numbe
 function calcConventionalPMI(loanAmount: number, purchasePrice: number, creditScore: number): number {
   const ltv = loanAmount / purchasePrice;
   if (ltv <= 0.8) return 0;
-  let baseRate = 0.012;
-  if (ltv <= 0.85) baseRate = 0.005;
-  else if (ltv <= 0.90) baseRate = 0.007;
-  else if (ltv <= 0.95) baseRate = 0.010;
-  if (creditScore >= 760) baseRate -= 0.002;
-  else if (creditScore >= 720) baseRate -= 0.001;
-  else if (creditScore < 680) baseRate += 0.002;
-  return (loanAmount * Math.max(baseRate, 0)) / 12;
+  // Base PMI at 780+ credit (midpoint of MGIC/Fannie range by LTV band)
+  let basePMI: number;
+  if (ltv > 0.95)      basePMI = 0.00575; // ~97% LTV: 0.45–0.70% mid
+  else if (ltv > 0.90) basePMI = 0.00450; // ~95% LTV: 0.35–0.55% mid
+  else if (ltv > 0.85) basePMI = 0.00315; // ~90% LTV: 0.25–0.38% mid
+  else                 basePMI = 0.00215; // ~85% LTV: 0.18–0.25% mid
+  // Credit score multiplier
+  let mult: number;
+  if      (creditScore >= 780) mult = 1.00;
+  else if (creditScore >= 760) mult = 1.05;
+  else if (creditScore >= 740) mult = 1.12;
+  else if (creditScore >= 720) mult = 1.25;
+  else if (creditScore >= 700) mult = 1.50;
+  else if (creditScore >= 680) mult = 1.85;
+  else                         mult = 2.20;
+  return (loanAmount * basePMI * mult) / 12;
 }
 
 function calcFHAMIP(loanAmount: number, purchasePrice: number): number {
   const ltv = loanAmount / purchasePrice;
-  const annualMIP = ltv > 0.9 ? 0.0085 : 0.0055;
+  // Standard FHA annual MIP (2024 rates for loans > $150k, 30-yr)
+  const annualMIP = ltv > 0.90 ? 0.0085 : 0.0080;
   return (loanAmount * annualMIP) / 12;
 }
 
@@ -275,7 +284,18 @@ export default function Estimate() {
   }
 
   function setCreditScore(score: number) {
-    setInputs((p) => ({ ...p, creditScore: score, interestRate: adjustedRate(rates[p.loanType], score) }));
+    setInputs((p) => {
+      const autoLoanType =
+        score < 720 && p.loanType === "conventional" ? "fha" :
+        score >= 720 && p.loanType === "fha" ? "conventional" :
+        p.loanType;
+      return {
+        ...p,
+        creditScore: score,
+        loanType: autoLoanType,
+        interestRate: adjustedRate(rates[autoLoanType], score),
+      };
+    });
   }
 
   function set<K extends keyof Inputs>(key: K, value: Inputs[K]) {
@@ -472,7 +492,9 @@ export default function Estimate() {
                     <Select value={inputs.loanType} onValueChange={(v) => setLoanType(v as any)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="conventional">Conventional</SelectItem>
+                        <SelectItem value="conventional">
+                          Conventional{inputs.creditScore >= 720 ? " (Best Option)" : ""}
+                        </SelectItem>
                         <SelectItem value="fha">FHA</SelectItem>
                         <SelectItem value="va">VA</SelectItem>
                       </SelectContent>
