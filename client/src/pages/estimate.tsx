@@ -38,7 +38,6 @@ import {
   XCircle,
   AlertCircle,
   DollarSign,
-  Percent,
 } from "lucide-react";
 
 // ─── Calculation helpers ────────────────────────────────────────────────────
@@ -125,6 +124,87 @@ interface Inputs {
 
 const RATES = { conventional: 0.069, fha: 0.066, va: 0.0668 };
 
+// ─── SliderInput component ───────────────────────────────────────────────────
+// Shows a slider + an editable number field. Either control updates the other.
+
+interface SliderInputProps {
+  label: string;
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step?: number;
+  prefix?: string;
+  suffix?: string;
+  displayValue?: string;
+}
+
+function SliderInput({
+  label,
+  value,
+  onChange,
+  min,
+  max,
+  step = 1,
+  prefix,
+  suffix,
+  displayValue,
+}: SliderInputProps) {
+  const [inputVal, setInputVal] = useState<string>("");
+  const [editing, setEditing] = useState(false);
+
+  const displayed = editing ? inputVal : (displayValue ?? String(value));
+
+  function handleFocus() {
+    setEditing(true);
+    setInputVal(String(value));
+  }
+
+  function handleBlur() {
+    setEditing(false);
+    const parsed = parseFloat(inputVal);
+    if (!isNaN(parsed)) {
+      onChange(Math.min(max, Math.max(min, parsed)));
+    }
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setInputVal(e.target.value);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs text-muted-foreground">{label}</Label>
+        <div className="flex items-center gap-0.5 bg-muted rounded-md px-2 py-1 min-w-[88px]">
+          {prefix && <span className="text-xs text-muted-foreground">{prefix}</span>}
+          <input
+            className="w-full bg-transparent text-xs font-semibold text-right text-foreground outline-none min-w-0"
+            value={displayed}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            inputMode="decimal"
+          />
+          {suffix && <span className="text-xs text-muted-foreground ml-0.5">{suffix}</span>}
+        </div>
+      </div>
+      <Slider
+        min={min}
+        max={max}
+        step={step}
+        value={[Math.min(max, Math.max(min, value))]}
+        onValueChange={([v]) => onChange(v)}
+      />
+    </div>
+  );
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 
 export default function Estimate() {
@@ -154,7 +234,6 @@ export default function Estimate() {
     swr: false,
   });
 
-  // Sync interest rate when loan type changes
   function setLoanType(lt: "conventional" | "fha" | "va") {
     setInputs((p) => ({ ...p, loanType: lt, interestRate: RATES[lt] * 100 }));
   }
@@ -163,7 +242,7 @@ export default function Estimate() {
     setInputs((p) => ({ ...p, [key]: value }));
   }
 
-  // ─── All calculations ──────────────────────────────────────────────────────
+  // ─── Calculations ──────────────────────────────────────────────────────────
 
   const calc = useMemo(() => {
     const { purchasePrice, downPaymentPct, loanType, creditScore, interestRate,
@@ -175,37 +254,29 @@ export default function Estimate() {
     const rate = interestRate / 100;
     const ltv = loanAmount / purchasePrice;
 
-    // PITI components
     const pi = calcPI(loanAmount, rate);
     const monthlyTax = annualTaxes / 12;
     const monthlyHOIns = annualHOIns / 12;
     const monthlyFlood = annualFloodIns / 12;
     const monthlyCDD = cddAnnual / 12;
 
-    // PMI / MIP / VA
     const pmi = loanType === "conventional" ? calcConventionalPMI(loanAmount, purchasePrice, creditScore) : 0;
     const mip = loanType === "fha" ? calcFHAMIP(loanAmount, purchasePrice) : 0;
     const vaFee = loanType === "va" ? calcVAFundingFee(loanAmount, downPaymentPct) : 0;
     const mortgageInsurance = pmi + mip + vaFee;
 
-    // Total housing payment
     const totalHousing = pi + monthlyTax + monthlyHOIns + monthlyFlood + hoaMonthly + monthlyCDD + mortgageInsurance;
-
-    // Closing costs & cash to close
     const closingCosts = Math.round(purchasePrice * 0.03);
     const cashToClose = Math.round(downPaymentAmt + closingCosts);
 
-    // DTI & qualification
     const dti = monthlyIncome > 0 ? (totalHousing + monthlyDebts) / monthlyIncome : 0;
     const maxDti = getMaxDTI(creditScore);
     const requiredIncome = Math.round((totalHousing + monthlyDebts) / maxDti);
     const requiredReserves = Math.round(totalHousing * 2);
     const qualifies = monthlyIncome >= requiredIncome && reserves >= cashToClose;
 
-    // Insurance estimate with wind mitigation
     const estimatedHOIns = calcInsuranceEstimate(purchasePrice, impactWindows, roofAttachment, swr);
 
-    // Loan comparison (Conventional, FHA, VA always at their base rates)
     const loanComparison = (["conventional", "fha", "va"] as const).map((lt) => {
       const ltRate = RATES[lt];
       const ltDown = lt === "va" ? 0 : lt === "fha" ? 3.5 : downPaymentPct;
@@ -216,11 +287,9 @@ export default function Estimate() {
       const ltVA = lt === "va" ? calcVAFundingFee(ltLoan, ltDown) : 0;
       const ltMI = ltPMI + ltMIP + ltVA;
       const ltTotal = ltPI + monthlyTax + monthlyHOIns + hoaMonthly + monthlyCDD + ltMI;
-      const ltDown$ = purchasePrice * (ltDown / 100);
-      return { lt, rate: ltRate * 100, downPct: ltDown, downAmt: ltDown$, pi: ltPI, mi: ltMI, total: ltTotal };
+      return { lt, rate: ltRate * 100, downPct: ltDown, pi: ltPI, mi: ltMI, total: ltTotal };
     });
 
-    // Qualification recommendations
     const recs: string[] = [];
     if (monthlyIncome < requiredIncome) {
       recs.push(`Increase income to at least ${fmt(requiredIncome)}/mo, or reduce monthly debts.`);
@@ -238,11 +307,9 @@ export default function Estimate() {
       loanAmount, downPaymentAmt, pi, monthlyTax, monthlyHOIns, monthlyFlood,
       monthlyCDD, mortgageInsurance, pmi, mip, vaFee, totalHousing,
       closingCosts, cashToClose, dti, maxDti, requiredIncome, requiredReserves,
-      qualifies, estimatedHOIns, loanComparison, recs, ltv
+      qualifies, estimatedHOIns, loanComparison, recs, ltv,
     };
   }, [inputs]);
-
-  // ─── Formatters ────────────────────────────────────────────────────────────
 
   function fmt(n: number): string {
     return "$" + Math.round(n).toLocaleString();
@@ -250,8 +317,6 @@ export default function Estimate() {
   function fmtPct(n: number): string {
     return (n * 100).toFixed(1) + "%";
   }
-
-  // ─── Row helper ────────────────────────────────────────────────────────────
 
   function Row({ label, value, sub }: { label: string; value: string; sub?: string }) {
     return (
@@ -306,7 +371,43 @@ export default function Estimate() {
             {/* ── LEFT: Inputs ───────────────────────────────────────── */}
             <div className="lg:col-span-1 space-y-4">
 
-              {/* Purchase Details */}
+              {/* 1. Borrower Profile — TOP */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <UserCheck className="h-4 w-4 text-primary" />
+                    Borrower Profile
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <SliderInput
+                    label="Monthly Gross Income"
+                    value={inputs.monthlyIncome}
+                    onChange={(v) => set("monthlyIncome", v)}
+                    min={1000} max={50000} step={100}
+                    prefix="$"
+                    displayValue={Math.round(inputs.monthlyIncome).toLocaleString()}
+                  />
+                  <SliderInput
+                    label="Monthly Debts (auto, cards, etc.)"
+                    value={inputs.monthlyDebts}
+                    onChange={(v) => set("monthlyDebts", v)}
+                    min={0} max={10000} step={50}
+                    prefix="$"
+                    displayValue={Math.round(inputs.monthlyDebts).toLocaleString()}
+                  />
+                  <SliderInput
+                    label="Available Reserves / Savings"
+                    value={inputs.reserves}
+                    onChange={(v) => set("reserves", v)}
+                    min={0} max={500000} step={1000}
+                    prefix="$"
+                    displayValue={Math.round(inputs.reserves).toLocaleString()}
+                  />
+                </CardContent>
+              </Card>
+
+              {/* 2. Purchase Details */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -314,34 +415,30 @@ export default function Estimate() {
                     Purchase Details
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">Purchase Price</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input
-                        className="pl-6"
-                        type="number"
-                        value={inputs.purchasePrice}
-                        onChange={(e) => set("purchasePrice", Number(e.target.value))}
-                      />
-                    </div>
-                  </div>
+                <CardContent className="space-y-5">
+                  <SliderInput
+                    label="Purchase Price"
+                    value={inputs.purchasePrice}
+                    onChange={(v) => set("purchasePrice", v)}
+                    min={50000} max={3000000} step={5000}
+                    prefix="$"
+                    displayValue={Math.round(inputs.purchasePrice).toLocaleString()}
+                  />
+
+                  <SliderInput
+                    label="Down Payment"
+                    value={inputs.downPaymentPct}
+                    onChange={(v) => set("downPaymentPct", v)}
+                    min={0} max={50} step={0.5}
+                    suffix="%"
+                    displayValue={inputs.downPaymentPct.toFixed(1)}
+                  />
+                  <p className="text-xs text-muted-foreground -mt-3">
+                    {fmt(calc.downPaymentAmt)} down · {fmt(calc.loanAmount)} loan
+                  </p>
 
                   <div>
-                    <Label className="text-xs text-muted-foreground mb-1 flex justify-between">
-                      <span>Down Payment</span>
-                      <span className="font-semibold text-foreground">{inputs.downPaymentPct}% — {fmt(calc.downPaymentAmt)}</span>
-                    </Label>
-                    <Slider
-                      min={0} max={50} step={0.5}
-                      value={[inputs.downPaymentPct]}
-                      onValueChange={([v]) => set("downPaymentPct", v)}
-                    />
-                  </div>
-
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">Loan Type</Label>
+                    <Label className="text-xs text-muted-foreground mb-1.5 block">Loan Type</Label>
                     <Select value={inputs.loanType} onValueChange={(v) => setLoanType(v as any)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -352,33 +449,26 @@ export default function Estimate() {
                     </Select>
                   </div>
 
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 flex justify-between">
-                      <span>Interest Rate</span>
-                      <span className="font-semibold text-foreground">{inputs.interestRate.toFixed(2)}%</span>
-                    </Label>
-                    <Slider
-                      min={3} max={12} step={0.05}
-                      value={[inputs.interestRate]}
-                      onValueChange={([v]) => set("interestRate", v)}
-                    />
-                  </div>
+                  <SliderInput
+                    label="Interest Rate"
+                    value={inputs.interestRate}
+                    onChange={(v) => set("interestRate", v)}
+                    min={3} max={12} step={0.05}
+                    suffix="%"
+                    displayValue={inputs.interestRate.toFixed(2)}
+                  />
 
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 flex justify-between">
-                      <span>Credit Score</span>
-                      <span className="font-semibold text-foreground">{inputs.creditScore}</span>
-                    </Label>
-                    <Slider
-                      min={580} max={850} step={10}
-                      value={[inputs.creditScore]}
-                      onValueChange={([v]) => set("creditScore", v)}
-                    />
-                  </div>
+                  <SliderInput
+                    label="Credit Score"
+                    value={inputs.creditScore}
+                    onChange={(v) => set("creditScore", v)}
+                    min={580} max={850} step={10}
+                    displayValue={String(inputs.creditScore)}
+                  />
                 </CardContent>
               </Card>
 
-              {/* Taxes & Fees */}
+              {/* 3. Taxes & Fees */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -386,32 +476,35 @@ export default function Estimate() {
                     Taxes & Fees
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">Annual Property Taxes</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input className="pl-6" type="number" value={inputs.annualTaxes} onChange={(e) => set("annualTaxes", Number(e.target.value))} />
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">HOA (monthly)</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input className="pl-6" type="number" value={inputs.hoaMonthly} onChange={(e) => set("hoaMonthly", Number(e.target.value))} />
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">CDD (annual)</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input className="pl-6" type="number" value={inputs.cddAnnual} onChange={(e) => set("cddAnnual", Number(e.target.value))} />
-                    </div>
-                  </div>
+                <CardContent className="space-y-5">
+                  <SliderInput
+                    label="Annual Property Taxes"
+                    value={inputs.annualTaxes}
+                    onChange={(v) => set("annualTaxes", v)}
+                    min={0} max={30000} step={100}
+                    prefix="$"
+                    displayValue={Math.round(inputs.annualTaxes).toLocaleString()}
+                  />
+                  <SliderInput
+                    label="HOA (monthly)"
+                    value={inputs.hoaMonthly}
+                    onChange={(v) => set("hoaMonthly", v)}
+                    min={0} max={2000} step={10}
+                    prefix="$"
+                    displayValue={Math.round(inputs.hoaMonthly).toLocaleString()}
+                  />
+                  <SliderInput
+                    label="CDD (annual)"
+                    value={inputs.cddAnnual}
+                    onChange={(v) => set("cddAnnual", v)}
+                    min={0} max={10000} step={100}
+                    prefix="$"
+                    displayValue={Math.round(inputs.cddAnnual).toLocaleString()}
+                  />
                 </CardContent>
               </Card>
 
-              {/* Insurance */}
+              {/* 4. Insurance */}
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -419,21 +512,23 @@ export default function Estimate() {
                     Insurance
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">Homeowners Insurance (annual)</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input className="pl-6" type="number" value={inputs.annualHOIns} onChange={(e) => set("annualHOIns", Number(e.target.value))} />
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">Flood Insurance (annual)</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input className="pl-6" type="number" value={inputs.annualFloodIns} onChange={(e) => set("annualFloodIns", Number(e.target.value))} />
-                    </div>
-                  </div>
+                <CardContent className="space-y-5">
+                  <SliderInput
+                    label="Homeowners Insurance (annual)"
+                    value={inputs.annualHOIns}
+                    onChange={(v) => set("annualHOIns", v)}
+                    min={0} max={30000} step={100}
+                    prefix="$"
+                    displayValue={Math.round(inputs.annualHOIns).toLocaleString()}
+                  />
+                  <SliderInput
+                    label="Flood Insurance (annual)"
+                    value={inputs.annualFloodIns}
+                    onChange={(v) => set("annualFloodIns", v)}
+                    min={0} max={20000} step={100}
+                    prefix="$"
+                    displayValue={Math.round(inputs.annualFloodIns).toLocaleString()}
+                  />
                   <Separator />
                   <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Wind Mitigation</p>
                   <div className="flex items-center justify-between">
@@ -445,7 +540,7 @@ export default function Estimate() {
                     <Switch checked={inputs.swr} onCheckedChange={(v) => set("swr", v)} />
                   </div>
                   <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">Roof-to-Wall Attachment</Label>
+                    <Label className="text-xs text-muted-foreground mb-1.5 block">Roof-to-Wall Attachment</Label>
                     <Select value={inputs.roofAttachment} onValueChange={(v) => set("roofAttachment", v)}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -455,39 +550,6 @@ export default function Estimate() {
                         <SelectItem value="double-wraps">Double Wraps</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Borrower Profile */}
-              <Card>
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <UserCheck className="h-4 w-4 text-primary" />
-                    Borrower Profile
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">Monthly Gross Income</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input className="pl-6" type="number" value={inputs.monthlyIncome} onChange={(e) => set("monthlyIncome", Number(e.target.value))} />
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">Monthly Debts (auto, cards, etc.)</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input className="pl-6" type="number" value={inputs.monthlyDebts} onChange={(e) => set("monthlyDebts", Number(e.target.value))} />
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1 block">Available Reserves / Savings</Label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <Input className="pl-6" type="number" value={inputs.reserves} onChange={(e) => set("reserves", Number(e.target.value))} />
-                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -581,7 +643,6 @@ export default function Estimate() {
                     <span className="text-base font-bold text-primary">{fmt(calc.totalHousing)}</span>
                   </div>
 
-                  {/* Loan Comparison Table */}
                   <div className="mt-4">
                     <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide mb-2">Loan Type Comparison</p>
                     <Table>
@@ -597,7 +658,7 @@ export default function Estimate() {
                       <TableBody>
                         {calc.loanComparison.map((row) => (
                           <TableRow key={row.lt} className={inputs.loanType === row.lt ? "bg-primary/5" : ""}>
-                            <TableCell className="text-xs font-medium capitalize">
+                            <TableCell className="text-xs font-medium">
                               {row.lt.toUpperCase()}
                               {inputs.loanType === row.lt && (
                                 <Badge className="ml-1 text-[10px] bg-primary text-white px-1 py-0">Active</Badge>
@@ -713,7 +774,6 @@ export default function Estimate() {
                 </CardContent>
               </Card>
 
-              {/* Disclaimer */}
               <p className="text-xs text-muted-foreground text-center px-4 pb-4">
                 All estimates are for informational purposes only and are not a commitment to lend. Actual rates, payments, and qualification requirements may vary. Contact a licensed mortgage professional for a full analysis.
               </p>
