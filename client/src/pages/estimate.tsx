@@ -167,7 +167,7 @@ function makeDefaultInputs(price = 350000): Inputs {
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
     annualHOIns: Math.round(price * 0.0075), annualFloodIns: 2000,
-    monthlyDebts: 0, monthlyIncome: 8000, reserves: 25000,
+    monthlyDebts: 0, monthlyIncome: 8000, reserves: 35000,
     impactWindows: false, roofAttachment: "toenails", swr: false,
     hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, monthlyRentalIncome: 0, rentalType: null,
   };
@@ -535,7 +535,7 @@ export default function Estimate() {
     annualFloodIns: 2000,
     monthlyDebts: 0,
     monthlyIncome: 8000,
-    reserves: 25000,
+    reserves: 35000,
     impactWindows: false,
     roofAttachment: "toenails",
     swr: false,
