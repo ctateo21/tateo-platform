@@ -981,7 +981,11 @@ export default function Estimate() {
                   <SliderInput
                     label="Purchase Price"
                     value={inputs.purchasePrice}
-                    onChange={(v) => set("purchasePrice", v)}
+                    onChange={(v) => setInputs((p) => ({
+                      ...p,
+                      purchasePrice: v,
+                      annualTaxes: estimateAnnualTax(address, v, p.occupancy === "primary"),
+                    }))}
                     min={50000} max={3000000} step={5000}
                     prefix="$"
                   />
