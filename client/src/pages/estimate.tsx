@@ -148,6 +148,7 @@ interface Inputs {
   hasMortgage: boolean | null;
   currentLoanFHA: boolean | null;
   hasRentalIncome: boolean | null;
+  monthlyRentalIncome: number;
   rentalType: "annual" | "short-term" | null;
 }
 
@@ -168,7 +169,7 @@ function makeDefaultInputs(price = 400000): Inputs {
     annualHOIns: Math.round(price * 0.0075), annualFloodIns: 2000,
     monthlyDebts: 500, monthlyIncome: 8000, reserves: 15000,
     impactWindows: false, roofAttachment: "toenails", swr: false,
-    hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, rentalType: null,
+    hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, monthlyRentalIncome: 0, rentalType: null,
   };
 }
 
@@ -533,6 +534,7 @@ export default function Estimate() {
     hasMortgage: null,
     currentLoanFHA: null,
     hasRentalIncome: null,
+    monthlyRentalIncome: 0,
     rentalType: null,
   });
 
@@ -614,7 +616,7 @@ export default function Estimate() {
   const calc = useMemo(() => {
     const { purchasePrice, downPaymentPct, loanType, creditScore, interestRate,
       annualTaxes, hoaMonthly, cddAnnual, annualHOIns, annualFloodIns,
-      monthlyDebts, monthlyIncome, reserves, impactWindows, roofAttachment, swr } = inputs;
+      monthlyDebts, monthlyIncome, monthlyRentalIncome, reserves, impactWindows, roofAttachment, swr } = inputs;
 
     const downPaymentAmt = purchasePrice * (downPaymentPct / 100);
     const loanAmount = purchasePrice - downPaymentAmt;
@@ -636,11 +638,15 @@ export default function Estimate() {
     const closingCosts = Math.round(purchasePrice * 0.03);
     const cashToClose = Math.round(downPaymentAmt + closingCosts);
 
-    const dti = monthlyIncome > 0 ? (totalHousing + monthlyDebts) / monthlyIncome : 0;
+    // Rental income: lenders allow 75% of gross rental income to count toward qualifying income
+    const rentalIncomeQualifying = Math.round((monthlyRentalIncome ?? 0) * 0.75);
+    const qualifyingIncome = monthlyIncome + rentalIncomeQualifying;
+
+    const dti = qualifyingIncome > 0 ? (totalHousing + monthlyDebts) / qualifyingIncome : 0;
     const maxDti = getMaxDTI(creditScore);
     const requiredIncome = Math.round((totalHousing + monthlyDebts) / maxDti);
     const requiredReserves = Math.round(totalHousing * 2);
-    const qualifies = monthlyIncome >= requiredIncome && reserves >= cashToClose;
+    const qualifies = qualifyingIncome >= requiredIncome && reserves >= cashToClose;
 
     const estimatedHOIns = calcInsuranceEstimate(purchasePrice, impactWindows, roofAttachment, swr);
 
@@ -658,7 +664,7 @@ export default function Estimate() {
     });
 
     const recs: string[] = [];
-    if (monthlyIncome < requiredIncome) {
+    if (qualifyingIncome < requiredIncome) {
       recs.push(`Increase income to at least ${fmt(requiredIncome)}/mo, or reduce monthly debts.`);
       if (purchasePrice > 300000) recs.push("Consider a lower purchase price.");
       if (downPaymentPct < 20) recs.push("A larger down payment reduces your monthly payment.");
@@ -675,6 +681,7 @@ export default function Estimate() {
       monthlyCDD, mortgageInsurance, pmi, mip, vaFee, totalHousing,
       closingCosts, cashToClose, dti, maxDti, requiredIncome, requiredReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
+      rentalIncomeQualifying, qualifyingIncome,
     };
   }, [inputs]);
 
@@ -870,7 +877,7 @@ export default function Estimate() {
 
                   <div className="space-y-1">
                     <SliderInput
-                      label="Monthly Gross Income"
+                      label="Monthly Gross Income (exclude rental income)"
                       value={inputs.monthlyIncome}
                       onChange={(v) => set("monthlyIncome", v)}
                       min={1000} max={50000} step={100}
@@ -981,22 +988,38 @@ export default function Estimate() {
                         </div>
 
                         {/* Rental income question */}
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-2">Do you receive any rental income to help pay for these mortgages?</p>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => set("hasRentalIncome", true)}
-                              className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasRentalIncome === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
-                            >
-                              Yes
-                            </button>
-                            <button
-                              onClick={() => set("hasRentalIncome", false)}
-                              className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasRentalIncome === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
-                            >
-                              No
-                            </button>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-2">Do you receive any rental income to help pay for these mortgages?</p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => set("hasRentalIncome", true)}
+                                className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasRentalIncome === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                              >
+                                Yes
+                              </button>
+                              <button
+                                onClick={() => setInputs((p) => ({ ...p, hasRentalIncome: false, monthlyRentalIncome: 0 }))}
+                                className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasRentalIncome === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                              >
+                                No
+                              </button>
+                            </div>
                           </div>
+                          {inputs.hasRentalIncome === true && (
+                            <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                              <SliderInput
+                                label="Monthly Rental Income (gross)"
+                                value={inputs.monthlyRentalIncome}
+                                onChange={(v) => set("monthlyRentalIncome", v)}
+                                min={0} max={20000} step={100}
+                                prefix="$"
+                              />
+                              <p className="text-[10px] text-muted-foreground mt-1">
+                                75% ({fmt(calc.rentalIncomeQualifying)}/mo) counts toward qualifying income
+                              </p>
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1310,6 +1333,14 @@ export default function Estimate() {
                 </CardHeader>
                 <CardContent>
                   <Row label="Your Monthly Income" value={fmt(inputs.monthlyIncome)} />
+                  {inputs.hasRentalIncome === true && calc.rentalIncomeQualifying > 0 && (
+                    <Row
+                      label="Rental Income (75% qualifying)"
+                      value={fmt(calc.rentalIncomeQualifying)}
+                      sub={`of ${fmt(inputs.monthlyRentalIncome)}/mo gross`}
+                    />
+                  )}
+                  <Row label="Total Qualifying Income" value={fmt(calc.qualifyingIncome)} />
                   <Row label="Required Monthly Income" value={fmt(calc.requiredIncome)} />
                   <Separator />
                   <Row
