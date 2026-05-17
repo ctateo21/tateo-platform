@@ -1008,9 +1008,6 @@ export default function Estimate() {
                   <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={`LTV ${fmtPct(calc.ltv)}`} />
                   <Separator />
                   <Row label="Estimated Closing Costs (~3%)" value={fmt(calc.closingCosts)} />
-                  <Row label="Estimated Property Taxes (annual)" value={fmt(inputs.annualTaxes)} />
-                  <Row label="HOA (monthly)" value={fmt(inputs.hoaMonthly)} />
-                  <Row label="CDD (annual)" value={fmt(inputs.cddAnnual)} />
                   <Separator />
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm font-semibold">Estimated Cash to Close</span>
