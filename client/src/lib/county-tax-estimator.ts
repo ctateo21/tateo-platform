@@ -248,6 +248,105 @@ export function estimateAnnualTax(address: string, price: number, isPrimary: boo
   return Math.round(price * (ratePercent / 100));
 }
 
+// ── County property tax lookup URLs ──────────────────────────────────────────
+
+const COUNTY_TAX_LINKS: Record<string, { url: string; label: string }> = {
+  "alachua":      { url: "https://www.acpafl.org/", label: "Alachua Property Appraiser" },
+  "baker":        { url: "https://qpublic.net/fl/baker/", label: "Baker County Property Appraiser" },
+  "bay":          { url: "https://www.baypa.net/", label: "Bay County Property Appraiser" },
+  "bradford":     { url: "https://bradfordpa.com/", label: "Bradford County Property Appraiser" },
+  "brevard":      { url: "https://www.bcpao.us/", label: "Brevard County Property Appraiser" },
+  "broward":      { url: "https://bcpa.net/taxestimator/", label: "Broward Tax Estimator" },
+  "calhoun":      { url: "https://qpublic.net/fl/calhoun/", label: "Calhoun County Property Appraiser" },
+  "charlotte":    { url: "https://www.ccappraiser.com/", label: "Charlotte County Property Appraiser" },
+  "citrus":       { url: "https://www.citruspa.org/", label: "Citrus County Property Appraiser" },
+  "clay":         { url: "https://www.ccpao.com/", label: "Clay County Property Appraiser" },
+  "collier":      { url: "https://www.collierappraiser.com/", label: "Collier County Property Appraiser" },
+  "columbia":     { url: "https://qpublic.net/fl/columbia/", label: "Columbia County Property Appraiser" },
+  "miami-dade":   { url: "https://www.miamidade.gov/pa/property_search.asp", label: "Miami-Dade Tax Estimator" },
+  "desoto":       { url: "https://qpublic.net/fl/desoto/", label: "DeSoto County Property Appraiser" },
+  "dixie":        { url: "https://dixiecountypa.com/", label: "Dixie County Property Appraiser" },
+  "duval":        { url: "https://paopropertysearch.coj.net/", label: "Duval Property Search" },
+  "escambia":     { url: "https://www.escpa.org/", label: "Escambia County Property Appraiser" },
+  "flagler":      { url: "https://www.flaglerpa.com/", label: "Flagler County Property Appraiser" },
+  "franklin":     { url: "https://qpublic.net/fl/franklin/", label: "Franklin County Property Appraiser" },
+  "gadsden":      { url: "https://www.gadsdencountyappraiser.com/", label: "Gadsden County Property Appraiser" },
+  "gilchrist":    { url: "https://qpublic.net/fl/gilchrist/", label: "Gilchrist County Property Appraiser" },
+  "glades":       { url: "https://qpublic.net/fl/glades/", label: "Glades County Property Appraiser" },
+  "gulf":         { url: "https://www.gulfpa.com/", label: "Gulf County Property Appraiser" },
+  "hamilton":     { url: "https://qpublic.net/fl/hamilton/", label: "Hamilton County Property Appraiser" },
+  "hardee":       { url: "https://qpublic.net/fl/hardee/", label: "Hardee County Property Appraiser" },
+  "hendry":       { url: "https://www.hendryappraiser.com/", label: "Hendry County Property Appraiser" },
+  "hernando":     { url: "https://www.hernandopa.com/", label: "Hernando County Property Appraiser" },
+  "highlands":    { url: "https://www.hcpafl.org/", label: "Highlands County Property Appraiser" },
+  "hillsborough": { url: "https://gis.hcpafl.org/TaxEstimator/", label: "Hillsborough Tax Estimator" },
+  "holmes":       { url: "https://qpublic.net/fl/holmes/", label: "Holmes County Property Appraiser" },
+  "indian river": { url: "https://www.ircpa.org/", label: "Indian River Property Appraiser" },
+  "jackson":      { url: "https://qpublic.net/fl/jackson/", label: "Jackson County Property Appraiser" },
+  "jefferson":    { url: "https://qpublic.net/fl/jefferson/", label: "Jefferson County Property Appraiser" },
+  "lafayette":    { url: "https://qpublic.net/fl/lafayette/", label: "Lafayette County Property Appraiser" },
+  "lake":         { url: "https://www.lakepa.org/taxestimator/", label: "Lake Tax Estimation Calculator" },
+  "lee":          { url: "https://www.leepa.org/taxestimator/taxestimator.aspx", label: "Lee County Tax Estimator" },
+  "leon":         { url: "https://www.leonpa.org/", label: "Leon County Property Appraiser" },
+  "levy":         { url: "https://www.levypa.com/", label: "Levy County Property Appraiser" },
+  "liberty":      { url: "https://qpublic.net/fl/liberty/", label: "Liberty County Property Appraiser" },
+  "madison":      { url: "https://qpublic.net/fl/madison/", label: "Madison County Property Appraiser" },
+  "manatee":      { url: "https://www.manateepao.com/", label: "Manatee County Property Appraiser" },
+  "marion":       { url: "https://www.pa.marion.fl.us/", label: "Marion County Property Appraiser" },
+  "martin":       { url: "https://www.pa.martin.fl.us/", label: "Martin County Property Appraiser" },
+  "monroe":       { url: "https://www.mcpafl.org/", label: "Monroe County Property Appraiser" },
+  "nassau":       { url: "https://www.nassauflpa.com/", label: "Nassau County Property Appraiser" },
+  "okaloosa":     { url: "https://www.okaloosapafl.com/", label: "Okaloosa County Property Appraiser" },
+  "okeechobee":   { url: "https://www.okeechobeepa.com/", label: "Okeechobee County Property Appraiser" },
+  "orange":       { url: "https://www.ocpafl.org/taxestimator", label: "Orange County Tax Estimator" },
+  "osceola":      { url: "https://www.property-appraiser.org/", label: "Osceola Tax Estimator" },
+  "palm beach":   { url: "https://www.pbcgov.org/papa/", label: "Palm Beach Property Tax Calculator" },
+  "pasco":        { url: "https://pascopa.com/", label: "Pasco County Property Appraiser" },
+  "pinellas":     { url: "https://www.pcpao.gov/", label: "Pinellas Tax Estimator" },
+  "polk":         { url: "https://www.polk-county.net/property-appraiser/", label: "Polk County Property Appraiser" },
+  "putnam":       { url: "https://www.putnam-fl.com/pa/", label: "Putnam County Property Appraiser" },
+  "santa rosa":   { url: "https://www.srcpa.org/", label: "Santa Rosa County Property Appraiser" },
+  "sarasota":     { url: "https://www.sc-pa.com/propertysearch/", label: "Sarasota Tax Estimator" },
+  "seminole":     { url: "https://www.scpafl.org/", label: "Seminole Tax Estimator" },
+  "st. johns":    { url: "https://www.sjcpa.us/", label: "St. Johns County Property Appraiser" },
+  "st johns":     { url: "https://www.sjcpa.us/", label: "St. Johns County Property Appraiser" },
+  "st. lucie":    { url: "https://www.paslc.gov/", label: "St. Lucie Property Appraiser" },
+  "st lucie":     { url: "https://www.paslc.gov/", label: "St. Lucie Property Appraiser" },
+  "sumter":       { url: "https://www.sumterpa.com/", label: "Sumter County Property Appraiser" },
+  "suwannee":     { url: "https://www.suwanneepa.com/", label: "Suwannee County Property Appraiser" },
+  "taylor":       { url: "https://qpublic.net/fl/taylor/", label: "Taylor County Property Appraiser" },
+  "union":        { url: "https://qpublic.net/fl/union/", label: "Union County Property Appraiser" },
+  "volusia":      { url: "https://vcpa.vcgov.org/", label: "Volusia Estimate Taxes" },
+  "wakulla":      { url: "https://www.wakullaappraiser.com/", label: "Wakulla County Property Appraiser" },
+  "walton":       { url: "https://www.waltoncountypa.com/", label: "Walton County Property Appraiser" },
+  "washington":   { url: "https://qpublic.net/fl/washington/", label: "Washington County Property Appraiser" },
+};
+
+/** Returns the county name detected from an address, or null if not found */
+export function getCountyName(address: string): string | null {
+  const lower = address.toLowerCase();
+
+  for (const county of Object.keys(FL_COUNTY_RATES)) {
+    if (lower.includes(county + " county") || lower.includes(county + "county")) {
+      return county;
+    }
+  }
+  for (const [city, county] of Object.entries(CITY_TO_COUNTY)) {
+    if (lower.includes(city)) return county;
+  }
+  for (const county of Object.keys(FL_COUNTY_RATES)) {
+    if (lower.includes(county)) return county;
+  }
+  return null;
+}
+
+/** Returns the tax lookup URL + label for the detected county, or null */
+export function getCountyTaxLink(address: string): { url: string; label: string } | null {
+  const county = getCountyName(address);
+  if (!county) return null;
+  return COUNTY_TAX_LINKS[county] ?? null;
+}
+
 // ── Legacy exports kept for backwards-compatibility ──────────────────────────
 
 export interface PropertyTaxEstimate {

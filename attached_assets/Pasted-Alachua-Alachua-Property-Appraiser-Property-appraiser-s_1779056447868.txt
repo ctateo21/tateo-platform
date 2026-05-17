@@ -1,0 +1,202 @@
+Alachua
+Alachua Property Appraiser
+Property appraiser / search fallback
+Baker
+Baker County Property Appraiser
+Property appraiser / search fallback
+Bay
+Bay County Property Appraiser
+Property appraiser / search fallback
+Bradford
+Bradford County Property Appraiser
+Property appraiser / search fallback
+Brevard
+Brevard County Property Appraiser
+Tax estimator/property appraiser tool listed
+Broward
+Broward Tax Estimator
+Direct estimator
+Calhoun
+Calhoun County Property Appraiser
+Property appraiser / qPublic fallback
+Charlotte
+Charlotte County Property Appraiser
+Property appraiser / search fallback
+Citrus
+Citrus County Property Appraiser
+Property appraiser / tax estimator tool
+Clay
+Clay County Property Appraiser
+Property appraiser / search fallback
+Collier
+Collier County Property Appraiser
+Property appraiser / estimator/search
+Columbia
+Columbia County Property Appraiser
+Property appraiser / search fallback
+DeSoto
+DeSoto County Property Appraiser
+Property appraiser / search fallback
+Dixie
+Dixie Tax Estimator
+Direct estimator
+Duval
+Duval Property Search
+Property search with estimator links
+Escambia
+Escambia County Property Appraiser
+Property appraiser / search fallback
+Flagler
+Flagler County Property Appraiser
+Property appraiser / search fallback
+Franklin
+Franklin County Property Appraiser
+qPublic property search fallback
+Gadsden
+Gadsden County Property Appraiser
+Property appraiser / search fallback
+Gilchrist
+Gilchrist County Property Appraiser
+qPublic property search fallback
+Glades
+Glades County Property Appraiser
+qPublic property search fallback
+Gulf
+Gulf County Property Appraiser
+Property appraiser / search fallback
+Hamilton
+Hamilton County Property Appraiser
+qPublic property search fallback
+Hardee
+Hardee County Property Appraiser
+qPublic property search fallback
+Hendry
+Hendry County Property Appraiser
+Property appraiser / search fallback
+Hernando
+Hernando County Property Appraiser
+Property appraiser / search fallback
+Highlands
+Highlands County Property Appraiser
+Property appraiser / search fallback
+Hillsborough
+Hillsborough Tax Estimator
+Direct estimator
+Holmes
+Holmes County Property Appraiser
+qPublic property search fallback
+Indian River
+Indian River Property Appraiser
+Property appraiser / estimator/search
+Jackson
+Jackson County Property Appraiser
+qPublic property search fallback
+Jefferson
+Jefferson County Property Appraiser
+qPublic property search fallback
+Lafayette
+Lafayette County Property Appraiser
+qPublic property search fallback
+Lake
+Lake Tax Estimation Calculator
+Direct estimator
+Lee
+Lee County Tax Estimator
+Direct estimator
+Leon
+Leon County Property Appraiser
+Property appraiser / search fallback
+Levy
+Levy County Property Appraiser
+Property appraiser / search fallback
+Liberty
+Liberty County Property Appraiser
+qPublic property search fallback
+Madison
+Madison County Property Appraiser
+qPublic property search fallback
+Manatee
+Manatee County Property Appraiser
+Property appraiser / search fallback
+Marion
+Marion County Property Appraiser
+Tax estimator/property appraiser tool listed
+Martin
+Martin County Property Appraiser
+Tax estimator/property appraiser tool listed
+Miami-Dade
+Miami-Dade Tax Estimator
+Direct estimator
+Monroe
+Monroe County Property Appraiser
+Property appraiser / search fallback
+Nassau
+Nassau County Property Appraiser
+Property appraiser / search fallback
+Okaloosa
+Okaloosa County Property Appraiser
+Property appraiser / search fallback
+Okeechobee
+Okeechobee County Property Appraiser
+Property appraiser / search fallback
+Orange
+Orange County Tax Estimator
+Direct estimator
+Osceola
+Osceola Tax Estimator
+Direct estimator
+Palm Beach
+Palm Beach Property Tax Calculator
+Direct calculator
+Pasco
+Pasco County Property Appraiser
+Property appraiser / search fallback
+Pinellas
+Pinellas Tax Estimator
+Direct estimator
+Polk
+Polk County Property Appraiser
+Tax estimator/property appraiser tool listed
+Putnam
+Putnam County Property Appraiser
+Property appraiser / search fallback
+Santa Rosa
+Santa Rosa County Property Appraiser
+Property appraiser / search fallback
+Sarasota
+Sarasota Tax Estimator
+Direct estimator
+Seminole
+Seminole Tax Estimator
+Direct estimator page/menu
+St. Johns
+St. Johns County Property Appraiser
+Property appraiser / search fallback
+St. Lucie
+St. Lucie Property Appraiser
+Tax estimator/property appraiser tool listed
+Sumter
+Sumter County Property Appraiser
+Tax estimator/property appraiser tool listed
+Suwannee
+Suwannee County Property Appraiser
+Property appraiser / search fallback
+Taylor
+Taylor County Property Appraiser
+qPublic property search fallback
+Union
+Union County Property Appraiser
+qPublic property search fallback
+Volusia
+Volusia Estimate Taxes
+Direct estimator
+Wakulla
+Wakulla County Property Appraiser
+Property appraiser / search fallback
+Walton
+Walton County Property Appraiser
+Property appraiser / search fallback
+Washington
+Washington County Property Appraiser
+qPublic property search fallback
+

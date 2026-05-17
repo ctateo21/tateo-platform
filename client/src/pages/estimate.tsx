@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
-import { estimateAnnualTax } from "@/lib/county-tax-estimator";
+import { estimateAnnualTax, getCountyTaxLink } from "@/lib/county-tax-estimator";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
@@ -977,14 +977,26 @@ export default function Estimate() {
     return (n * 100).toFixed(1) + "%";
   }
 
-  function Row({ label, value, sub, status }: { label: string; value: string; sub?: string; status?: "green" | "yellow" | "red" }) {
+  function Row({ label, value, sub, status, link }: { label: string; value: string; sub?: string; status?: "green" | "yellow" | "red"; link?: { url: string; label: string } }) {
     const bg = status === "green" ? "bg-green-50" : status === "yellow" ? "bg-yellow-50" : status === "red" ? "bg-red-50" : "";
     const labelColor = status === "green" ? "text-green-800" : status === "yellow" ? "text-yellow-800" : status === "red" ? "text-red-800" : "text-muted-foreground";
     const valueColor = status === "green" ? "text-green-700 font-bold" : status === "yellow" ? "text-yellow-700 font-bold" : status === "red" ? "text-red-700 font-bold" : "font-semibold";
     const subColor = status === "green" ? "text-green-600" : status === "yellow" ? "text-yellow-600" : status === "red" ? "text-red-600" : "text-muted-foreground";
     return (
       <div className={`flex justify-between items-center py-2 px-2 rounded-md transition-colors ${bg}`}>
-        <span className={`text-sm ${labelColor}`}>{label}</span>
+        <span className={`text-sm ${labelColor} flex items-center gap-1.5`}>
+          {label}
+          {link && (
+            <a
+              href={link.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] text-primary/70 hover:text-primary underline underline-offset-2 font-normal leading-none whitespace-nowrap"
+            >
+              Look up →
+            </a>
+          )}
+        </span>
         <span className={`text-sm text-right ${valueColor}`}>
           {value}
           {sub && <span className={`block text-xs font-normal ${subColor}`}>{sub}</span>}
@@ -1591,7 +1603,12 @@ export default function Estimate() {
                 </CardHeader>
                 <CardContent>
                   <Row label="Principal & Interest" value={fmt(calc.pi)} sub={`${inputs.interestRate.toFixed(2)}% / 30 yr`} />
-                  <Row label="Property Taxes" value={`${fmt(calc.monthlyTax)}/mo`} sub={`${fmt(inputs.annualTaxes)}/yr`} />
+                  <Row
+                    label="Property Taxes"
+                    value={`${fmt(calc.monthlyTax)}/mo`}
+                    sub={`${fmt(inputs.annualTaxes)}/yr`}
+                    link={address && address !== "Unknown Address" ? getCountyTaxLink(address) ?? undefined : undefined}
+                  />
                   <Row label="Homeowners Insurance" value={`${fmt(calc.monthlyHOIns)}/mo`} />
                   <Row label="Flood Insurance" value={`${fmt(calc.monthlyFlood)}/mo`} />
                   {inputs.hoaMonthly > 0 && <Row label="HOA" value={fmt(inputs.hoaMonthly)} />}
