@@ -939,11 +939,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const digits = phone.replace(/\D/g, "");
       if (digits.length < 10) return res.status(400).json({ error: "Invalid phone number" });
       const e164 = digits.startsWith("1") ? `+${digits}` : `+1${digits}`;
+      const isTwilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
       const code = String(Math.floor(100000 + Math.random() * 900000));
       _verifyCodes.set(e164, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
-      const isTwilioConfigured = !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
-      await sendSms(e164, `Your Tateo & Co verification code is: ${code}`);
-      res.json({ ok: true, ...(!isTwilioConfigured && { devCode: code }) });
+      if (isTwilioConfigured) {
+        await sendSms(e164, `Your Tateo & Co verification code is: ${code}`);
+        res.json({ ok: true, smsEnabled: true });
+      } else {
+        // Twilio not configured — skip SMS, return auto-verify code so frontend can bypass the step
+        console.log(`[DEV] SMS to ${e164}: ${code}`);
+        res.json({ ok: true, smsEnabled: false, autoCode: code });
+      }
     } catch (err: any) {
       console.error("send-code error:", err);
       res.status(500).json({ error: err.message || "Failed to send code" });

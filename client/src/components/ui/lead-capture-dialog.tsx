@@ -117,9 +117,30 @@ export default function LeadCaptureDialog({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to send code");
-      if (data.devCode) setDevCode(data.devCode);
-      setStep("verify");
-      startCountdown();
+
+      if (!data.smsEnabled && data.autoCode) {
+        // Twilio not configured — auto-verify silently, skip the verify step
+        const agentName = AGENTS.find(a => a.id === agentId)?.name ?? "";
+        const verifyRes = await fetch("/api/leads/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            firstName, lastName, email,
+            phone: digits,
+            code: data.autoCode,
+            address,
+            agent: agentName,
+          }),
+        });
+        const verifyData = await verifyRes.json();
+        if (!verifyRes.ok) throw new Error(verifyData.error || "Submission failed");
+        setStep("done");
+        setTimeout(() => { onSuccess(); onOpenChange(false); }, 1800);
+      } else {
+        // Twilio configured — show the SMS verify step
+        setStep("verify");
+        startCountdown();
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
