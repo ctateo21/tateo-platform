@@ -600,7 +600,7 @@ export default function Estimate() {
     const paramRows: [string, string][] = [
       ["Purchase Price", fmt(inputs.purchasePrice)],
       ["Loan Type", inputs.loanType.toUpperCase()],
-      ["Down Payment", `${fmt(calc.downPaymentAmt)} (${inputs.downPaymentPct}%)`],
+      ["Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`],
       ["Interest Rate", `${inputs.interestRate.toFixed(3)}%`],
       ["Occupancy", inputs.occupancy.charAt(0).toUpperCase() + inputs.occupancy.slice(1)],
       ["Credit Score", String(inputs.creditScore)],
@@ -622,7 +622,7 @@ export default function Estimate() {
     // ── Real Estate ───────────────────────────────────────────────────────
     sectionHeader("Real Estate");
     row("Purchase Price", fmt(inputs.purchasePrice));
-    row("Down Payment", `${fmt(calc.downPaymentAmt)} (${inputs.downPaymentPct}%)`);
+    row("Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`);
     row("Loan Amount", fmt(calc.loanAmount), `LTV ${fmtPct(calc.ltv)}`);
     row("Estimated Closing Costs (~3%)", fmt(calc.closingCosts));
     if (inputs.sellerConcessions > 0) row("Seller Concessions", `− ${fmt(inputs.sellerConcessions)}`);
@@ -695,7 +695,7 @@ export default function Estimate() {
     const loanLabel = loanType === "conventional" ? "Conventional" : loanType === "fha" ? "FHA" : loanType === "va" ? "VA" : loanType === "usda" ? "USDA" : loanType.toUpperCase();
     return [
       `Purchase Price: ${money(purchasePrice)}`,
-      `Down Payment: ${money(c.downPaymentAmt)} (${downPaymentPct}%)`,
+      `Down Payment: ${money(c.downPaymentAmt)} (${Number(downPaymentPct).toFixed(1)}%)`,
       `Loan Amount: ${money(c.loanAmount)}`,
       `Loan Type: ${loanLabel}`,
       `Interest Rate: ${interestRate.toFixed(3)}%`,
@@ -1617,7 +1617,7 @@ export default function Estimate() {
                             </div>
                           )}
                           <div className="flex justify-between text-amber-600 font-medium">
-                            <span>{inputs.occupancy.charAt(0).toUpperCase() + inputs.occupancy.slice(1)} property adj. ({inputs.downPaymentPct}% down)</span>
+                            <span>{inputs.occupancy.charAt(0).toUpperCase() + inputs.occupancy.slice(1)} property adj. ({Number(inputs.downPaymentPct).toFixed(1)}% down)</span>
                             <span>+{occAdj.toFixed(2)}%</span>
                           </div>
                           <div className="flex justify-between font-semibold border-t border-border/40 pt-0.5 text-foreground">
@@ -1687,7 +1687,7 @@ export default function Estimate() {
                 <CardContent>
                   <Row label="Purchase Price" value={fmt(inputs.purchasePrice)} />
                   <Separator />
-                  <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${inputs.downPaymentPct}%)`} />
+                  <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`} />
                   <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={`LTV ${fmtPct(calc.ltv)}`} />
                   <Separator />
                   <Row label="Estimated Closing Costs (~3%)" value={fmt(calc.closingCosts)} />
@@ -1824,7 +1824,7 @@ export default function Estimate() {
                   />
                   <Separator />
                   <Row label="Cash Needed to Close" value={fmt(calc.cashToClose)} />
-                  <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${inputs.downPaymentPct}%)`} />
+                  <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`} />
                   <Row label="Closing Costs Est." value={fmt(calc.closingCosts)} />
 
                   {calc.recs.length > 0 && (
