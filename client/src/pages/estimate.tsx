@@ -634,7 +634,7 @@ export default function Estimate() {
     sectionHeader("Real Estate");
     row("Purchase Price", fmt(inputs.purchasePrice));
     row("Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`);
-    row("Loan Amount", fmt(calc.loanAmount), `LTV ${fmtPct(calc.ltv)}`);
+    row("Loan Amount", fmt(calc.loanAmount), inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}` : `LTV ${fmtPct(calc.ltv)}`);
     row("Estimated Closing Costs (~3%)", fmt(calc.closingCosts));
     if (inputs.sellerConcessions > 0) row("Seller Concessions", `− ${fmt(inputs.sellerConcessions)}`);
     row("Estimated Cash to Close", fmt(calc.cashToClose));
@@ -1014,9 +1014,11 @@ export default function Estimate() {
       monthlyDebts, monthlyIncome, monthlyRentalIncome, reserves, impactWindows, roofAttachment, swr } = inputs;
 
     const downPaymentAmt = purchasePrice * (downPaymentPct / 100);
-    const loanAmount = purchasePrice - downPaymentAmt;
+    const baseLoanAmount = purchasePrice - downPaymentAmt;
+    const fhaUFMIP = loanType === "fha" ? Math.round(baseLoanAmount * 0.0175 * 100) / 100 : 0;
+    const loanAmount = baseLoanAmount + fhaUFMIP;
     const rate = interestRate / 100;
-    const ltv = loanAmount / purchasePrice;
+    const ltv = baseLoanAmount / purchasePrice;
 
     const pi = calcPI(loanAmount, rate);
     const monthlyTax = annualTaxes / 12;
@@ -1024,7 +1026,7 @@ export default function Estimate() {
     const monthlyFlood = annualFloodIns / 12;
     const monthlyCDD = cddAnnual / 12;
 
-    const pmi = loanType === "conventional" ? calcConventionalPMI(loanAmount, purchasePrice, creditScore) : 0;
+    const pmi = loanType === "conventional" ? calcConventionalPMI(baseLoanAmount, purchasePrice, creditScore) : 0;
     const mip = loanType === "fha" ? calcFHAMIP(loanAmount, purchasePrice) : 0;
     const vaFee = loanType === "va" ? calcVAFundingFee(loanAmount, downPaymentPct) : 0;
     const mortgageInsurance = pmi + mip + vaFee;
@@ -1054,9 +1056,11 @@ export default function Estimate() {
     const loanComparison = (["conventional", "fha", "va"] as const).map((lt) => {
       const ltRate = rates[lt] / 100;
       const ltDown = lt === "va" ? 0 : lt === "fha" ? 3.5 : downPaymentPct;
-      const ltLoan = purchasePrice * (1 - ltDown / 100);
+      const ltBaseLoan = purchasePrice * (1 - ltDown / 100);
+      const ltUFMIP = lt === "fha" ? Math.round(ltBaseLoan * 0.0175 * 100) / 100 : 0;
+      const ltLoan = ltBaseLoan + ltUFMIP;
       const ltPI = calcPI(ltLoan, ltRate);
-      const ltPMI = lt === "conventional" ? calcConventionalPMI(ltLoan, purchasePrice, creditScore) : 0;
+      const ltPMI = lt === "conventional" ? calcConventionalPMI(ltBaseLoan, purchasePrice, creditScore) : 0;
       const ltMIP = lt === "fha" ? calcFHAMIP(ltLoan, purchasePrice) : 0;
       const ltVA = lt === "va" ? calcVAFundingFee(ltLoan, ltDown) : 0;
       const ltMI = ltPMI + ltMIP + ltVA;
@@ -1078,7 +1082,7 @@ export default function Estimate() {
     }
 
     return {
-      loanAmount, downPaymentAmt, pi, monthlyTax, monthlyHOIns, monthlyFlood,
+      loanAmount, baseLoanAmount, fhaUFMIP, downPaymentAmt, pi, monthlyTax, monthlyHOIns, monthlyFlood,
       monthlyCDD, mortgageInsurance, pmi, mip, vaFee, totalHousing,
       closingCosts, cashToClose, housingDTI, dti, maxHousingDti, maxTotalDti, maxDti, requiredIncome, requiredReserves, availableReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
@@ -1699,7 +1703,7 @@ export default function Estimate() {
                   <Row label="Purchase Price" value={fmt(inputs.purchasePrice)} />
                   <Separator />
                   <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`} />
-                  <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={`LTV ${fmtPct(calc.ltv)}`} />
+                  <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}` : `LTV ${fmtPct(calc.ltv)}`} />
                   <Separator />
                   <Row label="Estimated Closing Costs (~3%)" value={fmt(calc.closingCosts)} />
                   {inputs.sellerConcessions > 0 && (
