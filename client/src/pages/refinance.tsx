@@ -1,20 +1,10 @@
 import { useState, useEffect } from "react";
 import { useSearch, useLocation } from "wouter";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Home, Calculator, Banknote, ArrowDownToLine, AlertTriangle, FileUp, ArrowLeft } from "lucide-react";
-import { CurrencyInput } from "@/components/refi/currency-input";
-import { PercentInput } from "@/components/refi/percent-input";
-import { ResultsCard } from "@/components/refi/results-card";
+import { Home, ArrowLeft } from "lucide-react";
 import { LiveRatesCard } from "@/components/refi/live-rates-card";
 import { StatementAnalyzer } from "@/components/refi/statement-analyzer";
 import { LoanTracker, type TrackedLoan, type MortgageAnalysis, type LiveRate } from "@/components/refi/loan-tracker";
-import { calculateRefinance, type RefinanceInput, type RefinanceResult, formatCurrency } from "@/lib/refi-calculations";
+import { formatCurrency } from "@/lib/refi-calculations";
 import { useQuery } from "@tanstack/react-query";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 
@@ -205,119 +195,6 @@ export default function Refinance() {
           maxLoans={MAX_TRACKED_LOANS}
         />
 
-        {/* Calculator + Results */}
-        <div className="grid lg:grid-cols-3 gap-6 mt-6">
-          <div className="lg:col-span-2 space-y-6">
-            {!statementData ? (
-              <Card className="border-dashed">
-                <CardContent className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
-                  <FileUp className="h-10 w-10 mb-3 opacity-40" />
-                  <p className="font-medium">Upload a statement to continue</p>
-                  <p className="text-sm mt-1">Once analyzed, your refinance options and savings will appear here.</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <>
-                <Tabs value={calculatorInput.refinanceType} onValueChange={handleRefinanceTypeChange} className="w-full">
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="rate_and_term"><Calculator className="h-4 w-4 mr-2" />Rate & Term</TabsTrigger>
-                    <TabsTrigger value="cash_out"><Banknote className="h-4 w-4 mr-2" />Cash-Out</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="rate_and_term" className="mt-4">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Rate & Term Refinance</CardTitle>
-                        <CardDescription>Lower your interest rate or change your loan term without taking cash out.</CardDescription>
-                      </CardHeader>
-                    </Card>
-                  </TabsContent>
-
-                  <TabsContent value="cash_out" className="mt-4">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Cash-Out Refinance</CardTitle>
-                        <CardDescription>Access your home's equity by borrowing more than you currently owe.</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="space-y-2">
-                          <Label>Cash-Out Amount</Label>
-                          <CurrencyInput value={calculatorInput.cashOutAmount || 0} onChange={val => updateInput("cashOutAmount", val)} placeholder="0" />
-                          {results && <p className="text-sm text-muted-foreground">Maximum available (80% LTV): {formatCurrency(results.cashOutAvailable)}</p>}
-                        </div>
-                        {results?.cashOutExceedsMax && (
-                          <Alert variant="destructive">
-                            <AlertTriangle className="h-4 w-4" />
-                            <AlertDescription>Cash-out amount exceeds the maximum available based on 80% LTV. Consider reducing to {formatCurrency(results.cashOutAvailable)} or less.</AlertDescription>
-                          </Alert>
-                        )}
-                      </CardContent>
-                    </Card>
-                  </TabsContent>
-                </Tabs>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><Calculator className="h-5 w-5" />New Loan Terms</CardTitle>
-                    <CardDescription>Configure the terms for your refinanced loan.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>New Interest Rate</Label>
-                        <PercentInput value={calculatorInput.newInterestRate} onChange={val => updateInput("newInterestRate", val)} placeholder="6.65" />
-                        <p className="text-xs text-muted-foreground">Select from live rates above, or enter manually</p>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>New Loan Term</Label>
-                        <Select value={calculatorInput.newLoanTermYears.toString()} onValueChange={val => updateInput("newLoanTermYears", parseInt(val))}>
-                          <SelectTrigger><SelectValue placeholder="Select term" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="10">10 Years</SelectItem>
-                            <SelectItem value="15">15 Years</SelectItem>
-                            <SelectItem value="20">20 Years</SelectItem>
-                            <SelectItem value="25">25 Years</SelectItem>
-                            <SelectItem value="30">30 Years</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><ArrowDownToLine className="h-5 w-5" />Closing Costs</CardTitle>
-                    <CardDescription>Estimate your refinance closing costs. Typically 2–5% of the loan amount.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Closing Costs (%)</Label>
-                        <PercentInput value={calculatorInput.closingCostsPercent} onChange={val => updateInput("closingCostsPercent", val)} placeholder="2" max={10} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Fixed Costs</Label>
-                        <CurrencyInput value={calculatorInput.closingCostsFixed} onChange={val => updateInput("closingCostsFixed", val)} placeholder="2,000" />
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between p-4 border rounded-md">
-                      <div className="space-y-0.5">
-                        <Label htmlFor="includeInLoan" className="text-base">Roll Closing Costs into Loan</Label>
-                        <p className="text-sm text-muted-foreground">Add closing costs to your new loan balance instead of paying upfront</p>
-                      </div>
-                      <Switch id="includeInLoan" checked={calculatorInput.includeClosingCostsInLoan} onCheckedChange={checked => updateInput("includeClosingCostsInLoan", checked)} />
-                    </div>
-                  </CardContent>
-                </Card>
-              </>
-            )}
-          </div>
-
-          <div className="space-y-6">
-            {results && <ResultsCard results={results} refinanceType={calculatorInput.refinanceType} />}
-          </div>
-        </div>
       </main>
 
       <footer className="border-t mt-12 py-6">
