@@ -1033,47 +1033,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(500).json(result);
     }
 
-    // Step 2: send a test event using the confirmed working format
-    try {
-      const testPayload = {
-        source: "Tateo & Co Website",
-        type: "Property Inquiry",
-        message: "Test contact from /api/leads/test-fub diagnostic endpoint.",
-        person: {
-          firstName: "Test",
-          lastName: "Lead",
-          email: "testlead@example.com",
-          phone: "8135550001",
-          assignedTo: "christian@tateoco.com",
-        },
-      };
-      const r = await fetch("https://api.followupboss.com/v1/events", {
-        method: "POST",
-        headers: fubHeaders(apiKey),
-        body: JSON.stringify(testPayload),
-      });
-      const text = await r.text();
-      let data: any;
-      try { data = JSON.parse(text); } catch { data = { raw: text }; }
-      result.eventStatus = r.status;
-      result.eventPersonId = data?.person?.id ?? data?.id ?? null;
-      result.eventAssignedTo = data?.person?.assignedTo ?? null;
-      result.eventOk = r.ok;
-      if (!r.ok) result.eventError = data;
-    } catch (err: any) {
-      result.eventError = err.message;
+    // Step 2: try three formats to find what works for assignedTo
+    const formats = [
+      { label: "no-assign",    payload: { source: "Tateo & Co Website", type: "Property Inquiry", message: "Test A", person: { firstName: "FmtA", lastName: "Test", email: "fmta@example.com", phone: "8135550020" } } },
+      { label: "top-level",    payload: { source: "Tateo & Co Website", type: "Property Inquiry", message: "Test B", assignedTo: "christian@tateoco.com", person: { firstName: "FmtB", lastName: "Test", email: "fmtb@example.com", phone: "8135550021" } } },
+      { label: "person-email", payload: { source: "Tateo & Co Website", type: "Property Inquiry", message: "Test C", person: { firstName: "FmtC", lastName: "Test", email: "fmtc@example.com", phone: "8135550022", assignedTo: "christian@tateoco.com" } } },
+      { label: "person-name",  payload: { source: "Tateo & Co Website", type: "Property Inquiry", message: "Test D", person: { firstName: "FmtD", lastName: "Test", email: "fmtd@example.com", phone: "8135550023", assignedTo: "Christian Tateo" } } },
+    ];
+    result.formatTests = [];
+    for (const { label, payload } of formats) {
+      try {
+        const r = await fetch("https://api.followupboss.com/v1/events", {
+          method: "POST",
+          headers: fubHeaders(apiKey),
+          body: JSON.stringify(payload),
+        });
+        const text = await r.text();
+        let data: any;
+        try { data = JSON.parse(text); } catch { data = { raw: text }; }
+        result.formatTests.push({ label, status: r.status, ok: r.ok, assignedTo: data?.person?.assignedTo ?? null, error: r.ok ? undefined : data });
+      } catch (err: any) {
+        result.formatTests.push({ label, error: err.message });
+      }
     }
+    result.eventOk = result.formatTests.some((t: any) => t.ok);
 
     console.log("[FUB] Test result:", JSON.stringify(result));
     res.json(result);
   });
 
-  // FUB agent email mapping (from /v1/users)
-  const FUB_AGENT_EMAILS: Record<string, string> = {
-    "Christian Tateo":  "christian@tateoco.com",
-    "Omar Andjuar":     "omar@tateoco.com",
-    "Kyle Schweinitz":  "kyle@tateoco.com",
-    "Team":             "christian@tateoco.com",
+  // FUB agent ID mapping (from /v1/users): used for PATCH /v1/people/{id}
+  const FUB_AGENT_IDS: Record<string, number> = {
+    "Christian Tateo": 1,
+    "Omar Andujar":    2,
+    "Kyle Schweinitz": 5,
+    "Team":            1,
   };
 
   async function createFollowUpBossContact(params: {
@@ -1086,21 +1080,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return;
     }
 
-    // "Team" always assigns to Christian Tateo
-    const agentName   = params.agent === "Team" ? "Christian Tateo" : (params.agent || "Christian Tateo");
-    const agentEmail  = FUB_AGENT_EMAILS[agentName] ?? FUB_AGENT_EMAILS["Christian Tateo"];
+    // "Team" always assigns to Christian Tateo (id: 1)
+    const agentName = params.agent === "Team" ? "Christian Tateo" : (params.agent || "Christian Tateo");
+    const agentId   = FUB_AGENT_IDS[agentName] ?? 1;
 
-    // FUB /v1/events: person data must be nested under "person" with string email/phone
+    // Step 1: create contact via /v1/events (no assignedTo — use PATCH for assignment)
     const payload: Record<string, any> = {
       source:  "Tateo & Co Website",
       type:    "Property Inquiry",
       message: `Requesting estimate for: ${params.address || "address not provided"}. Working with: ${agentName}.`,
       person: {
-        firstName:  params.firstName,
-        lastName:   params.lastName,
-        email:      params.email,
-        phone:      params.phone.replace(/\D/g, ""),
-        assignedTo: agentEmail,
+        firstName: params.firstName,
+        lastName:  params.lastName,
+        email:     params.email,
+        phone:     params.phone.replace(/\D/g, ""),
       },
     };
 
@@ -1108,7 +1101,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       payload.property = { street: params.address };
     }
 
-    console.log("[FUB] Creating contact via /v1/events for agent:", agentName, agentEmail);
+    console.log("[FUB] Creating contact via /v1/events for agent:", agentName, `(id:${agentId})`);
 
     const res = await fetch("https://api.followupboss.com/v1/events", {
       method: "POST",
@@ -1125,7 +1118,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       throw new Error(`FUB ${res.status}: ${text}`);
     }
 
-    console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} → ${agentName} (${agentEmail}) | event id: ${data.id ?? "unknown"}`);
+    const personId = data?.person?.id ?? data?.id;
+    console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} | event id: ${data.id ?? "unknown"} | person id: ${personId ?? "unknown"}`);
+
+    // Step 2: PATCH /v1/people/{id} to assign to the correct agent
+    if (personId) {
+      try {
+        const patchRes = await fetch(`https://api.followupboss.com/v1/people/${personId}`, {
+          method: "PUT",
+          headers: fubHeaders(apiKey),
+          body: JSON.stringify({ assignedUserId: agentId }),
+        });
+        if (patchRes.ok) {
+          console.log(`[FUB] Assigned person ${personId} to ${agentName} (userId:${agentId})`);
+        } else {
+          const patchErr = await patchRes.text();
+          console.warn(`[FUB] Assignment PATCH failed ${patchRes.status}:`, patchErr);
+        }
+      } catch (patchErr: any) {
+        console.warn("[FUB] Assignment PATCH error:", patchErr.message);
+      }
+    }
+
     return data;
   }
 
