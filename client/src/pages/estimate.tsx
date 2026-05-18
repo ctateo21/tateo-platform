@@ -288,7 +288,7 @@ function occupancyRateAdj(occupancy: "primary" | "secondary" | "investment", dow
 }
 
 function fullRate(base: number, score: number, occupancy: "primary" | "secondary" | "investment", downPct: number, loanType?: string): number {
-  const adj = loanType === "fha" ? fhaCreditAdjustment(score) : creditAdjustment(score);
+  const adj = (loanType === "fha" || loanType === "va") ? fhaCreditAdjustment(score) : creditAdjustment(score);
   return Math.round((base + adj + occupancyRateAdj(occupancy, downPct)) * 1000) / 1000;
 }
 
