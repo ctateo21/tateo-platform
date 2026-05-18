@@ -1475,16 +1475,13 @@ export default function Estimate() {
                     <Select
                       value={inputs.loanType}
                       onValueChange={(v) => setLoanType(v as any)}
-                      disabled={inputs.occupancy !== "primary"}
                     >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="conventional">
-                          Conventional{inputs.creditScore >= 720 && inputs.occupancy === "primary" ? " (Best Option)" : ""}
-                        </SelectItem>
-                        <SelectItem value="fha" disabled={inputs.occupancy !== "primary"}>FHA</SelectItem>
-                        <SelectItem value="va" disabled={inputs.occupancy !== "primary"}>VA</SelectItem>
-                        <SelectItem value="usda" disabled={inputs.occupancy !== "primary"}>USDA</SelectItem>
+                        <SelectItem value="conventional">Conventional</SelectItem>
+                        {inputs.occupancy === "primary" && <SelectItem value="fha">FHA</SelectItem>}
+                        {inputs.occupancy === "primary" && <SelectItem value="va">VA</SelectItem>}
+                        {inputs.occupancy === "primary" && <SelectItem value="usda">USDA</SelectItem>}
                       </SelectContent>
                     </Select>
                     {inputs.occupancy !== "primary" ? (
