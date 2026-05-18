@@ -686,10 +686,29 @@ export default function Estimate() {
   // Lead capture dialog
   const [leadDialogOpen, setLeadDialogOpen] = useState(false);
   const [leadDialogAction, setLeadDialogAction] = useState<"share" | "save">("share");
+  const [leadScenarioDetails, setLeadScenarioDetails] = useState<string | undefined>();
+
+  function buildScenarioDetails(): string {
+    const { purchasePrice, downPaymentPct, loanType, interestRate } = inputs;
+    const c = calc;
+    const money = (n: number) => "$" + Math.round(n).toLocaleString();
+    const loanLabel = loanType === "conventional" ? "Conventional" : loanType === "fha" ? "FHA" : loanType === "va" ? "VA" : loanType === "usda" ? "USDA" : loanType.toUpperCase();
+    return [
+      `Purchase Price: ${money(purchasePrice)}`,
+      `Down Payment: ${money(c.downPaymentAmt)} (${downPaymentPct}%)`,
+      `Loan Amount: ${money(c.loanAmount)}`,
+      `Loan Type: ${loanLabel}`,
+      `Interest Rate: ${interestRate.toFixed(3)}%`,
+      `Monthly P&I: ${money(c.pi)}`,
+      `Total Monthly Housing: ${money(c.totalHousing)}`,
+      `Est. Cash to Close: ${money(c.cashToClose)}`,
+    ].join(" | ");
+  }
 
   function openLeadDialog(action: "share" | "save") {
     setLeadDialogForScenario(false);
     setLeadDialogAction(action);
+    setLeadScenarioDetails(buildScenarioDetails());
     setLeadDialogOpen(true);
   }
 
@@ -2045,6 +2064,7 @@ export default function Estimate() {
         onOpenChange={(open) => { setLeadDialogOpen(open); if (!open) setLeadDialogForScenario(false); }}
         action={leadDialogForScenario ? "new-scenario" : leadDialogAction}
         address={address}
+        scenarioDetails={leadScenarioDetails}
         onSuccess={handleLeadSuccess}
       />
 

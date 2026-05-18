@@ -29,6 +29,7 @@ interface LeadCaptureDialogProps {
   onOpenChange: (open: boolean) => void;
   action: "share" | "save" | "new-scenario";
   address?: string;
+  scenarioDetails?: string;
   onSuccess: () => void;
 }
 
@@ -41,6 +42,7 @@ export default function LeadCaptureDialog({
   onOpenChange,
   action,
   address,
+  scenarioDetails,
   onSuccess,
 }: LeadCaptureDialogProps) {
   const [step, setStep] = useState<Step>("agent");
@@ -130,6 +132,7 @@ export default function LeadCaptureDialog({
             code: data.autoCode,
             address,
             agent: agentName,
+            scenarioDetails,
           }),
         });
         const verifyData = await verifyRes.json();
@@ -184,6 +187,7 @@ export default function LeadCaptureDialog({
           phone: phone.replace(/\D/g, ""),
           code, address,
           agent: agentName,
+          scenarioDetails,
         }),
       });
       const data = await res.json();

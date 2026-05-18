@@ -959,7 +959,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/leads/verify
   app.post("/api/leads/verify", async (req, res) => {
     try {
-      const { firstName, lastName, email, phone, code, address, agent } = z.object({
+      const { firstName, lastName, email, phone, code, address, agent, scenarioDetails } = z.object({
         firstName: z.string().min(1),
         lastName: z.string().min(1),
         email: z.string().email(),
@@ -967,6 +967,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         code: z.string().length(6),
         address: z.string().optional(),
         agent: z.string().optional(),
+        scenarioDetails: z.string().optional(),
       }).parse(req.body);
       const digits = phone.replace(/\D/g, "");
       const e164 = digits.startsWith("1") ? `+${digits}` : `+1${digits}`;
@@ -986,7 +987,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create contact in FollowUpBoss (non-blocking — don't fail the verify if FUB errors)
-      createFollowUpBossContact({ firstName, lastName, email, phone: e164, address, agent }).catch(err =>
+      createFollowUpBossContact({ firstName, lastName, email, phone: e164, address, agent, scenarioDetails }).catch(err =>
         console.error("[FUB] Failed to create contact:", err.message)
       );
 
@@ -1070,9 +1071,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "Team":            1,
   };
 
+  function formatPhoneDisplay(raw: string): string {
+    const d = raw.replace(/\D/g, "");
+    if (d.length === 11 && d[0] === "1") return `(${d.slice(1,4)}) ${d.slice(4,7)}-${d.slice(7)}`;
+    if (d.length === 10) return `(${d.slice(0,3)}) ${d.slice(3,6)}-${d.slice(6)}`;
+    return d;
+  }
+
   async function createFollowUpBossContact(params: {
     firstName: string; lastName: string; email: string;
-    phone: string; address?: string; agent?: string;
+    phone: string; address?: string; agent?: string; scenarioDetails?: string;
   }) {
     const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
     if (!apiKey) {
@@ -1084,11 +1092,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const agentName = params.agent === "Team" ? "Christian Tateo" : (params.agent || "Christian Tateo");
     const agentId   = FUB_AGENT_IDS[agentName] ?? 1;
 
-    // Step 1: create contact via /v1/events (no assignedTo — use PATCH for assignment)
+    // Step 1: create contact via /v1/events (no assignedTo — use PUT for assignment)
+    const messageParts = [
+      `Property: ${params.address || "address not provided"}`,
+      `Agent: ${agentName}`,
+    ];
+    if (params.scenarioDetails) messageParts.push(params.scenarioDetails);
     const payload: Record<string, any> = {
       source:  "Tateo & Co Website",
       type:    "Property Inquiry",
-      message: `Requesting estimate for: ${params.address || "address not provided"}. Working with: ${agentName}.`,
+      message: messageParts.join("\n"),
       person: {
         firstName: params.firstName,
         lastName:  params.lastName,
@@ -1127,7 +1140,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const personUpdate: Record<string, any> = {
           assignedUserId: agentId,
           emails: [{ value: params.email, type: "work" }],
-          phones: [{ value: params.phone.replace(/\D/g, ""), type: "mobile" }],
+          phones: [{ value: formatPhoneDisplay(params.phone), type: "mobile" }],
         };
         const putRes = await fetch(`https://api.followupboss.com/v1/people/${personId}`, {
           method: "PUT",
