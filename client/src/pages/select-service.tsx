@@ -4,13 +4,22 @@ import { Home, Shield, Layers } from "lucide-react";
 
 const services = [
   {
+    id: "all",
+    icon: Layers,
+    title: "All Services",
+    description: "Real Estate, Mortgage & Insurance combined — the complete picture of what it costs to own this home.",
+    color: "from-primary to-primary/80",
+    border: "border-primary/30 hover:border-primary",
+    badge: "Best Value",
+  },
+  {
     id: "real-estate",
     icon: Home,
     title: "Real Estate / Mortgage",
     description: "See your full purchase cost — mortgage payment, property taxes, down payment, and whether you qualify.",
     color: "from-blue-600 to-blue-800",
     border: "border-blue-200 hover:border-blue-500",
-    badge: "Most Popular",
+    badge: null,
   },
   {
     id: "insurance",
@@ -20,15 +29,6 @@ const services = [
     color: "from-emerald-600 to-emerald-800",
     border: "border-emerald-200 hover:border-emerald-500",
     badge: null,
-  },
-  {
-    id: "all",
-    icon: Layers,
-    title: "All Services",
-    description: "Real Estate, Mortgage & Insurance combined — the complete picture of what it costs to own this home.",
-    color: "from-primary to-primary/80",
-    border: "border-primary/30 hover:border-primary",
-    badge: "Best Value",
   },
 ];
 
