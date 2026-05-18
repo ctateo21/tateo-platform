@@ -1,6 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
+import { createRequire } from "module";
+const _require = createRequire(import.meta.url);
+const pdfParse: (buf: Buffer) => Promise<{ text: string }> = _require("pdf-parse");
 import { storage } from "./storage";
 import { getLiveRates } from "./refi-rates";
 import { analyzeMortgageStatement } from "./anthropic-analyze";
@@ -476,7 +479,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let documentText = "";
       if (req.file) {
         if (req.file.mimetype === "application/pdf") {
-          const pdfParse = (await import("pdf-parse")).default;
           const data = await pdfParse(req.file.buffer);
           documentText = data.text;
         } else if (req.file.mimetype.startsWith("text/")) {
