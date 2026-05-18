@@ -95,11 +95,10 @@ function calcFHAMIP(loanAmount: number): number {
   return (loanAmount * 0.0055) / 12;
 }
 
-function calcVAFundingFee(loanAmount: number, downPaymentPct: number): number {
-  let rate = 0.023;
-  if (downPaymentPct >= 10) rate = 0.014;
-  else if (downPaymentPct >= 5) rate = 0.0165;
-  return (loanAmount * rate) / 12;
+function calcVAFundingFeeAmt(baseLoan: number, vaDisability: boolean | null, vaLoanUse: "first" | "second" | null): number {
+  if (vaDisability === true) return 0;
+  const rate = vaLoanUse === "second" ? 0.033 : 0.0215;
+  return Math.round(baseLoan * rate * 100) / 100;
 }
 
 function getMaxSellerConcessions(
@@ -211,6 +210,8 @@ interface Inputs {
   swr: boolean;
   hasMortgage: boolean | null;
   isVeteran: boolean | null;
+  vaDisability: boolean | null;
+  vaLoanUse: "first" | "second" | null;
   currentLoanFHA: boolean | null;
   hasRentalIncome: boolean | null;
   monthlyRentalIncome: number;
@@ -235,7 +236,7 @@ function makeDefaultInputs(price = 350000): Inputs {
     monthlyDebts: 0, monthlyIncome: 8000, reserves: 35000,
     impactWindows: false, roofAttachment: "toenails", swr: false,
     hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, monthlyRentalIncome: 0, rentalType: null,
-    isVeteran: null,
+    isVeteran: null, vaDisability: null, vaLoanUse: null,
   };
 }
 
@@ -650,7 +651,7 @@ export default function Estimate() {
     if (inputs.hoaMonthly > 0) row("HOA", fmt(inputs.hoaMonthly));
     if (inputs.cddAnnual > 0) row("CDD", `${fmt(calc.monthlyCDD)}/mo`);
     if (calc.mortgageInsurance > 0) {
-      const miLabel = inputs.loanType === "fha" ? "FHA MIP" : inputs.loanType === "va" ? "VA Funding Fee" : "PMI";
+      const miLabel = inputs.loanType === "fha" ? "FHA MIP" : "PMI";
       row(miLabel, fmt(calc.mortgageInsurance));
     }
     doc.setFont("helvetica", "bold");
@@ -1020,12 +1021,14 @@ export default function Estimate() {
   const calc = useMemo(() => {
     const { purchasePrice, downPaymentPct, loanType, creditScore, interestRate,
       annualTaxes, hoaMonthly, cddAnnual, annualHOIns, annualFloodIns,
-      monthlyDebts, monthlyIncome, monthlyRentalIncome, reserves, impactWindows, roofAttachment, swr } = inputs;
+      monthlyDebts, monthlyIncome, monthlyRentalIncome, reserves, impactWindows, roofAttachment, swr,
+      vaDisability, vaLoanUse } = inputs;
 
     const downPaymentAmt = purchasePrice * (downPaymentPct / 100);
     const baseLoanAmount = purchasePrice - downPaymentAmt;
     const fhaUFMIP = loanType === "fha" ? Math.round(baseLoanAmount * 0.0175 * 100) / 100 : 0;
-    const loanAmount = baseLoanAmount + fhaUFMIP;
+    const vaFundingFeeAmt = loanType === "va" ? calcVAFundingFeeAmt(baseLoanAmount, vaDisability, vaLoanUse) : 0;
+    const loanAmount = baseLoanAmount + fhaUFMIP + vaFundingFeeAmt;
     const rate = interestRate / 100;
     const ltv = baseLoanAmount / purchasePrice;
 
@@ -1035,11 +1038,9 @@ export default function Estimate() {
     const monthlyFlood = annualFloodIns / 12;
     const monthlyCDD = cddAnnual / 12;
 
-    const pmi = loanType === "conventional" ? calcConventionalPMI(baseLoanAmount, purchasePrice, creditScore)
-      : 0;
+    const pmi = loanType === "conventional" ? calcConventionalPMI(baseLoanAmount, purchasePrice, creditScore) : 0;
     const mip = loanType === "fha" ? calcFHAMIP(loanAmount) : 0;
-    const vaFee = loanType === "va" ? calcVAFundingFee(loanAmount, downPaymentPct) : 0;
-    const mortgageInsurance = pmi + mip + vaFee;
+    const mortgageInsurance = pmi + mip;
 
     const totalHousing = pi + monthlyTax + monthlyHOIns + monthlyFlood + hoaMonthly + monthlyCDD + mortgageInsurance;
     const closingCosts = Math.round(purchasePrice * 0.03);
@@ -1068,12 +1069,12 @@ export default function Estimate() {
       const ltDown = lt === "va" ? 0 : lt === "fha" ? 3.5 : downPaymentPct;
       const ltBaseLoan = purchasePrice * (1 - ltDown / 100);
       const ltUFMIP = lt === "fha" ? Math.round(ltBaseLoan * 0.0175 * 100) / 100 : 0;
-      const ltLoan = ltBaseLoan + ltUFMIP;
+      const ltVAFee = lt === "va" ? calcVAFundingFeeAmt(ltBaseLoan, vaDisability, vaLoanUse) : 0;
+      const ltLoan = ltBaseLoan + ltUFMIP + ltVAFee;
       const ltPI = calcPI(ltLoan, ltRate);
       const ltPMI = lt === "conventional" ? calcConventionalPMI(ltBaseLoan, purchasePrice, creditScore) : 0;
       const ltMIP = lt === "fha" ? calcFHAMIP(ltLoan) : 0;
-      const ltVA = lt === "va" ? calcVAFundingFee(ltLoan, ltDown) : 0;
-      const ltMI = ltPMI + ltMIP + ltVA;
+      const ltMI = ltPMI + ltMIP;
       const ltTotal = ltPI + monthlyTax + monthlyHOIns + hoaMonthly + monthlyCDD + ltMI;
       return { lt, rate: ltRate * 100, downPct: ltDown, pi: ltPI, mi: ltMI, total: ltTotal };
     });
@@ -1092,8 +1093,8 @@ export default function Estimate() {
     }
 
     return {
-      loanAmount, baseLoanAmount, fhaUFMIP, downPaymentAmt, pi, monthlyTax, monthlyHOIns, monthlyFlood,
-      monthlyCDD, mortgageInsurance, pmi, mip, vaFee, totalHousing,
+      loanAmount, baseLoanAmount, fhaUFMIP, vaFundingFeeAmt, downPaymentAmt, pi, monthlyTax, monthlyHOIns, monthlyFlood,
+      monthlyCDD, mortgageInsurance, pmi, mip, totalHousing,
       closingCosts, cashToClose, housingDTI, dti, maxHousingDti, maxTotalDti, maxDti, requiredIncome, requiredReserves, availableReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
       rentalIncomeQualifying, qualifyingIncome,
@@ -1470,6 +1471,8 @@ export default function Estimate() {
                             isVeteran: true,
                             loanType: "va",
                             downPaymentPct: 0,
+                            vaDisability: null,
+                            vaLoanUse: null,
                             interestRate: fullRate(rates.va, p.creditScore, p.occupancy, 0, "va"),
                           }))}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
@@ -1481,6 +1484,8 @@ export default function Estimate() {
                             ...p,
                             isVeteran: false,
                             loanType: "conventional",
+                            vaDisability: null,
+                            vaLoanUse: null,
                             interestRate: fullRate(rates.conventional, p.creditScore, p.occupancy, p.downPaymentPct, "conventional"),
                           }))}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
@@ -1488,6 +1493,52 @@ export default function Estimate() {
                           No
                         </button>
                       </div>
+
+                      {inputs.isVeteran === true && (
+                        <div className="mt-3 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-2">Do you receive VA disability?</p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => setInputs((p) => ({ ...p, vaDisability: true, vaLoanUse: null }))}
+                                className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.vaDisability === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                              >
+                                Yes
+                              </button>
+                              <button
+                                onClick={() => setInputs((p) => ({ ...p, vaDisability: false, vaLoanUse: null }))}
+                                className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.vaDisability === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                              >
+                                No
+                              </button>
+                            </div>
+                            {inputs.vaDisability === true && (
+                              <p className="text-[11px] text-green-700 mt-1.5 font-medium">No funding fee — loan amount equals the base loan only.</p>
+                            )}
+                          </div>
+
+                          {inputs.vaDisability === false && (
+                            <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                              <p className="text-xs text-muted-foreground mb-2">Is this your first or second time using a VA loan?</p>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setInputs((p) => ({ ...p, vaLoanUse: "first" }))}
+                                  className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.vaLoanUse === "first" ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                                >
+                                  First use (2.15%)
+                                </button>
+                                <button
+                                  onClick={() => setInputs((p) => ({ ...p, vaLoanUse: "second" }))}
+                                  className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.vaLoanUse === "second" ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                                >
+                                  Second use (3.30%)
+                                </button>
+                              </div>
+                              <p className="text-[11px] text-muted-foreground mt-1.5">Funding fee is financed into the loan amount.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </CardContent>
@@ -1753,7 +1804,11 @@ export default function Estimate() {
                   <Row label="Purchase Price" value={fmt(inputs.purchasePrice)} />
                   <Separator />
                   <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`} />
-                  <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}` : `LTV ${fmtPct(calc.ltv)}`} />
+                  <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={
+                    inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}`
+                    : inputs.loanType === "va" && calc.vaFundingFeeAmt > 0 ? `includes ${inputs.vaLoanUse === "second" ? "3.30" : "2.15"}% funding fee (${fmt(calc.vaFundingFeeAmt)}) · LTV ${fmtPct(calc.ltv)}`
+                    : `LTV ${fmtPct(calc.ltv)}`
+                  } />
                   <Separator />
                   <Row label="Estimated Closing Costs (~3%)" value={fmt(calc.closingCosts)} />
                   {inputs.sellerConcessions > 0 && (
@@ -1793,7 +1848,7 @@ export default function Estimate() {
                   {inputs.cddAnnual > 0 && <Row label="CDD" value={`${fmt(calc.monthlyCDD)}/mo`} />}
                   {calc.mortgageInsurance > 0 && (
                     <Row
-                      label={inputs.loanType === "fha" ? "FHA MIP" : inputs.loanType === "va" ? "VA Funding Fee" : "PMI"}
+                      label={inputs.loanType === "fha" ? "FHA MIP" : "PMI"}
                       value={fmt(calc.mortgageInsurance)}
                     />
                   )}
