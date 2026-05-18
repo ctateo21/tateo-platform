@@ -103,7 +103,7 @@ function calcVAFundingFee(loanAmount: number, downPaymentPct: number): number {
 }
 
 function getMaxSellerConcessions(
-  loanType: "conventional" | "fha" | "va" | "usda",
+  loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement",
   occupancy: "primary" | "secondary" | "investment",
   downPaymentPct: number,
   purchasePrice: number,
@@ -118,12 +118,14 @@ function getMaxSellerConcessions(
   return purchasePrice * 0.09;
 }
 
-function getDTILimits(loanType: "conventional" | "fha" | "va" | "usda"): { housingMax: number; totalMax: number } {
+function getDTILimits(loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement"): { housingMax: number; totalMax: number } {
   switch (loanType) {
-    case "fha":   return { housingMax: 0.47, totalMax: 0.57 };
-    case "usda":  return { housingMax: 0.36, totalMax: 0.43 };
-    case "va":    return { housingMax: Infinity, totalMax: Infinity };
-    default:      return { housingMax: 0.45, totalMax: 0.50 };
+    case "fha":           return { housingMax: 0.47, totalMax: 0.57 };
+    case "usda":          return { housingMax: 0.36, totalMax: 0.43 };
+    case "va":            return { housingMax: Infinity, totalMax: Infinity };
+    case "dscr":          return { housingMax: Infinity, totalMax: Infinity };
+    case "bank_statement":return { housingMax: Infinity, totalMax: Infinity };
+    default:              return { housingMax: 0.45, totalMax: 0.50 };
   }
 }
 
@@ -193,7 +195,7 @@ interface Inputs {
   purchasePrice: number;
   downPaymentPct: number;
   sellerConcessions: number;
-  loanType: "conventional" | "fha" | "va" | "usda";
+  loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement";
   creditScore: number;
   interestRate: number;
   annualTaxes: number;
@@ -214,7 +216,7 @@ interface Inputs {
   rentalType: "annual" | "short-term" | null;
 }
 
-const FALLBACK_RATES = { conventional: 6.82, fha: 6.17, va: 6.25, usda: 6.38 };
+const FALLBACK_RATES = { conventional: 6.82, fha: 6.17, va: 6.25, usda: 6.38, dscr: 6.82, bank_statement: 6.82 };
 
 interface Scenario {
   id: string;
@@ -700,7 +702,7 @@ export default function Estimate() {
     const { purchasePrice, downPaymentPct, loanType, interestRate } = inputs;
     const c = calc;
     const money = (n: number) => "$" + Math.round(n).toLocaleString();
-    const loanLabel = loanType === "conventional" ? "Conventional" : loanType === "fha" ? "FHA" : loanType === "va" ? "VA" : loanType === "usda" ? "USDA" : loanType.toUpperCase();
+    const loanLabel = loanType === "conventional" ? "Conventional" : loanType === "fha" ? "FHA" : loanType === "va" ? "VA" : loanType === "usda" ? "USDA" : loanType === "dscr" ? "DSCR" : loanType === "bank_statement" ? "Bank Statement" : loanType.toUpperCase();
     return [
       `Purchase Price: ${money(purchasePrice)}`,
       `Down Payment: ${money(c.downPaymentAmt)} (${Number(downPaymentPct).toFixed(1)}%)`,
@@ -933,7 +935,7 @@ export default function Estimate() {
     }
   }, [address]);
 
-  function getMinDown(lt: "conventional" | "fha" | "va" | "usda", hasMortgage: boolean | null, occupancy?: "primary" | "secondary" | "investment"): number {
+  function getMinDown(lt: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement", hasMortgage: boolean | null, occupancy?: "primary" | "secondary" | "investment"): number {
     if (occupancy === "investment") return 20;
     if (occupancy === "secondary") return 10;
     if (lt === "va" || lt === "usda") return 0;
@@ -941,14 +943,15 @@ export default function Estimate() {
     return hasMortgage === true ? 5 : 3;
   }
 
-  function setLoanType(lt: "conventional" | "fha" | "va" | "usda") {
+  function setLoanType(lt: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement") {
     setInputs((p) => {
       const newMin = getMinDown(lt, p.hasMortgage, p.occupancy);
       const newDown = Math.max(p.downPaymentPct, newMin);
+      const baseRate = (lt === "dscr" || lt === "bank_statement") ? rates.conventional : ((rates as any)[lt] ?? rates.conventional);
       return {
         ...p,
         loanType: lt,
-        interestRate: fullRate((rates as any)[lt] ?? rates.fha, p.creditScore, p.occupancy, newDown, lt),
+        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, lt),
         downPaymentPct: newDown,
       };
     });
@@ -956,14 +959,18 @@ export default function Estimate() {
 
   function setOccupancy(occ: "primary" | "secondary" | "investment") {
     setInputs((p) => {
-      const forcedLoan = occ !== "primary" ? "conventional" : p.loanType;
+      const isAltInvestment = p.loanType === "dscr" || p.loanType === "bank_statement";
+      const forcedLoan = occ === "primary" ? p.loanType
+        : occ === "investment" && isAltInvestment ? p.loanType
+        : "conventional";
       const newMin = getMinDown(forcedLoan, p.hasMortgage, occ);
       const newDown = Math.max(p.downPaymentPct, newMin);
+      const baseRate = (forcedLoan === "dscr" || forcedLoan === "bank_statement") ? rates.conventional : ((rates as any)[forcedLoan] ?? rates.conventional);
       return {
         ...p,
         occupancy: occ,
         loanType: forcedLoan,
-        interestRate: fullRate((rates as any)[forcedLoan] ?? rates.conventional, p.creditScore, occ, newDown, forcedLoan),
+        interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan),
         downPaymentPct: newDown,
         rentalType: occ === "investment" ? p.rentalType : null,
         annualTaxes: estimateAnnualTax(address, p.purchasePrice, occ === "primary"),
@@ -973,16 +980,19 @@ export default function Estimate() {
 
   function setCreditScore(score: number) {
     setInputs((p) => {
+      const isAltLoan = p.loanType === "dscr" || p.loanType === "bank_statement";
       const autoLoanType =
+        isAltLoan ? p.loanType :
         p.occupancy !== "primary" ? "conventional" :
         score < 720 && p.loanType === "conventional" ? "fha" :
         score >= 720 && p.loanType === "fha" ? "conventional" :
         p.loanType;
+      const baseRate = isAltLoan ? rates.conventional : ((rates as any)[autoLoanType] ?? rates.conventional);
       return {
         ...p,
         creditScore: score,
         loanType: autoLoanType,
-        interestRate: fullRate(rates[autoLoanType], score, p.occupancy, p.downPaymentPct, autoLoanType),
+        interestRate: fullRate(baseRate, score, p.occupancy, p.downPaymentPct, autoLoanType),
       };
     });
   }
@@ -1023,7 +1033,8 @@ export default function Estimate() {
     const monthlyFlood = annualFloodIns / 12;
     const monthlyCDD = cddAnnual / 12;
 
-    const pmi = loanType === "conventional" ? calcConventionalPMI(baseLoanAmount, purchasePrice, creditScore) : 0;
+    const pmi = loanType === "conventional" ? calcConventionalPMI(baseLoanAmount, purchasePrice, creditScore)
+      : 0;
     const mip = loanType === "fha" ? calcFHAMIP(loanAmount) : 0;
     const vaFee = loanType === "va" ? calcVAFundingFee(loanAmount, downPaymentPct) : 0;
     const mortgageInsurance = pmi + mip + vaFee;
@@ -1482,6 +1493,8 @@ export default function Estimate() {
                         {inputs.occupancy === "primary" && <SelectItem value="fha">FHA</SelectItem>}
                         {inputs.occupancy === "primary" && <SelectItem value="va">VA</SelectItem>}
                         {inputs.occupancy === "primary" && <SelectItem value="usda">USDA</SelectItem>}
+                        {inputs.occupancy === "investment" && <SelectItem value="dscr">DSCR</SelectItem>}
+                        {inputs.occupancy === "investment" && <SelectItem value="bank_statement">Bank Statement</SelectItem>}
                       </SelectContent>
                     </Select>
                     {inputs.occupancy !== "primary" ? (
