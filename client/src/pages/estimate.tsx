@@ -1487,15 +1487,25 @@ export default function Estimate() {
                         <SelectItem value="usda" disabled={inputs.occupancy !== "primary"}>USDA</SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-[11px] mt-1.5 leading-tight text-muted-foreground">
-                      {inputs.occupancy !== "primary" ? (
+                    {inputs.occupancy !== "primary" ? (
+                      <p className="text-[11px] mt-1.5 leading-tight text-muted-foreground">
                         <span className="text-amber-600 font-medium">Only Conventional available for {inputs.occupancy} properties</span>
-                      ) : inputs.creditScore >= 720 ? (
-                        <span className="text-green-600 font-medium">Conventional best if credit score &gt; 720</span>
-                      ) : (
-                        <span className="text-amber-600 font-medium">FHA best if credit score &lt; 720</span>
-                      )}
-                    </p>
+                      </p>
+                    ) : (
+                      <ul className="mt-1.5 space-y-0.5 text-[11px] leading-tight text-muted-foreground">
+                        <li>Conventional — best if credit score &gt; 720</li>
+                        <li>FHA — best if credit score &lt; 720</li>
+                        <li>VA — only if you are a Veteran</li>
+                        <li>
+                          <a
+                            href="https://eligibility.sc.egov.usda.gov/eligibility/welcomeAction.do?pageAction=sfp"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline hover:text-foreground"
+                          >USDA</a> — only if the home qualifies with USDA
+                        </li>
+                      </ul>
+                    )}
                   </div>
 
                   {(() => {
