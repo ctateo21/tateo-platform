@@ -1465,13 +1465,24 @@ export default function Estimate() {
                       <p className="text-xs text-muted-foreground mb-2">Are you a Veteran?</p>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => setInputs((p) => ({ ...p, isVeteran: true }))}
+                          onClick={() => setInputs((p) => ({
+                            ...p,
+                            isVeteran: true,
+                            loanType: "va",
+                            downPaymentPct: 0,
+                            interestRate: fullRate(rates.va, p.creditScore, p.occupancy, 0, "va"),
+                          }))}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                         >
                           Yes
                         </button>
                         <button
-                          onClick={() => setInputs((p) => ({ ...p, isVeteran: false }))}
+                          onClick={() => setInputs((p) => ({
+                            ...p,
+                            isVeteran: false,
+                            loanType: "conventional",
+                            interestRate: fullRate(rates.conventional, p.creditScore, p.occupancy, p.downPaymentPct, "conventional"),
+                          }))}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                         >
                           No
