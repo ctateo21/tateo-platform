@@ -1027,17 +1027,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(500).json(result);
     }
 
-    // Step 2: send a test event (creates a person in FUB)
+    // Step 2: send a test event using the confirmed working format
     try {
       const testPayload = {
         source: "Tateo & Co Website",
         type: "Property Inquiry",
-        firstName: "Test",
-        lastName: "Lead",
-        emails: [{ value: "testlead@example.com", type: "work" }],
-        phones: [{ value: "+18135550001", type: "mobile" }],
-        tags: ["Agent: Christian Tateo"],
-        message: "Test contact created from /api/leads/test-fub diagnostic endpoint.",
+        message: "Test contact from /api/leads/test-fub diagnostic endpoint.",
+        person: {
+          firstName: "Test",
+          lastName: "Lead",
+          email: "testlead@example.com",
+          phone: "8135550001",
+          assignedTo: "christian@tateoco.com",
+        },
       };
       const r = await fetch("https://api.followupboss.com/v1/events", {
         method: "POST",
@@ -1048,7 +1050,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let data: any;
       try { data = JSON.parse(text); } catch { data = { raw: text }; }
       result.eventStatus = r.status;
-      result.eventResponse = data;
+      result.eventPersonId = data?.person?.id ?? data?.id ?? null;
+      result.eventAssignedTo = data?.person?.assignedTo ?? null;
+      result.eventOk = r.ok;
+      if (!r.ok) result.eventError = data;
     } catch (err: any) {
       result.eventError = err.message;
     }
@@ -1056,6 +1061,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.log("[FUB] Test result:", JSON.stringify(result));
     res.json(result);
   });
+
+  // FUB agent email mapping (from /v1/users)
+  const FUB_AGENT_EMAILS: Record<string, string> = {
+    "Christian Tateo":  "christian@tateoco.com",
+    "Omar Andjuar":     "omar@tateoco.com",
+    "Kyle Schweinitz":  "kyle@tateoco.com",
+    "Team":             "christian@tateoco.com",
+  };
 
   async function createFollowUpBossContact(params: {
     firstName: string; lastName: string; email: string;
@@ -1068,26 +1081,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     // "Team" always assigns to Christian Tateo
-    const assignedAgent = params.agent === "Team" ? "Christian Tateo" : (params.agent || "Christian Tateo");
+    const agentName   = params.agent === "Team" ? "Christian Tateo" : (params.agent || "Christian Tateo");
+    const agentEmail  = FUB_AGENT_EMAILS[agentName] ?? FUB_AGENT_EMAILS["Christian Tateo"];
 
-    // Use /v1/events — the recommended FUB lead-creation endpoint.
-    // This creates the person AND fires lead-routing rules & notifications.
+    // FUB /v1/events: person data must be nested under "person" with string email/phone
     const payload: Record<string, any> = {
-      source:    "Tateo & Co Website",
-      type:      "Property Inquiry",
-      firstName: params.firstName,
-      lastName:  params.lastName,
-      emails:    [{ value: params.email, type: "work" }],
-      phones:    [{ value: params.phone, type: "mobile" }],
-      tags:      [`Agent: ${assignedAgent}`],
-      message:   `Requesting estimate for: ${params.address || "address not provided"}. Working with: ${assignedAgent}.`,
+      source:  "Tateo & Co Website",
+      type:    "Property Inquiry",
+      message: `Requesting estimate for: ${params.address || "address not provided"}. Working with: ${agentName}.`,
+      person: {
+        firstName:  params.firstName,
+        lastName:   params.lastName,
+        email:      params.email,
+        phone:      params.phone.replace(/\D/g, ""),
+        assignedTo: agentEmail,
+      },
     };
 
     if (params.address) {
       payload.property = { street: params.address };
     }
 
-    console.log("[FUB] Creating contact via /v1/events:", JSON.stringify(payload));
+    console.log("[FUB] Creating contact via /v1/events for agent:", agentName, agentEmail);
 
     const res = await fetch("https://api.followupboss.com/v1/events", {
       method: "POST",
@@ -1104,7 +1119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       throw new Error(`FUB ${res.status}: ${text}`);
     }
 
-    console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} → agent: ${assignedAgent} (event id: ${data.id ?? "unknown"})`);
+    console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} → ${agentName} (${agentEmail}) | event id: ${data.id ?? "unknown"}`);
     return data;
   }
 
