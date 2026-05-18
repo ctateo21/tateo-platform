@@ -40,10 +40,14 @@ export function StatementAnalyzer({
   const [saveAnswered, setSaveAnswered] = useState(false);
   const [isLocked, setIsLocked] = useState(locked);
 
+  // If already authenticated, never lock or prompt again
+  const alreadyAuthenticated = Boolean(localStorage.getItem("tateo_auth"));
+
   useEffect(() => { setIsLocked(locked); }, [locked]);
 
   useEffect(() => {
-    if (!analysis || saveAnswered) return;
+    // Skip save prompt entirely if user already has an account
+    if (!analysis || saveAnswered || alreadyAuthenticated) return;
     setSaveCountdown(SAVE_DELAY_MS / 1000);
     const tick = setInterval(() => {
       setSaveCountdown(prev => {
@@ -56,7 +60,7 @@ export function StatementAnalyzer({
       });
     }, 1000);
     return () => clearInterval(tick);
-  }, [analysis, saveAnswered]);
+  }, [analysis, saveAnswered, alreadyAuthenticated]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -90,6 +94,10 @@ export function StatementAnalyzer({
         onAnalyzed?.(result.analysis);
         setUploadedFile(null);
         if (fileInputRef.current) fileInputRef.current.value = "";
+        // Reset prompt state for the new analysis
+        setSavePromptVisible(false);
+        setSaveAnswered(alreadyAuthenticated); // already auth'd → mark as answered so no prompt
+        setSaveCountdown(0);
       } else {
         setError(result.error || "Failed to analyze statement");
       }
@@ -211,13 +219,13 @@ export function StatementAnalyzer({
               </div>
             </div>
 
-            {/* 15-second countdown bar */}
-            {!saveAnswered && !savePromptVisible && saveCountdown > 0 && (
+            {/* 15-second countdown bar — only for non-authenticated users */}
+            {!alreadyAuthenticated && !saveAnswered && !savePromptVisible && saveCountdown > 0 && (
               <Progress value={((SAVE_DELAY_MS / 1000 - saveCountdown) / (SAVE_DELAY_MS / 1000)) * 100} className="h-1" />
             )}
 
-            {/* Save-to-profile prompt */}
-            {savePromptVisible && !saveAnswered && (
+            {/* Save-to-profile prompt — only for non-authenticated users */}
+            {!alreadyAuthenticated && savePromptVisible && !saveAnswered && (
               <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3">
                 <div className="flex items-start gap-2">
                   <UserCheck className="h-4 w-4 text-primary mt-0.5 shrink-0" />
@@ -233,9 +241,15 @@ export function StatementAnalyzer({
               </div>
             )}
 
-            {saveAnswered && !isLocked && (
+            {!alreadyAuthenticated && saveAnswered && !isLocked && (
               <p className="text-xs text-green-600 flex items-center gap-1">
                 <CheckCircle2 className="h-3 w-3" /> Saving your profile — complete the form below.
+              </p>
+            )}
+
+            {alreadyAuthenticated && (
+              <p className="text-xs text-green-600 flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Saved to your account automatically.
               </p>
             )}
           </div>
