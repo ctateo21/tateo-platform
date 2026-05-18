@@ -59,7 +59,7 @@ export default function HeroSection() {
 
       <div className="relative z-10 w-full max-w-2xl mx-auto px-4 text-center">
         <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 leading-tight">
-          What's the full cost to buy this home?
+          What is the full cost of this home?
         </h1>
         <p className="text-lg md:text-xl text-white/80 mb-10">
           Enter any property address and instantly see your mortgage payment, insurance estimates, taxes, and whether you qualify.
