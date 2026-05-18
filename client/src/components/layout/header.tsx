@@ -1,35 +1,54 @@
 import { useState } from "react";
-import { Link } from "wouter";
-import { Menu, PhoneCall, Home, Building2, Briefcase, LayoutDashboard, Shield, HelpCircle, ChevronDown } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import {
+  Menu, Home, Building2, Briefcase, HelpCircle, ChevronDown,
+  LayoutDashboard, LogIn, LogOut, User,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useAuth } from "@/context/auth-context";
+import AuthDialog from "@/components/ui/auth-dialog";
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const [, setLocation] = useLocation();
 
   const links = [
     { href: "/", label: "HOME", icon: <Home className="mr-2 h-4 w-4" /> },
-    { 
-      href: "/#services", 
-      label: "SERVICES", 
-      icon: <Briefcase className="mr-2 h-4 w-4" />, 
+    {
+      href: "/#services",
+      label: "SERVICES",
+      icon: <Briefcase className="mr-2 h-4 w-4" />,
       hasDropdown: true,
       dropdownItems: [
         { href: "/real-estate", label: "Real Estate" },
         { href: "/mortgage", label: "Mortgage" },
         { href: "/insurance", label: "Insurance" },
         { href: "/property-management", label: "Property Management" },
-      ]
+      ],
     },
     { href: "/review", label: "REVIEWS", icon: <HelpCircle className="mr-2 h-4 w-4" /> },
     { href: "/#about", label: "ABOUT", icon: <Building2 className="mr-2 h-4 w-4" /> },
   ];
+
+  function handleLogout() {
+    logout();
+    setLocation("/");
+    setIsOpen(false);
+  }
+
+  const initials = user
+    ? user.name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2)
+    : "";
 
   return (
     <header className="bg-white shadow-sm sticky top-0 z-50">
@@ -56,17 +75,17 @@ export default function Header() {
           </div>
         </div>
       </div>
-      
+
       {/* Main Navigation */}
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         <div className="flex items-center">
-          <Link href="/" className="flex items-center">
+          <Link href={user ? "/dashboard" : "/"} className="flex items-center">
             <div className="bg-primary px-3 py-2 rounded-md mr-2">
               <span className="text-white font-bold text-sm">Tateo & Co</span>
             </div>
           </Link>
         </div>
-        
+
         {/* Desktop Navigation */}
         <nav className="hidden md:flex items-center space-x-6">
           {links.map((link) => (
@@ -78,16 +97,14 @@ export default function Header() {
                 <DropdownMenuContent align="center" className="w-56">
                   {link.dropdownItems?.map((item) => (
                     <DropdownMenuItem key={item.label} asChild>
-                      <Link href={item.href} className="w-full cursor-pointer">
-                        {item.label}
-                      </Link>
+                      <Link href={item.href} className="w-full cursor-pointer">{item.label}</Link>
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
             ) : (
-              <Link 
-                key={link.label} 
+              <Link
+                key={link.label}
                 href={link.href}
                 className="text-gray-700 hover:text-primary font-medium text-sm uppercase tracking-wide py-2"
               >
@@ -95,13 +112,47 @@ export default function Header() {
               </Link>
             )
           ))}
+
+          {/* Auth section */}
+          {user ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-2 rounded-full focus:outline-none">
+                  <div className="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center font-bold text-xs">
+                    {initials}
+                  </div>
+                  <span className="text-sm font-medium text-gray-700 hidden lg:block">{user.name.split(" ")[0]}</span>
+                  <ChevronDown className="h-4 w-4 text-gray-500" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem asChild>
+                  <Link href="/dashboard" className="w-full cursor-pointer flex items-center gap-2">
+                    <LayoutDashboard className="h-4 w-4" /> My Dashboard
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive cursor-pointer flex items-center gap-2">
+                  <LogOut className="h-4 w-4" /> Log Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => setAuthOpen(true)}
+            >
+              <LogIn className="h-4 w-4" /> Log In
+            </Button>
+          )}
+
           <Button asChild className="bg-black hover:bg-gray-800 text-white border border-black">
-            <Link href="/#schedule">
-              Schedule a Call
-            </Link>
+            <Link href="/#schedule">Schedule a Call</Link>
           </Button>
         </nav>
-        
+
         {/* Mobile Menu */}
         <Sheet open={isOpen} onOpenChange={setIsOpen}>
           <SheetTrigger asChild>
@@ -116,19 +167,32 @@ export default function Header() {
                 <span className="text-white font-bold text-sm">Tateo & Co</span>
               </div>
             </div>
+
+            {/* Mobile user info */}
+            {user && (
+              <div className="flex items-center gap-3 mb-6 pb-6 border-b">
+                <div className="h-9 w-9 rounded-full bg-primary text-white flex items-center justify-center font-bold text-sm shrink-0">
+                  {initials}
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">{user.name}</p>
+                  <p className="text-xs text-muted-foreground">{user.email}</p>
+                </div>
+              </div>
+            )}
+
             <nav className="flex flex-col space-y-6">
               {links.map((link) => (
                 <div key={link.label}>
                   {link.hasDropdown ? (
                     <>
                       <div className="flex items-center text-lg font-medium text-gray-700 mb-2">
-                        {link.icon}
-                        {link.label}
+                        {link.icon}{link.label}
                       </div>
                       <div className="ml-8 space-y-3">
                         {link.dropdownItems?.map((item) => (
-                          <Link 
-                            key={item.label} 
+                          <Link
+                            key={item.label}
                             href={item.href}
                             className="block text-gray-600 hover:text-primary"
                             onClick={() => setIsOpen(false)}
@@ -139,19 +203,44 @@ export default function Header() {
                       </div>
                     </>
                   ) : (
-                    <Link 
+                    <Link
                       href={link.href}
                       className="flex items-center text-lg font-medium text-gray-700"
                       onClick={() => setIsOpen(false)}
                     >
-                      {link.icon}
-                      {link.label}
+                      {link.icon}{link.label}
                     </Link>
                   )}
                 </div>
               ))}
+
+              {user ? (
+                <>
+                  <Link
+                    href="/dashboard"
+                    className="flex items-center text-lg font-medium text-gray-700 gap-2"
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <LayoutDashboard className="h-5 w-5 mr-1" /> My Dashboard
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="flex items-center text-lg font-medium text-destructive gap-2 text-left"
+                  >
+                    <LogOut className="h-5 w-5 mr-1" /> Log Out
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => { setIsOpen(false); setAuthOpen(true); }}
+                  className="flex items-center text-lg font-medium text-gray-700 gap-2"
+                >
+                  <LogIn className="h-5 w-5 mr-1" /> Log In
+                </button>
+              )}
+
               <Button asChild className="bg-black hover:bg-gray-800 text-white border border-black w-full mt-4">
-                <Link href="/#schedule">
+                <Link href="/#schedule" onClick={() => setIsOpen(false)}>
                   Schedule a Call
                 </Link>
               </Button>
@@ -159,6 +248,9 @@ export default function Header() {
           </SheetContent>
         </Sheet>
       </div>
+
+      {/* Auth dialog (triggered from header) */}
+      <AuthDialog open={authOpen} onOpenChange={setAuthOpen} />
     </header>
   );
 }

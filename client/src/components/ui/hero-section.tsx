@@ -1,8 +1,43 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
-import { Search } from "lucide-react";
+import { Search, LayoutDashboard, LogIn } from "lucide-react";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
+import { useAuth } from "@/context/auth-context";
+import AuthDialog from "@/components/ui/auth-dialog";
+
+function LoginOrDashboardButton() {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
+  const [open, setOpen] = useState(false);
+
+  if (user) {
+    return (
+      <Button
+        variant="outline"
+        className="bg-white/10 border-white/30 text-white hover:bg-white/20 hover:text-white gap-2"
+        onClick={() => setLocation("/dashboard")}
+      >
+        <LayoutDashboard className="h-4 w-4" />
+        Go to My Dashboard
+      </Button>
+    );
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        className="bg-white/10 border-white/30 text-white hover:bg-white/20 hover:text-white gap-2"
+        onClick={() => setOpen(true)}
+      >
+        <LogIn className="h-4 w-4" />
+        Log In / Create Account
+      </Button>
+      <AuthDialog open={open} onOpenChange={setOpen} />
+    </>
+  );
+}
 
 export default function HeroSection() {
   const [, setLocation] = useLocation();
@@ -87,6 +122,11 @@ export default function HeroSection() {
         <p className="text-white/50 text-sm mt-5">
           No login required · Instant results · Free to use
         </p>
+
+        <div className="mt-8 border-t border-white/20 pt-6">
+          <p className="text-white/60 text-sm mb-3">Already have an account?</p>
+          <LoginOrDashboardButton />
+        </div>
       </div>
     </section>
   );
