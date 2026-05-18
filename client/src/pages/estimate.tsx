@@ -1503,7 +1503,7 @@ export default function Estimate() {
                           value={inputs.downPaymentPct}
                           onChange={(v) => setDownPayment(v)}
                           min={minDown} max={50} step={0.5}
-                          suffix="%"
+                          suffix="%" decimals={1}
                         />
                         <div className="flex gap-1 flex-wrap pt-0.5">
                           {snapPoints.map(({ pct, label, sub }) => {
