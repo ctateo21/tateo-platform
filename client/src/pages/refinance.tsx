@@ -16,6 +16,7 @@ import { StatementAnalyzer } from "@/components/refi/statement-analyzer";
 import { LoanTracker, type TrackedLoan, type MortgageAnalysis, type LiveRate } from "@/components/refi/loan-tracker";
 import { calculateRefinance, type RefinanceInput, type RefinanceResult, formatCurrency } from "@/lib/refi-calculations";
 import { useQuery } from "@tanstack/react-query";
+import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 
 const STORAGE_KEY = "refinance-tracked-loans";
 const MAX_TRACKED_LOANS = 10;
@@ -61,6 +62,23 @@ function analysisToTrackedLoan(analysis: MortgageAnalysis): TrackedLoan {
   };
 }
 
+function buildScenarioDetails(analysis: MortgageAnalysis): string {
+  const parts = [
+    `Refinance Analysis`,
+    `Property: ${analysis.propertyAddress || "Unknown"}`,
+    `Lender: ${analysis.lender || "Unknown"}`,
+    `Loan Balance: ${formatCurrency(analysis.loanBalance)}`,
+    `Interest Rate: ${analysis.interestRate}%`,
+    `Monthly P&I: ${formatCurrency(analysis.principalAndInterest)}`,
+    `Est. Home Value: ${formatCurrency(analysis.estimatedHomeValue)}`,
+    `Remaining Term: ${analysis.estimatedRemainingYears} years`,
+  ];
+  if (analysis.potentialSavings > 0) {
+    parts.push(`Potential Monthly Savings: ${formatCurrency(analysis.potentialSavings)}`);
+  }
+  return parts.join(" | ");
+}
+
 interface LiveRatesResponse {
   rates: LiveRate[];
   source: string;
@@ -77,6 +95,10 @@ export default function Refinance() {
   const [calculatorInput, setCalculatorInput] = useState(defaultCalculatorInput);
   const [results, setResults] = useState<RefinanceResult | null>(null);
   const [trackedLoans, setTrackedLoans] = useState<TrackedLoan[]>(loadTrackedLoans);
+
+  const [analyzerLocked, setAnalyzerLocked] = useState(false);
+  const [showLeadDialog, setShowLeadDialog] = useState(false);
+  const [analysisForSave, setAnalysisForSave] = useState<MortgageAnalysis | null>(null);
 
   const { data: ratesData } = useQuery<LiveRatesResponse>({
     queryKey: ["/api/rates"],
@@ -119,6 +141,20 @@ export default function Refinance() {
     setTrackedLoans(prev => [analysisToTrackedLoan(analysis), ...prev]);
   };
 
+  const handleSavePromptAnswer = (accepted: boolean, analysis: MortgageAnalysis) => {
+    if (accepted) {
+      setAnalysisForSave(analysis);
+      setShowLeadDialog(true);
+    } else {
+      setAnalyzerLocked(true);
+    }
+  };
+
+  const handleLeadSuccess = () => {
+    setShowLeadDialog(false);
+    setAnalyzerLocked(true);
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -149,6 +185,8 @@ export default function Refinance() {
               onAnalyzed={handleAnalyzed}
               trackedLoanCount={trackedLoans.length}
               maxLoans={MAX_TRACKED_LOANS}
+              onSavePromptAnswer={handleSavePromptAnswer}
+              locked={analyzerLocked}
             />
           </div>
           <LiveRatesCard
@@ -287,6 +325,16 @@ export default function Refinance() {
           <p>This calculator provides estimates only. Actual rates and terms may vary. Consult with a licensed mortgage professional for personalized advice.</p>
         </div>
       </footer>
+
+      {/* Save-to-profile lead capture dialog */}
+      <LeadCaptureDialog
+        open={showLeadDialog}
+        onOpenChange={open => { if (!open) { setShowLeadDialog(false); setAnalyzerLocked(true); } }}
+        action="save"
+        address={analysisForSave?.propertyAddress || address}
+        scenarioDetails={analysisForSave ? buildScenarioDetails(analysisForSave) : undefined}
+        onSuccess={handleLeadSuccess}
+      />
     </div>
   );
 }
