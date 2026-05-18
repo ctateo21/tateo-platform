@@ -9,7 +9,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Mail, Lock, Phone, KeyRound, CheckCircle2, Loader2, Eye, EyeOff } from "lucide-react";
+import { Mail, Phone, KeyRound, CheckCircle2, Loader2, User, Users } from "lucide-react";
+
+// ─── Agent config ──────────────────────────────────────────────────────────
+
+const AGENTS = [
+  { id: "christian", name: "Christian Tateo", initials: "CT" },
+  { id: "omar",      name: "Omar Andjuar",    initials: "OA" },
+  { id: "kyle",      name: "Kyle Schweinitz", initials: "KS" },
+  { id: "team",      name: "Team",            initials: "TM", isTeam: true },
+] as const;
+
+type AgentId = typeof AGENTS[number]["id"];
+
+// ─── Props ─────────────────────────────────────────────────────────────────
 
 interface LeadCaptureDialogProps {
   open: boolean;
@@ -19,7 +32,9 @@ interface LeadCaptureDialogProps {
   onSuccess: () => void;
 }
 
-type Step = "credentials" | "phone" | "verify" | "done";
+type Step = "agent" | "info" | "verify" | "done";
+
+// ─── Component ─────────────────────────────────────────────────────────────
 
 export default function LeadCaptureDialog({
   open,
@@ -28,81 +43,71 @@ export default function LeadCaptureDialog({
   address,
   onSuccess,
 }: LeadCaptureDialogProps) {
-  const [step, setStep] = useState<Step>("credentials");
+  const [step, setStep] = useState<Step>("agent");
+  const [agentId, setAgentId] = useState<AgentId | null>(null);
+
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [phone, setPhone] = useState("");
+
   const [code, setCode] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState("");
+
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const codeInputRef = useRef<HTMLInputElement>(null);
 
   // Reset on open
   useEffect(() => {
     if (open) {
-      setStep("credentials");
-      setEmail("");
-      setPassword("");
-      setPhone("");
-      setCode("");
-      setDevCode(null);
-      setError("");
-      setCountdown(0);
+      setStep("agent");
+      setAgentId(null);
+      setFirstName(""); setLastName(""); setEmail(""); setPhone("");
+      setCode(""); setDevCode(null); setError(""); setCountdown(0);
     }
   }, [open]);
 
-  // Focus code input when we reach verify step
+  // Focus code input on verify step
   useEffect(() => {
-    if (step === "verify") {
-      setTimeout(() => codeInputRef.current?.focus(), 100);
-    }
+    if (step === "verify") setTimeout(() => codeInputRef.current?.focus(), 100);
   }, [step]);
 
   function startCountdown() {
     setCountdown(60);
     countdownRef.current = setInterval(() => {
-      setCountdown((c) => {
-        if (c <= 1) {
-          clearInterval(countdownRef.current!);
-          return 0;
-        }
+      setCountdown(c => {
+        if (c <= 1) { clearInterval(countdownRef.current!); return 0; }
         return c - 1;
       });
     }, 1000);
   }
 
   function formatPhone(raw: string) {
-    const digits = raw.replace(/\D/g, "").slice(0, 10);
-    if (digits.length <= 3) return digits;
-    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    const d = raw.replace(/\D/g, "").slice(0, 10);
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
   }
 
-  async function handleCredentialsNext() {
-    setError("");
-    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-      setError("Please enter a valid email address.");
-      return;
-    }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
-    setStep("phone");
+  // ── Step handlers ────────────────────────────────────────────────────────
+
+  function handleAgentSelect(id: AgentId) {
+    setAgentId(id);
+    setStep("info");
   }
 
-  async function handleSendCode() {
+  async function handleInfoNext() {
     setError("");
+    if (!firstName.trim()) return setError("Please enter your first name.");
+    if (!lastName.trim()) return setError("Please enter your last name.");
+    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) return setError("Please enter a valid email address.");
     const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
-      setError("Please enter a valid 10-digit phone number.");
-      return;
-    }
+    if (digits.length < 10) return setError("Please enter a valid 10-digit cell number.");
+
     setSending(true);
     try {
       const res = await fetch("/api/leads/send-code", {
@@ -124,8 +129,7 @@ export default function LeadCaptureDialog({
 
   async function handleResend() {
     if (countdown > 0) return;
-    setError("");
-    setCode("");
+    setError(""); setCode("");
     const digits = phone.replace(/\D/g, "");
     setSending(true);
     try {
@@ -147,24 +151,24 @@ export default function LeadCaptureDialog({
 
   async function handleVerify() {
     setError("");
-    if (code.length !== 6) {
-      setError("Please enter the 6-digit code.");
-      return;
-    }
+    if (code.length !== 6) return setError("Please enter the 6-digit code.");
     setVerifying(true);
     try {
+      const agentName = AGENTS.find(a => a.id === agentId)?.name ?? "";
       const res = await fetch("/api/leads/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, phone: phone.replace(/\D/g, ""), code, address }),
+        body: JSON.stringify({
+          firstName, lastName, email,
+          phone: phone.replace(/\D/g, ""),
+          code, address,
+          agent: agentName,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Verification failed");
       setStep("done");
-      setTimeout(() => {
-        onSuccess();
-        onOpenChange(false);
-      }, 1800);
+      setTimeout(() => { onSuccess(); onOpenChange(false); }, 1800);
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -172,16 +176,29 @@ export default function LeadCaptureDialog({
     }
   }
 
+  // ── Titles ───────────────────────────────────────────────────────────────
+
   const title =
     action === "share" ? "Share Your Estimate" :
-    action === "new-scenario" ? "Create Your Free Account" :
+    action === "new-scenario" ? "Add New Property" :
     "Save This Scenario";
+
   const subtitle =
     action === "share"
-      ? "Create a free account to get a shareable link for this estimate."
+      ? "Just a few quick details and we'll copy a shareable link."
       : action === "new-scenario"
-      ? "Verify your identity once to compare up to 5 properties side by side."
-      : "Create a free account to save and revisit this scenario anytime.";
+      ? "Verify your identity once to compare up to 5 properties."
+      : "Create a free account to save and revisit this scenario.";
+
+  // ── Step indicator labels ────────────────────────────────────────────────
+
+  const STEPS: Step[] = ["agent", "info", "verify"];
+  const stepLabels: Record<Step, string> = {
+    agent: "Agent", info: "Your Info", verify: "Verify", done: "Done",
+  };
+  const currentIdx = step === "done" ? 3 : STEPS.indexOf(step);
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -191,118 +208,137 @@ export default function LeadCaptureDialog({
           <DialogDescription className="text-sm">{subtitle}</DialogDescription>
         </DialogHeader>
 
-        {/* Step indicators */}
-        <div className="flex items-center gap-2 mb-2">
-          {(["credentials", "phone", "verify"] as Step[]).map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
-              <div
-                className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
-                  step === "done" || (["credentials","phone","verify"].indexOf(step) > i)
-                    ? "bg-primary text-white"
-                    : step === s
-                    ? "bg-primary text-white"
-                    : "bg-muted text-muted-foreground"
-                }`}
-              >
-                {(step === "done" || (["credentials","phone","verify"].indexOf(step) > i)) && step !== s ? (
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                ) : (
-                  i + 1
+        {/* Step indicator */}
+        {step !== "done" && (
+          <div className="flex items-center gap-2 mb-1">
+            {STEPS.map((s, i) => (
+              <div key={s} className="flex items-center gap-2">
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-colors ${
+                  i < currentIdx ? "bg-primary text-white" :
+                  i === currentIdx ? "bg-primary text-white" :
+                  "bg-muted text-muted-foreground"
+                }`}>
+                  {i < currentIdx ? <CheckCircle2 className="w-3.5 h-3.5" /> : i + 1}
+                </div>
+                {i < STEPS.length - 1 && (
+                  <div className={`h-px w-8 ${i < currentIdx ? "bg-primary" : "bg-muted"}`} />
                 )}
               </div>
-              {i < 2 && <div className={`flex-1 h-px w-8 ${["credentials","phone","verify"].indexOf(step) > i ? "bg-primary" : "bg-muted"}`} />}
-            </div>
-          ))}
-          <span className="text-xs text-muted-foreground ml-1">
-            {step === "credentials" && "Account Info"}
-            {step === "phone" && "Phone Number"}
-            {step === "verify" && "Verify Code"}
-            {step === "done" && "Complete"}
-          </span>
-        </div>
+            ))}
+            <span className="text-xs text-muted-foreground ml-1">{stepLabels[step]}</span>
+          </div>
+        )}
 
-        {/* ── Step 1: Email + Password ── */}
-        {step === "credentials" && (
+        {/* ── Step 1: Agent selection ── */}
+        {step === "agent" && (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Who are you working with?</p>
+            <div className="grid grid-cols-2 gap-2.5">
+              {AGENTS.map(agent => (
+                <button
+                  key={agent.id}
+                  onClick={() => handleAgentSelect(agent.id)}
+                  className="flex flex-col items-center gap-2.5 p-4 rounded-xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all group"
+                >
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-sm ${
+                    agent.id === "team" ? "bg-secondary" : "bg-primary"
+                  }`}>
+                    {agent.id === "team"
+                      ? <Users className="h-5 w-5" />
+                      : <span>{agent.initials}</span>
+                    }
+                  </div>
+                  <span className="text-sm font-medium text-center leading-tight">{agent.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 2: Personal info + phone ── */}
+        {step === "info" && (
           <div className="space-y-4">
+            {/* Selected agent reminder */}
+            {agentId && (
+              <div className="flex items-center gap-2 bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
+                <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white shrink-0">
+                  {AGENTS.find(a => a.id === agentId)?.initials}
+                </div>
+                <span className="text-sm text-foreground">
+                  Working with <strong>{AGENTS.find(a => a.id === agentId)?.name}</strong>
+                </span>
+                <button
+                  onClick={() => { setStep("agent"); setError(""); }}
+                  className="ml-auto text-xs text-primary hover:underline"
+                >
+                  Change
+                </button>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="lc-first" className="text-sm">First Name</Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="lc-first" placeholder="Jane" className="pl-9"
+                    value={firstName} onChange={e => setFirstName(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && handleInfoNext()}
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="lc-last" className="text-sm">Last Name</Label>
+                <Input
+                  id="lc-last" placeholder="Smith"
+                  value={lastName} onChange={e => setLastName(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleInfoNext()}
+                />
+              </div>
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="lc-email" className="text-sm">Email Address</Label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  id="lc-email"
-                  type="email"
-                  placeholder="you@example.com"
-                  className="pl-9"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCredentialsNext()}
-                  autoFocus
+                  id="lc-email" type="email" placeholder="you@example.com" className="pl-9"
+                  value={email} onChange={e => setEmail(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleInfoNext()}
                 />
               </div>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="lc-password" className="text-sm">Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="lc-password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Min. 8 characters"
-                  className="pl-9 pr-9"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleCredentialsNext()}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-            {error && <p className="text-xs text-destructive">{error}</p>}
-            <Button className="w-full" onClick={handleCredentialsNext}>
-              Continue
-            </Button>
-          </div>
-        )}
 
-        {/* ── Step 2: Phone Number ── */}
-        {step === "phone" && (
-          <div className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="lc-phone" className="text-sm">Mobile Phone Number</Label>
-              <p className="text-xs text-muted-foreground">We'll send a 6-digit verification code via SMS.</p>
+              <Label htmlFor="lc-phone" className="text-sm">Cell Phone Number</Label>
+              <p className="text-xs text-muted-foreground">We'll text you a 6-digit code to verify your number.</p>
               <div className="relative">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  id="lc-phone"
-                  type="tel"
-                  placeholder="(555) 000-0000"
-                  className="pl-9"
-                  value={phone}
-                  onChange={(e) => setPhone(formatPhone(e.target.value))}
-                  onKeyDown={(e) => e.key === "Enter" && handleSendCode()}
-                  autoFocus
+                  id="lc-phone" type="tel" placeholder="(555) 000-0000" className="pl-9"
+                  value={phone} onChange={e => setPhone(formatPhone(e.target.value))}
+                  onKeyDown={e => e.key === "Enter" && handleInfoNext()}
                 />
               </div>
             </div>
+
             {error && <p className="text-xs text-destructive">{error}</p>}
+
             <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => { setError(""); setStep("credentials"); }}>
+              <Button variant="outline" className="flex-1" onClick={() => { setError(""); setStep("agent"); }}>
                 Back
               </Button>
-              <Button className="flex-1" onClick={handleSendCode} disabled={sending}>
+              <Button className="flex-1" onClick={handleInfoNext} disabled={sending}>
                 {sending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
-                Send Code
+                {sending ? "Sending…" : "Send Code"}
               </Button>
             </div>
           </div>
         )}
 
-        {/* ── Step 3: Verify Code ── */}
+        {/* ── Step 3: Verify SMS code ── */}
         {step === "verify" && (
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -311,39 +347,44 @@ export default function LeadCaptureDialog({
                 Enter the 6-digit code sent to{" "}
                 <span className="font-medium text-foreground">{phone}</span>.
                 {devCode && (
-                  <span className="ml-1 text-amber-600 font-semibold">[Dev mode — code: {devCode}]</span>
+                  <span className="ml-1 text-amber-600 font-semibold">[Dev — code: {devCode}]</span>
                 )}
               </p>
               <div className="relative">
                 <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  id="lc-code"
-                  ref={codeInputRef}
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="000000"
-                  maxLength={6}
+                  id="lc-code" ref={codeInputRef}
+                  type="text" inputMode="numeric"
+                  placeholder="000000" maxLength={6}
                   className="pl-9 text-xl tracking-[0.4em] font-mono"
                   value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  onKeyDown={(e) => e.key === "Enter" && handleVerify()}
+                  onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onKeyDown={e => e.key === "Enter" && handleVerify()}
                 />
               </div>
             </div>
+
             <div className="flex items-center justify-between text-xs">
               <button
                 className={`text-primary hover:underline ${countdown > 0 ? "opacity-40 cursor-not-allowed" : ""}`}
-                onClick={handleResend}
-                disabled={countdown > 0 || sending}
+                onClick={handleResend} disabled={countdown > 0 || sending}
               >
                 {sending ? "Resending…" : countdown > 0 ? `Resend in ${countdown}s` : "Resend code"}
               </button>
-              <button className="text-muted-foreground hover:text-foreground" onClick={() => { setError(""); setStep("phone"); }}>
-                Change number
+              <button
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => { setError(""); setStep("info"); }}
+              >
+                Change info
               </button>
             </div>
+
             {error && <p className="text-xs text-destructive">{error}</p>}
-            <Button className="w-full" onClick={handleVerify} disabled={verifying || code.length !== 6}>
+
+            <Button
+              className="w-full" onClick={handleVerify}
+              disabled={verifying || code.length !== 6}
+            >
               {verifying ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
               Verify &amp; {action === "share" ? "Get Link" : "Save"}
             </Button>

@@ -953,11 +953,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/leads/verify
   app.post("/api/leads/verify", async (req, res) => {
     try {
-      const { email, phone, code, address } = z.object({
+      const { firstName, lastName, email, phone, code, address, agent } = z.object({
+        firstName: z.string().min(1),
+        lastName: z.string().min(1),
         email: z.string().email(),
         phone: z.string().min(10),
         code: z.string().length(6),
         address: z.string().optional(),
+        agent: z.string().optional(),
       }).parse(req.body);
       const digits = phone.replace(/\D/g, "");
       const e164 = digits.startsWith("1") ? `+${digits}` : `+1${digits}`;
@@ -969,17 +972,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       if (stored.code !== code) return res.status(400).json({ error: "Incorrect code. Please try again." });
       _verifyCodes.delete(e164);
-      // Save lead
+
+      // Save lead locally
       if (!_leads.find(l => l.email === email || l.phone === e164)) {
         _leads.push({ email, phone: e164, address: address || "", createdAt: new Date().toISOString() });
-        console.log(`[LEAD] New lead: ${email} | ${e164} | ${address || "no address"}`);
+        console.log(`[LEAD] New lead: ${firstName} ${lastName} | ${email} | ${e164} | agent: ${agent || "none"}`);
       }
+
+      // Create contact in FollowUpBoss (non-blocking — don't fail the verify if FUB errors)
+      createFollowUpBossContact({ firstName, lastName, email, phone: e164, address, agent }).catch(err =>
+        console.error("[FUB] Failed to create contact:", err.message)
+      );
+
       res.json({ ok: true });
     } catch (err: any) {
       console.error("verify error:", err);
       res.status(400).json({ error: err.message || "Verification failed" });
     }
   });
+
+  // ─── FollowUpBoss integration ───────────────────────────────────────────────
+
+  async function createFollowUpBossContact(params: {
+    firstName: string; lastName: string; email: string;
+    phone: string; address?: string; agent?: string;
+  }) {
+    const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
+    if (!apiKey) { console.log("[FUB] No API key configured — skipping contact creation."); return; }
+
+    // "Team" always assigns to Christian Tateo
+    const assignedAgent = params.agent === "Team" ? "Christian Tateo" : (params.agent || "Christian Tateo");
+
+    const payload: Record<string, any> = {
+      firstName: params.firstName,
+      lastName: params.lastName,
+      emails: [{ value: params.email, type: "work" }],
+      phones: [{ value: params.phone, type: "mobile" }],
+      source: "Tateo & Co Website",
+      tags: [`Agent: ${assignedAgent}`],
+    };
+
+    if (params.address) {
+      payload.notes = `Property address: ${params.address}`;
+    }
+
+    const res = await fetch("https://api.followupboss.com/v1/people", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Basic " + Buffer.from(`${apiKey}:X`).toString("base64"),
+        "X-System": "Tateo & Co",
+        "X-System-Key": apiKey,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(JSON.stringify(data));
+    console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} → assigned to ${assignedAgent} (FUB id: ${data.id})`);
+    return data;
+  }
 
   // GET /api/leads (simple admin view — protect in production)
   app.get("/api/leads", (_req, res) => {
