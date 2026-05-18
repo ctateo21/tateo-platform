@@ -91,11 +91,8 @@ function calcConventionalPMI(loanAmount: number, purchasePrice: number, creditSc
   return (loanAmount * basePMI * mult) / 12;
 }
 
-function calcFHAMIP(loanAmount: number, purchasePrice: number): number {
-  const ltv = loanAmount / purchasePrice;
-  // Standard FHA annual MIP (2024 rates for loans > $150k, 30-yr)
-  const annualMIP = ltv > 0.90 ? 0.0085 : 0.0080;
-  return (loanAmount * annualMIP) / 12;
+function calcFHAMIP(loanAmount: number): number {
+  return (loanAmount * 0.0055) / 12;
 }
 
 function calcVAFundingFee(loanAmount: number, downPaymentPct: number): number {
@@ -1027,7 +1024,7 @@ export default function Estimate() {
     const monthlyCDD = cddAnnual / 12;
 
     const pmi = loanType === "conventional" ? calcConventionalPMI(baseLoanAmount, purchasePrice, creditScore) : 0;
-    const mip = loanType === "fha" ? calcFHAMIP(loanAmount, purchasePrice) : 0;
+    const mip = loanType === "fha" ? calcFHAMIP(loanAmount) : 0;
     const vaFee = loanType === "va" ? calcVAFundingFee(loanAmount, downPaymentPct) : 0;
     const mortgageInsurance = pmi + mip + vaFee;
 
@@ -1061,7 +1058,7 @@ export default function Estimate() {
       const ltLoan = ltBaseLoan + ltUFMIP;
       const ltPI = calcPI(ltLoan, ltRate);
       const ltPMI = lt === "conventional" ? calcConventionalPMI(ltBaseLoan, purchasePrice, creditScore) : 0;
-      const ltMIP = lt === "fha" ? calcFHAMIP(ltLoan, purchasePrice) : 0;
+      const ltMIP = lt === "fha" ? calcFHAMIP(ltLoan) : 0;
       const ltVA = lt === "va" ? calcVAFundingFee(ltLoan, ltDown) : 0;
       const ltMI = ltPMI + ltMIP + ltVA;
       const ltTotal = ltPI + monthlyTax + monthlyHOIns + hoaMonthly + monthlyCDD + ltMI;
