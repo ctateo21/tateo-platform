@@ -217,7 +217,7 @@ interface Inputs {
   rentalType: "annual" | "short-term" | null;
 }
 
-const FALLBACK_RATES = { conventional: 6.82, fha: 6.38, va: 6.25, usda: 6.38 };
+const FALLBACK_RATES = { conventional: 6.82, fha: 6.17, va: 6.25, usda: 6.38 };
 
 interface Scenario {
   id: string;
@@ -255,6 +255,16 @@ function creditAdjustment(score: number): number {
   return 1.50;
 }
 
+function fhaCreditAdjustment(score: number): number {
+  if (score >= 740) return -0.50;
+  if (score >= 720) return -0.25;
+  if (score >= 700) return  0;
+  if (score >= 680) return  0.10;
+  if (score >= 660) return  0.50;
+  if (score >= 640) return  1.00;
+  return 1.50;
+}
+
 function adjustedRate(base: number, score: number): number {
   return Math.round((base + creditAdjustment(score)) * 1000) / 1000;
 }
@@ -276,8 +286,9 @@ function occupancyRateAdj(occupancy: "primary" | "secondary" | "investment", dow
   return 0;
 }
 
-function fullRate(base: number, score: number, occupancy: "primary" | "secondary" | "investment", downPct: number): number {
-  return Math.round((base + creditAdjustment(score) + occupancyRateAdj(occupancy, downPct)) * 1000) / 1000;
+function fullRate(base: number, score: number, occupancy: "primary" | "secondary" | "investment", downPct: number, loanType?: string): number {
+  const adj = loanType === "fha" ? fhaCreditAdjustment(score) : creditAdjustment(score);
+  return Math.round((base + adj + occupancyRateAdj(occupancy, downPct)) * 1000) / 1000;
 }
 
 // ─── SliderInput component ───────────────────────────────────────────────────
@@ -909,7 +920,7 @@ export default function Estimate() {
   useEffect(() => {
     if (liveRates && !ratesLoadedRef.current) {
       ratesLoadedRef.current = true;
-      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct) }));
+      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType) }));
     }
   }, [liveRates]);
 
@@ -940,7 +951,7 @@ export default function Estimate() {
       return {
         ...p,
         loanType: lt,
-        interestRate: fullRate((rates as any)[lt] ?? rates.fha, p.creditScore, p.occupancy, newDown),
+        interestRate: fullRate((rates as any)[lt] ?? rates.fha, p.creditScore, p.occupancy, newDown, lt),
         downPaymentPct: newDown,
       };
     });
@@ -955,7 +966,7 @@ export default function Estimate() {
         ...p,
         occupancy: occ,
         loanType: forcedLoan,
-        interestRate: fullRate((rates as any)[forcedLoan] ?? rates.conventional, p.creditScore, occ, newDown),
+        interestRate: fullRate((rates as any)[forcedLoan] ?? rates.conventional, p.creditScore, occ, newDown, forcedLoan),
         downPaymentPct: newDown,
         rentalType: occ === "investment" ? p.rentalType : null,
         annualTaxes: estimateAnnualTax(address, p.purchasePrice, occ === "primary"),
@@ -974,7 +985,7 @@ export default function Estimate() {
         ...p,
         creditScore: score,
         loanType: autoLoanType,
-        interestRate: fullRate(rates[autoLoanType], score, p.occupancy, p.downPaymentPct),
+        interestRate: fullRate(rates[autoLoanType], score, p.occupancy, p.downPaymentPct, autoLoanType),
       };
     });
   }
@@ -986,7 +997,7 @@ export default function Estimate() {
       return {
         ...p,
         downPaymentPct: newDown,
-        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown),
+        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown, p.loanType),
       };
     });
   }
