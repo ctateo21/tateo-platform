@@ -210,6 +210,7 @@ interface Inputs {
   roofAttachment: string;
   swr: boolean;
   hasMortgage: boolean | null;
+  isVeteran: boolean | null;
   currentLoanFHA: boolean | null;
   hasRentalIncome: boolean | null;
   monthlyRentalIncome: number;
@@ -234,6 +235,7 @@ function makeDefaultInputs(price = 350000): Inputs {
     monthlyDebts: 0, monthlyIncome: 8000, reserves: 35000,
     impactWindows: false, roofAttachment: "toenails", swr: false,
     hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, monthlyRentalIncome: 0, rentalType: null,
+    isVeteran: null,
   };
 }
 
@@ -1457,6 +1459,26 @@ export default function Estimate() {
                       </div>
                     )}
                   </div>
+
+                  {inputs.occupancy === "primary" && (
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-2">Are you a Veteran?</p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setInputs((p) => ({ ...p, isVeteran: true }))}
+                          className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setInputs((p) => ({ ...p, isVeteran: false }))}
+                          className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                        >
+                          No
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
