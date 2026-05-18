@@ -1,25 +1,19 @@
 import { useState, useEffect } from "react";
 import { useSearch, useLocation } from "wouter";
-import { Home, ArrowLeft } from "lucide-react";
+import { Home, ArrowLeft, Building2, Landmark } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { LiveRatesCard } from "@/components/refi/live-rates-card";
 import { StatementAnalyzer } from "@/components/refi/statement-analyzer";
-import { LoanTracker, type TrackedLoan, type MortgageAnalysis, type LiveRate } from "@/components/refi/loan-tracker";
+import { LoanTracker, type TrackedLoan, type MortgageAnalysis, type LiveRate, type PropertyType } from "@/components/refi/loan-tracker";
 import { formatCurrency } from "@/lib/refi-calculations";
 import { useQuery } from "@tanstack/react-query";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 
 const STORAGE_KEY = "refinance-tracked-loans";
 const MAX_TRACKED_LOANS = 10;
-
-const defaultCalculatorInput = {
-  newInterestRate: 6.65,
-  newLoanTermYears: 30,
-  closingCostsPercent: 2,
-  closingCostsFixed: 2000,
-  includeClosingCostsInLoan: true,
-  refinanceType: "rate_and_term" as "rate_and_term" | "cash_out",
-  cashOutAmount: 0,
-};
 
 function loadTrackedLoans(): TrackedLoan[] {
   try {
@@ -34,7 +28,7 @@ function saveTrackedLoans(loans: TrackedLoan[]): void {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(loans)); } catch {}
 }
 
-function analysisToTrackedLoan(analysis: MortgageAnalysis): TrackedLoan {
+function analysisToTrackedLoan(analysis: MortgageAnalysis, propertyType: PropertyType): TrackedLoan {
   const now = new Date().toISOString();
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -48,7 +42,7 @@ function analysisToTrackedLoan(analysis: MortgageAnalysis): TrackedLoan {
     estimatedRemainingYears: analysis.estimatedRemainingYears,
     addedAt: now,
     balanceAsOf: now,
-    propertyType: "primary",
+    propertyType,
   };
 }
 
@@ -69,6 +63,27 @@ function buildScenarioDetails(analysis: MortgageAnalysis): string {
   return parts.join(" | ");
 }
 
+const PROPERTY_OPTIONS: { type: PropertyType; label: string; description: string; icon: React.ReactNode }[] = [
+  {
+    type: "primary",
+    label: "Primary Home",
+    description: "Where you live full-time",
+    icon: <Home className="h-6 w-6" />,
+  },
+  {
+    type: "secondary",
+    label: "Secondary Home",
+    description: "Vacation or part-time residence",
+    icon: <Landmark className="h-6 w-6" />,
+  },
+  {
+    type: "investment",
+    label: "Investment Property",
+    description: "Rented out or income-generating",
+    icon: <Building2 className="h-6 w-6" />,
+  },
+];
+
 interface LiveRatesResponse {
   rates: LiveRate[];
   source: string;
@@ -82,13 +97,15 @@ export default function Refinance() {
   const address = new URLSearchParams(search).get("address") || "";
 
   const [statementData, setStatementData] = useState<MortgageAnalysis | null>(null);
-  const [calculatorInput, setCalculatorInput] = useState(defaultCalculatorInput);
-  const [results, setResults] = useState<RefinanceResult | null>(null);
   const [trackedLoans, setTrackedLoans] = useState<TrackedLoan[]>(loadTrackedLoans);
 
   const [analyzerLocked, setAnalyzerLocked] = useState(false);
   const [showLeadDialog, setShowLeadDialog] = useState(false);
   const [analysisForSave, setAnalysisForSave] = useState<MortgageAnalysis | null>(null);
+
+  // Property type dialog state
+  const [pendingAnalysis, setPendingAnalysis] = useState<MortgageAnalysis | null>(null);
+  const [showPropertyTypeDialog, setShowPropertyTypeDialog] = useState(false);
 
   const { data: ratesData } = useQuery<LiveRatesResponse>({
     queryKey: ["/api/rates"],
@@ -97,30 +114,9 @@ export default function Refinance() {
 
   useEffect(() => { saveTrackedLoans(trackedLoans); }, [trackedLoans]);
 
-  useEffect(() => {
-    if (!statementData) { setResults(null); return; }
-    const input: RefinanceInput = {
-      appraisedValue: statementData.estimatedHomeValue,
-      loanBalance: statementData.loanBalance,
-      currentInterestRate: statementData.interestRate,
-      currentTermRemainingYears: Math.min(30, Math.max(1, Math.round(statementData.estimatedRemainingYears))),
-      ...calculatorInput,
-    };
-    if (input.appraisedValue > 0 && input.loanBalance > 0 && input.newInterestRate > 0) {
-      setResults(calculateRefinance(input));
-    }
-  }, [statementData, calculatorInput]);
-
-  const updateInput = <K extends keyof typeof defaultCalculatorInput>(key: K, value: (typeof defaultCalculatorInput)[K]) => {
-    setCalculatorInput(prev => ({ ...prev, [key]: value }));
+  const handleAnalysisComplete = (analysis: MortgageAnalysis) => {
+    setStatementData(analysis);
   };
-
-  const handleRefinanceTypeChange = (type: string) => {
-    updateInput("refinanceType", type as "rate_and_term" | "cash_out");
-    if (type === "rate_and_term") updateInput("cashOutAmount", 0);
-  };
-
-  const handleAnalysisComplete = (analysis: MortgageAnalysis) => { setStatementData(analysis); };
 
   const handleAnalyzed = (analysis: MortgageAnalysis) => {
     if (trackedLoans.length >= MAX_TRACKED_LOANS) return;
@@ -128,7 +124,16 @@ export default function Refinance() {
     const incoming = normalize(analysis.propertyAddress || "");
     const duplicate = trackedLoans.find(l => normalize(l.propertyAddress) === incoming);
     if (duplicate) return;
-    setTrackedLoans(prev => [analysisToTrackedLoan(analysis), ...prev]);
+    // Show property type dialog before adding to tracker
+    setPendingAnalysis(analysis);
+    setShowPropertyTypeDialog(true);
+  };
+
+  const handlePropertyTypeSelect = (propertyType: PropertyType) => {
+    if (!pendingAnalysis) return;
+    setTrackedLoans(prev => [analysisToTrackedLoan(pendingAnalysis, propertyType), ...prev]);
+    setPendingAnalysis(null);
+    setShowPropertyTypeDialog(false);
   };
 
   const handleSavePromptAnswer = (accepted: boolean, analysis: MortgageAnalysis) => {
@@ -180,8 +185,8 @@ export default function Refinance() {
             />
           </div>
           <LiveRatesCard
-            onSelectRate={rate => updateInput("newInterestRate", rate)}
-            selectedRate={calculatorInput.newInterestRate}
+            onSelectRate={() => {}}
+            selectedRate={6.65}
             className="h-full"
           />
         </div>
@@ -194,7 +199,6 @@ export default function Refinance() {
           onUpdate={(id, updates) => setTrackedLoans(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l))}
           maxLoans={MAX_TRACKED_LOANS}
         />
-
       </main>
 
       <footer className="border-t mt-12 py-6">
@@ -202,6 +206,35 @@ export default function Refinance() {
           <p>This calculator provides estimates only. Actual rates and terms may vary. Consult with a licensed mortgage professional for personalized advice.</p>
         </div>
       </footer>
+
+      {/* Property type dialog */}
+      <Dialog open={showPropertyTypeDialog} onOpenChange={open => { if (!open) { setShowPropertyTypeDialog(false); setPendingAnalysis(null); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>What type of property is this?</DialogTitle>
+            <DialogDescription>
+              {pendingAnalysis?.propertyAddress
+                ? `Select the occupancy type for ${pendingAnalysis.propertyAddress}.`
+                : "Select the occupancy type for this property."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 pt-2">
+            {PROPERTY_OPTIONS.map(({ type, label, description, icon }) => (
+              <button
+                key={type}
+                onClick={() => handlePropertyTypeSelect(type)}
+                className="flex items-center gap-4 w-full rounded-lg border p-4 text-left transition-colors hover:bg-accent hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <div className="text-primary shrink-0">{icon}</div>
+                <div>
+                  <p className="font-semibold text-sm">{label}</p>
+                  <p className="text-xs text-muted-foreground">{description}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Save-to-profile lead capture dialog */}
       <LeadCaptureDialog
