@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import {
   Home, RefreshCw, Shield, Search, LogOut, Trash2, ExternalLink,
-  MapPin, TrendingDown, DollarSign, Calendar, ChevronRight,
+  MapPin, Calendar,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -14,11 +14,8 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/context/auth-context";
-import {
-  getPurchaseScenarios, savePurchaseScenarios,
-  getInsuranceScenarios, saveInsuranceScenarios,
-  type PurchaseScenario, type InsuranceScenario,
-} from "@/lib/auth";
+import { getPurchaseScenarios } from "@/lib/auth";
+import { loadGoogleMapsApi } from "@/lib/script-loader";
 import type { TrackedLoan } from "@/components/refi/loan-tracker";
 
 const REFI_KEY = "refinance-tracked-loans";
@@ -173,23 +170,104 @@ function RefiTab() {
   );
 }
 
-// ── Purchase Tab ────────────────────────────────────────────────────
+// ── Purchase Tab — same search experience as the home page ──────────
 function PurchaseTab() {
   const [, setLocation] = useLocation();
-  const [scenarios, setScenarios] = useState<PurchaseScenario[]>(getPurchaseScenarios);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const autocompleteRef = useRef<any>(null);
 
-  function remove(id: string) {
-    const updated = scenarios.filter(s => s.id !== id);
-    setScenarios(updated);
-    savePurchaseScenarios(updated);
+  useEffect(() => {
+    async function init() {
+      try {
+        let apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
+        if (!apiKey) {
+          const res = await fetch("/api/config/google-maps-api-key");
+          const data = await res.json();
+          apiKey = data.apiKey || "";
+        }
+        if (!apiKey || !inputRef.current) return;
+        await loadGoogleMapsApi(apiKey);
+        if (!window.google?.maps?.places?.Autocomplete) return;
+        autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
+          types: ["address"],
+          componentRestrictions: { country: "us" },
+          fields: ["formatted_address"],
+        });
+        autocompleteRef.current.addListener("place_changed", () => {
+          const place = autocompleteRef.current.getPlace();
+          if (place?.formatted_address) {
+            setLocation(`/select-service?address=${encodeURIComponent(place.formatted_address)}`);
+          }
+        });
+      } catch (err) {
+        console.warn("Google Maps autocomplete unavailable:", err);
+      }
+    }
+    init();
+  }, []);
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const val = inputRef.current?.value?.trim();
+    if (!val) return;
+    setLocation(`/select-service?address=${encodeURIComponent(val)}`);
   }
 
-  if (scenarios.length === 0) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 px-4">
+      <div className="w-full max-w-2xl text-center">
+        <h2 className="text-2xl font-bold mb-2">What is the full cost of this home?</h2>
+        <p className="text-muted-foreground mb-8">
+          Enter any property address and instantly see your mortgage payment, insurance estimates, taxes, and whether you qualify.
+        </p>
+        <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder="Enter a property address..."
+              className="w-full pl-10 pr-4 h-14 text-base rounded-xl border bg-background shadow-sm outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+          <Button type="submit" size="lg" className="h-14 px-8 rounded-xl font-semibold text-base">
+            Get Estimate
+          </Button>
+        </form>
+        <p className="text-muted-foreground/60 text-sm mt-4">No extra steps · Instant results · Free to use</p>
+      </div>
+    </div>
+  );
+}
+
+// ── Insurance Tab — aggregates addresses from purchase + refinance ───
+function InsuranceTab() {
+  const [, setLocation] = useLocation();
+
+  // Collect unique addresses from purchase scenarios and refi loans
+  const addresses = (() => {
+    const seen = new Set<string>();
+    const list: { address: string; source: string }[] = [];
+
+    getPurchaseScenarios().forEach(s => {
+      const key = s.address.trim().toLowerCase();
+      if (!seen.has(key)) { seen.add(key); list.push({ address: s.address, source: "Purchase" }); }
+    });
+
+    loadRefiLoans().forEach(l => {
+      const key = l.propertyAddress.trim().toLowerCase();
+      if (!seen.has(key)) { seen.add(key); list.push({ address: l.propertyAddress, source: "Refinance" }); }
+    });
+
+    return list;
+  })();
+
+  if (addresses.length === 0) {
     return (
       <EmptyState
-        icon={<Home className="h-12 w-12" />}
-        title="No purchase scenarios saved yet"
-        body="Search for a property and save your estimate to track it here."
+        icon={<Shield className="h-12 w-12" />}
+        title="No saved addresses yet"
+        body="Once you search for a property or analyze a refinance loan, those addresses will appear here so you can quickly get an insurance quote."
         cta="Search a Property"
         href="/"
       />
@@ -197,175 +275,32 @@ function PurchaseTab() {
   }
 
   return (
-    <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-      {scenarios.map(s => (
-        <Card key={s.id} className="hover:shadow-md transition-shadow">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold leading-snug line-clamp-2">
-              <MapPin className="inline h-3.5 w-3.5 mr-1 text-muted-foreground" />
-              {s.address}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-              {s.price != null && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Price</p>
-                  <p className="font-semibold">{formatCurrency(s.price)}</p>
-                </div>
-              )}
-              {s.monthlyPayment != null && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Monthly Payment</p>
-                  <p className="font-semibold">{formatCurrency(s.monthlyPayment)}</p>
-                </div>
-              )}
-              {s.downPayment != null && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Down Payment</p>
-                  <p className="font-semibold">{formatCurrency(s.downPayment)}</p>
-                </div>
-              )}
-              {s.interestRate != null && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Rate</p>
-                  <p className="font-semibold">{s.interestRate}%</p>
-                </div>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <Calendar className="h-3 w-3" /> Saved {formatDate(s.savedAt)}
-            </p>
-            <div className="flex gap-2 pt-1">
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 gap-1 text-xs"
-                onClick={() => setLocation(`/select-service?address=${encodeURIComponent(s.address)}`)}
-              >
-                Open <ExternalLink className="h-3 w-3" />
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive px-2">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Remove this scenario?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will remove {s.address} from your saved purchase scenarios.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => remove(s.id)} className="bg-destructive hover:bg-destructive/90">Remove</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-
-      <button
-        onClick={() => setLocation("/")}
-        className="border-2 border-dashed border-border rounded-lg p-6 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-primary hover:text-primary transition-colors min-h-[180px]"
-      >
-        <Search className="h-6 w-6" />
-        <span className="text-sm font-medium">Search another property</span>
-      </button>
-    </div>
-  );
-}
-
-// ── Insurance Tab ───────────────────────────────────────────────────
-function InsuranceTab() {
-  const [, setLocation] = useLocation();
-  const [scenarios, setScenarios] = useState<InsuranceScenario[]>(getInsuranceScenarios);
-
-  function remove(id: string) {
-    const updated = scenarios.filter(s => s.id !== id);
-    setScenarios(updated);
-    saveInsuranceScenarios(updated);
-  }
-
-  if (scenarios.length === 0) {
-    return (
-      <EmptyState
-        icon={<Shield className="h-12 w-12" />}
-        title="No insurance quotes saved yet"
-        body="Get an insurance quote on any property to save it here for easy reference."
-        cta="Get a Quote"
-        href="/insurance"
-      />
-    );
-  }
-
-  return (
-    <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-      {scenarios.map(s => (
-        <Card key={s.id} className="hover:shadow-md transition-shadow">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold leading-snug line-clamp-2">
-              <MapPin className="inline h-3.5 w-3.5 mr-1 text-muted-foreground" />
-              {s.address}
-            </CardTitle>
-            {s.coverageType && (
-              <Badge variant="secondary" className="text-xs w-fit">{s.coverageType}</Badge>
-            )}
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {s.annualPremium != null && (
-              <div>
-                <p className="text-xs text-muted-foreground">Est. Annual Premium</p>
-                <p className="font-semibold text-lg">{formatCurrency(s.annualPremium)}</p>
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        These addresses are pulled from your saved purchase and refinance scenarios. Click any to get an insurance quote.
+      </p>
+      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        {addresses.map(({ address, source }) => (
+          <Card key={address} className="hover:shadow-md transition-shadow">
+            <CardContent className="pt-5 pb-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <p className="font-semibold text-sm leading-snug flex-1">
+                  <MapPin className="inline h-3.5 w-3.5 mr-1 text-muted-foreground shrink-0" />
+                  {address}
+                </p>
+                <Badge variant="secondary" className="text-xs shrink-0">{source}</Badge>
               </div>
-            )}
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <Calendar className="h-3 w-3" /> Saved {formatDate(s.savedAt)}
-            </p>
-            <div className="flex gap-2 pt-1">
               <Button
                 size="sm"
-                variant="outline"
-                className="flex-1 gap-1 text-xs"
-                onClick={() => setLocation(`/insurance?address=${encodeURIComponent(s.address)}`)}
+                className="w-full gap-2"
+                onClick={() => setLocation(`/insurance?address=${encodeURIComponent(address)}`)}
               >
-                Open <ExternalLink className="h-3 w-3" />
+                <Shield className="h-4 w-4" /> Get Insurance Quote
               </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive px-2">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Remove this quote?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will remove {s.address} from your saved insurance scenarios.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => remove(s.id)} className="bg-destructive hover:bg-destructive/90">Remove</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-
-      <button
-        onClick={() => setLocation("/insurance")}
-        className="border-2 border-dashed border-border rounded-lg p-6 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-primary hover:text-primary transition-colors min-h-[180px]"
-      >
-        <Shield className="h-6 w-6" />
-        <span className="text-sm font-medium">Get another quote</span>
-      </button>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }
