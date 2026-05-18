@@ -50,6 +50,10 @@ import {
   AlertTriangle,
   Minus,
   ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  ChevronUp,
+  ClipboardList,
 } from "lucide-react";
 import {
   Dialog,
@@ -501,6 +505,8 @@ export default function Estimate() {
   }
 
   // Share dialog
+  const [step, setStep] = useState(1);
+  const [answersOpen, setAnswersOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   function generateEstimatePDF() {
@@ -1140,6 +1146,20 @@ export default function Estimate() {
     );
   }
 
+  function SummaryRow({ label, value, onEdit }: { label: string; value: string; onEdit: () => void }) {
+    return (
+      <div className="flex justify-between items-center py-1.5 border-b border-border/30 last:border-0 gap-2">
+        <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-xs font-medium text-right truncate">{value}</span>
+          <button onClick={onEdit} className="text-primary/50 hover:text-primary transition-colors shrink-0" title="Edit">
+            <Pencil className="h-2.5 w-2.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -1245,12 +1265,26 @@ export default function Estimate() {
         </div>
 
         <div className="container mx-auto px-4 py-6">
-          <div className="space-y-6">
 
-            {/* ── INPUTS ─────────────────────────────────────────────── */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Step progress bar */}
+          <div className="max-w-2xl mx-auto mb-6">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-foreground">
+                {step === 1 ? "Borrower Profile" : step === 2 ? "Additional Info" : step === 3 ? "Purchase Details" : "Your Estimate"}
+              </p>
+              <p className="text-xs text-muted-foreground font-medium">Page {step} of 4</p>
+            </div>
+            <div className="flex gap-1.5">
+              {[1, 2, 3, 4].map((s) => (
+                <div key={s} className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${s <= step ? "bg-primary" : "bg-border"}`} />
+              ))}
+            </div>
+          </div>
 
-              {/* 1. Borrower Profile — TOP */}
+          <div className="max-w-2xl mx-auto space-y-4">
+
+            {/* ── STEP 1: Borrower Profile ─── */}
+            {step === 1 && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -1349,8 +1383,18 @@ export default function Estimate() {
 
                 </CardContent>
               </Card>
+            )}
 
-              {/* 2. Additional Info */}
+            {step === 1 && (
+              <div className="flex justify-end pt-2">
+                <Button onClick={() => setStep(2)} className="gap-2">
+                  Next <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
+            {/* ── STEP 2: Additional Info ─── */}
+            {step === 2 && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -1543,8 +1587,21 @@ export default function Estimate() {
                   )}
                 </CardContent>
               </Card>
+            )}
 
-              {/* 3. Purchase Details */}
+            {step === 2 && (
+              <div className="flex justify-between pt-2">
+                <Button variant="outline" onClick={() => setStep(1)} className="gap-2">
+                  <ChevronLeft className="h-4 w-4" /> Back
+                </Button>
+                <Button onClick={() => setStep(3)} className="gap-2">
+                  Next <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
+
+            {/* ── STEP 3: Purchase Details ─── */}
+            {step === 3 && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -1747,11 +1804,65 @@ export default function Estimate() {
 
                 </CardContent>
               </Card>
+            )}
 
-            </div>
+            {step === 3 && (
+              <div className="flex justify-between pt-2">
+                <Button variant="outline" onClick={() => setStep(2)} className="gap-2">
+                  <ChevronLeft className="h-4 w-4" /> Back
+                </Button>
+                <Button onClick={() => setStep(4)} className="gap-2">
+                  See My Estimate <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            )}
 
-            {/* ── RESULTS ─────────────────────────────────────────────── */}
-            <div className="space-y-4">
+            {/* ── STEP 4: Estimate ─── */}
+            {step === 4 && (
+              <div className="space-y-4">
+
+                {/* Collapsed answers accordion */}
+                <div className="border border-border rounded-xl overflow-hidden bg-white shadow-sm">
+                  <button
+                    onClick={() => setAnswersOpen((o) => !o)}
+                    className="w-full flex items-center justify-between px-4 py-3 bg-muted/30 hover:bg-muted/60 transition-colors text-left"
+                  >
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      <ClipboardList className="h-4 w-4 text-primary" />
+                      Review Your Answers (Pages 1–3)
+                    </span>
+                    {answersOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                  </button>
+                  {answersOpen && (
+                    <div className="border-t border-border px-4 py-4 grid grid-cols-1 sm:grid-cols-3 gap-6">
+                      <div>
+                        <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 1 — Borrower</p>
+                        <SummaryRow label="Property Use" value={inputs.occupancy === "primary" ? "Primary" : inputs.occupancy === "secondary" ? "Secondary" : "Investment"} onEdit={() => setStep(1)} />
+                        <SummaryRow label="Credit Score" value={String(inputs.creditScore)} onEdit={() => setStep(1)} />
+                        <SummaryRow label="Monthly Income" value={fmt(inputs.monthlyIncome)} onEdit={() => setStep(1)} />
+                        <SummaryRow label="Monthly Debts" value={fmt(inputs.monthlyDebts)} onEdit={() => setStep(1)} />
+                        <SummaryRow label="Reserves" value={fmt(inputs.reserves)} onEdit={() => setStep(1)} />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 2 — Additional</p>
+                        <SummaryRow label="Has Mortgage?" value={inputs.hasMortgage === true ? "Yes" : inputs.hasMortgage === false ? "No" : "—"} onEdit={() => setStep(2)} />
+                        {inputs.hasMortgage === true && <SummaryRow label="Current FHA?" value={inputs.currentLoanFHA === true ? "Yes" : inputs.currentLoanFHA === false ? "No" : "—"} onEdit={() => setStep(2)} />}
+                        {inputs.hasRentalIncome === true && <SummaryRow label="Rental Income" value={fmt(inputs.monthlyRentalIncome) + "/mo"} onEdit={() => setStep(2)} />}
+                        <SummaryRow label="Veteran?" value={inputs.isVeteran === true ? "Yes" : inputs.isVeteran === false ? "No" : "—"} onEdit={() => setStep(2)} />
+                        {inputs.isVeteran === true && <SummaryRow label="VA Disability?" value={inputs.vaDisability === true ? "Yes" : inputs.vaDisability === false ? "No" : "—"} onEdit={() => setStep(2)} />}
+                        {inputs.isVeteran === true && inputs.vaDisability === false && <SummaryRow label="VA Loan Use" value={inputs.vaLoanUse === "first" ? "First (2.15%)" : inputs.vaLoanUse === "second" ? "Second (3.30%)" : "—"} onEdit={() => setStep(2)} />}
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 3 — Purchase</p>
+                        <SummaryRow label="Purchase Price" value={fmt(inputs.purchasePrice)} onEdit={() => setStep(3)} />
+                        <SummaryRow label="Loan Type" value={inputs.loanType.toUpperCase()} onEdit={() => setStep(3)} />
+                        <SummaryRow label="Down Payment" value={`${Number(inputs.downPaymentPct).toFixed(1)}%`} onEdit={() => setStep(3)} />
+                        {inputs.sellerConcessions > 0 && <SummaryRow label="Seller Concessions" value={fmt(inputs.sellerConcessions)} onEdit={() => setStep(3)} />}
+                        <SummaryRow label="Interest Rate" value={`${inputs.interestRate.toFixed(3)}%`} onEdit={() => setStep(3)} />
+                      </div>
+                    </div>
+                  )}
+                </div>
 
               {/* Summary Banner */}
               <div className="overflow-hidden rounded-xl border-2 border-primary/20">
@@ -2130,6 +2241,7 @@ export default function Estimate() {
                 All estimates are for informational purposes only and are not a commitment to lend. Actual rates, payments, and qualification requirements may vary. Contact a licensed mortgage professional for a full analysis.
               </p>
             </div>
+            )}
           </div>
         </div>
       </div>

@@ -493,6 +493,15 @@ export default function InsuranceDashboard() {
         {/* ── Main content ── */}
         <div className="container mx-auto px-4 py-6 space-y-6">
 
+          {/* Page indicator */}
+          <div className="max-w-2xl mx-auto lg:max-w-none">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-foreground">Insurance Estimate</p>
+              <p className="text-xs text-muted-foreground font-medium">Page 1 of 1</p>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-primary" />
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6 items-start">
 
             {/* ── LEFT: Inputs ── */}
