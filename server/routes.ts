@@ -1,6 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import multer from "multer";
 import { storage } from "./storage";
+import { getLiveRates } from "./refi-rates";
+import { analyzeMortgageStatement } from "./anthropic-analyze";
 import { z } from "zod";
 import { 
   contactFormSchema, 
@@ -452,6 +455,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err) {
       console.error("Failed to fetch mortgage rates:", err);
       res.json({ conventional: 6.82, fha: 6.38, va: 6.25, source: "fallback", lastUpdated: null });
+    }
+  });
+
+  // Full live rates in LiveRatesResponse format (for refinance calculator)
+  const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+  app.get("/api/rates", async (req, res) => {
+    try {
+      const rates = await getLiveRates();
+      res.json(rates);
+    } catch (err) {
+      console.error("Error fetching rates:", err);
+      res.status(500).json({ error: "Failed to fetch rates" });
+    }
+  });
+
+  app.post("/api/analyze-statement", _upload.single("file"), async (req, res) => {
+    try {
+      let documentText = "";
+      if (req.file) {
+        if (req.file.mimetype === "application/pdf") {
+          const pdfParse = (await import("pdf-parse")).default;
+          const data = await pdfParse(req.file.buffer);
+          documentText = data.text;
+        } else if (req.file.mimetype.startsWith("text/")) {
+          documentText = req.file.buffer.toString("utf-8");
+        } else {
+          res.status(400).json({ success: false, error: "Unsupported file type. Please upload a PDF or text file." });
+          return;
+        }
+      } else if (req.body.documentText) {
+        documentText = req.body.documentText;
+      } else {
+        res.status(400).json({ success: false, error: "Please upload a file or provide document text." });
+        return;
+      }
+      if (!process.env.ANTHROPIC_API_KEY) {
+        res.status(500).json({ success: false, error: "Anthropic API key not configured." });
+        return;
+      }
+      const analysis = await analyzeMortgageStatement(documentText);
+      res.json({ success: true, analysis });
+    } catch (error) {
+      console.error("Error analyzing statement:", error);
+      res.status(500).json({ success: false, error: error instanceof Error ? error.message : "Failed to analyze statement" });
     }
   });
 
