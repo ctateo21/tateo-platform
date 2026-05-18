@@ -993,43 +993,118 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ─── FollowUpBoss integration ───────────────────────────────────────────────
 
+  function fubHeaders(apiKey: string) {
+    // FUB Basic auth: API key as username, empty password
+    return {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "Authorization": "Basic " + Buffer.from(`${apiKey}:`).toString("base64"),
+    };
+  }
+
+  // GET /api/leads/test-fub — verify API key, list users, AND send a test event
+  app.get("/api/leads/test-fub", async (_req, res) => {
+    const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: "FOLLOWUPBOSS_API_KEY not set on server" });
+
+    const result: Record<string, any> = { keyPresent: true, keyLength: apiKey.length };
+
+    // Step 1: auth check
+    try {
+      const r = await fetch("https://api.followupboss.com/v1/users", {
+        headers: fubHeaders(apiKey),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        result.authStatus = r.status;
+        result.authError = data;
+        return res.status(r.status).json(result);
+      }
+      result.authStatus = 200;
+      result.users = (data.users || []).map((u: any) => ({ id: u.id, name: u.name, email: u.email }));
+    } catch (err: any) {
+      result.authError = err.message;
+      return res.status(500).json(result);
+    }
+
+    // Step 2: send a test event (creates a person in FUB)
+    try {
+      const testPayload = {
+        source: "Tateo & Co Website",
+        type: "Property Inquiry",
+        firstName: "Test",
+        lastName: "Lead",
+        emails: [{ value: "testlead@example.com", type: "work" }],
+        phones: [{ value: "+18135550001", type: "mobile" }],
+        tags: ["Agent: Christian Tateo"],
+        message: "Test contact created from /api/leads/test-fub diagnostic endpoint.",
+      };
+      const r = await fetch("https://api.followupboss.com/v1/events", {
+        method: "POST",
+        headers: fubHeaders(apiKey),
+        body: JSON.stringify(testPayload),
+      });
+      const text = await r.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch { data = { raw: text }; }
+      result.eventStatus = r.status;
+      result.eventResponse = data;
+    } catch (err: any) {
+      result.eventError = err.message;
+    }
+
+    console.log("[FUB] Test result:", JSON.stringify(result));
+    res.json(result);
+  });
+
   async function createFollowUpBossContact(params: {
     firstName: string; lastName: string; email: string;
     phone: string; address?: string; agent?: string;
   }) {
     const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
-    if (!apiKey) { console.log("[FUB] No API key configured — skipping contact creation."); return; }
+    if (!apiKey) {
+      console.log("[FUB] FOLLOWUPBOSS_API_KEY not set — skipping contact creation.");
+      return;
+    }
 
     // "Team" always assigns to Christian Tateo
     const assignedAgent = params.agent === "Team" ? "Christian Tateo" : (params.agent || "Christian Tateo");
 
+    // Use /v1/events — the recommended FUB lead-creation endpoint.
+    // This creates the person AND fires lead-routing rules & notifications.
     const payload: Record<string, any> = {
+      source:    "Tateo & Co Website",
+      type:      "Property Inquiry",
       firstName: params.firstName,
-      lastName: params.lastName,
-      emails: [{ value: params.email, type: "work" }],
-      phones: [{ value: params.phone, type: "mobile" }],
-      source: "Tateo & Co Website",
-      tags: [`Agent: ${assignedAgent}`],
+      lastName:  params.lastName,
+      emails:    [{ value: params.email, type: "work" }],
+      phones:    [{ value: params.phone, type: "mobile" }],
+      tags:      [`Agent: ${assignedAgent}`],
+      message:   `Requesting estimate for: ${params.address || "address not provided"}. Working with: ${assignedAgent}.`,
     };
 
     if (params.address) {
-      payload.notes = `Property address: ${params.address}`;
+      payload.property = { street: params.address };
     }
 
-    const res = await fetch("https://api.followupboss.com/v1/people", {
+    console.log("[FUB] Creating contact via /v1/events:", JSON.stringify(payload));
+
+    const res = await fetch("https://api.followupboss.com/v1/events", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Basic " + Buffer.from(`${apiKey}:X`).toString("base64"),
-        "X-System": "Tateo & Co",
-        "X-System-Key": apiKey,
-      },
+      headers: fubHeaders(apiKey),
       body: JSON.stringify(payload),
     });
 
-    const data = await res.json();
-    if (!res.ok) throw new Error(JSON.stringify(data));
-    console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} → assigned to ${assignedAgent} (FUB id: ${data.id})`);
+    const text = await res.text();
+    let data: any;
+    try { data = JSON.parse(text); } catch { data = { raw: text }; }
+
+    if (!res.ok) {
+      console.error(`[FUB] Error ${res.status}:`, text);
+      throw new Error(`FUB ${res.status}: ${text}`);
+    }
+
+    console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} → agent: ${assignedAgent} (event id: ${data.id ?? "unknown"})`);
     return data;
   }
 
