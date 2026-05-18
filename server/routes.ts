@@ -1121,22 +1121,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const personId = data?.person?.id ?? data?.id;
     console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} | event id: ${data.id ?? "unknown"} | person id: ${personId ?? "unknown"}`);
 
-    // Step 2: PATCH /v1/people/{id} to assign to the correct agent
+    // Step 2: PUT /v1/people/{id} to set agent assignment + email + phone in FUB's required format
     if (personId) {
       try {
-        const patchRes = await fetch(`https://api.followupboss.com/v1/people/${personId}`, {
+        const personUpdate: Record<string, any> = {
+          assignedUserId: agentId,
+          emails: [{ value: params.email, type: "work" }],
+          phones: [{ value: params.phone.replace(/\D/g, ""), type: "mobile" }],
+        };
+        const putRes = await fetch(`https://api.followupboss.com/v1/people/${personId}`, {
           method: "PUT",
           headers: fubHeaders(apiKey),
-          body: JSON.stringify({ assignedUserId: agentId }),
+          body: JSON.stringify(personUpdate),
         });
-        if (patchRes.ok) {
-          console.log(`[FUB] Assigned person ${personId} to ${agentName} (userId:${agentId})`);
+        if (putRes.ok) {
+          console.log(`[FUB] Updated person ${personId}: assigned to ${agentName} (userId:${agentId}), email+phone set`);
         } else {
-          const patchErr = await patchRes.text();
-          console.warn(`[FUB] Assignment PATCH failed ${patchRes.status}:`, patchErr);
+          const putErr = await putRes.text();
+          console.warn(`[FUB] Person PUT failed ${putRes.status}:`, putErr);
         }
-      } catch (patchErr: any) {
-        console.warn("[FUB] Assignment PATCH error:", patchErr.message);
+      } catch (putErr: any) {
+        console.warn("[FUB] Person PUT error:", putErr.message);
       }
     }
 
