@@ -2515,12 +2515,29 @@ export default function Estimate() {
       />
 
       <Dialog open={showAddressPrompt} onOpenChange={setShowAddressPrompt}>
-        <DialogContent className="sm:max-w-sm">
+        <DialogContent
+          className="sm:max-w-sm"
+          aria-describedby="add-property-desc"
+          // Google Places Autocomplete renders its dropdown (.pac-container)
+          // directly inside <body>, which Radix sees as "outside" the dialog.
+          // Without this guard, clicking a suggestion closes the dialog
+          // BEFORE `place_changed` fires — and the address is lost.
+          onPointerDownOutside={(e) => {
+            const target = e.target as HTMLElement | null;
+            if (target?.closest(".pac-container")) e.preventDefault();
+          }}
+          onInteractOutside={(e) => {
+            const target = e.target as HTMLElement | null;
+            if (target?.closest(".pac-container")) e.preventDefault();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>Add New Property</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 pt-1">
-            <p className="text-sm text-muted-foreground">Enter the address for your new scenario (up to 5 total).</p>
+            <p id="add-property-desc" className="text-sm text-muted-foreground">
+              Enter the address for your new scenario (up to 5 total).
+            </p>
             <div className="relative">
               <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <input
@@ -2528,7 +2545,19 @@ export default function Estimate() {
                 type="text"
                 value={newScenarioAddress}
                 onChange={(e) => setNewScenarioAddress(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && confirmNewScenario()}
+                onKeyDown={(e) => {
+                  // If the Google suggestions dropdown is visible, let Google
+                  // handle Enter (it selects the highlighted suggestion and
+                  // fires place_changed). Otherwise, submit the typed value.
+                  if (e.key !== "Enter") return;
+                  const pac = document.querySelector(".pac-container") as HTMLElement | null;
+                  const pacOpen = pac && pac.offsetParent !== null && pac.children.length > 0;
+                  if (pacOpen) {
+                    e.preventDefault(); // let Google's listener consume it
+                    return;
+                  }
+                  confirmNewScenario();
+                }}
                 placeholder="123 Main St, City, State…"
                 autoComplete="off"
                 className="w-full pl-9 pr-3 py-2 text-sm border rounded-md outline-none focus:ring-2 ring-primary/30 focus:border-primary"
