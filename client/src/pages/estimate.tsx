@@ -431,20 +431,40 @@ export default function Estimate() {
   // Init Google Maps autocomplete on the new-scenario address prompt
   useEffect(() => {
     if (!showAddressPrompt) return;
-    const timer = setTimeout(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
       if (!newScenarioInputRef.current) return;
-      loadGoogleMapsApi().then(() => {
+      try {
+        let apiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || "";
+        if (!apiKey) {
+          const res = await fetch("/api/config/google-maps-api-key");
+          const data = await res.json();
+          apiKey = data.apiKey || "";
+        }
+        if (!apiKey || cancelled || !newScenarioInputRef.current) return;
+        await loadGoogleMapsApi(apiKey);
+        if (cancelled || !(window as any).google?.maps?.places?.Autocomplete || !newScenarioInputRef.current) return;
         const ac = new (window as any).google.maps.places.Autocomplete(
-          newScenarioInputRef.current, { types: ["address"] }
+          newScenarioInputRef.current,
+          { types: ["address"], componentRestrictions: { country: "us" }, fields: ["formatted_address"] }
         );
         ac.addListener("place_changed", () => {
           const place = ac.getPlace();
-          if (place.formatted_address) setNewScenarioAddress(place.formatted_address);
+          if (place?.formatted_address) setNewScenarioAddress(place.formatted_address);
         });
         newScenarioAcRef.current = ac;
-      });
+      } catch (err) {
+        console.warn("New-scenario autocomplete unavailable:", err);
+      }
     }, 100);
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      if (newScenarioAcRef.current) {
+        (window as any).google?.maps?.event?.clearInstanceListeners?.(newScenarioAcRef.current);
+        newScenarioAcRef.current = null;
+      }
+    };
   }, [showAddressPrompt]);
 
   function switchScenario(targetId: string) {
