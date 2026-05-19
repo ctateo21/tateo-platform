@@ -54,7 +54,7 @@ export interface LiveRate {
   lastUpdated: string;
 }
 
-const PROPERTY_TYPE_ADJUSTMENTS: Record<PropertyType, number> = { primary: 0.00, secondary: 0.25, investment: 0.75 };
+export const PROPERTY_TYPE_ADJUSTMENTS: Record<PropertyType, number> = { primary: 0.00, secondary: 0.25, investment: 0.75 };
 const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = { primary: "Primary Home", secondary: "2nd Home", investment: "Investment" };
 const PROPERTY_TYPE_COLORS: Record<PropertyType, string> = { primary: "bg-background text-foreground border", secondary: "bg-amber-600 text-white border-amber-600", investment: "bg-red-600 text-white border-red-600" };
 
@@ -70,7 +70,7 @@ const CASH_OUT_MAX_LTV = 0.75;
 
 type HeProduct = "heloc" | "he_loan";
 
-function getBestConventionalRate(rates: LiveRate[]): LiveRate | null {
+export function getBestConventionalRate(rates: LiveRate[]): LiveRate | null {
   return rates.find(r => r.name === "30 Yr. Fixed") ?? rates.find(r => r.type === "Conventional") ?? rates[0] ?? null;
 }
 
@@ -81,9 +81,9 @@ function getRateDelta(currentRate: number, newRate: number) {
   return { label: "Rates similar", color: "text-muted-foreground", bg: "bg-muted/40 border-border" };
 }
 
-type BestOption = { type: "rate_term" | "second_lien" | "hold"; label: string; reason: string; badgeClass: string; cardBg: string; Icon: React.ElementType };
+export type BestOption = { type: "rate_term" | "second_lien" | "hold"; label: string; reason: string; badgeClass: string; cardBg: string; Icon: React.ElementType };
 
-function getBestOption(loan: TrackedLoan, adjustedTodayRate: number, propertyType: PropertyType): BestOption {
+export function getBestOption(loan: TrackedLoan, adjustedTodayRate: number, propertyType: PropertyType): BestOption {
   const { loanBalance, estimatedHomeValue: homeValue, currentRate } = loan;
   const rateDelta = currentRate - adjustedTodayRate;
   const maxCltv = HE_MAX_CLTV[propertyType];

@@ -2,8 +2,9 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import {
   Home, RefreshCw, Shield, Search, LogOut, Trash2, ExternalLink,
-  MapPin, Calendar, Plus, X,
+  MapPin, Calendar, Plus, X, ChevronDown, ChevronUp, Pencil, Check,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,7 +17,15 @@ import {
 import { useAuth } from "@/context/auth-context";
 import { getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
-import type { TrackedLoan } from "@/components/refi/loan-tracker";
+import {
+  getBestOption, getBestConventionalRate, PROPERTY_TYPE_ADJUSTMENTS,
+  type TrackedLoan, type LiveRate, type BestOption,
+} from "@/components/refi/loan-tracker";
+
+interface LiveRatesResponse { rates: LiveRate[]; source: string; disclaimer: string; asOf: string; }
+
+// Fallback "today's market" rate when live rates haven't loaded yet.
+const FALLBACK_TODAY_RATE = 6.65;
 
 const REFI_KEY = "refinance-tracked-loans";
 const PROPERTY_TYPE_LABELS: Record<string, string> = {
@@ -36,11 +45,67 @@ function formatDate(iso: string) {
 }
 
 function loadRefiLoans(): TrackedLoan[] {
-  try { return JSON.parse(localStorage.getItem(REFI_KEY) || "[]"); }
-  catch { return []; }
+  try {
+    const loans = JSON.parse(localStorage.getItem(REFI_KEY) || "[]") as TrackedLoan[];
+    return loans.map(l => ({ ...l, propertyType: l.propertyType ?? "primary" }));
+  } catch { return []; }
 }
 function saveRefiLoans(loans: TrackedLoan[]) {
   try { localStorage.setItem(REFI_KEY, JSON.stringify(loans)); } catch {}
+}
+
+function HomeValueEditor({ value, onSave }: { value: number; onSave: (v: number) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState(String(Math.round(value)));
+
+  function commit() {
+    const parsed = parseFloat(input.replace(/[^0-9.]/g, ""));
+    if (!isNaN(parsed) && parsed > 0) onSave(parsed);
+    setEditing(false);
+  }
+
+  return (
+    <div
+      className="flex items-center justify-between gap-2 rounded-md border bg-background/80 p-3 flex-wrap"
+      onClick={e => e.stopPropagation()}
+    >
+      <div className="space-y-0.5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Est. Home Value</p>
+        {editing ? (
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">$</span>
+            <input
+              type="text"
+              className="border rounded px-2 py-1 text-sm w-36 bg-background"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") commit();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              autoFocus
+            />
+            <Button size="sm" variant="ghost" onClick={commit} className="h-7 px-2"><Check className="h-3 w-3" /></Button>
+            <Button size="sm" variant="ghost" onClick={() => setEditing(false)} className="h-7 px-2"><X className="h-3 w-3" /></Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="font-bold text-base">{formatCurrency(value)}</span>
+            <button
+              onClick={() => { setInput(String(Math.round(value))); setEditing(true); }}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Edit estimated home value"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground max-w-xs">
+        Update this to refine the recommendation based on your actual equity.
+      </p>
+    </div>
+  );
 }
 
 // ── Empty state ─────────────────────────────────────────────────────
@@ -66,11 +131,28 @@ function EmptyState({ icon, title, body, cta, href }: {
 function RefiTab() {
   const [, setLocation] = useLocation();
   const [loans, setLoans] = useState<TrackedLoan[]>(loadRefiLoans);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const { data: ratesData } = useQuery<LiveRatesResponse>({ queryKey: ["/api/rates"] });
+  const liveRates = ratesData?.rates ?? [];
 
   function remove(id: string) {
     const updated = loans.filter(l => l.id !== id);
     setLoans(updated);
     saveRefiLoans(updated);
+  }
+
+  function updateHomeValue(id: string, newValue: number) {
+    const updated = loans.map(l => l.id === id ? { ...l, estimatedHomeValue: newValue } : l);
+    setLoans(updated);
+    saveRefiLoans(updated);
+  }
+
+  function getRecommendation(loan: TrackedLoan): BestOption {
+    const bestRate = getBestConventionalRate(liveRates);
+    const rateAdj = PROPERTY_TYPE_ADJUSTMENTS[loan.propertyType] ?? 0;
+    const adjustedTodayRate = (bestRate?.rate ?? FALLBACK_TODAY_RATE) + rateAdj;
+    return getBestOption(loan, adjustedTodayRate, loan.propertyType);
   }
 
   if (loans.length === 0) {
@@ -87,96 +169,133 @@ function RefiTab() {
 
   return (
     <div className="space-y-3">
-      {loans.map(loan => (
-        <Card
-          key={loan.id}
-          className="group relative hover:shadow-md transition-shadow cursor-pointer"
-          onClick={() => setLocation("/refinance")}
-        >
-          <CardContent className="py-4">
-            <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-              {/* Address + meta */}
-              <div className="flex-1 min-w-0 lg:max-w-xs">
-                <div className="flex items-start gap-2">
-                  <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                  <div className="min-w-0">
-                    <p className="font-semibold text-sm leading-snug line-clamp-2">{loan.propertyAddress}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{loan.lender}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                      <Calendar className="h-3 w-3" /> Saved {formatDate(loan.addedAt)}
-                    </p>
+      {loans.map(loan => {
+        const rec = getRecommendation(loan);
+        const isExpanded = expandedId === loan.id;
+        return (
+          <Card
+            key={loan.id}
+            className="group relative hover:shadow-md transition-shadow overflow-hidden"
+          >
+            <CardContent
+              className="py-4 cursor-pointer"
+              onClick={() => setLocation("/refinance")}
+            >
+              <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                {/* Address + meta */}
+                <div className="flex-1 min-w-0 lg:max-w-xs">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm leading-snug line-clamp-2">{loan.propertyAddress}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{loan.lender}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                        <Calendar className="h-3 w-3" /> Saved {formatDate(loan.addedAt)}
+                      </p>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Property type badge */}
-              <div className="flex lg:block">
-                <Badge variant="outline" className={`text-xs ${PROPERTY_TYPE_COLORS[loan.propertyType] || ""}`}>
-                  {PROPERTY_TYPE_LABELS[loan.propertyType] || loan.propertyType}
-                </Badge>
-              </div>
+                {/* Property type badge */}
+                <div className="flex lg:block">
+                  <Badge variant="outline" className={`text-xs ${PROPERTY_TYPE_COLORS[loan.propertyType] || ""}`}>
+                    {PROPERTY_TYPE_LABELS[loan.propertyType] || loan.propertyType}
+                  </Badge>
+                </div>
 
-              {/* Stats */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm flex-1">
-                <div>
-                  <p className="text-xs text-muted-foreground">Balance</p>
-                  <p className="font-semibold">{formatCurrency(loan.loanBalance)}</p>
+                {/* Stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm flex-1">
+                  <div>
+                    <p className="text-xs text-muted-foreground">Balance</p>
+                    <p className="font-semibold">{formatCurrency(loan.loanBalance)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Rate</p>
+                    <p className="font-semibold">{loan.currentRate}%</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Monthly P&amp;I</p>
+                    <p className="font-semibold">{formatCurrency(loan.currentPI)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">Est. Value</p>
+                    <p className="font-semibold">{formatCurrency(loan.estimatedHomeValue)}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Rate</p>
-                  <p className="font-semibold">{loan.currentRate}%</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Monthly P&amp;I</p>
-                  <p className="font-semibold">{formatCurrency(loan.currentPI)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Est. Value</p>
-                  <p className="font-semibold">{formatCurrency(loan.estimatedHomeValue)}</p>
-                </div>
-              </div>
 
-              {/* Actions */}
-              <div className="flex gap-2 lg:shrink-0">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1 text-xs"
-                  onClick={e => { e.stopPropagation(); setLocation("/refinance"); }}
-                >
-                  Open <ExternalLink className="h-3 w-3" />
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive px-2"
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent onClick={e => e.stopPropagation()}>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Remove this loan?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This will remove {loan.propertyAddress} from your saved scenarios. You can re-analyze it anytime.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => remove(loan.id)} className="bg-destructive hover:bg-destructive/90">
-                        Remove
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                {/* Actions */}
+                <div className="flex gap-2 lg:shrink-0 items-center">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="gap-1 text-xs px-2"
+                    onClick={e => {
+                      e.stopPropagation();
+                      setExpandedId(isExpanded ? null : loan.id);
+                    }}
+                    aria-label={isExpanded ? "Hide recommendation" : "Show recommendation"}
+                  >
+                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1 text-xs"
+                    onClick={e => { e.stopPropagation(); setLocation("/refinance"); }}
+                  >
+                    Open <ExternalLink className="h-3 w-3" />
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive px-2"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent onClick={e => e.stopPropagation()}>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Remove this loan?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will remove {loan.propertyAddress} from your saved scenarios. You can re-analyze it anytime.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={() => remove(loan.id)} className="bg-destructive hover:bg-destructive/90">
+                          Remove
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+            </CardContent>
+
+            {isExpanded && (
+              <div className={`border-t p-4 space-y-3 ${rec.cardBg}`}>
+                <div className="flex items-start gap-3">
+                  <rec.Icon className="h-5 w-5 mt-0.5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <p className="font-semibold text-sm">Recommended:</p>
+                      <Badge variant="outline" className={`text-xs ${rec.badgeClass}`}>{rec.label}</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{rec.reason}</p>
+                  </div>
+                </div>
+                <HomeValueEditor
+                  value={loan.estimatedHomeValue}
+                  onSave={v => updateHomeValue(loan.id, v)}
+                />
+              </div>
+            )}
+          </Card>
+        );
+      })}
 
       {/* Add more CTA */}
       <button
