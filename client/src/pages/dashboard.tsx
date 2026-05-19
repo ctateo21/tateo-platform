@@ -57,24 +57,81 @@ function saveRefiLoans(loans: TrackedLoan[]) {
   try { localStorage.setItem(REFI_KEY, JSON.stringify(loans)); } catch {}
 }
 
-function RecStat({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
+function RecStat({ label, value, valueClass }: { label: string; value: React.ReactNode; valueClass?: string }) {
   return (
-    <div className="rounded-md border bg-background/80 p-2.5">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
-      <p className={`text-sm font-bold ${valueClass ?? ""}`}>{value}</p>
+    <div className="rounded-md border bg-background/80 p-2.5 min-w-0">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">{label}</p>
+      <p className={`text-sm font-bold truncate ${valueClass ?? ""}`}>{value}</p>
     </div>
   );
 }
 
-function RecOverview({ loan, details }: { loan: TrackedLoan; details: { rec: BestOption; adjustedTodayRate: number; rateTermNewPI: number; rateTermMonthlySavings: number; rateTermBreakEvenMonths: number; heAvailable: number; heRate: number; heMonthly: number } }) {
+function HomeValueStat({ value, onSave }: { value: number; onSave: (v: number) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [input, setInput] = useState(String(Math.round(value)));
+
+  function commit() {
+    const parsed = parseFloat(input.replace(/[^0-9.]/g, ""));
+    if (!isNaN(parsed) && parsed > 0) onSave(parsed);
+    setEditing(false);
+  }
+
+  return (
+    <div className="rounded-md border bg-background/80 p-2.5 min-w-0" onClick={e => e.stopPropagation()}>
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold truncate">Est. Home Value</p>
+      {editing ? (
+        <div className="flex items-center gap-1 mt-0.5">
+          <span className="text-xs font-medium">$</span>
+          <input
+            type="text"
+            className="border rounded px-1.5 py-0.5 text-xs w-full min-w-0 bg-background"
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter") commit();
+              if (e.key === "Escape") setEditing(false);
+            }}
+            autoFocus
+          />
+          <button onClick={commit} className="text-green-600 hover:text-green-700 shrink-0" aria-label="Save"><Check className="h-3.5 w-3.5" /></button>
+          <button onClick={() => setEditing(false)} className="text-muted-foreground hover:text-foreground shrink-0" aria-label="Cancel"><X className="h-3.5 w-3.5" /></button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-bold truncate">{formatCurrency(value)}</span>
+          <button
+            onClick={() => { setInput(String(Math.round(value))); setEditing(true); }}
+            className="text-muted-foreground hover:text-foreground shrink-0"
+            aria-label="Edit estimated home value"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecOverview({
+  loan,
+  details,
+  onUpdateHomeValue,
+}: {
+  loan: TrackedLoan;
+  details: { rec: BestOption; adjustedTodayRate: number; rateTermNewPI: number; rateTermMonthlySavings: number; rateTermBreakEvenMonths: number; heAvailable: number; heRate: number; heMonthly: number };
+  onUpdateHomeValue: (v: number) => void;
+}) {
   const { rec, adjustedTodayRate, rateTermNewPI, rateTermMonthlySavings, rateTermBreakEvenMonths, heAvailable, heRate, heMonthly } = details;
+
+  const homeValueStat = <HomeValueStat value={loan.estimatedHomeValue} onSave={onUpdateHomeValue} />;
 
   if (rec.type === "rate_term") {
     const savingsClass = rateTermMonthlySavings > 0 ? "text-green-700" : "text-red-600";
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        {homeValueStat}
         <RecStat label="New Rate" value={`${adjustedTodayRate.toFixed(2)}%`} valueClass="text-blue-700" />
-        <RecStat label="New Monthly P&I" value={`${formatCurrency(rateTermNewPI)}/mo`} />
+        <RecStat label="New Monthly" value={`${formatCurrency(rateTermNewPI)}/mo`} />
         <RecStat
           label="Monthly Savings"
           value={`${rateTermMonthlySavings > 0 ? "+" : ""}${formatCurrency(rateTermMonthlySavings)}`}
@@ -90,10 +147,11 @@ function RecOverview({ loan, details }: { loan: TrackedLoan; details: { rec: Bes
 
   if (rec.type === "second_lien") {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        {homeValueStat}
         <RecStat label="Equity Available" value={formatCurrency(heAvailable)} valueClass="text-yellow-800" />
         <RecStat label="2nd Lien Rate" value={`${heRate.toFixed(2)}%`} />
-        <RecStat label="Est. Monthly Pmt" value={heMonthly > 0 ? `${formatCurrency(heMonthly)}/mo` : "—"} />
+        <RecStat label="Est. Monthly" value={heMonthly > 0 ? `${formatCurrency(heMonthly)}/mo` : "—"} />
         <RecStat label="1st Lien Stays" value={`${loan.currentRate}%`} />
       </div>
     );
@@ -101,65 +159,12 @@ function RecOverview({ loan, details }: { loan: TrackedLoan; details: { rec: Bes
 
   // hold
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+      {homeValueStat}
       <RecStat label="Your Rate" value={`${loan.currentRate}%`} valueClass="text-green-700" />
       <RecStat label="Today's Rate" value={`${adjustedTodayRate.toFixed(2)}%`} />
       <RecStat label="Monthly P&I" value={`${formatCurrency(loan.currentPI)}/mo`} />
-      <RecStat label="Action" value="Hold — keep loan" />
-    </div>
-  );
-}
-
-function HomeValueEditor({ value, onSave }: { value: number; onSave: (v: number) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [input, setInput] = useState(String(Math.round(value)));
-
-  function commit() {
-    const parsed = parseFloat(input.replace(/[^0-9.]/g, ""));
-    if (!isNaN(parsed) && parsed > 0) onSave(parsed);
-    setEditing(false);
-  }
-
-  return (
-    <div
-      className="flex items-center justify-between gap-2 rounded-md border bg-background/80 p-3 flex-wrap"
-      onClick={e => e.stopPropagation()}
-    >
-      <div className="space-y-0.5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Est. Home Value</p>
-        {editing ? (
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium">$</span>
-            <input
-              type="text"
-              className="border rounded px-2 py-1 text-sm w-36 bg-background"
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") commit();
-                if (e.key === "Escape") setEditing(false);
-              }}
-              autoFocus
-            />
-            <Button size="sm" variant="ghost" onClick={commit} className="h-7 px-2"><Check className="h-3 w-3" /></Button>
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)} className="h-7 px-2"><X className="h-3 w-3" /></Button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-base">{formatCurrency(value)}</span>
-            <button
-              onClick={() => { setInput(String(Math.round(value))); setEditing(true); }}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label="Edit estimated home value"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-      </div>
-      <p className="text-xs text-muted-foreground max-w-xs">
-        Update this to refine the recommendation based on your actual equity.
-      </p>
+      <RecStat label="Action" value="Hold" />
     </div>
   );
 }
@@ -382,11 +387,10 @@ function RefiTab() {
                 </div>
               </div>
 
-              <RecOverview loan={loan} details={details} />
-
-              <HomeValueEditor
-                value={loan.estimatedHomeValue}
-                onSave={v => updateHomeValue(loan.id, v)}
+              <RecOverview
+                loan={loan}
+                details={details}
+                onUpdateHomeValue={v => updateHomeValue(loan.id, v)}
               />
             </div>
           </Card>
