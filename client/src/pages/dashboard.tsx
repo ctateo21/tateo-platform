@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import {
   Home, RefreshCw, Shield, Search, LogOut, Trash2, ExternalLink,
-  MapPin, Calendar, Plus, X, ChevronDown, ChevronUp, Pencil, Check,
+  MapPin, Calendar, Plus, X, Pencil, Check,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -19,8 +19,11 @@ import { getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import {
   getBestOption, getBestConventionalRate, PROPERTY_TYPE_ADJUSTMENTS,
+  HE_MAX_CLTV, HE_RATE_MARGIN, NEW_TERM_YEARS,
+  CLOSING_COST_PERCENT, CLOSING_COST_FIXED,
   type TrackedLoan, type LiveRate, type BestOption,
 } from "@/components/refi/loan-tracker";
+import { calculateRefinance, calculateMonthlyPayment, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
 
 interface LiveRatesResponse { rates: LiveRate[]; source: string; disclaimer: string; asOf: string; }
 
@@ -52,6 +55,59 @@ function loadRefiLoans(): TrackedLoan[] {
 }
 function saveRefiLoans(loans: TrackedLoan[]) {
   try { localStorage.setItem(REFI_KEY, JSON.stringify(loans)); } catch {}
+}
+
+function RecStat({ label, value, valueClass }: { label: string; value: string; valueClass?: string }) {
+  return (
+    <div className="rounded-md border bg-background/80 p-2.5">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">{label}</p>
+      <p className={`text-sm font-bold ${valueClass ?? ""}`}>{value}</p>
+    </div>
+  );
+}
+
+function RecOverview({ loan, details }: { loan: TrackedLoan; details: { rec: BestOption; adjustedTodayRate: number; rateTermNewPI: number; rateTermMonthlySavings: number; rateTermBreakEvenMonths: number; heAvailable: number; heRate: number; heMonthly: number } }) {
+  const { rec, adjustedTodayRate, rateTermNewPI, rateTermMonthlySavings, rateTermBreakEvenMonths, heAvailable, heRate, heMonthly } = details;
+
+  if (rec.type === "rate_term") {
+    const savingsClass = rateTermMonthlySavings > 0 ? "text-green-700" : "text-red-600";
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <RecStat label="New Rate" value={`${adjustedTodayRate.toFixed(2)}%`} valueClass="text-blue-700" />
+        <RecStat label="New Monthly P&I" value={`${formatCurrency(rateTermNewPI)}/mo`} />
+        <RecStat
+          label="Monthly Savings"
+          value={`${rateTermMonthlySavings > 0 ? "+" : ""}${formatCurrency(rateTermMonthlySavings)}`}
+          valueClass={savingsClass}
+        />
+        <RecStat
+          label="Break-Even"
+          value={rateTermBreakEvenMonths > 0 ? `${rateTermBreakEvenMonths} mo` : "N/A"}
+        />
+      </div>
+    );
+  }
+
+  if (rec.type === "second_lien") {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <RecStat label="Equity Available" value={formatCurrency(heAvailable)} valueClass="text-yellow-800" />
+        <RecStat label="2nd Lien Rate" value={`${heRate.toFixed(2)}%`} />
+        <RecStat label="Est. Monthly Pmt" value={heMonthly > 0 ? `${formatCurrency(heMonthly)}/mo` : "—"} />
+        <RecStat label="1st Lien Stays" value={`${loan.currentRate}%`} />
+      </div>
+    );
+  }
+
+  // hold
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <RecStat label="Your Rate" value={`${loan.currentRate}%`} valueClass="text-green-700" />
+      <RecStat label="Today's Rate" value={`${adjustedTodayRate.toFixed(2)}%`} />
+      <RecStat label="Monthly P&I" value={`${formatCurrency(loan.currentPI)}/mo`} />
+      <RecStat label="Action" value="Hold — keep loan" />
+    </div>
+  );
 }
 
 function HomeValueEditor({ value, onSave }: { value: number; onSave: (v: number) => void }) {
@@ -128,10 +184,21 @@ function EmptyState({ icon, title, body, cta, href }: {
 }
 
 // ── Refinance Tab ───────────────────────────────────────────────────
+interface RecDetails {
+  rec: BestOption;
+  adjustedTodayRate: number;
+  currentBalance: number;
+  rateTermNewPI: number;
+  rateTermMonthlySavings: number;
+  rateTermBreakEvenMonths: number;
+  heAvailable: number;
+  heRate: number;
+  heMonthly: number;
+}
+
 function RefiTab() {
   const [, setLocation] = useLocation();
   const [loans, setLoans] = useState<TrackedLoan[]>(loadRefiLoans);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const { data: ratesData } = useQuery<LiveRatesResponse>({ queryKey: ["/api/rates"] });
   const liveRates = ratesData?.rates ?? [];
@@ -148,11 +215,51 @@ function RefiTab() {
     saveRefiLoans(updated);
   }
 
-  function getRecommendation(loan: TrackedLoan): BestOption {
+  function getRecDetails(loan: TrackedLoan): RecDetails {
     const bestRate = getBestConventionalRate(liveRates);
     const rateAdj = PROPERTY_TYPE_ADJUSTMENTS[loan.propertyType] ?? 0;
     const adjustedTodayRate = (bestRate?.rate ?? FALLBACK_TODAY_RATE) + rateAdj;
-    return getBestOption(loan, adjustedTodayRate, loan.propertyType);
+
+    const liveMonths = monthsBetween(loan.balanceAsOf ?? loan.addedAt);
+    const currentBalance = liveMonths > 0 && loan.currentPI > 0
+      ? amortizeBalance(loan.loanBalance, loan.currentRate, loan.currentPI, liveMonths)
+      : loan.loanBalance;
+
+    const rec = getBestOption(
+      { ...loan, loanBalance: currentBalance },
+      adjustedTodayRate,
+      loan.propertyType
+    );
+
+    const rateTerm = calculateRefinance({
+      appraisedValue: loan.estimatedHomeValue,
+      loanBalance: currentBalance,
+      currentInterestRate: loan.currentRate,
+      newInterestRate: adjustedTodayRate,
+      currentTermRemainingYears: Math.max(1, Math.round(loan.estimatedRemainingYears)),
+      newLoanTermYears: NEW_TERM_YEARS,
+      closingCostsPercent: CLOSING_COST_PERCENT,
+      closingCostsFixed: CLOSING_COST_FIXED,
+      includeClosingCostsInLoan: true,
+      refinanceType: "rate_and_term",
+    });
+
+    const maxCltv = HE_MAX_CLTV[loan.propertyType] ?? 0.9;
+    const heAvailable = Math.max(0, Math.floor(loan.estimatedHomeValue * maxCltv - currentBalance));
+    const heRate = adjustedTodayRate + HE_RATE_MARGIN;
+    const heMonthly = heAvailable > 0 ? calculateMonthlyPayment(heAvailable, heRate, 15) : 0;
+
+    return {
+      rec,
+      adjustedTodayRate,
+      currentBalance,
+      rateTermNewPI: rateTerm.monthlyPaymentNew,
+      rateTermMonthlySavings: rateTerm.monthlySavings,
+      rateTermBreakEvenMonths: rateTerm.breakEvenMonths,
+      heAvailable,
+      heRate,
+      heMonthly,
+    };
   }
 
   if (loans.length === 0) {
@@ -170,8 +277,8 @@ function RefiTab() {
   return (
     <div className="space-y-3">
       {loans.map(loan => {
-        const rec = getRecommendation(loan);
-        const isExpanded = expandedId === loan.id;
+        const details = getRecDetails(loan);
+        const { rec } = details;
         return (
           <Card
             key={loan.id}
@@ -227,18 +334,6 @@ function RefiTab() {
                 <div className="flex gap-2 lg:shrink-0 items-center">
                   <Button
                     size="sm"
-                    variant="ghost"
-                    className="gap-1 text-xs px-2"
-                    onClick={e => {
-                      e.stopPropagation();
-                      setExpandedId(isExpanded ? null : loan.id);
-                    }}
-                    aria-label={isExpanded ? "Hide recommendation" : "Show recommendation"}
-                  >
-                    {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  </Button>
-                  <Button
-                    size="sm"
                     variant="outline"
                     className="gap-1 text-xs"
                     onClick={e => { e.stopPropagation(); setLocation("/refinance"); }}
@@ -275,24 +370,25 @@ function RefiTab() {
               </div>
             </CardContent>
 
-            {isExpanded && (
-              <div className={`border-t p-4 space-y-3 ${rec.cardBg}`}>
-                <div className="flex items-start gap-3">
-                  <rec.Icon className="h-5 w-5 mt-0.5 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <p className="font-semibold text-sm">Recommended:</p>
-                      <Badge variant="outline" className={`text-xs ${rec.badgeClass}`}>{rec.label}</Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground">{rec.reason}</p>
+            <div className={`border-t p-4 space-y-3 ${rec.cardBg}`} onClick={e => e.stopPropagation()}>
+              <div className="flex items-start gap-3">
+                <rec.Icon className="h-5 w-5 mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <p className="font-semibold text-sm">Recommended:</p>
+                    <Badge variant="outline" className={`text-xs ${rec.badgeClass}`}>{rec.label}</Badge>
                   </div>
+                  <p className="text-sm text-muted-foreground">{rec.reason}</p>
                 </div>
-                <HomeValueEditor
-                  value={loan.estimatedHomeValue}
-                  onSave={v => updateHomeValue(loan.id, v)}
-                />
               </div>
-            )}
+
+              <RecOverview loan={loan} details={details} />
+
+              <HomeValueEditor
+                value={loan.estimatedHomeValue}
+                onSave={v => updateHomeValue(loan.id, v)}
+              />
+            </div>
           </Card>
         );
       })}

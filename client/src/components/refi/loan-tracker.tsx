@@ -58,11 +58,11 @@ export const PROPERTY_TYPE_ADJUSTMENTS: Record<PropertyType, number> = { primary
 const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = { primary: "Primary Home", secondary: "2nd Home", investment: "Investment" };
 const PROPERTY_TYPE_COLORS: Record<PropertyType, string> = { primary: "bg-background text-foreground border", secondary: "bg-amber-600 text-white border-amber-600", investment: "bg-red-600 text-white border-red-600" };
 
-const CLOSING_COST_PERCENT = 0.60;
-const CLOSING_COST_FIXED = 4065;
-const NEW_TERM_YEARS = 30;
-const HE_RATE_MARGIN = 2.0;
-const HE_MAX_CLTV: Record<PropertyType, number> = { primary: 0.90, secondary: 0.80, investment: 0.80 };
+export const CLOSING_COST_PERCENT = 0.60;
+export const CLOSING_COST_FIXED = 4065;
+export const NEW_TERM_YEARS = 30;
+export const HE_RATE_MARGIN = 2.0;
+export const HE_MAX_CLTV: Record<PropertyType, number> = { primary: 0.90, secondary: 0.80, investment: 0.80 };
 const HELOC_DRAW_YEARS = 10;
 const HELOC_REPAY_YEARS = 20;
 const HE_LOAN_TERM_YEARS = 15;
