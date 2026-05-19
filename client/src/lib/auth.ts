@@ -162,21 +162,38 @@ async function hydrateFromSupabase() {
     return;
   }
   try { localStorage.setItem("tateo_auth", "1"); } catch {}
+
+  // Build a safe fallback from the Supabase auth record so the UI can show
+  // "signed in" even if the profiles table isn't reachable yet (e.g. schema
+  // not yet applied, transient network error, or profile row missing).
+  const meta = session.user.user_metadata || {};
+  const fallback: AuthUser = {
+    name: meta.name || session.user.email?.split("@")[0] || "User",
+    email: session.user.email || "",
+    phone: meta.phone ?? undefined,
+    agent: meta.agent ?? undefined,
+    createdAt: session.user.created_at ?? new Date().toISOString(),
+  };
+
   let profile = await loadProfile(session.user.id);
-  // First-login safety: if the trigger hasn't created the profile yet, do it now.
   if (!profile) {
-    const meta = session.user.user_metadata || {};
-    await supabase.from("profiles").upsert({
+    // Try to create the row (first sign-in, or trigger not yet installed).
+    const { error: upsertErr } = await supabase.from("profiles").upsert({
       id: session.user.id,
-      name: meta.name || session.user.email?.split("@")[0] || "User",
-      email: session.user.email!,
-      phone: meta.phone ?? null,
-      agent: meta.agent ?? null,
+      name: fallback.name,
+      email: fallback.email,
+      phone: fallback.phone ?? null,
+      agent: fallback.agent ?? null,
     });
-    profile = await loadProfile(session.user.id);
+    if (!upsertErr) profile = await loadProfile(session.user.id);
   }
-  _session = profile;
-  await loadScenarios(session.user.id);
+  _session = profile ?? fallback;
+
+  // Scenarios depend on their own tables; ignore errors so a missing schema
+  // doesn't break the auth UI.
+  try { await loadScenarios(session.user.id); } catch (e) {
+    console.warn("[auth] loadScenarios skipped:", e);
+  }
   notify();
 }
 
