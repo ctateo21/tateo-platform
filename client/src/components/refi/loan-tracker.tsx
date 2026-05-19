@@ -67,6 +67,7 @@ const HELOC_DRAW_YEARS = 10;
 const HELOC_REPAY_YEARS = 20;
 const HE_LOAN_TERM_YEARS = 15;
 const CASH_OUT_MAX_LTV = 0.75;
+export const ESCROW_RESERVE_MONTHS = 3;
 
 type HeProduct = "heloc" | "he_loan";
 
@@ -114,18 +115,57 @@ function RateCompare({ current, today }: { current: number; today: number }) {
   );
 }
 
-function CashOutSection({ loan, newRate, homeValue, onChangeHomeValue }: { loan: TrackedLoan; newRate: LiveRate; homeValue: number; onChangeHomeValue: (v: number) => void }) {
+function FeeToggles({ idPrefix, financeFees, setFinanceFees, includeEscrows, setIncludeEscrows, baseClosingCosts, monthlyEscrow }: {
+  idPrefix: string;
+  financeFees: boolean;
+  setFinanceFees: (v: boolean) => void;
+  includeEscrows: boolean;
+  setIncludeEscrows: (v: boolean) => void;
+  baseClosingCosts: number | null;
+  monthlyEscrow: number;
+}) {
+  const safe = idPrefix.replace(/[^a-zA-Z0-9]/g, "");
+  const escrowReserve = monthlyEscrow * ESCROW_RESERVE_MONTHS;
+  return (
+    <div className="rounded-md border bg-muted/20 p-3 flex flex-wrap items-center gap-x-6 gap-y-3" onClick={e => e.stopPropagation()}>
+      <div className="flex items-center gap-2">
+        <Switch id={`finance-fees-${safe}`} checked={financeFees} onCheckedChange={setFinanceFees} />
+        <Label htmlFor={`finance-fees-${safe}`} className="text-sm cursor-pointer">
+          Finance fees in new loan
+          {baseClosingCosts !== null && (
+            <span className="text-muted-foreground ml-1">({formatCurrency(baseClosingCosts)})</span>
+          )}
+        </Label>
+      </div>
+      <div className="flex items-center gap-2">
+        <Switch id={`include-escrows-${safe}`} checked={includeEscrows} onCheckedChange={setIncludeEscrows} disabled={monthlyEscrow <= 0} />
+        <Label htmlFor={`include-escrows-${safe}`} className={`text-sm cursor-pointer ${monthlyEscrow <= 0 ? "opacity-50" : ""}`}>
+          Include escrows ({ESCROW_RESERVE_MONTHS}-mo reserve
+          {monthlyEscrow > 0 ? ` · ${formatCurrency(escrowReserve)}` : " · n/a"})
+        </Label>
+      </div>
+    </div>
+  );
+}
+
+function CashOutSection({ loan, newRate, homeValue, onChangeHomeValue, financeFees, includeEscrows, monthlyEscrow }: { loan: TrackedLoan; newRate: LiveRate; homeValue: number; onChangeHomeValue: (v: number) => void; financeFees: boolean; includeEscrows: boolean; monthlyEscrow: number }) {
   const [editing, setEditing] = useState(false);
   const [editInput, setEditInput] = useState(String(Math.round(homeValue)));
 
-  const maxNewLoan = Math.floor((homeValue * CASH_OUT_MAX_LTV - CLOSING_COST_FIXED) / (1 + CLOSING_COST_PERCENT / 100));
+  const escrowAmount = includeEscrows ? monthlyEscrow * ESCROW_RESERVE_MONTHS : 0;
+  // Slider cap must keep the *funded* loan under 75% LTV, accounting for whatever fees are being financed.
+  const ltvCap = homeValue * CASH_OUT_MAX_LTV;
+  const maxNewLoan = financeFees
+    ? Math.floor((ltvCap - CLOSING_COST_FIXED - escrowAmount) / (1 + CLOSING_COST_PERCENT / 100))
+    : Math.floor(ltvCap);
   const currentLTV = homeValue > 0 ? loan.loanBalance / homeValue : 1;
   const isLTVTooHigh = currentLTV >= CASH_OUT_MAX_LTV;
   const [newLoanAmount, setNewLoanAmount] = useState(isLTVTooHigh ? loan.loanBalance : maxNewLoan);
-  const clampedLoan = Math.min(Math.max(newLoanAmount, loan.loanBalance), maxNewLoan);
+  const clampedLoan = Math.min(Math.max(newLoanAmount, loan.loanBalance), Math.max(maxNewLoan, loan.loanBalance));
   const cashOut = Math.max(0, clampedLoan - loan.loanBalance);
   const closingCosts = (clampedLoan * CLOSING_COST_PERCENT) / 100 + CLOSING_COST_FIXED;
-  const finalLoanWithCosts = clampedLoan + closingCosts;
+  const totalFees = closingCosts + escrowAmount;
+  const finalLoanWithCosts = clampedLoan + (financeFees ? totalFees : 0);
   const newMonthlyPI = calculateMonthlyPayment(finalLoanWithCosts, newRate.rate, NEW_TERM_YEARS);
   const newLTV = homeValue > 0 ? (finalLoanWithCosts / homeValue) * 100 : 0;
 
@@ -214,8 +254,11 @@ function CashOutSection({ loan, newRate, homeValue, onChangeHomeValue }: { loan:
           </div>
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Rate</span><span className="font-bold text-lg">{newRate.rate.toFixed(2)}%</span></div>
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Monthly P&I</span><span className="font-semibold">{formatCurrency(newMonthlyPI)}</span></div>
-          <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Loan Amount</span><span className="font-semibold">{formatCurrency(finalLoanWithCosts)} <span className="text-xs text-muted-foreground">(incl. costs)</span></span></div>
+          <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Loan Amount</span><span className="font-semibold">{formatCurrency(finalLoanWithCosts)} <span className="text-xs text-muted-foreground">{financeFees ? "(incl. fees)" : "(fees paid at close)"}</span></span></div>
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">Est. Closing Costs</span><span className="font-semibold">{formatCurrency(closingCosts)}</span></div>
+          {includeEscrows && escrowAmount > 0 && (
+            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Escrow Reserve ({ESCROW_RESERVE_MONTHS} mo)</span><span className="font-semibold">{formatCurrency(escrowAmount)}</span></div>
+          )}
         </div>
       </div>
     </div>
@@ -227,6 +270,8 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   const [activeTab, setActiveTab] = useState<"rate_term" | "cash_out" | "home_equity">("rate_term");
   const [homeValue, setHomeValue] = useState(loan.estimatedHomeValue);
   const [propertyType, setPropertyType] = useState<PropertyType>(loan.propertyType);
+  const [financeFees, setFinanceFees] = useState(true);
+  const [includeEscrows, setIncludeEscrows] = useState(false);
 
   const bestRate = getBestConventionalRate(liveRates);
   const rateAdj = PROPERTY_TYPE_ADJUSTMENTS[propertyType];
@@ -235,6 +280,9 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
 
   const liveMonths = monthsBetween(loan.balanceAsOf ?? loan.addedAt);
   const currentBalance = liveMonths > 0 && loan.currentPI > 0 ? amortizeBalance(loan.loanBalance, loan.currentRate, loan.currentPI, liveMonths) : loan.loanBalance;
+
+  const monthlyEscrow = Math.max(0, loan.monthlyPayment - loan.currentPI);
+  const escrowAmount = includeEscrows ? monthlyEscrow * ESCROW_RESERVE_MONTHS : 0;
 
   const delta = getRateDelta(loan.currentRate, adjustedRate);
   const bestOption = getBestOption({ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }, adjustedRate, propertyType);
@@ -248,9 +296,19 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
     newLoanTermYears: NEW_TERM_YEARS,
     closingCostsPercent: CLOSING_COST_PERCENT,
     closingCostsFixed: CLOSING_COST_FIXED,
-    includeClosingCostsInLoan: true,
+    includeClosingCostsInLoan: financeFees,
     refinanceType: "rate_and_term",
   });
+  const rateTermBaseClosingCosts = (currentBalance * CLOSING_COST_PERCENT) / 100 + CLOSING_COST_FIXED;
+  // Re-derive numbers when escrow is rolled in (calculateRefinance doesn't know about escrows)
+  const rateTermNewLoanAmount = currentBalance + (financeFees ? rateTermBaseClosingCosts + escrowAmount : 0);
+  const rateTermNewMonthlyPI = calculateMonthlyPayment(rateTermNewLoanAmount, adjustedRate, NEW_TERM_YEARS);
+  const rateTermMonthlySavings = rateTerm.monthlyPaymentCurrent - rateTermNewMonthlyPI;
+  const rateTermTotalFees = rateTermBaseClosingCosts + escrowAmount;
+  const rateTermBreakEven = rateTermMonthlySavings > 0 ? Math.ceil(rateTermTotalFees / rateTermMonthlySavings) : 0;
+  // Lifetime net: calculateRefinance already accounts for the financeFees toggle on closing costs.
+  // Escrow reserve is an additional out-of-pocket (or financed-principal) cost not modeled there, so subtract it.
+  const rateTermLifetimeNet = rateTerm.totalSavings - escrowAmount;
 
   return (
     <Card className="overflow-hidden">
@@ -330,31 +388,51 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
                 <div className="rounded-lg border bg-green-50 border-green-200 p-4 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">After Refinance ({NEW_TERM_YEARS} yr)</p>
                   <div className="flex justify-between"><span className="text-sm text-muted-foreground">Rate</span><span className="font-bold text-lg text-green-700">{adjustedRate.toFixed(2)}%</span></div>
-                  <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Monthly P&I</span><span className="font-semibold">{formatCurrency(rateTerm.monthlyPaymentNew)}</span></div>
-                  <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Loan Amount</span><span className="font-semibold">{formatCurrency(rateTerm.newLoanAmount)}</span></div>
+                  <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Monthly P&I</span><span className="font-semibold">{formatCurrency(rateTermNewMonthlyPI)}</span></div>
+                  <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Loan Amount</span><span className="font-semibold">{formatCurrency(rateTermNewLoanAmount)}</span></div>
                 </div>
               </div>
+              <FeeToggles
+                idPrefix={`rt-${loan.id}`}
+                financeFees={financeFees}
+                setFinanceFees={setFinanceFees}
+                includeEscrows={includeEscrows}
+                setIncludeEscrows={setIncludeEscrows}
+                baseClosingCosts={rateTermBaseClosingCosts}
+                monthlyEscrow={monthlyEscrow}
+              />
               <div className="grid grid-cols-3 gap-3">
-                <div className={`rounded-md p-3 text-center ${rateTerm.monthlySavings > 0 ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"}`}>
+                <div className={`rounded-md p-3 text-center ${rateTermMonthlySavings > 0 ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"}`}>
                   <p className="text-xs text-muted-foreground mb-1">Monthly Savings</p>
-                  <p className={`text-xl font-bold ${rateTerm.monthlySavings > 0 ? "text-green-700" : "text-red-700"}`}>{rateTerm.monthlySavings > 0 ? "+" : ""}{formatCurrency(rateTerm.monthlySavings)}</p>
+                  <p className={`text-xl font-bold ${rateTermMonthlySavings > 0 ? "text-green-700" : "text-red-700"}`}>{rateTermMonthlySavings > 0 ? "+" : ""}{formatCurrency(rateTermMonthlySavings)}</p>
                 </div>
                 <div className="rounded-md p-3 text-center bg-muted/30 border">
                   <p className="text-xs text-muted-foreground mb-1">Break-Even</p>
-                  <p className="text-xl font-bold">{rateTerm.breakEvenMonths > 0 ? `${rateTerm.breakEvenMonths} mo` : "N/A"}</p>
+                  <p className="text-xl font-bold">{rateTermBreakEven > 0 ? `${rateTermBreakEven} mo` : "N/A"}</p>
                 </div>
-                <div className={`rounded-md p-3 text-center ${rateTerm.totalSavings > 0 ? "bg-green-50 border border-green-200" : "bg-amber-50 border border-amber-200"}`}>
+                <div className={`rounded-md p-3 text-center ${rateTermLifetimeNet > 0 ? "bg-green-50 border border-green-200" : "bg-amber-50 border border-amber-200"}`}>
                   <p className="text-xs text-muted-foreground mb-1">Lifetime Net</p>
-                  <p className={`text-xl font-bold ${rateTerm.totalSavings > 0 ? "text-green-700" : "text-amber-700"}`}>{formatCurrency(Math.abs(rateTerm.totalSavings))}{rateTerm.totalSavings < 0 ? " loss" : ""}</p>
+                  <p className={`text-xl font-bold ${rateTermLifetimeNet > 0 ? "text-green-700" : "text-amber-700"}`}>{formatCurrency(Math.abs(rateTermLifetimeNet))}{rateTermLifetimeNet < 0 ? " loss" : ""}</p>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">Closing costs est. {formatCurrency(rateTerm.totalClosingCosts)} (rolled into new loan). Rates include {rateAdj > 0 ? `+${rateAdj.toFixed(2)}% LLPA for ${PROPERTY_TYPE_LABELS[propertyType].toLowerCase()}.` : "no LLPA adjustment for primary home."}</p>
+              <p className="text-xs text-muted-foreground">Closing costs est. {formatCurrency(rateTermBaseClosingCosts)}{includeEscrows && escrowAmount > 0 ? ` + ${formatCurrency(escrowAmount)} escrow reserve` : ""} {financeFees ? "(rolled into new loan)" : "(paid at closing)"}. Rates include {rateAdj > 0 ? `+${rateAdj.toFixed(2)}% LLPA for ${PROPERTY_TYPE_LABELS[propertyType].toLowerCase()}.` : "no LLPA adjustment for primary home."}</p>
             </div>
           )}
 
           {/* Cash-Out */}
           {activeTab === "cash_out" && bestRate && (
-            <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} />
+            <div className="space-y-4">
+              <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} />
+              <FeeToggles
+                idPrefix={`co-${loan.id}`}
+                financeFees={financeFees}
+                setFinanceFees={setFinanceFees}
+                includeEscrows={includeEscrows}
+                setIncludeEscrows={setIncludeEscrows}
+                baseClosingCosts={null}
+                monthlyEscrow={monthlyEscrow}
+              />
+            </div>
           )}
 
           {/* Home Equity */}
