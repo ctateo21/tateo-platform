@@ -1,4 +1,9 @@
-import { supabase } from "./supabase";
+import { supabase, supabaseReady } from "./supabase";
+
+const NOT_CONFIGURED = {
+  ok: false as const,
+  error: "Sign-in is temporarily unavailable. Please try again in a moment.",
+};
 
 // ── Agents (matches FUB_AGENT_IDS on the server) ───────────────────
 export const AGENTS = [
@@ -176,9 +181,11 @@ async function hydrateFromSupabase() {
 }
 
 // React to Supabase auth lifecycle (sign-in, sign-out, token refresh).
-supabase.auth.onAuthStateChange((_event, _session) => { void hydrateFromSupabase(); });
-// Initial hydration on app load.
-void hydrateFromSupabase();
+if (supabaseReady) {
+  supabase.auth.onAuthStateChange((_event, _session) => { void hydrateFromSupabase(); });
+  // Initial hydration on app load.
+  void hydrateFromSupabase();
+}
 
 // ── Auth actions ──────────────────────────────────────────────────
 export async function register(
@@ -187,6 +194,7 @@ export async function register(
   password: string,
   opts?: { phone?: string; agent?: string }
 ): Promise<{ ok: boolean; error?: string }> {
+  if (!supabaseReady) return NOT_CONFIGURED;
   const cleanEmail = email.toLowerCase().trim();
   const { data, error } = await supabase.auth.signUp({
     email: cleanEmail,
@@ -209,6 +217,7 @@ export async function register(
 }
 
 export async function login(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
+  if (!supabaseReady) return NOT_CONFIGURED;
   const { error } = await supabase.auth.signInWithPassword({
     email: email.toLowerCase().trim(),
     password,
@@ -219,7 +228,7 @@ export async function login(email: string, password: string): Promise<{ ok: bool
 }
 
 export async function logout(): Promise<void> {
-  await supabase.auth.signOut();
+  if (supabaseReady) await supabase.auth.signOut();
   _session = null;
   _purchaseScenarios = [];
   _insuranceScenarios = [];

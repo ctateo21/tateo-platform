@@ -143,14 +143,16 @@ create index if not exists questionnaire_responses_user_idx on public.questionna
 create index if not exists questionnaire_responses_session_idx on public.questionnaire_responses(session_id);
 
 alter table public.questionnaire_responses enable row level security;
+-- Drop any previous overly-permissive policy from earlier drafts.
 drop policy if exists "questionnaire_owner_or_anon" on public.questionnaire_responses;
--- Authenticated users can only touch their own rows. Anonymous (pre-signup)
--- responses are allowed with user_id = null so the questionnaire still works
--- for new visitors; they get linked to an account on signup if needed.
-create policy "questionnaire_owner_or_anon" on public.questionnaire_responses
+drop policy if exists "questionnaire_owner"        on public.questionnaire_responses;
+-- Strict: only the authenticated owner can read/write their rows.
+-- Anonymous (pre-signup) drafts must go through a trusted server endpoint
+-- using the service-role key — never the anon key.
+create policy "questionnaire_owner" on public.questionnaire_responses
   for all
-  using  (user_id is null or auth.uid() = user_id)
-  with check (user_id is null or auth.uid() = user_id);
+  using      (auth.uid() is not null and auth.uid() = user_id)
+  with check (auth.uid() is not null and auth.uid() = user_id);
 
 -- ----------------------------------------------------------------------------
 -- 6. submissions  (generic form submission log)
@@ -168,10 +170,11 @@ create index if not exists submissions_user_idx on public.submissions(user_id);
 
 alter table public.submissions enable row level security;
 drop policy if exists "submissions_owner_or_anon" on public.submissions;
-create policy "submissions_owner_or_anon" on public.submissions
+drop policy if exists "submissions_owner"         on public.submissions;
+create policy "submissions_owner" on public.submissions
   for all
-  using  (user_id is null or auth.uid() = user_id)
-  with check (user_id is null or auth.uid() = user_id);
+  using      (auth.uid() is not null and auth.uid() = user_id)
+  with check (auth.uid() is not null and auth.uid() = user_id);
 
 -- ============================================================================
 -- Done. Verify in Supabase Dashboard → Table Editor that all 6 tables exist
