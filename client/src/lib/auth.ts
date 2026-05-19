@@ -1,6 +1,18 @@
+// ── Agents (matches FUB_AGENT_IDS on the server) ───────────────────
+export const AGENTS = [
+  { id: "christian", name: "Christian Tateo", initials: "CT" },
+  { id: "omar",      name: "Omar Andujar",    initials: "OA" },
+  { id: "kyle",      name: "Kyle Schweinitz", initials: "KS" },
+  { id: "team",      name: "Team",            initials: "TM", isTeam: true },
+] as const;
+
+export type AgentId = typeof AGENTS[number]["id"];
+
 export interface AuthUser {
   name: string;
   email: string;
+  phone?: string;
+  agent?: string;  // display name e.g. "Christian Tateo"
   createdAt: string;
 }
 
@@ -27,18 +39,35 @@ export function getSession(): AuthUser | null {
   } catch { return null; }
 }
 
-export function register(name: string, email: string, password: string): { ok: boolean; error?: string } {
+function writeSession(user: StoredUser) {
+  const session: AuthUser = {
+    name: user.name, email: user.email,
+    phone: user.phone, agent: user.agent,
+    createdAt: user.createdAt,
+  };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  // Legacy flag kept for older components that check it
+  try { localStorage.setItem("tateo_auth", "1"); } catch {}
+}
+
+export function register(
+  name: string,
+  email: string,
+  password: string,
+  opts?: { phone?: string; agent?: string }
+): { ok: boolean; error?: string } {
   const users = getStoredUsers();
   const key = email.toLowerCase().trim();
   if (users[key]) return { ok: false, error: "An account with this email already exists." };
   const user: StoredUser = {
     name: name.trim(), email: key, password,
+    phone: opts?.phone?.trim() || undefined,
+    agent: opts?.agent?.trim() || undefined,
     createdAt: new Date().toISOString(),
   };
   users[key] = user;
   saveStoredUsers(users);
-  const session: AuthUser = { name: user.name, email: key, createdAt: user.createdAt };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  writeSession(user);
   return { ok: true };
 }
 
@@ -48,13 +77,13 @@ export function login(email: string, password: string): { ok: boolean; error?: s
   const user = users[key];
   if (!user) return { ok: false, error: "No account found with this email." };
   if (user.password !== password) return { ok: false, error: "Incorrect password." };
-  const session: AuthUser = { name: user.name, email: key, createdAt: user.createdAt };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  writeSession(user);
   return { ok: true };
 }
 
 export function logout() {
   localStorage.removeItem(SESSION_KEY);
+  try { localStorage.removeItem("tateo_auth"); } catch {}
 }
 
 // ── Purchase scenarios ────────────────────────────────────────────

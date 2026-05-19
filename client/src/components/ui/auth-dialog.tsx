@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { login, register } from "@/lib/auth";
+import { login, register, AGENTS, type AgentId } from "@/lib/auth";
 import { useAuth } from "@/context/auth-context";
+import { Users } from "lucide-react";
 
 interface AuthDialogProps {
   open: boolean;
@@ -28,10 +29,19 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
   // Register state
   const [regName, setRegName] = useState("");
   const [regEmail, setRegEmail] = useState("");
+  const [regPhone, setRegPhone] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regConfirm, setRegConfirm] = useState("");
+  const [regAgent, setRegAgent] = useState<AgentId | null>(null);
   const [regError, setRegError] = useState("");
   const [regLoading, setRegLoading] = useState(false);
+
+  function formatPhone(raw: string) {
+    const d = raw.replace(/\D/g, "").slice(0, 10);
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  }
 
   function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
@@ -50,16 +60,20 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     e.preventDefault();
     setRegError("");
     if (!regName.trim()) { setRegError("Please enter your name."); return; }
+    const phoneDigits = regPhone.replace(/\D/g, "");
+    if (phoneDigits.length < 10) { setRegError("Please enter a valid 10-digit cell number."); return; }
     if (regPassword.length < 6) { setRegError("Password must be at least 6 characters."); return; }
     if (regPassword !== regConfirm) { setRegError("Passwords do not match."); return; }
+    if (!regAgent) { setRegError("Please pick the agent you want to work with."); return; }
+    const agentName = AGENTS.find(a => a.id === regAgent)?.name ?? "Team";
     setRegLoading(true);
-    const result = register(regName, regEmail, regPassword);
+    const result = register(regName, regEmail, regPassword, { phone: phoneDigits, agent: agentName });
     setRegLoading(false);
     if (!result.ok) { setRegError(result.error || "Registration failed."); return; }
     refresh();
     onOpenChange(false);
     // reset
-    setRegName(""); setRegEmail(""); setRegPassword(""); setRegConfirm("");
+    setRegName(""); setRegEmail(""); setRegPhone(""); setRegPassword(""); setRegConfirm(""); setRegAgent(null);
   }
 
   return (
@@ -144,6 +158,18 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
                 />
               </div>
               <div className="space-y-1">
+                <Label htmlFor="reg-phone">Cell Phone</Label>
+                <Input
+                  id="reg-phone"
+                  type="tel"
+                  placeholder="(555) 000-0000"
+                  value={regPhone}
+                  onChange={e => setRegPhone(formatPhone(e.target.value))}
+                  required
+                  autoComplete="tel"
+                />
+              </div>
+              <div className="space-y-1">
                 <Label htmlFor="reg-password">Password</Label>
                 <Input
                   id="reg-password"
@@ -166,6 +192,34 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
                   required
                   autoComplete="new-password"
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Which agent would you like to work with?</Label>
+                <p className="text-xs text-muted-foreground">You'll be assigned to them — we won't ask again.</p>
+                <div className="grid grid-cols-4 gap-2 pt-1">
+                  {AGENTS.map(agent => (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      onClick={() => setRegAgent(agent.id)}
+                      className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-all ${
+                        regAgent === agent.id
+                          ? "border-primary bg-primary/5"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${
+                        agent.id === "team" ? "bg-secondary" : "bg-primary"
+                      }`}>
+                        {agent.id === "team"
+                          ? <Users className="h-4 w-4" />
+                          : <span>{agent.initials}</span>
+                        }
+                      </div>
+                      <span className="text-[10px] font-medium text-center leading-tight">{agent.name.split(" ")[0]}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
               {regError && (
                 <Alert variant="destructive" className="py-2">

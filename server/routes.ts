@@ -1131,6 +1131,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   async function createFollowUpBossContact(params: {
     firstName: string; lastName: string; email: string;
     phone: string; address?: string; agent?: string; scenarioDetails?: string;
+    messageHeader?: string;
   }) {
     const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
     if (!apiKey) {
@@ -1143,21 +1144,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const agentId   = FUB_AGENT_IDS[agentName] ?? 1;
 
     // Step 1: create contact via /v1/events (no assignedTo — use PUT for assignment)
+    const phoneDigits = (params.phone || "").replace(/\D/g, "");
     const messageParts = [
-      `Property: ${params.address || "address not provided"}`,
+      params.messageHeader || `Property: ${params.address || "address not provided"}`,
       `Agent: ${agentName}`,
     ];
     if (params.scenarioDetails) messageParts.push(params.scenarioDetails);
+    const person: Record<string, any> = {
+      firstName: params.firstName,
+      lastName:  params.lastName,
+      email:     params.email,
+    };
+    if (phoneDigits) person.phone = phoneDigits;
     const payload: Record<string, any> = {
       source:  "Tateo & Co Website",
       type:    "Property Inquiry",
       message: messageParts.join("\n"),
-      person: {
-        firstName: params.firstName,
-        lastName:  params.lastName,
-        email:     params.email,
-        phone:     params.phone.replace(/\D/g, ""),
-      },
+      person,
     };
 
     if (params.address) {
@@ -1190,8 +1193,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const personUpdate: Record<string, any> = {
           assignedUserId: agentId,
           emails: [{ value: params.email, type: "work" }],
-          phones: [{ value: formatPhoneDisplay(params.phone), type: "mobile" }],
         };
+        if (phoneDigits) {
+          personUpdate.phones = [{ value: formatPhoneDisplay(phoneDigits), type: "mobile" }];
+        }
         const putRes = await fetch(`https://api.followupboss.com/v1/people/${personId}`, {
           method: "PUT",
           headers: fubHeaders(apiKey),
@@ -1210,6 +1215,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     return data;
   }
+
+  // Simple per-IP rate limiter for the notify endpoint (max 10/min per IP)
+  const _notifyHits = new Map<string, number[]>();
+  function notifyRateLimited(ip: string): boolean {
+    const now = Date.now();
+    const windowMs = 60_000;
+    const hits = (_notifyHits.get(ip) || []).filter(t => now - t < windowMs);
+    if (hits.length >= 10) { _notifyHits.set(ip, hits); return true; }
+    hits.push(now);
+    _notifyHits.set(ip, hits);
+    return false;
+  }
+
+  // POST /api/leads/notify-new-scenario
+  // Called when a logged-in user adds another property to their dashboard.
+  // Sends a FUB event so the assigned agent knows the customer is exploring a new property.
+  app.post("/api/leads/notify-new-scenario", async (req, res) => {
+    try {
+      const ip = (req.ip || req.socket.remoteAddress || "unknown").toString();
+      if (notifyRateLimited(ip)) {
+        return res.status(429).json({ error: "Too many notifications. Please wait a moment." });
+      }
+      const { firstName, lastName, email, phone, agent, address, scenarioDetails } = z.object({
+        firstName: z.string().min(1),
+        lastName: z.string().min(1),
+        email: z.string().email(),
+        phone: z.string().optional().default(""),
+        agent: z.string().optional(),
+        address: z.string().min(1),
+        scenarioDetails: z.string().optional(),
+      }).parse(req.body);
+
+      console.log(`[LEAD] New property scenario: ${email} → ${address} (agent: ${agent || "Team"})`);
+
+      // Non-blocking — never fail the request if FUB has an issue
+      createFollowUpBossContact({
+        firstName,
+        lastName,
+        email,
+        phone,
+        address,
+        agent,
+        scenarioDetails,
+        messageHeader: `Customer added another property to their dashboard: ${address}`,
+      }).catch(err => console.error("[FUB] notify-new-scenario failed:", err.message));
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("notify-new-scenario error:", err);
+      res.status(400).json({ error: err.message || "Failed to notify agent" });
+    }
+  });
 
   // GET /api/leads (simple admin view — protect in production)
   app.get("/api/leads", (_req, res) => {

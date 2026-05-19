@@ -408,7 +408,7 @@ export default function Estimate() {
 
   // ── Auth & multi-scenario state ─────────────────────────────────────────────
   const [isAuthenticated, setIsAuthenticated] = useState(() =>
-    typeof window !== "undefined" && localStorage.getItem("tateo_auth") === "1"
+    typeof window !== "undefined" && (getSession() !== null || localStorage.getItem("tateo_auth") === "1")
   );
   const [scenarios, setScenarios] = useState<Scenario[]>([
     { id: "sc0", address, savedInputs: null },
@@ -493,18 +493,42 @@ export default function Estimate() {
     const addr = newScenarioAddress.trim();
     if (!addr) return;
     const newId = `sc_${Date.now()}`;
+    // Carry over the current borrower/purchase inputs so the user
+    // doesn't re-enter everything for the new property. They can
+    // still tweak anything on the new tab.
+    const carriedInputs: Inputs = { ...inputs };
     setScenarios(prev => [
       ...prev.map(s => s.id === activeScenarioId ? { ...s, savedInputs: inputs } : s),
-      { id: newId, address: addr, savedInputs: null },
+      { id: newId, address: addr, savedInputs: carriedInputs },
     ]);
     setActiveScenarioId(newId);
-    setLocation(`/estimate?address=${encodeURIComponent(addr)}`);
-    setInputs(makeDefaultInputs());
-    amiLoadedRef.current = false;
+    setLocation(`/estimate?address=${encodeURIComponent(addr)}${fromDashboard ? "&from=dashboard" : ""}`);
+    // Keep inputs as-is (carry over). Only let flood re-fetch for the new address.
     floodLoadedRef.current = null;
-    ratesLoadedRef.current = false;
     setNewScenarioAddress("");
     setShowAddressPrompt(false);
+
+    // Notify the assigned agent in FollowUpBoss (non-blocking)
+    const sessionUser = getSession();
+    if (sessionUser) {
+      const fullName = (sessionUser.name || "").trim();
+      const spaceIdx = fullName.indexOf(" ");
+      const firstName = spaceIdx > 0 ? fullName.slice(0, spaceIdx) : (fullName || sessionUser.email.split("@")[0]);
+      const lastName = spaceIdx > 0 ? fullName.slice(spaceIdx + 1) : "-";
+      fetch("/api/leads/notify-new-scenario", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName,
+          lastName,
+          email: sessionUser.email,
+          phone: sessionUser.phone || "",
+          agent: sessionUser.agent || "Team",
+          address: addr,
+          scenarioDetails: buildScenarioDetails(),
+        }),
+      }).catch(err => console.warn("Failed to notify agent of new scenario:", err));
+    }
   }
 
   // Share dialog
