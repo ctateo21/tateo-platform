@@ -86,73 +86,93 @@ function RefiTab() {
   }
 
   return (
-    <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div className="space-y-3">
       {loans.map(loan => (
-        <Card key={loan.id} className="group relative hover:shadow-md transition-shadow">
-          <CardHeader className="pb-2">
-            <div className="flex items-start justify-between gap-2">
-              <CardTitle className="text-sm font-semibold leading-snug line-clamp-2 flex-1">
-                <MapPin className="inline h-3.5 w-3.5 mr-1 text-muted-foreground shrink-0" />
-                {loan.propertyAddress}
-              </CardTitle>
-              <Badge variant="outline" className={`text-xs shrink-0 ${PROPERTY_TYPE_COLORS[loan.propertyType] || ""}`}>
-                {PROPERTY_TYPE_LABELS[loan.propertyType] || loan.propertyType}
-              </Badge>
-            </div>
-            <p className="text-xs text-muted-foreground">{loan.lender}</p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-              <div>
-                <p className="text-xs text-muted-foreground">Balance</p>
-                <p className="font-semibold">{formatCurrency(loan.loanBalance)}</p>
+        <Card
+          key={loan.id}
+          className="group relative hover:shadow-md transition-shadow cursor-pointer"
+          onClick={() => setLocation("/refinance")}
+        >
+          <CardContent className="py-4">
+            <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+              {/* Address + meta */}
+              <div className="flex-1 min-w-0 lg:max-w-xs">
+                <div className="flex items-start gap-2">
+                  <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm leading-snug line-clamp-2">{loan.propertyAddress}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">{loan.lender}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                      <Calendar className="h-3 w-3" /> Saved {formatDate(loan.addedAt)}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Rate</p>
-                <p className="font-semibold">{loan.currentRate}%</p>
+
+              {/* Property type badge */}
+              <div className="flex lg:block">
+                <Badge variant="outline" className={`text-xs ${PROPERTY_TYPE_COLORS[loan.propertyType] || ""}`}>
+                  {PROPERTY_TYPE_LABELS[loan.propertyType] || loan.propertyType}
+                </Badge>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Monthly P&amp;I</p>
-                <p className="font-semibold">{formatCurrency(loan.currentPI)}</p>
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm flex-1">
+                <div>
+                  <p className="text-xs text-muted-foreground">Balance</p>
+                  <p className="font-semibold">{formatCurrency(loan.loanBalance)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Rate</p>
+                  <p className="font-semibold">{loan.currentRate}%</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Monthly P&amp;I</p>
+                  <p className="font-semibold">{formatCurrency(loan.currentPI)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Est. Value</p>
+                  <p className="font-semibold">{formatCurrency(loan.estimatedHomeValue)}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">Est. Value</p>
-                <p className="font-semibold">{formatCurrency(loan.estimatedHomeValue)}</p>
+
+              {/* Actions */}
+              <div className="flex gap-2 lg:shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-1 text-xs"
+                  onClick={e => { e.stopPropagation(); setLocation("/refinance"); }}
+                >
+                  Open <ExternalLink className="h-3 w-3" />
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive px-2"
+                      onClick={e => e.stopPropagation()}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent onClick={e => e.stopPropagation()}>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Remove this loan?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will remove {loan.propertyAddress} from your saved scenarios. You can re-analyze it anytime.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => remove(loan.id)} className="bg-destructive hover:bg-destructive/90">
+                        Remove
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
-            </div>
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <Calendar className="h-3 w-3" /> Saved {formatDate(loan.addedAt)}
-            </p>
-            <div className="flex gap-2 pt-1">
-              <Button
-                size="sm"
-                variant="outline"
-                className="flex-1 gap-1 text-xs"
-                onClick={() => setLocation("/refinance")}
-              >
-                Open <ExternalLink className="h-3 w-3" />
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive px-2">
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Remove this loan?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will remove {loan.propertyAddress} from your saved scenarios. You can re-analyze it anytime.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => remove(loan.id)} className="bg-destructive hover:bg-destructive/90">
-                      Remove
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
             </div>
           </CardContent>
         </Card>
@@ -161,9 +181,9 @@ function RefiTab() {
       {/* Add more CTA */}
       <button
         onClick={() => setLocation("/refinance")}
-        className="border-2 border-dashed border-border rounded-lg p-6 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-primary hover:text-primary transition-colors min-h-[180px]"
+        className="w-full border-2 border-dashed border-border rounded-lg p-4 flex items-center justify-center gap-2 text-muted-foreground hover:border-primary hover:text-primary transition-colors"
       >
-        <RefreshCw className="h-6 w-6" />
+        <RefreshCw className="h-5 w-5" />
         <span className="text-sm font-medium">Analyze another loan</span>
       </button>
     </div>
@@ -319,8 +339,8 @@ function PurchaseTab() {
         </div>
       )}
 
-      {/* Property cards */}
-      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+      {/* Property rows */}
+      <div className="space-y-3">
         {scenarios.map(s => {
           const dtiPct = s.dti != null ? Math.round(s.dti * 100) : null;
           return (
@@ -329,98 +349,107 @@ function PurchaseTab() {
               className="hover:shadow-md transition-shadow cursor-pointer group relative"
               onClick={() => navigate(s.address)}
             >
-              <CardContent className="pt-5 pb-4 space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm leading-snug flex items-start gap-1.5">
-                      <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
-                      <span className="line-clamp-2">{s.address}</span>
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1 ml-5 flex items-center gap-1">
-                      <Calendar className="h-3 w-3" /> Saved {formatDate(s.savedAt)}
-                    </p>
+              <CardContent className="py-4">
+                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                  {/* Address + meta */}
+                  <div className="flex-1 min-w-0 lg:max-w-xs">
+                    <div className="flex items-start gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm leading-snug line-clamp-2">{s.address}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                          <Calendar className="h-3 w-3" /> Saved {formatDate(s.savedAt)}
+                        </p>
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Qualifies badge */}
                   {s.qualifies != null && (
-                    <Badge
-                      variant="outline"
-                      className={`text-xs shrink-0 ${
-                        s.qualifies
-                          ? "bg-green-50 text-green-700 border-green-200"
-                          : "bg-amber-50 text-amber-700 border-amber-200"
-                      }`}
-                    >
-                      {s.qualifies ? "Qualifies" : "Review"}
-                    </Badge>
-                  )}
-                </div>
-
-                {(s.price != null || s.monthlyPayment != null || s.cashToClose != null || dtiPct != null) && (
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm ml-5">
-                    {s.price != null && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">Price</p>
-                        <p className="font-semibold">{formatCurrency(s.price)}</p>
-                      </div>
-                    )}
-                    {s.monthlyPayment != null && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">Est. Payment</p>
-                        <p className="font-semibold">{formatCurrency(s.monthlyPayment)}/mo</p>
-                      </div>
-                    )}
-                    {s.cashToClose != null && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">Cash to Close</p>
-                        <p className="font-semibold">{formatCurrency(s.cashToClose)}</p>
-                      </div>
-                    )}
-                    {dtiPct != null && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">DTI</p>
-                        <p className="font-semibold">{dtiPct}%</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex gap-2 pt-1">
-                  <Button
-                    size="sm"
-                    className="flex-1 gap-2"
-                    onClick={e => { e.stopPropagation(); navigate(s.address); }}
-                  >
-                    View Full Estimate <ExternalLink className="h-3.5 w-3.5" />
-                  </Button>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive hover:text-destructive px-2"
-                        onClick={e => e.stopPropagation()}
-                        aria-label="Delete estimate"
+                    <div className="flex lg:block">
+                      <Badge
+                        variant="outline"
+                        className={`text-xs ${
+                          s.qualifies
+                            ? "bg-green-50 text-green-700 border-green-200"
+                            : "bg-amber-50 text-amber-700 border-amber-200"
+                        }`}
                       >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent onClick={e => e.stopPropagation()}>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete this estimate?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This will remove {s.address.split(",")[0]} from your dashboard. You can always look it up again later.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => remove(s.id)}
-                          className="bg-destructive hover:bg-destructive/90"
+                        {s.qualifies ? "Qualifies" : "Review"}
+                      </Badge>
+                    </div>
+                  )}
+
+                  {/* Stats */}
+                  {(s.price != null || s.monthlyPayment != null || s.cashToClose != null || dtiPct != null) && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm flex-1">
+                      {s.price != null && (
+                        <div>
+                          <p className="text-xs text-muted-foreground">Price</p>
+                          <p className="font-semibold">{formatCurrency(s.price)}</p>
+                        </div>
+                      )}
+                      {s.monthlyPayment != null && (
+                        <div>
+                          <p className="text-xs text-muted-foreground">Est. Payment</p>
+                          <p className="font-semibold">{formatCurrency(s.monthlyPayment)}/mo</p>
+                        </div>
+                      )}
+                      {s.cashToClose != null && (
+                        <div>
+                          <p className="text-xs text-muted-foreground">Cash to Close</p>
+                          <p className="font-semibold">{formatCurrency(s.cashToClose)}</p>
+                        </div>
+                      )}
+                      {dtiPct != null && (
+                        <div>
+                          <p className="text-xs text-muted-foreground">DTI</p>
+                          <p className="font-semibold">{dtiPct}%</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex gap-2 lg:shrink-0">
+                    <Button
+                      size="sm"
+                      className="gap-2"
+                      onClick={e => { e.stopPropagation(); navigate(s.address); }}
+                    >
+                      View Full Estimate <ExternalLink className="h-3.5 w-3.5" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive px-2"
+                          onClick={e => e.stopPropagation()}
+                          aria-label="Delete estimate"
                         >
-                          Delete
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent onClick={e => e.stopPropagation()}>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete this estimate?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will remove {s.address.split(",")[0]} from your dashboard. You can always look it up again later.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => remove(s.id)}
+                            className="bg-destructive hover:bg-destructive/90"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 </div>
               </CardContent>
             </Card>
