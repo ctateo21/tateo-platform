@@ -57,6 +57,7 @@ import {
   LayoutDashboard,
 } from "lucide-react";
 import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
+import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import {
   Dialog,
   DialogContent,
@@ -437,6 +438,21 @@ export default function Estimate() {
   const [scenarios, setScenarios] = useState<Scenario[]>(initialScenariosRef.current.list);
   const [activeScenarioId, setActiveScenarioId] = useState(initialScenariosRef.current.activeId);
   const [showAddressPrompt, setShowAddressPrompt] = useState(false);
+  const [showZillowLookup, setShowZillowLookup] = useState(false);
+
+  // Apply Zillow lookup results: update purchase price + HOA on the active
+  // scenario; if Zillow returned a different formatted address, navigate so
+  // the URL stays the source of truth for `address`.
+  function handleZillowApply(p: LookedUpProperty) {
+    setInputs(prev => ({
+      ...prev,
+      purchasePrice: p.purchasePrice ?? p.listingPrice ?? p.zestimate ?? prev.purchasePrice,
+      hoaMonthly: p.hoaMonthly ?? prev.hoaMonthly,
+    }));
+    if (p.address && p.address.trim().toLowerCase() !== address.trim().toLowerCase()) {
+      setLocation(`/estimate?address=${encodeURIComponent(p.address)}`);
+    }
+  }
   const [newScenarioAddress, setNewScenarioAddress] = useState("");
   const newScenarioInputRef = useRef<HTMLInputElement>(null);
   const newScenarioAcRef = useRef<any>(null);
@@ -1399,6 +1415,16 @@ export default function Estimate() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setShowZillowLookup(true)}
+                data-testid="estimate-open-zillow-lookup"
+              >
+                <Home className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Pull from Zillow</span>
+              </Button>
               {(() => {
                 const sessionUser = getSession();
                 if (!sessionUser) return null;
@@ -2480,6 +2506,14 @@ export default function Estimate() {
       />
 
       {/* New scenario address prompt */}
+      <PropertyLookupDialog
+        open={showZillowLookup}
+        onOpenChange={setShowZillowLookup}
+        initialAddressOrUrl={address && address !== "Unknown Address" ? address : ""}
+        applyLabel="Use these values"
+        onApply={handleZillowApply}
+      />
+
       <Dialog open={showAddressPrompt} onOpenChange={setShowAddressPrompt}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>

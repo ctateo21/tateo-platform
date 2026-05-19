@@ -477,22 +477,26 @@ export function savePurchaseScenarios(s: PurchaseScenario[]) {
 }
 
 function persistPurchaseScenarios(s: PurchaseScenario[]) {
+  // Bind the userId at enqueue time so a logout+login between enqueue and
+  // execution can never cause us to write Account A's data into Account B's
+  // rows. If the user has changed by the time the queue drains, drop it.
+  const userId = _session?.id;
+  if (!userId) return Promise.resolve();
   return enqueueWrite("purchase_scenarios", async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (_session?.id !== userId) return; // user changed; abort this stale job
     const keep = new Set(s.map(x => x.id));
     const { data: existing } = await supabase
       .from("purchase_scenarios")
       .select("id")
-      .eq("user_id", user.id);
+      .eq("user_id", userId);
     const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
     if (toDelete.length > 0) {
-      await supabase.from("purchase_scenarios").delete().in("id", toDelete);
+      await supabase.from("purchase_scenarios").delete().in("id", toDelete).eq("user_id", userId);
     }
     if (s.length > 0) {
       await supabase
         .from("purchase_scenarios")
-        .upsert(s.map(x => purchaseToRow(x, user.id)), { onConflict: "id" });
+        .upsert(s.map(x => purchaseToRow(x, userId)), { onConflict: "id" });
     }
   });
 }
@@ -509,22 +513,23 @@ export function saveInsuranceScenarios(s: InsuranceScenario[]) {
 }
 
 function persistInsuranceScenarios(s: InsuranceScenario[]) {
+  const userId = _session?.id;
+  if (!userId) return Promise.resolve();
   return enqueueWrite("insurance_scenarios", async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (_session?.id !== userId) return;
     const keep = new Set(s.map(x => x.id));
     const { data: existing } = await supabase
       .from("insurance_scenarios")
       .select("id")
-      .eq("user_id", user.id);
+      .eq("user_id", userId);
     const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
     if (toDelete.length > 0) {
-      await supabase.from("insurance_scenarios").delete().in("id", toDelete);
+      await supabase.from("insurance_scenarios").delete().in("id", toDelete).eq("user_id", userId);
     }
     if (s.length > 0) {
       await supabase
         .from("insurance_scenarios")
-        .upsert(s.map(x => insuranceToRow(x, user.id)), { onConflict: "id" });
+        .upsert(s.map(x => insuranceToRow(x, userId)), { onConflict: "id" });
     }
   });
 }
@@ -541,22 +546,23 @@ export function saveTrackedLoans(loans: TrackedLoan[]) {
 }
 
 function persistTrackedLoans(loans: TrackedLoan[]) {
+  const userId = _session?.id;
+  if (!userId) return Promise.resolve();
   return enqueueWrite("tracked_loans", async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (_session?.id !== userId) return;
     const keep = new Set(loans.map(l => l.id));
     const { data: existing } = await supabase
       .from("tracked_loans")
       .select("id")
-      .eq("user_id", user.id);
+      .eq("user_id", userId);
     const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
     if (toDelete.length > 0) {
-      await supabase.from("tracked_loans").delete().in("id", toDelete);
+      await supabase.from("tracked_loans").delete().in("id", toDelete).eq("user_id", userId);
     }
     if (loans.length > 0) {
       await supabase
         .from("tracked_loans")
-        .upsert(loans.map(l => trackedLoanToRow(l, user.id)), { onConflict: "id" });
+        .upsert(loans.map(l => trackedLoanToRow(l, userId)), { onConflict: "id" });
     }
   });
 }

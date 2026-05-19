@@ -12,6 +12,8 @@ import { formatCurrency } from "@/lib/refi-calculations";
 import { useQuery } from "@tanstack/react-query";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { getTrackedLoans, saveTrackedLoans, subscribeAuthChange, type TrackedLoan } from "@/lib/auth";
+import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
+import { useToast } from "@/hooks/use-toast";
 
 const MAX_TRACKED_LOANS = 10;
 
@@ -101,8 +103,36 @@ export default function Refinance() {
     });
   }
 
+  const { toast } = useToast();
   const [analyzerLocked, setAnalyzerLocked] = useState(false);
+  const [showZillowLookup, setShowZillowLookup] = useState(false);
   const [showLeadDialog, setShowLeadDialog] = useState(false);
+
+  // Refinance only needs estimatedHomeValue from Zillow — the rest of the
+  // tracked loan (rate, P&I, balance) still comes from the user's statement.
+  function handleZillowApply(p: LookedUpProperty) {
+    const homeValue = p.estimatedHomeValue ?? p.zestimate ?? p.listingPrice;
+    if (!homeValue || !p.address) {
+      toast({ title: "No home value found", description: "Zillow didn't return a valuation for this property.", variant: "destructive" });
+      return;
+    }
+    const key = p.address.trim().toLowerCase();
+    const matchCount = trackedLoans.filter(l => l.propertyAddress.trim().toLowerCase() === key).length;
+    if (matchCount === 0) {
+      // No-op silently is confusing — tell the user why nothing changed.
+      toast({
+        title: `Zestimate: $${homeValue.toLocaleString()}`,
+        description: "Add a tracked loan for this address first (upload your statement), then run the Zillow lookup again to update its home value.",
+      });
+      return;
+    }
+    updateLoans(prev => prev.map(l =>
+      l.propertyAddress.trim().toLowerCase() === key
+        ? { ...l, estimatedHomeValue: homeValue }
+        : l
+    ));
+    toast({ title: "Home value updated", description: `${matchCount} loan${matchCount > 1 ? "s" : ""} updated to $${homeValue.toLocaleString()}.` });
+  }
   const [analysisForSave, setAnalysisForSave] = useState<MortgageAnalysis | null>(null);
 
   // Property type dialog state
@@ -163,6 +193,18 @@ export default function Refinance() {
             <h1 className="text-lg font-semibold">Refinance Calculator</h1>
           </div>
           {address && <span className="text-sm text-muted-foreground hidden sm:block">· {address}</span>}
+          <div className="ml-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setShowZillowLookup(true)}
+              data-testid="refinance-open-zillow-lookup"
+            >
+              <Home className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Pull from Zillow</span>
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -200,6 +242,14 @@ export default function Refinance() {
           maxLoans={MAX_TRACKED_LOANS}
         />
       </main>
+
+      <PropertyLookupDialog
+        open={showZillowLookup}
+        onOpenChange={setShowZillowLookup}
+        initialAddressOrUrl={address}
+        applyLabel="Update home value"
+        onApply={handleZillowApply}
+      />
 
       <footer className="border-t mt-12 py-6">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">

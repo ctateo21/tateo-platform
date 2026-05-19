@@ -26,6 +26,8 @@ import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowPropert
 import { getHillsboroughTaxEstimate, isHillsboroughCountyAddress } from "./integrations/hillsborough-tax";
 import { fetchGoogleReviews, getMockReviews } from "./integrations/google-reviews";
 import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
+import { fetchZillowProperty, derivePolicyType, type PropertyScenario } from "./integrations/apify-zillow";
+import { supabaseAdmin } from "./supabase";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API routes
@@ -1443,6 +1445,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/leads (simple admin view — protect in production)
   app.get("/api/leads", (_req, res) => {
     res.json({ count: _leads.length, leads: _leads });
+  });
+
+  // ── POST /api/zillow-property-lookup ──────────────────────────────
+  // Backend-only Apify Zillow Scraper. Cached in Supabase `property_cache`
+  // for 24h so repeated lookups don't burn Apify credits.
+  const PROPERTY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+  app.post("/api/zillow-property-lookup", async (req, res) => {
+    const addressOrUrl = String(req.body?.addressOrUrl ?? "").trim();
+    if (!addressOrUrl) {
+      return res.status(400).json({ error: "addressOrUrl is required" });
+    }
+    // Namespaced cache key. URLs and addresses live in distinct keyspaces
+    // so a URL that happens to look like an address can never collide.
+    // For URLs we also drop query strings + trailing slashes to maximize
+    // hit-rate (same listing fetched with different tracking params should
+    // share one cache entry).
+    const isUrl = /^https?:\/\//i.test(addressOrUrl);
+    let cacheKey: string;
+    if (isUrl) {
+      try {
+        const u = new URL(addressOrUrl);
+        const path = u.pathname.replace(/\/+$/, "");
+        cacheKey = `url:${u.host.toLowerCase()}${path.toLowerCase()}`;
+      } catch {
+        cacheKey = `url:${addressOrUrl.toLowerCase()}`;
+      }
+    } else {
+      cacheKey = `addr:${addressOrUrl.toLowerCase().replace(/\s+/g, " ").trim()}`;
+    }
+
+    // 1. Cache check (only if Supabase admin is configured).
+    if (supabaseAdmin) {
+      try {
+        const { data: cached } = await supabaseAdmin
+          .from("property_cache")
+          .select("normalized, fetched_at")
+          .eq("cache_key", cacheKey)
+          .maybeSingle();
+        if (cached?.fetched_at) {
+          const age = Date.now() - new Date(cached.fetched_at).getTime();
+          if (age < PROPERTY_CACHE_TTL_MS) {
+            return res.json({ cached: true, property: cached.normalized });
+          }
+        }
+      } catch (e: any) {
+        console.warn("[zillow-lookup] cache read failed:", e?.message);
+      }
+    }
+
+    // 2. Live Apify call.
+    let property: PropertyScenario;
+    try {
+      property = await fetchZillowProperty(addressOrUrl);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      const status = /No Zillow results/i.test(msg) ? 404
+        : /timed out/i.test(msg) ? 504
+        : /Missing/i.test(msg) ? 400
+        : 502;
+      console.error("[zillow-lookup] apify error:", msg);
+      return res.status(status).json({ error: msg });
+    }
+
+    // 3. Write-through cache (best-effort; never block the response).
+    if (supabaseAdmin) {
+      void supabaseAdmin
+        .from("property_cache")
+        .upsert(
+          {
+            cache_key: cacheKey,
+            normalized: property,
+            raw: property.rawZillowData,
+            fetched_at: new Date().toISOString(),
+          },
+          { onConflict: "cache_key" },
+        )
+        .then(({ error }) => {
+          if (error) console.warn("[zillow-lookup] cache write failed:", error.message);
+        });
+    }
+
+    return res.json({ cached: false, property });
+  });
+
+  // POST /api/zillow-property-lookup/policy-type
+  // Tiny helper so the frontend can recompute insurancePolicyType after
+  // the user changes propertyType or occupancy without re-hitting Apify.
+  app.post("/api/zillow-property-lookup/policy-type", (req, res) => {
+    const { propertyType = "", occupancyType = "" } = req.body ?? {};
+    res.json({ policyType: derivePolicyType(propertyType, occupancyType) });
   });
 
   const httpServer = createServer(app);
