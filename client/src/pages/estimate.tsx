@@ -1154,6 +1154,44 @@ export default function Estimate() {
     };
   }, [inputs]);
 
+  // Auto-save / update this estimate on the user's dashboard when they're logged in.
+  // Debounced so rapid input changes don't thrash localStorage.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (!address || address === "Unknown Address") return;
+    const handle = setTimeout(() => {
+      try {
+        const existing = getPurchaseScenarios();
+        const key = address.trim().toLowerCase();
+        const idx = existing.findIndex(s => s.address.trim().toLowerCase() === key);
+        const price = inputs.purchasePrice;
+        const monthlyPayment = Math.round(calc.totalHousing);
+        if (idx >= 0) {
+          // Only write if something actually changed (avoid noisy storage writes)
+          const cur = existing[idx];
+          if (cur.price === price && cur.monthlyPayment === monthlyPayment && cur.address === address) return;
+          const updated = [...existing];
+          updated[idx] = { ...cur, address, price, monthlyPayment };
+          savePurchaseScenarios(updated);
+        } else {
+          savePurchaseScenarios([
+            ...existing,
+            {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              address,
+              savedAt: new Date().toISOString(),
+              price,
+              monthlyPayment,
+            },
+          ]);
+        }
+      } catch (err) {
+        console.warn("Auto-save to dashboard failed:", err);
+      }
+    }, 800);
+    return () => clearTimeout(handle);
+  }, [isAuthenticated, address, inputs.purchasePrice, calc.totalHousing]);
+
   function fmt(n: number): string {
     return "$" + Math.round(n).toLocaleString();
   }
