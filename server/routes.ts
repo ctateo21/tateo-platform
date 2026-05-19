@@ -1128,6 +1128,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return d;
   }
 
+  // Normalize phone to 10-digit US local format (strip leading 1 / + / formatting)
+  function normalizePhoneDigits(raw: string): string {
+    const d = (raw || "").replace(/\D/g, "");
+    if (d.length === 11 && d.startsWith("1")) return d.slice(1);
+    return d;
+  }
+
+  // Look up an existing FUB person by email. Returns the person id, or null if not found.
+  async function findFubPersonByEmail(apiKey: string, email: string): Promise<number | null> {
+    try {
+      const url = `https://api.followupboss.com/v1/people?email=${encodeURIComponent(email)}&limit=1`;
+      const r = await fetch(url, { headers: fubHeaders(apiKey) });
+      if (!r.ok) {
+        if (r.status !== 404) console.warn(`[FUB] Person lookup ${r.status}:`, await r.text());
+        return null;
+      }
+      const data = await r.json();
+      const person = (data?.people || [])[0];
+      return person?.id ?? null;
+    } catch (err: any) {
+      console.warn("[FUB] Person lookup error:", err.message);
+      return null;
+    }
+  }
+
   async function createFollowUpBossContact(params: {
     firstName: string; lastName: string; email: string;
     phone: string; address?: string; agent?: string; scenarioDetails?: string;
@@ -1143,51 +1168,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const agentName = params.agent === "Team" ? "Christian Tateo" : (params.agent || "Christian Tateo");
     const agentId   = FUB_AGENT_IDS[agentName] ?? 1;
 
-    // Step 1: create contact via /v1/events (no assignedTo — use PUT for assignment)
-    const phoneDigits = (params.phone || "").replace(/\D/g, "");
+    const phoneDigits = normalizePhoneDigits(params.phone);
     const messageParts = [
       params.messageHeader || `Property: ${params.address || "address not provided"}`,
       `Agent: ${agentName}`,
     ];
     if (params.scenarioDetails) messageParts.push(params.scenarioDetails);
-    const person: Record<string, any> = {
-      firstName: params.firstName,
-      lastName:  params.lastName,
-      email:     params.email,
-    };
-    if (phoneDigits) person.phone = phoneDigits;
-    const payload: Record<string, any> = {
-      source:  "Tateo & Co Website",
-      type:    "Property Inquiry",
-      message: messageParts.join("\n"),
-      person,
-    };
+    const noteBody = messageParts.join("\n");
 
-    if (params.address) {
-      payload.property = { street: params.address };
+    // Step 1: look up existing contact by email to avoid creating duplicates
+    const emailNorm = params.email.toLowerCase().trim();
+    let personId: number | null = await findFubPersonByEmail(apiKey, emailNorm);
+
+    if (personId) {
+      // Existing contact — just add a note instead of creating a new contact.
+      console.log(`[FUB] Existing person ${personId} found for ${emailNorm}; adding note`);
+      try {
+        const noteRes = await fetch("https://api.followupboss.com/v1/notes", {
+          method: "POST",
+          headers: fubHeaders(apiKey),
+          body: JSON.stringify({
+            personId,
+            subject: messageParts[0].slice(0, 200),
+            body: noteBody,
+            isHtml: false,
+          }),
+        });
+        if (!noteRes.ok) {
+          const errText = await noteRes.text();
+          console.warn(`[FUB] Note POST failed ${noteRes.status}:`, errText);
+        } else {
+          console.log(`[FUB] Note added to person ${personId}`);
+        }
+      } catch (err: any) {
+        console.warn("[FUB] Note error:", err.message);
+      }
+    } else {
+      // No existing contact — create one via /v1/events (also sends the message).
+      const person: Record<string, any> = {
+        firstName: params.firstName,
+        lastName:  params.lastName,
+        email:     params.email,
+      };
+      if (phoneDigits) person.phone = phoneDigits;
+      const payload: Record<string, any> = {
+        source:  "Tateo & Co Website",
+        type:    "Property Inquiry",
+        message: noteBody,
+        person,
+      };
+      if (params.address) payload.property = { street: params.address };
+
+      console.log(`[FUB] No existing contact for ${emailNorm}; creating via /v1/events (agent: ${agentName} / id:${agentId})`);
+
+      const res = await fetch("https://api.followupboss.com/v1/events", {
+        method: "POST",
+        headers: fubHeaders(apiKey),
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch { data = { raw: text }; }
+      if (!res.ok) {
+        console.error(`[FUB] Error ${res.status}:`, text);
+        throw new Error(`FUB ${res.status}: ${text}`);
+      }
+      personId = data?.person?.id ?? data?.id ?? null;
+      console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} | event id: ${data.id ?? "unknown"} | person id: ${personId ?? "unknown"}`);
     }
 
-    console.log("[FUB] Creating contact via /v1/events for agent:", agentName, `(id:${agentId})`);
-
-    const res = await fetch("https://api.followupboss.com/v1/events", {
-      method: "POST",
-      headers: fubHeaders(apiKey),
-      body: JSON.stringify(payload),
-    });
-
-    const text = await res.text();
-    let data: any;
-    try { data = JSON.parse(text); } catch { data = { raw: text }; }
-
-    if (!res.ok) {
-      console.error(`[FUB] Error ${res.status}:`, text);
-      throw new Error(`FUB ${res.status}: ${text}`);
-    }
-
-    const personId = data?.person?.id ?? data?.id;
-    console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} | event id: ${data.id ?? "unknown"} | person id: ${personId ?? "unknown"}`);
-
-    // Step 2: PUT /v1/people/{id} to set agent assignment + email + phone in FUB's required format
+    // Step 2: PUT /v1/people/{id} to ensure assignment + email + phone are set in FUB's required format
     if (personId) {
       try {
         const personUpdate: Record<string, any> = {
@@ -1203,7 +1253,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           body: JSON.stringify(personUpdate),
         });
         if (putRes.ok) {
-          console.log(`[FUB] Updated person ${personId}: assigned to ${agentName} (userId:${agentId}), email+phone set`);
+          console.log(`[FUB] Updated person ${personId}: assigned to ${agentName} (userId:${agentId})`);
         } else {
           const putErr = await putRes.text();
           console.warn(`[FUB] Person PUT failed ${putRes.status}:`, putErr);
@@ -1213,7 +1263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
-    return data;
+    return { personId };
   }
 
   // Simple per-IP rate limiter for the notify endpoint (max 10/min per IP)
