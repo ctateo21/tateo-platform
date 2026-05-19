@@ -40,8 +40,8 @@ export default function Header() {
     { href: "/#about", label: "ABOUT", icon: <Building2 className="mr-2 h-4 w-4" /> },
   ];
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     setLocation("/");
     setIsOpen(false);
   }

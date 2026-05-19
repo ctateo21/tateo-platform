@@ -43,11 +43,11 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
   }
 
-  function handleSignIn(e: React.FormEvent) {
+  async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
     setSiError("");
     setSiLoading(true);
-    const result = login(siEmail, siPassword);
+    const result = await login(siEmail, siPassword);
     setSiLoading(false);
     if (!result.ok) { setSiError(result.error || "Login failed."); return; }
     refresh();
@@ -56,7 +56,7 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     setSiEmail(""); setSiPassword("");
   }
 
-  function handleRegister(e: React.FormEvent) {
+  async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setRegError("");
     if (!regName.trim()) { setRegError("Please enter your name."); return; }
@@ -67,7 +67,7 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     if (!regAgent) { setRegError("Please pick the agent you want to work with."); return; }
     const agentName = AGENTS.find(a => a.id === regAgent)?.name ?? "Team";
     setRegLoading(true);
-    const result = register(regName, regEmail, regPassword, { phone: phoneDigits, agent: agentName });
+    const result = await register(regName, regEmail, regPassword, { phone: phoneDigits, agent: agentName });
     setRegLoading(false);
     if (!result.ok) { setRegError(result.error || "Registration failed."); return; }
     refresh();

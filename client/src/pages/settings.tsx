@@ -65,7 +65,7 @@ export default function Settings() {
     setProfileSaving(true);
 
     const previousEmail = user!.email;
-    const result = updateProfile(previousEmail, { name, email, phone });
+    const result = await updateProfile(previousEmail, { name, email, phone });
     if (!result.ok) {
       setProfileSaving(false);
       setProfileError(result.error || "Failed to update profile.");
@@ -104,7 +104,7 @@ export default function Settings() {
     setPwError("");
     if (newPw !== confirmPw) { setPwError("New passwords do not match."); return; }
     setPwSaving(true);
-    const result = updatePassword(user!.email, currentPw, newPw);
+    const result = await updatePassword(user!.email, currentPw, newPw);
     setPwSaving(false);
     if (!result.ok) { setPwError(result.error || "Failed to update password."); return; }
     setCurrentPw(""); setNewPw(""); setConfirmPw("");
@@ -152,7 +152,7 @@ export default function Settings() {
       return;
     }
 
-    const result = inviteUser(user!.email, inviteeName, inviteeEmail);
+    const result = await inviteUser(user!.email, inviteeName, inviteeEmail);
     setInviteSaving(false);
     if (!result.ok) {
       setInviteError(result.error || "Failed to save invite locally.");
@@ -167,8 +167,8 @@ export default function Settings() {
     });
   }
 
-  function handleRemoveInvitee() {
-    const result = removeInvitedUser(user!.email);
+  async function handleRemoveInvitee() {
+    const result = await removeInvitedUser(user!.email);
     if (!result.ok) {
       toast({ title: "Failed to remove", description: result.error, variant: "destructive" });
       return;
