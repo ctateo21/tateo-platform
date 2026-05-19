@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "wouter";
 import {
   Home, RefreshCw, Shield, Search, LogOut, Trash2, ExternalLink,
-  MapPin, Calendar,
+  MapPin, Calendar, Plus, X,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/context/auth-context";
-import { getPurchaseScenarios } from "@/lib/auth";
+import { getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import type { TrackedLoan } from "@/components/refi/loan-tracker";
 
@@ -170,9 +170,11 @@ function RefiTab() {
   );
 }
 
-// ── Purchase Tab — same search experience as the home page ──────────
-function PurchaseTab() {
-  const [, setLocation] = useLocation();
+// ── Address search sub-component ────────────────────────────────────
+function AddressSearchBar({ onNavigate, compact = false }: {
+  onNavigate: (addr: string) => void;
+  compact?: boolean;
+}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const autocompleteRef = useRef<any>(null);
 
@@ -195,9 +197,7 @@ function PurchaseTab() {
         });
         autocompleteRef.current.addListener("place_changed", () => {
           const place = autocompleteRef.current.getPlace();
-          if (place?.formatted_address) {
-            setLocation(`/select-service?address=${encodeURIComponent(place.formatted_address)}`);
-          }
+          if (place?.formatted_address) onNavigate(place.formatted_address);
         });
       } catch (err) {
         console.warn("Google Maps autocomplete unavailable:", err);
@@ -209,8 +209,25 @@ function PurchaseTab() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const val = inputRef.current?.value?.trim();
-    if (!val) return;
-    setLocation(`/select-service?address=${encodeURIComponent(val)}`);
+    if (val) onNavigate(val);
+  }
+
+  if (compact) {
+    return (
+      <form onSubmit={handleSubmit} className="flex gap-2 max-w-xl">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            ref={inputRef}
+            type="text"
+            placeholder="Enter a property address..."
+            autoFocus
+            className="w-full pl-9 pr-4 h-10 text-sm rounded-lg border bg-background outline-none focus:ring-2 focus:ring-primary"
+          />
+        </div>
+        <Button type="submit" size="sm" className="h-10">Analyze</Button>
+      </form>
+    );
   }
 
   return (
@@ -218,7 +235,7 @@ function PurchaseTab() {
       <div className="w-full max-w-2xl text-center">
         <h2 className="text-2xl font-bold mb-2">What is the full cost of this home?</h2>
         <p className="text-muted-foreground mb-8">
-          Enter any property address and instantly see your mortgage payment, insurance estimates, taxes, and whether you qualify.
+          Enter any property address to see your mortgage payment, insurance, taxes, and whether you qualify — no questionnaire required.
         </p>
         <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
@@ -234,7 +251,118 @@ function PurchaseTab() {
             Get Estimate
           </Button>
         </form>
-        <p className="text-muted-foreground/60 text-sm mt-4">No extra steps · Instant results · Free to use</p>
+        <p className="text-muted-foreground/60 text-sm mt-4">No questionnaire · Instant results · Free to use</p>
+      </div>
+    </div>
+  );
+}
+
+// ── Purchase Tab — saved address tabs + full estimate view ───────────
+function PurchaseTab() {
+  const [, setLocation] = useLocation();
+  const [scenarios, setScenarios] = useState<ReturnType<typeof getPurchaseScenarios>>([]);
+  const [showAddSearch, setShowAddSearch] = useState(false);
+
+  // Reload on mount so changes from estimate page are picked up
+  useEffect(() => { setScenarios(getPurchaseScenarios()); }, []);
+
+  function navigate(addr: string) {
+    setLocation(`/estimate?address=${encodeURIComponent(addr)}&from=dashboard`);
+  }
+
+  function remove(id: string, e: React.MouseEvent) {
+    e.stopPropagation();
+    const updated = scenarios.filter(s => s.id !== id);
+    setScenarios(updated);
+    savePurchaseScenarios(updated);
+  }
+
+  // No saved scenarios yet → full search experience
+  if (scenarios.length === 0 && !showAddSearch) {
+    return <AddressSearchBar onNavigate={navigate} />;
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Address tabs row */}
+      <div className="flex flex-wrap items-center gap-2">
+        {scenarios.map(s => (
+          <button
+            key={s.id}
+            onClick={() => navigate(s.address)}
+            className="group flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-background hover:border-primary hover:bg-accent transition-colors text-sm font-medium max-w-[220px]"
+          >
+            <MapPin className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0" />
+            <span className="truncate">{s.address.split(",")[0]}</span>
+            <span
+              role="button"
+              onClick={e => remove(s.id, e)}
+              className="ml-0.5 text-muted-foreground hover:text-destructive transition-colors shrink-0 cursor-pointer"
+            >
+              <X className="h-3 w-3" />
+            </span>
+          </button>
+        ))}
+        <button
+          onClick={() => setShowAddSearch(v => !v)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+        >
+          <Search className="h-3.5 w-3.5" /> Add Property
+        </button>
+      </div>
+
+      {/* Inline address search */}
+      {showAddSearch && (
+        <div className="flex items-center gap-2">
+          <AddressSearchBar onNavigate={addr => { setShowAddSearch(false); navigate(addr); }} compact />
+          <Button variant="ghost" size="sm" className="h-10" onClick={() => setShowAddSearch(false)}>Cancel</Button>
+        </div>
+      )}
+
+      {/* Property cards */}
+      <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
+        {scenarios.map(s => (
+          <Card
+            key={s.id}
+            className="hover:shadow-md transition-shadow cursor-pointer group"
+            onClick={() => navigate(s.address)}
+          >
+            <CardContent className="pt-5 pb-4 space-y-3">
+              <div>
+                <p className="font-semibold text-sm leading-snug flex items-start gap-1.5">
+                  <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+                  <span>{s.address}</span>
+                </p>
+                <p className="text-xs text-muted-foreground mt-1 ml-5 flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> Saved {formatDate(s.savedAt)}
+                </p>
+              </div>
+              {(s.price || s.monthlyPayment) && (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm ml-5">
+                  {s.price != null && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Price</p>
+                      <p className="font-semibold">{formatCurrency(s.price)}</p>
+                    </div>
+                  )}
+                  {s.monthlyPayment != null && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Est. Payment</p>
+                      <p className="font-semibold">{formatCurrency(s.monthlyPayment)}/mo</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              <Button
+                size="sm"
+                className="w-full gap-2"
+                onClick={e => { e.stopPropagation(); navigate(s.address); }}
+              >
+                View Full Estimate <ExternalLink className="h-3.5 w-3.5" />
+              </Button>
+            </CardContent>
+          </Card>
+        ))}
       </div>
     </div>
   );

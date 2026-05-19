@@ -54,7 +54,9 @@ import {
   ChevronLeft,
   ChevronUp,
   ClipboardList,
+  LayoutDashboard,
 } from "lucide-react";
+import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
 import {
   Dialog,
   DialogContent,
@@ -400,6 +402,7 @@ export default function Estimate() {
   const params = new URLSearchParams(search);
   const address = params.get("address") || "Unknown Address";
   const servicesAll = params.get("services") === "all";
+  const fromDashboard = params.get("from") === "dashboard";
 
   const { toast } = useToast();
 
@@ -505,7 +508,7 @@ export default function Estimate() {
   }
 
   // Share dialog
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(fromDashboard ? 4 : 1);
   const [answersOpen, setAnswersOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
@@ -1209,8 +1212,9 @@ export default function Estimate() {
           <div className="container mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setLocation("/")}
+                onClick={() => setLocation(fromDashboard ? "/dashboard" : "/")}
                 className="text-muted-foreground hover:text-primary transition-colors"
+                title={fromDashboard ? "Back to Dashboard" : "Back"}
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
@@ -1254,6 +1258,40 @@ export default function Estimate() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {(() => {
+                const sessionUser = getSession();
+                if (!sessionUser) return null;
+                return (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => {
+                      const existing = getPurchaseScenarios();
+                      const alreadySaved = existing.some(
+                        s => s.address.trim().toLowerCase() === address.trim().toLowerCase()
+                      );
+                      if (alreadySaved) {
+                        toast({ title: "Already in your dashboard", description: address });
+                      } else {
+                        savePurchaseScenarios([
+                          ...existing,
+                          {
+                            id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                            address,
+                            savedAt: new Date().toISOString(),
+                            price: inputs.purchasePrice,
+                            monthlyPayment: Math.round(calc.totalHousing),
+                          },
+                        ]);
+                        toast({ title: "Saved to dashboard", description: address });
+                      }
+                    }}
+                  >
+                    <LayoutDashboard className="h-4 w-4" /> Save to Dashboard
+                  </Button>
+                );
+              })()}
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShareDialogOpen(true)}>
                 <Share2 className="h-4 w-4" /> Share
               </Button>
