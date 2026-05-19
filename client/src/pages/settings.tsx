@@ -63,9 +63,38 @@ export default function Settings() {
     e.preventDefault();
     setProfileError("");
     setProfileSaving(true);
-    const result = updateProfile(user!.email, { name, email, phone });
+
+    const previousEmail = user!.email;
+    const result = updateProfile(previousEmail, { name, email, phone });
+    if (!result.ok) {
+      setProfileSaving(false);
+      setProfileError(result.error || "Failed to update profile.");
+      return;
+    }
+
+    // Push the change to FollowUpBoss so the agent's contact stays in sync.
+    try {
+      const trimmed = name.trim();
+      const [first, ...rest] = trimmed.split(/\s+/);
+      const firstName = first || email.split("@")[0];
+      const lastName = rest.join(" ") || "-";
+      await fetch("/api/leads/update-profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          previousEmail,
+          firstName,
+          lastName,
+          email: email.trim().toLowerCase(),
+          phone: phone.replace(/\D/g, ""),
+          agent: user!.agent || "Team",
+        }),
+      });
+    } catch (err) {
+      console.warn("Failed to sync profile with FollowUpBoss:", err);
+    }
+
     setProfileSaving(false);
-    if (!result.ok) { setProfileError(result.error || "Failed to update profile."); return; }
     refresh();
     toast({ title: "Profile updated", description: "Your account details are saved." });
   }

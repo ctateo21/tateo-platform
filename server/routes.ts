@@ -1318,6 +1318,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/leads/update-profile
+  // Called when a logged-in user changes their name/email/phone in Settings.
+  // Looks up the FUB contact by their previous email and updates it in place.
+  app.post("/api/leads/update-profile", async (req, res) => {
+    try {
+      const ip = (req.ip || req.socket.remoteAddress || "unknown").toString();
+      if (notifyRateLimited(ip)) {
+        return res.status(429).json({ error: "Too many requests. Please wait a moment." });
+      }
+      const { previousEmail, firstName, lastName, email, phone, agent } = z.object({
+        previousEmail: z.string().email(),
+        firstName: z.string().min(1),
+        lastName: z.string().min(1),
+        email: z.string().email(),
+        phone: z.string().optional().default(""),
+        agent: z.string().optional(),
+      }).parse(req.body);
+
+      const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
+      if (!apiKey) {
+        console.log("[FUB] FOLLOWUPBOSS_API_KEY not set — skipping profile update.");
+        return res.json({ ok: true, skipped: true });
+      }
+
+      // Look up by previous email; if not found, also try the new email
+      let personId = await findFubPersonByEmail(apiKey, previousEmail.toLowerCase().trim());
+      if (!personId && email.toLowerCase().trim() !== previousEmail.toLowerCase().trim()) {
+        personId = await findFubPersonByEmail(apiKey, email.toLowerCase().trim());
+      }
+
+      if (!personId) {
+        console.log(`[FUB] No existing contact for ${previousEmail}; skipping profile update.`);
+        return res.json({ ok: true, found: false });
+      }
+
+      const phoneDigits = normalizePhoneDigits(phone);
+      const agentName = agent === "Team" ? "Christian Tateo" : (agent || "Christian Tateo");
+      const agentId = FUB_AGENT_IDS[agentName] ?? 1;
+
+      const personUpdate: Record<string, any> = {
+        firstName,
+        lastName,
+        assignedUserId: agentId,
+        emails: [{ value: email, type: "work" }],
+      };
+      if (phoneDigits) {
+        personUpdate.phones = [{ value: formatPhoneDisplay(phoneDigits), type: "mobile" }];
+      }
+
+      const putRes = await fetch(`https://api.followupboss.com/v1/people/${personId}`, {
+        method: "PUT",
+        headers: fubHeaders(apiKey),
+        body: JSON.stringify(personUpdate),
+      });
+      if (!putRes.ok) {
+        const errText = await putRes.text();
+        console.warn(`[FUB] Profile update failed ${putRes.status}:`, errText);
+        return res.status(502).json({ error: `Failed to update contact (${putRes.status}).` });
+      }
+
+      console.log(`[FUB] Profile updated for person ${personId}: ${firstName} ${lastName} <${email}>`);
+      res.json({ ok: true, personId });
+    } catch (err: any) {
+      console.error("update-profile error:", err);
+      res.status(400).json({ error: err.message || "Failed to update profile" });
+    }
+  });
+
   // POST /api/leads/invite-user
   // Called when a logged-in user invites someone to share their account.
   // Creates a FUB contact for the invitee assigned to the same agent and adds a note on the inviter's record.
