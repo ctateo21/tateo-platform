@@ -469,6 +469,9 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
   const helocRepayment = calculateMonthlyPayment(clampedBorrow, heRate, HELOC_REPAY_YEARS);
   const heLoanMonthly = calculateMonthlyPayment(clampedBorrow, heRate, HE_LOAN_TERM_YEARS);
   const heLoanTotalInterest = clampedBorrow > 0 ? heLoanMonthly * HE_LOAN_TERM_YEARS * 12 - clampedBorrow : 0;
+  // 2nd liens do not roll fees into the loan — fees come out of the cash disbursed.
+  const heClosingCosts = clampedBorrow > 0 ? (clampedBorrow * CLOSING_COST_PERCENT) / 100 + CLOSING_COST_FIXED : 0;
+  const heNetCash = Math.max(0, clampedBorrow - heClosingCosts);
 
   if (notEnoughEquity) {
     return (
@@ -537,6 +540,13 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
             <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{product === "heloc" ? "Line Amount" : "Loan Amount"}</p>
             <p className="font-bold text-2xl">{formatCurrency(clampedBorrow)}</p>
           </div>
+          {clampedBorrow > 0 && (
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">Cash you'd receive <span className="text-muted-foreground/80">(net of fees)</span></p>
+              <p className="font-bold text-xl text-green-600">{formatCurrency(heNetCash)}</p>
+              <p className="text-xs text-muted-foreground">Less {formatCurrency(heClosingCosts)} closing costs</p>
+            </div>
+          )}
           <div className="text-right">
             <p className="text-xs text-muted-foreground">Combined LTV after</p>
             <p className={`font-bold text-lg ${cltv > maxCltv ? "text-red-500" : ""}`}>{(cltv * 100).toFixed(1)}%</p>
@@ -544,6 +554,7 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
         </div>
         <Slider min={0} max={maxHEAmount} step={1000} value={[clampedBorrow]} onValueChange={([val]) => setBorrowAmount(val)} />
         <div className="flex justify-between text-xs text-muted-foreground"><span>$0</span><span>Max {formatCurrency(maxHEAmount)}</span></div>
+        <p className="text-xs text-muted-foreground">Fees are paid from the proceeds at closing — they are not added to your 2nd lien balance, and there is no escrow account.</p>
       </div>
 
       {clampedBorrow > 0 && product === "heloc" && (
