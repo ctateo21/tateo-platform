@@ -8,6 +8,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel,
@@ -112,37 +114,73 @@ function HomeValueStat({ value, onSave }: { value: number; onSave: (v: number) =
   );
 }
 
+function RateTermRecRow({ loan, details, homeValueStat }: { loan: TrackedLoan; details: RecDetails; homeValueStat: React.ReactNode }) {
+  const { adjustedTodayRate, currentBalance, baseClosingCosts, monthlyEscrow } = details;
+  const [financeFees, setFinanceFees] = useState(true);
+  const [includeEscrows, setIncludeEscrows] = useState(false);
+
+  const escrowAmount = includeEscrows ? monthlyEscrow * ESCROW_RESERVE_MONTHS : 0;
+  const totalFees = baseClosingCosts + escrowAmount;
+  const newLoanAmount = currentBalance + (financeFees ? totalFees : 0);
+  const newMonthlyPI = calculateMonthlyPayment(newLoanAmount, adjustedTodayRate, NEW_TERM_YEARS);
+  const monthlySavings = loan.currentPI - newMonthlyPI;
+  const breakEvenMonths = monthlySavings > 0 ? Math.ceil(totalFees / monthlySavings) : 0;
+
+  const savingsClass = monthlySavings > 0 ? "text-green-700" : "text-red-600";
+  const loanIdSafe = loan.id.replace(/[^a-zA-Z0-9]/g, "");
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        {homeValueStat}
+        <RecStat label="New Rate" value={`${adjustedTodayRate.toFixed(2)}%`} valueClass="text-blue-700" />
+        <RecStat label="New Monthly" value={`${formatCurrency(newMonthlyPI)}/mo`} />
+        <RecStat
+          label="Monthly Savings"
+          value={`${monthlySavings > 0 ? "+" : ""}${formatCurrency(monthlySavings)}`}
+          valueClass={savingsClass}
+        />
+        <RecStat
+          label="Break-Even"
+          value={breakEvenMonths > 0 ? `${breakEvenMonths} mo` : "N/A"}
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground pt-1">
+        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+          <Switch id={`finance-fees-${loanIdSafe}`} checked={financeFees} onCheckedChange={setFinanceFees} />
+          <Label htmlFor={`finance-fees-${loanIdSafe}`} className="text-xs cursor-pointer">
+            Finance fees in new loan <span className="text-muted-foreground/80">({formatCurrency(baseClosingCosts)})</span>
+          </Label>
+        </div>
+        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+          <Switch id={`include-escrows-${loanIdSafe}`} checked={includeEscrows} onCheckedChange={setIncludeEscrows} disabled={monthlyEscrow <= 0} />
+          <Label htmlFor={`include-escrows-${loanIdSafe}`} className={`text-xs cursor-pointer ${monthlyEscrow <= 0 ? "opacity-50" : ""}`}>
+            Include escrows ({ESCROW_RESERVE_MONTHS}-mo reserve{monthlyEscrow > 0 ? ` · ${formatCurrency(monthlyEscrow * ESCROW_RESERVE_MONTHS)}` : ""})
+          </Label>
+        </div>
+        <span className="ml-auto">
+          New loan amount: <span className="font-semibold text-foreground">{formatCurrency(newLoanAmount)}</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function RecOverview({
   loan,
   details,
   onUpdateHomeValue,
 }: {
   loan: TrackedLoan;
-  details: { rec: BestOption; adjustedTodayRate: number; rateTermNewPI: number; rateTermMonthlySavings: number; rateTermBreakEvenMonths: number; heAvailable: number; heRate: number; heMonthly: number };
+  details: RecDetails;
   onUpdateHomeValue: (v: number) => void;
 }) {
-  const { rec, adjustedTodayRate, rateTermNewPI, rateTermMonthlySavings, rateTermBreakEvenMonths, heAvailable, heRate, heMonthly } = details;
+  const { rec, adjustedTodayRate, heAvailable, heRate, heMonthly } = details;
 
   const homeValueStat = <HomeValueStat value={loan.estimatedHomeValue} onSave={onUpdateHomeValue} />;
 
   if (rec.type === "rate_term") {
-    const savingsClass = rateTermMonthlySavings > 0 ? "text-green-700" : "text-red-600";
-    return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-        {homeValueStat}
-        <RecStat label="New Rate" value={`${adjustedTodayRate.toFixed(2)}%`} valueClass="text-blue-700" />
-        <RecStat label="New Monthly" value={`${formatCurrency(rateTermNewPI)}/mo`} />
-        <RecStat
-          label="Monthly Savings"
-          value={`${rateTermMonthlySavings > 0 ? "+" : ""}${formatCurrency(rateTermMonthlySavings)}`}
-          valueClass={savingsClass}
-        />
-        <RecStat
-          label="Break-Even"
-          value={rateTermBreakEvenMonths > 0 ? `${rateTermBreakEvenMonths} mo` : "N/A"}
-        />
-      </div>
-    );
+    return <RateTermRecRow loan={loan} details={details} homeValueStat={homeValueStat} />;
   }
 
   if (rec.type === "second_lien") {
@@ -193,13 +231,14 @@ interface RecDetails {
   rec: BestOption;
   adjustedTodayRate: number;
   currentBalance: number;
-  rateTermNewPI: number;
-  rateTermMonthlySavings: number;
-  rateTermBreakEvenMonths: number;
+  monthlyEscrow: number;
+  baseClosingCosts: number;
   heAvailable: number;
   heRate: number;
   heMonthly: number;
 }
+
+const ESCROW_RESERVE_MONTHS = 3;
 
 function RefiTab() {
   const [, setLocation] = useLocation();
@@ -236,18 +275,8 @@ function RefiTab() {
       loan.propertyType
     );
 
-    const rateTerm = calculateRefinance({
-      appraisedValue: loan.estimatedHomeValue,
-      loanBalance: currentBalance,
-      currentInterestRate: loan.currentRate,
-      newInterestRate: adjustedTodayRate,
-      currentTermRemainingYears: Math.max(1, Math.round(loan.estimatedRemainingYears)),
-      newLoanTermYears: NEW_TERM_YEARS,
-      closingCostsPercent: CLOSING_COST_PERCENT,
-      closingCostsFixed: CLOSING_COST_FIXED,
-      includeClosingCostsInLoan: true,
-      refinanceType: "rate_and_term",
-    });
+    const baseClosingCosts = (currentBalance * CLOSING_COST_PERCENT) / 100 + CLOSING_COST_FIXED;
+    const monthlyEscrow = Math.max(0, loan.monthlyPayment - loan.currentPI);
 
     const maxCltv = HE_MAX_CLTV[loan.propertyType] ?? 0.9;
     const heAvailable = Math.max(0, Math.floor(loan.estimatedHomeValue * maxCltv - currentBalance));
@@ -258,9 +287,8 @@ function RefiTab() {
       rec,
       adjustedTodayRate,
       currentBalance,
-      rateTermNewPI: rateTerm.monthlyPaymentNew,
-      rateTermMonthlySavings: rateTerm.monthlySavings,
-      rateTermBreakEvenMonths: rateTerm.breakEvenMonths,
+      monthlyEscrow,
+      baseClosingCosts,
       heAvailable,
       heRate,
       heMonthly,
