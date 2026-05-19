@@ -1268,6 +1268,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/leads/invite-user
+  // Called when a logged-in user invites someone to share their account.
+  // Creates a FUB contact for the invitee assigned to the same agent and adds a note on the inviter's record.
+  app.post("/api/leads/invite-user", async (req, res) => {
+    try {
+      const ip = (req.ip || req.socket.remoteAddress || "unknown").toString();
+      if (notifyRateLimited(ip)) {
+        return res.status(429).json({ error: "Too many requests. Please wait a moment." });
+      }
+      const { inviterFirstName, inviterLastName, inviterEmail, inviterPhone, agent, inviteeName, inviteeEmail } = z.object({
+        inviterFirstName: z.string().min(1),
+        inviterLastName: z.string().min(1),
+        inviterEmail: z.string().email(),
+        inviterPhone: z.string().optional().default(""),
+        agent: z.string().optional(),
+        inviteeName: z.string().min(1),
+        inviteeEmail: z.string().email(),
+      }).parse(req.body);
+
+      const inviterFullName = `${inviterFirstName} ${inviterLastName}`.trim();
+      const trimmedInvitee = inviteeName.trim();
+      const [first, ...rest] = trimmedInvitee.split(/\s+/);
+      const inviteeFirst = first || inviteeEmail.split("@")[0];
+      const inviteeLast = rest.join(" ") || "-";
+
+      console.log(`[LEAD] Invite: ${inviterEmail} → ${inviteeEmail} (agent: ${agent || "Team"})`);
+
+      // Create/update the invitee contact in FUB, assigned to the inviter's agent.
+      createFollowUpBossContact({
+        firstName: inviteeFirst,
+        lastName: inviteeLast,
+        email: inviteeEmail,
+        phone: "",
+        agent,
+        messageHeader: `Invited by ${inviterFullName} (${inviterEmail}) to share their Tateo & Co account.`,
+      }).catch(err => console.error("[FUB] invite-user invitee failed:", err.message));
+
+      // Add a note to the inviter's FUB record too.
+      createFollowUpBossContact({
+        firstName: inviterFirstName,
+        lastName: inviterLastName,
+        email: inviterEmail,
+        phone: inviterPhone,
+        agent,
+        messageHeader: `Added a shared account user: ${trimmedInvitee} (${inviteeEmail})`,
+      }).catch(err => console.error("[FUB] invite-user inviter failed:", err.message));
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("invite-user error:", err);
+      res.status(400).json({ error: err.message || "Failed to send invite" });
+    }
+  });
+
   // GET /api/leads (simple admin view — protect in production)
   app.get("/api/leads", (_req, res) => {
     res.json({ count: _leads.length, leads: _leads });

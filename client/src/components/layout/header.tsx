@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Menu, Home, Building2, Briefcase, HelpCircle, ChevronDown,
-  LayoutDashboard, LogIn, LogOut, User,
+  LayoutDashboard, LogIn, LogOut, User, Settings as SettingsIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -131,6 +131,11 @@ export default function Header() {
                     <LayoutDashboard className="h-4 w-4" /> My Dashboard
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/settings" className="w-full cursor-pointer flex items-center gap-2">
+                    <SettingsIcon className="h-4 w-4" /> Settings
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive cursor-pointer flex items-center gap-2">
                   <LogOut className="h-4 w-4" /> Log Out
@@ -222,6 +227,13 @@ export default function Header() {
                     onClick={() => setIsOpen(false)}
                   >
                     <LayoutDashboard className="h-5 w-5 mr-1" /> My Dashboard
+                  </Link>
+                  <Link
+                    href="/settings"
+                    className="flex items-center text-lg font-medium text-gray-700 gap-2"
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <SettingsIcon className="h-5 w-5 mr-1" /> Settings
                   </Link>
                   <button
                     onClick={handleLogout}

@@ -19,6 +19,7 @@ import Header from "./components/layout/header";
 import Footer from "./components/layout/footer";
 import Home from "./pages/home";
 import Dashboard from "./pages/dashboard";
+import Settings from "./pages/settings";
 import Questionnaire from "./pages/questionnaire";
 import ServiceQuestionnaire from "./pages/service-questionnaire";
 import RealEstate from "./pages/real-estate";
@@ -46,6 +47,7 @@ function App() {
                 <Switch>
                   <Route path="/" component={Home} />
                   <Route path="/dashboard" component={Dashboard} />
+                  <Route path="/settings" component={Settings} />
                   <Route path="/questionnaire" component={Questionnaire} />
                   <Route path="/service-questionnaire" component={ServiceQuestionnaire} />
                   <Route path="/real-estate" component={RealEstate} />

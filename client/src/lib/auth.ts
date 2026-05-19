@@ -8,11 +8,18 @@ export const AGENTS = [
 
 export type AgentId = typeof AGENTS[number]["id"];
 
+export interface InvitedUser {
+  name: string;
+  email: string;
+  invitedAt: string;
+}
+
 export interface AuthUser {
   name: string;
   email: string;
   phone?: string;
   agent?: string;  // display name e.g. "Christian Tateo"
+  invitedUser?: InvitedUser;
   createdAt: string;
 }
 
@@ -43,11 +50,113 @@ function writeSession(user: StoredUser) {
   const session: AuthUser = {
     name: user.name, email: user.email,
     phone: user.phone, agent: user.agent,
+    invitedUser: user.invitedUser,
     createdAt: user.createdAt,
   };
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   // Legacy flag kept for older components that check it
   try { localStorage.setItem("tateo_auth", "1"); } catch {}
+}
+
+export function updateProfile(
+  currentEmail: string,
+  updates: { name?: string; email?: string; phone?: string }
+): { ok: boolean; error?: string } {
+  const users = getStoredUsers();
+  const key = currentEmail.toLowerCase().trim();
+  const user = users[key];
+  if (!user) return { ok: false, error: "Not signed in." };
+
+  let newKey = key;
+  const targetEmail = updates.email?.toLowerCase().trim();
+  if (targetEmail && targetEmail !== key) {
+    if (!targetEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+      return { ok: false, error: "Please enter a valid email address." };
+    }
+    if (users[targetEmail]) return { ok: false, error: "Another account already uses this email." };
+    newKey = targetEmail;
+    delete users[key];
+  }
+
+  if (updates.phone !== undefined) {
+    const digits = updates.phone.replace(/\D/g, "");
+    if (digits.length > 0 && digits.length < 10) {
+      return { ok: false, error: "Please enter a valid 10-digit phone number." };
+    }
+  }
+
+  const updated: StoredUser = {
+    ...user,
+    name: updates.name?.trim() || user.name,
+    email: newKey,
+    phone: updates.phone !== undefined
+      ? (updates.phone.replace(/\D/g, "") || undefined)
+      : user.phone,
+  };
+  users[newKey] = updated;
+  saveStoredUsers(users);
+  writeSession(updated);
+  return { ok: true };
+}
+
+export function updatePassword(
+  email: string,
+  currentPassword: string,
+  newPassword: string
+): { ok: boolean; error?: string } {
+  const users = getStoredUsers();
+  const key = email.toLowerCase().trim();
+  const user = users[key];
+  if (!user) return { ok: false, error: "Not signed in." };
+  if (user.password !== currentPassword) return { ok: false, error: "Current password is incorrect." };
+  if (newPassword.length < 6) return { ok: false, error: "New password must be at least 6 characters." };
+  users[key] = { ...user, password: newPassword };
+  saveStoredUsers(users);
+  return { ok: true };
+}
+
+export function inviteUser(
+  email: string,
+  inviteeName: string,
+  inviteeEmail: string
+): { ok: boolean; error?: string } {
+  const users = getStoredUsers();
+  const key = email.toLowerCase().trim();
+  const user = users[key];
+  if (!user) return { ok: false, error: "Not signed in." };
+  if (!inviteeName.trim()) return { ok: false, error: "Please enter the invitee's full name." };
+  const cleanEmail = inviteeEmail.toLowerCase().trim();
+  if (!cleanEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+    return { ok: false, error: "Please enter a valid email address for the invitee." };
+  }
+  if (cleanEmail === key) {
+    return { ok: false, error: "You can't invite yourself." };
+  }
+  const updated: StoredUser = {
+    ...user,
+    invitedUser: {
+      name: inviteeName.trim(),
+      email: cleanEmail,
+      invitedAt: new Date().toISOString(),
+    },
+  };
+  users[key] = updated;
+  saveStoredUsers(users);
+  writeSession(updated);
+  return { ok: true };
+}
+
+export function removeInvitedUser(email: string): { ok: boolean; error?: string } {
+  const users = getStoredUsers();
+  const key = email.toLowerCase().trim();
+  const user = users[key];
+  if (!user) return { ok: false, error: "Not signed in." };
+  const { invitedUser, ...rest } = user;
+  void invitedUser;
+  users[key] = rest as StoredUser;
+  saveStoredUsers(users);
+  writeSession(users[key]);
+  return { ok: true };
 }
 
 export function register(
