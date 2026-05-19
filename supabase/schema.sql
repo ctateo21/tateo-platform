@@ -176,7 +176,35 @@ create policy "submissions_owner" on public.submissions
   using      (auth.uid() is not null and auth.uid() = user_id)
   with check (auth.uid() is not null and auth.uid() = user_id);
 
+-- ----------------------------------------------------------------------------
+-- 7. property_cache  (Zillow-via-Apify lookups; 24h TTL handled in app code)
+-- ----------------------------------------------------------------------------
+-- Cache key is the normalized address or Zillow URL. Shared across all users
+-- (no user_id) — Zillow data isn't user-specific, and reusing cache across
+-- accounts saves Apify credits.
+create table if not exists public.property_cache (
+  cache_key     text primary key,
+  normalized    jsonb not null,
+  raw           jsonb,
+  fetched_at    timestamptz not null default now()
+);
+
+create index if not exists property_cache_fetched_idx on public.property_cache(fetched_at);
+
+alter table public.property_cache enable row level security;
+
+-- Anyone signed in can read; writes happen server-side via the service role
+-- key (which bypasses RLS), so no insert/update policy is needed here.
+drop policy if exists "property_cache_read" on public.property_cache;
+create policy "property_cache_read" on public.property_cache
+  for select
+  using (auth.uid() is not null);
+
+-- Tell PostgREST to reload its schema cache so new tables are visible to the
+-- REST API immediately (avoids "Could not find the table" errors).
+notify pgrst, 'reload schema';
+
 -- ============================================================================
--- Done. Verify in Supabase Dashboard → Table Editor that all 6 tables exist
+-- Done. Verify in Supabase Dashboard → Table Editor that all 7 tables exist
 -- and that RLS is enabled (lock icon next to each table).
 -- ============================================================================
