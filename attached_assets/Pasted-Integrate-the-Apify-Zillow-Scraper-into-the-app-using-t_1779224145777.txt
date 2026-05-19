@@ -1,0 +1,206 @@
+Integrate the Apify Zillow Scraper into the app using the Apify API from the backend only.
+
+Use the Apify Actor ID:
+ENK9p4RZHg0iVso52
+
+Use APIFY_TOKEN from Replit Secrets. Do not expose this token to the frontend.
+
+Create a backend endpoint:
+
+POST /api/zillow-property-lookup
+
+Input:
+{
+  "addressOrUrl": "property address or Zillow URL"
+}
+
+The backend should:
+1. Check Firebase/Supabase first to see if this property was already pulled within the last 24 hours.
+2. If cached data exists, return cached normalized property data.
+3. If no fresh cached data exists, run the Apify Zillow Scraper.
+4. Wait for the Actor run to finish.
+5. Retrieve the dataset results.
+6. Normalize the Zillow output into our PropertyScenario model.
+7. Save the normalized data and raw Zillow response to Firebase/Supabase.
+8. Return the normalized data to the frontend.
+
+Fields to extract from Zillow:
+- Zestimate
+- Listing price
+- HOA monthly fee
+- Type of home: Single Family, Townhome, Condo, Multifamily, Manufactured, etc.
+- Year built
+- Bedrooms
+- Bathrooms
+- Square footage
+- Lot size
+- Listing URL
+- Photos if available
+- Listing description/caption
+
+Also parse the listing description/caption for insurance-related clues.
+
+From the listing description, extract:
+- Roof year if mentioned
+- Roof age if mentioned
+- Whether roof is described as new, newer, recently replaced, or updated
+- Hurricane impact windows
+- Impact-rated windows
+- Impact doors
+- Hurricane shutters
+- Storm shutters
+- Hurricane-rated garage door
+- Updated electrical
+- Updated plumbing
+- Updated HVAC
+- Any mention of flood zone
+- Any mention of wind mitigation
+- Any mention of roof permit
+- Any mention of roof replacement
+
+Create a parsedInsuranceClues object like this:
+
+{
+  "roofYear": null,
+  "roofConditionText": null,
+  "hasImpactWindows": null,
+  "hasImpactDoors": null,
+  "hasImpactGarageDoor": null,
+  "hasHurricaneShutters": null,
+  "updatedElectrical": null,
+  "updatedPlumbing": null,
+  "updatedHVAC": null,
+  "floodZoneMentioned": null,
+  "windMitigationMentioned": null,
+  "rawMatchedPhrases": []
+}
+
+If the description says things like:
+- "new roof 2021"
+- "roof replaced in 2020"
+- "2022 roof"
+- "newer roof"
+- "impact windows"
+- "hurricane impact windows and doors"
+- "storm shutters"
+then populate the parsedInsuranceClues fields.
+
+Create a normalized PropertyScenario model like this:
+
+{
+  "source": "Zillow via Apify",
+  "address": "",
+  "zillowUrl": "",
+  "zestimate": null,
+  "listingPrice": null,
+  "purchasePrice": null,
+  "estimatedHomeValue": null,
+  "hoaMonthly": null,
+  "propertyType": "",
+  "yearBuilt": null,
+  "bedrooms": null,
+  "bathrooms": null,
+  "squareFeet": null,
+  "lotSize": null,
+  "photos": [],
+  "listingDescription": "",
+  "parsedInsuranceClues": {},
+  "insurancePolicyType": "",
+  "occupancyType": "",
+  "rawZillowData": {},
+  "lastPulledAt": ""
+}
+
+Important Purchase and Refinance Logic:
+- purchasePrice should default to listingPrice if available, otherwise Zestimate.
+- estimatedHomeValue should default to Zestimate.
+- purchasePrice must automatically flow into the Purchase Estimate calculations.
+- estimatedHomeValue must automatically flow into the Refinance Estimate calculations.
+- When users adjust purchase price or estimated home value later, all calculations should dynamically update.
+
+Important Insurance Logic:
+Use property type and occupancy type to automatically determine policy form.
+
+If property type is:
+- Condo
+- Townhome
+
+Then:
+- Primary residence = HO6
+- Secondary/Vacation = HO6
+- Investment = HO6
+
+If property type is:
+- Single Family
+- Multifamily
+- Manufactured
+- Other detached residential
+
+Then:
+- Primary residence = HO3
+- Secondary/Vacation = HO3
+- Investment = DP3
+
+Create an automatic insurancePolicyType field that updates dynamically based on:
+- propertyType
+- occupancyType
+
+Examples:
+- Condo + Primary = HO6
+- Condo + Investment = HO6
+- Single Family + Primary = HO3
+- Single Family + Investment = DP3
+
+HOA Logic:
+- HOA should normalize to a monthly number.
+- If HOA is annual or quarterly, convert to monthly.
+
+Property Type Logic:
+Normalize into one of:
+- Single Family
+- Townhome
+- Condo
+- Multifamily
+- Manufactured
+- Land
+- Other
+
+If a value cannot be found, return null instead of guessing.
+
+Add clear error handling for:
+- no Zillow results
+- Apify failure
+- missing address
+- timeout
+- invalid response structure
+
+Frontend:
+Add a property lookup UI where the user enters an address or Zillow URL.
+
+When the property is found, auto-fill:
+- purchase price
+- estimated home value
+- HOA monthly fee
+- property type
+- year built
+- Zestimate/listing price
+- insurance clue fields
+- insurance policy form
+
+Then allow the user to manually override any pulled value.
+
+The purchase calculations page should automatically use:
+- purchasePrice for purchase scenarios
+
+The refinance calculations page should automatically use:
+- estimatedHomeValue for refinance scenarios
+
+The insurance module should automatically use:
+- propertyType
+- occupancyType
+- parsedInsuranceClues
+to determine:
+- HO3
+- HO6
+- DP3
+and estimate insurance assumptions dynamically.
