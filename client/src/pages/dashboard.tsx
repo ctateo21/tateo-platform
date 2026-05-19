@@ -270,8 +270,8 @@ function PurchaseTab() {
     setLocation(`/estimate?address=${encodeURIComponent(addr)}&from=dashboard`);
   }
 
-  function remove(id: string, e: React.MouseEvent) {
-    e.stopPropagation();
+  function remove(id: string, e?: React.MouseEvent) {
+    e?.stopPropagation();
     const updated = scenarios.filter(s => s.id !== id);
     setScenarios(updated);
     savePurchaseScenarios(updated);
@@ -321,48 +321,111 @@ function PurchaseTab() {
 
       {/* Property cards */}
       <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-        {scenarios.map(s => (
-          <Card
-            key={s.id}
-            className="hover:shadow-md transition-shadow cursor-pointer group"
-            onClick={() => navigate(s.address)}
-          >
-            <CardContent className="pt-5 pb-4 space-y-3">
-              <div>
-                <p className="font-semibold text-sm leading-snug flex items-start gap-1.5">
-                  <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
-                  <span>{s.address}</span>
-                </p>
-                <p className="text-xs text-muted-foreground mt-1 ml-5 flex items-center gap-1">
-                  <Calendar className="h-3 w-3" /> Saved {formatDate(s.savedAt)}
-                </p>
-              </div>
-              {(s.price || s.monthlyPayment) && (
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm ml-5">
-                  {s.price != null && (
-                    <div>
-                      <p className="text-xs text-muted-foreground">Price</p>
-                      <p className="font-semibold">{formatCurrency(s.price)}</p>
-                    </div>
-                  )}
-                  {s.monthlyPayment != null && (
-                    <div>
-                      <p className="text-xs text-muted-foreground">Est. Payment</p>
-                      <p className="font-semibold">{formatCurrency(s.monthlyPayment)}/mo</p>
-                    </div>
+        {scenarios.map(s => {
+          const dtiPct = s.dti != null ? Math.round(s.dti * 100) : null;
+          return (
+            <Card
+              key={s.id}
+              className="hover:shadow-md transition-shadow cursor-pointer group relative"
+              onClick={() => navigate(s.address)}
+            >
+              <CardContent className="pt-5 pb-4 space-y-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm leading-snug flex items-start gap-1.5">
+                      <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+                      <span className="line-clamp-2">{s.address}</span>
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1 ml-5 flex items-center gap-1">
+                      <Calendar className="h-3 w-3" /> Saved {formatDate(s.savedAt)}
+                    </p>
+                  </div>
+                  {s.qualifies != null && (
+                    <Badge
+                      variant="outline"
+                      className={`text-xs shrink-0 ${
+                        s.qualifies
+                          ? "bg-green-50 text-green-700 border-green-200"
+                          : "bg-amber-50 text-amber-700 border-amber-200"
+                      }`}
+                    >
+                      {s.qualifies ? "Qualifies" : "Review"}
+                    </Badge>
                   )}
                 </div>
-              )}
-              <Button
-                size="sm"
-                className="w-full gap-2"
-                onClick={e => { e.stopPropagation(); navigate(s.address); }}
-              >
-                View Full Estimate <ExternalLink className="h-3.5 w-3.5" />
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
+
+                {(s.price != null || s.monthlyPayment != null || s.cashToClose != null || dtiPct != null) && (
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm ml-5">
+                    {s.price != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Price</p>
+                        <p className="font-semibold">{formatCurrency(s.price)}</p>
+                      </div>
+                    )}
+                    {s.monthlyPayment != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Est. Payment</p>
+                        <p className="font-semibold">{formatCurrency(s.monthlyPayment)}/mo</p>
+                      </div>
+                    )}
+                    {s.cashToClose != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Cash to Close</p>
+                        <p className="font-semibold">{formatCurrency(s.cashToClose)}</p>
+                      </div>
+                    )}
+                    {dtiPct != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">DTI</p>
+                        <p className="font-semibold">{dtiPct}%</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    className="flex-1 gap-2"
+                    onClick={e => { e.stopPropagation(); navigate(s.address); }}
+                  >
+                    View Full Estimate <ExternalLink className="h-3.5 w-3.5" />
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive px-2"
+                        onClick={e => e.stopPropagation()}
+                        aria-label="Delete estimate"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent onClick={e => e.stopPropagation()}>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this estimate?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This will remove {s.address.split(",")[0]} from your dashboard. You can always look it up again later.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={() => remove(s.id)}
+                          className="bg-destructive hover:bg-destructive/90"
+                        >
+                          Delete
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
     </div>
   );

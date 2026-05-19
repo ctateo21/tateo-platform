@@ -204,6 +204,12 @@ export interface PurchaseScenario {
   monthlyPayment?: number;
   downPayment?: number;
   interestRate?: number;
+  // Extended details captured from the estimate page
+  cashToClose?: number;
+  dti?: number;            // 0..1 (total housing+debt DTI)
+  qualifies?: boolean;
+  downPaymentPct?: number;
+  loanType?: string;
 }
 
 export function getPurchaseScenarios(): PurchaseScenario[] {

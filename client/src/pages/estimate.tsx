@@ -410,10 +410,32 @@ export default function Estimate() {
   const [isAuthenticated, setIsAuthenticated] = useState(() =>
     typeof window !== "undefined" && (getSession() !== null || localStorage.getItem("tateo_auth") === "1")
   );
-  const [scenarios, setScenarios] = useState<Scenario[]>([
-    { id: "sc0", address, savedInputs: null },
-  ]);
-  const [activeScenarioId, setActiveScenarioId] = useState("sc0");
+  // Seed scenarios from the user's saved dashboard properties so all of them appear as subtabs
+  // when navigating from the dashboard (or anywhere else, for logged-in users).
+  const initialScenariosRef = useRef<{ list: Scenario[]; activeId: string } | null>(null);
+  if (initialScenariosRef.current === null) {
+    const fallback = { list: [{ id: "sc0", address, savedInputs: null }], activeId: "sc0" };
+    const hasSession = typeof window !== "undefined"
+      && (getSession() !== null || localStorage.getItem("tateo_auth") === "1");
+    if (!hasSession) {
+      initialScenariosRef.current = fallback;
+    } else {
+      const saved = getPurchaseScenarios();
+      const list: Scenario[] = saved.map(s => ({ id: `sc_${s.id}`, address: s.address, savedInputs: null }));
+      const key = address.trim().toLowerCase();
+      const match = list.find(s => s.address.trim().toLowerCase() === key);
+      if (match) {
+        initialScenariosRef.current = { list, activeId: match.id };
+      } else if (address && address !== "Unknown Address") {
+        const newScenario: Scenario = { id: "sc0", address, savedInputs: null };
+        initialScenariosRef.current = { list: [newScenario, ...list], activeId: newScenario.id };
+      } else {
+        initialScenariosRef.current = list.length ? { list, activeId: list[0].id } : fallback;
+      }
+    }
+  }
+  const [scenarios, setScenarios] = useState<Scenario[]>(initialScenariosRef.current.list);
+  const [activeScenarioId, setActiveScenarioId] = useState(initialScenariosRef.current.activeId);
   const [showAddressPrompt, setShowAddressPrompt] = useState(false);
   const [newScenarioAddress, setNewScenarioAddress] = useState("");
   const newScenarioInputRef = useRef<HTMLInputElement>(null);
@@ -478,21 +500,35 @@ export default function Estimate() {
     setActiveScenarioId(targetId);
     setLocation(`/estimate?address=${encodeURIComponent(target.address)}`);
     if (target.savedInputs) setInputs(target.savedInputs);
-    else setInputs(makeDefaultInputs());
+    else setInputs(inputsForAddress(target.address));
   }
 
   function removeScenario(id: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (scenarios.length === 1) return;
     const idx = scenarios.findIndex(s => s.id === id);
+    const removed = scenarios[idx];
     const remaining = scenarios.filter(s => s.id !== id);
     setScenarios(remaining);
+
+    // Also remove the corresponding entry from the dashboard so it doesn't
+    // immediately get re-added by the auto-save effect on the next render.
+    if (removed) {
+      try {
+        const key = removed.address.trim().toLowerCase();
+        const next = getPurchaseScenarios().filter(s => s.address.trim().toLowerCase() !== key);
+        savePurchaseScenarios(next);
+      } catch (err) {
+        console.warn("Failed to remove scenario from dashboard:", err);
+      }
+    }
+
     if (id === activeScenarioId) {
       const next = remaining[Math.max(0, idx - 1)];
       setActiveScenarioId(next.id);
       setLocation(`/estimate?address=${encodeURIComponent(next.address)}`);
       if (next.savedInputs) setInputs(next.savedInputs);
-      else setInputs(makeDefaultInputs());
+      else setInputs(inputsForAddress(next.address));
     }
   }
 
@@ -889,31 +925,34 @@ export default function Estimate() {
   }, [amiData]);
   const rates = liveRates ?? FALLBACK_RATES;
 
-  const [inputs, setInputs] = useState<Inputs>({
-    occupancy: "primary",
-    purchasePrice: defaultPrice,
-    downPaymentPct: 5,
-    sellerConcessions: 0,
-    loanType: "conventional",
-    creditScore: 780,
-    interestRate: FALLBACK_RATES.conventional,
-    annualTaxes: Math.round(defaultPrice * 0.015),
-    hoaMonthly: 0,
-    cddAnnual: 0,
-    annualHOIns: Math.round(defaultPrice * 0.0075),
-    annualFloodIns: 2000,
-    monthlyDebts: 0,
-    monthlyIncome: 8000,
-    reserves: 35000,
-    impactWindows: false,
-    roofAttachment: "toenails",
-    swr: false,
-    hasMortgage: null,
-    currentLoanFHA: null,
-    hasRentalIncome: null,
-    monthlyRentalIncome: 0,
-    rentalType: null,
-  });
+  // Builds the starting Inputs for an address, restoring any tunable fields
+  // the user previously saved on the dashboard so we don't overwrite their
+  // saved estimate with default-derived numbers on revisit.
+  function inputsForAddress(addr: string): Inputs {
+    const base = makeDefaultInputs(defaultPrice);
+    if (typeof window === "undefined") return base;
+    const hasSession = getSession() !== null || localStorage.getItem("tateo_auth") === "1";
+    if (!hasSession || !addr) return base;
+    const key = addr.trim().toLowerCase();
+    const saved = getPurchaseScenarios().find(s => s.address.trim().toLowerCase() === key);
+    if (!saved) return base;
+    const price = saved.price ?? base.purchasePrice;
+    const validLoanTypes = ["conventional", "fha", "va", "usda", "dscr", "bank_statement"] as const;
+    const loanType = validLoanTypes.includes(saved.loanType as any)
+      ? (saved.loanType as Inputs["loanType"])
+      : base.loanType;
+    return {
+      ...base,
+      purchasePrice: price,
+      downPaymentPct: saved.downPaymentPct ?? base.downPaymentPct,
+      interestRate: saved.interestRate ?? base.interestRate,
+      loanType,
+      annualTaxes: Math.round(price * 0.015),
+      annualHOIns: Math.round(price * 0.0075),
+    };
+  }
+
+  const [inputs, setInputs] = useState<Inputs>(() => inputsForAddress(address));
 
   // ── Insurance panel state ───────────────────────────────────────────────────
   const insuranceSectionRef = useRef<HTMLDivElement>(null);
@@ -1164,24 +1203,40 @@ export default function Estimate() {
         const existing = getPurchaseScenarios();
         const key = address.trim().toLowerCase();
         const idx = existing.findIndex(s => s.address.trim().toLowerCase() === key);
-        const price = inputs.purchasePrice;
-        const monthlyPayment = Math.round(calc.totalHousing);
+        const next = {
+          address,
+          price: inputs.purchasePrice,
+          monthlyPayment: Math.round(calc.totalHousing),
+          cashToClose: Math.round(calc.cashToClose),
+          dti: calc.dti,
+          qualifies: calc.qualifies,
+          downPaymentPct: inputs.downPaymentPct,
+          interestRate: inputs.interestRate,
+          loanType: inputs.loanType,
+        };
         if (idx >= 0) {
           // Only write if something actually changed (avoid noisy storage writes)
           const cur = existing[idx];
-          if (cur.price === price && cur.monthlyPayment === monthlyPayment && cur.address === address) return;
+          const same = cur.price === next.price
+            && cur.monthlyPayment === next.monthlyPayment
+            && cur.cashToClose === next.cashToClose
+            && cur.dti === next.dti
+            && cur.qualifies === next.qualifies
+            && cur.downPaymentPct === next.downPaymentPct
+            && cur.interestRate === next.interestRate
+            && cur.loanType === next.loanType
+            && cur.address === address;
+          if (same) return;
           const updated = [...existing];
-          updated[idx] = { ...cur, address, price, monthlyPayment };
+          updated[idx] = { ...cur, ...next };
           savePurchaseScenarios(updated);
         } else {
           savePurchaseScenarios([
             ...existing,
             {
               id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-              address,
               savedAt: new Date().toISOString(),
-              price,
-              monthlyPayment,
+              ...next,
             },
           ]);
         }
@@ -1190,7 +1245,11 @@ export default function Estimate() {
       }
     }, 800);
     return () => clearTimeout(handle);
-  }, [isAuthenticated, address, inputs.purchasePrice, calc.totalHousing]);
+  }, [
+    isAuthenticated, address,
+    inputs.purchasePrice, inputs.downPaymentPct, inputs.interestRate, inputs.loanType,
+    calc.totalHousing, calc.cashToClose, calc.dti, calc.qualifies,
+  ]);
 
   function fmt(n: number): string {
     return "$" + Math.round(n).toLocaleString();
