@@ -17,7 +17,10 @@ import {
   AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/context/auth-context";
-import { getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
+import {
+  getPurchaseScenarios, savePurchaseScenarios,
+  getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
+} from "@/lib/auth";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import {
   getBestOption, getBestConventionalRate, PROPERTY_TYPE_ADJUSTMENTS,
@@ -32,7 +35,6 @@ interface LiveRatesResponse { rates: LiveRate[]; source: string; disclaimer: str
 // Fallback "today's market" rate when live rates haven't loaded yet.
 const FALLBACK_TODAY_RATE = 6.65;
 
-const REFI_KEY = "refinance-tracked-loans";
 const PROPERTY_TYPE_LABELS: Record<string, string> = {
   primary: "Primary Home", secondary: "2nd Home", investment: "Investment",
 };
@@ -49,15 +51,6 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function loadRefiLoans(): TrackedLoan[] {
-  try {
-    const loans = JSON.parse(localStorage.getItem(REFI_KEY) || "[]") as TrackedLoan[];
-    return loans.map(l => ({ ...l, propertyType: l.propertyType ?? "primary" }));
-  } catch { return []; }
-}
-function saveRefiLoans(loans: TrackedLoan[]) {
-  try { localStorage.setItem(REFI_KEY, JSON.stringify(loans)); } catch {}
-}
 
 function RecStat({ label, value, valueClass }: { label: string; value: React.ReactNode; valueClass?: string }) {
   return (
@@ -242,7 +235,13 @@ const ESCROW_RESERVE_MONTHS = 3;
 
 function RefiTab() {
   const [, setLocation] = useLocation();
-  const [loans, setLoans] = useState<TrackedLoan[]>(loadRefiLoans);
+  const [loans, setLoans] = useState<TrackedLoan[]>(() => getTrackedLoans() as TrackedLoan[]);
+
+  // Re-sync whenever Supabase hydrates / user logs in or out.
+  useEffect(() => {
+    const unsub = subscribeAuthChange(() => setLoans(getTrackedLoans() as TrackedLoan[]));
+    return unsub;
+  }, []);
 
   const { data: ratesData } = useQuery<LiveRatesResponse>({ queryKey: ["/api/rates"] });
   const liveRates = ratesData?.rates ?? [];
@@ -250,13 +249,13 @@ function RefiTab() {
   function remove(id: string) {
     const updated = loans.filter(l => l.id !== id);
     setLoans(updated);
-    saveRefiLoans(updated);
+    saveTrackedLoans(updated);
   }
 
   function updateHomeValue(id: string, newValue: number) {
     const updated = loans.map(l => l.id === id ? { ...l, estimatedHomeValue: newValue } : l);
     setLoans(updated);
-    saveRefiLoans(updated);
+    saveTrackedLoans(updated);
   }
 
   function getRecDetails(loan: TrackedLoan): RecDetails {
@@ -530,8 +529,12 @@ function PurchaseTab() {
   const [scenarios, setScenarios] = useState<ReturnType<typeof getPurchaseScenarios>>([]);
   const [showAddSearch, setShowAddSearch] = useState(false);
 
-  // Reload on mount so changes from estimate page are picked up
-  useEffect(() => { setScenarios(getPurchaseScenarios()); }, []);
+  // Reload on mount and re-sync whenever Supabase hydrates / login changes.
+  useEffect(() => {
+    setScenarios(getPurchaseScenarios());
+    const unsub = subscribeAuthChange(() => setScenarios(getPurchaseScenarios()));
+    return unsub;
+  }, []);
 
   function navigate(addr: string) {
     setLocation(`/estimate?address=${encodeURIComponent(addr)}&from=dashboard`);

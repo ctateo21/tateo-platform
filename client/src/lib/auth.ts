@@ -53,10 +53,28 @@ export interface InsuranceScenario {
   coverageType?: string;
 }
 
+export type TrackedLoanPropertyType = "primary" | "secondary" | "investment";
+
+export interface TrackedLoan {
+  id: string;
+  propertyAddress: string;
+  lender: string;
+  loanBalance: number;
+  currentRate: number;
+  currentPI: number;
+  monthlyPayment: number;
+  estimatedHomeValue: number;
+  estimatedRemainingYears: number;
+  propertyType: TrackedLoanPropertyType;
+  addedAt: string;
+  balanceAsOf?: string;
+}
+
 // ── In-memory caches (kept in sync with Supabase) ──────────────────
 let _session: AuthUser | null = null;
 let _purchaseScenarios: PurchaseScenario[] = [];
 let _insuranceScenarios: InsuranceScenario[] = [];
+let _trackedLoans: TrackedLoan[] = [];
 const _listeners = new Set<() => void>();
 
 function notify() { _listeners.forEach(fn => { try { fn(); } catch {} }); }
@@ -131,6 +149,50 @@ function insuranceToRow(s: InsuranceScenario, userId: string) {
     coverage_type: s.coverageType ?? null,
   };
 }
+function rowToTrackedLoan(row: any): TrackedLoan {
+  return {
+    id: row.id,
+    propertyAddress: row.property_address,
+    lender: row.lender ?? "",
+    loanBalance: Number(row.loan_balance),
+    currentRate: Number(row.current_rate),
+    currentPI: Number(row.current_pi),
+    monthlyPayment: Number(row.monthly_payment),
+    estimatedHomeValue: Number(row.estimated_home_value),
+    estimatedRemainingYears: Number(row.estimated_remaining_years),
+    propertyType: (row.property_type ?? "primary") as TrackedLoanPropertyType,
+    addedAt: row.added_at,
+    balanceAsOf: row.balance_as_of ?? undefined,
+  };
+}
+function trackedLoanToRow(l: TrackedLoan, userId: string) {
+  return {
+    id: l.id,
+    user_id: userId,
+    property_address: l.propertyAddress,
+    lender: l.lender || null,
+    loan_balance: l.loanBalance,
+    current_rate: l.currentRate,
+    current_pi: l.currentPI,
+    monthly_payment: l.monthlyPayment,
+    estimated_home_value: l.estimatedHomeValue,
+    estimated_remaining_years: l.estimatedRemainingYears,
+    property_type: l.propertyType ?? "primary",
+    added_at: l.addedAt,
+    balance_as_of: l.balanceAsOf ?? null,
+  };
+}
+
+// ── Serialized write queues (one per table) ────────────────────────
+// Prevents the race where two overlapping saves cause an older request
+// to finish last and wipe newer rows via the delete-then-upsert pass.
+const _writeChains: Record<string, Promise<void>> = {};
+function enqueueWrite(key: string, fn: () => Promise<void>): Promise<void> {
+  const prev = _writeChains[key] ?? Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  _writeChains[key] = next;
+  return next;
+}
 
 async function loadProfile(userId: string): Promise<AuthUser | null> {
   const { data, error } = await supabase
@@ -143,12 +205,73 @@ async function loadProfile(userId: string): Promise<AuthUser | null> {
 }
 
 async function loadScenarios(userId: string) {
-  const [pRes, iRes] = await Promise.all([
+  const [pRes, iRes, lRes] = await Promise.all([
     supabase.from("purchase_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("insurance_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
+    supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
   _purchaseScenarios = (pRes.data ?? []).map(rowToPurchase);
   _insuranceScenarios = (iRes.data ?? []).map(rowToInsurance);
+  _trackedLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
+}
+
+// One-time migration of pre-existing localStorage data into Supabase the
+// first time a user signs in on this browser. Reads from both legacy keys
+// that the codebase historically used, dedupes by id, then clears them.
+const MIGRATED_FLAG = "tateo_localstorage_migrated_v1";
+const LEGACY_LOAN_KEYS = ["refinance-tracked-loans", "tateo_tracked_loans"];
+
+async function migrateLocalStorageOnce(userId: string) {
+  try {
+    if (localStorage.getItem(MIGRATED_FLAG)) return;
+  } catch { return; }
+
+  const collected: TrackedLoan[] = [];
+  for (const key of LEGACY_LOAN_KEYS) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as Partial<TrackedLoan>[];
+      if (!Array.isArray(parsed)) continue;
+      for (const l of parsed) {
+        if (!l || !l.id || !l.propertyAddress) continue;
+        collected.push({
+          id: String(l.id),
+          propertyAddress: l.propertyAddress,
+          lender: l.lender || "",
+          loanBalance: Number(l.loanBalance ?? 0),
+          currentRate: Number(l.currentRate ?? 0),
+          currentPI: Number(l.currentPI ?? 0),
+          monthlyPayment: Number(l.monthlyPayment ?? 0),
+          estimatedHomeValue: Number(l.estimatedHomeValue ?? 0),
+          estimatedRemainingYears: Number(l.estimatedRemainingYears ?? 30),
+          propertyType: (l.propertyType ?? "primary") as TrackedLoanPropertyType,
+          addedAt: l.addedAt || new Date().toISOString(),
+          balanceAsOf: l.balanceAsOf,
+        });
+      }
+    } catch { /* ignore corrupt entries */ }
+  }
+
+  // Dedupe by id (later keys win — but they're effectively the same data).
+  const byId = new Map<string, TrackedLoan>();
+  for (const l of collected) byId.set(l.id, l);
+  const all = Array.from(byId.values());
+
+  if (all.length > 0) {
+    const { error } = await supabase
+      .from("tracked_loans")
+      .upsert(all.map(l => trackedLoanToRow(l, userId)), { onConflict: "id" });
+    if (error) {
+      console.warn("[auth] tracked-loan migration failed:", error.message);
+      return; // don't set the flag — let it retry next session
+    }
+  }
+
+  try {
+    for (const key of LEGACY_LOAN_KEYS) localStorage.removeItem(key);
+    localStorage.setItem(MIGRATED_FLAG, "1");
+  } catch {}
 }
 
 async function hydrateFromSupabase() {
@@ -191,7 +314,10 @@ async function hydrateFromSupabase() {
 
   // Scenarios depend on their own tables; ignore errors so a missing schema
   // doesn't break the auth UI.
-  try { await loadScenarios(session.user.id); } catch (e) {
+  try {
+    await migrateLocalStorageOnce(session.user.id);
+    await loadScenarios(session.user.id);
+  } catch (e) {
     console.warn("[auth] loadScenarios skipped:", e);
   }
   notify();
@@ -249,6 +375,7 @@ export async function logout(): Promise<void> {
   _session = null;
   _purchaseScenarios = [];
   _insuranceScenarios = [];
+  _trackedLoans = [];
   notify();
 }
 
@@ -349,24 +476,25 @@ export function savePurchaseScenarios(s: PurchaseScenario[]) {
   void persistPurchaseScenarios(s);
 }
 
-async function persistPurchaseScenarios(s: PurchaseScenario[]) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-  const keep = new Set(s.map(x => x.id));
-  // Delete rows no longer present, then upsert the rest.
-  const { data: existing } = await supabase
-    .from("purchase_scenarios")
-    .select("id")
-    .eq("user_id", user.id);
-  const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
-  if (toDelete.length > 0) {
-    await supabase.from("purchase_scenarios").delete().in("id", toDelete);
-  }
-  if (s.length > 0) {
-    await supabase
+function persistPurchaseScenarios(s: PurchaseScenario[]) {
+  return enqueueWrite("purchase_scenarios", async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const keep = new Set(s.map(x => x.id));
+    const { data: existing } = await supabase
       .from("purchase_scenarios")
-      .upsert(s.map(x => purchaseToRow(x, user.id)), { onConflict: "id" });
-  }
+      .select("id")
+      .eq("user_id", user.id);
+    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+    if (toDelete.length > 0) {
+      await supabase.from("purchase_scenarios").delete().in("id", toDelete);
+    }
+    if (s.length > 0) {
+      await supabase
+        .from("purchase_scenarios")
+        .upsert(s.map(x => purchaseToRow(x, user.id)), { onConflict: "id" });
+    }
+  });
 }
 
 // ── Insurance scenarios ───────────────────────────────────────────
@@ -380,21 +508,55 @@ export function saveInsuranceScenarios(s: InsuranceScenario[]) {
   void persistInsuranceScenarios(s);
 }
 
-async function persistInsuranceScenarios(s: InsuranceScenario[]) {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-  const keep = new Set(s.map(x => x.id));
-  const { data: existing } = await supabase
-    .from("insurance_scenarios")
-    .select("id")
-    .eq("user_id", user.id);
-  const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
-  if (toDelete.length > 0) {
-    await supabase.from("insurance_scenarios").delete().in("id", toDelete);
-  }
-  if (s.length > 0) {
-    await supabase
+function persistInsuranceScenarios(s: InsuranceScenario[]) {
+  return enqueueWrite("insurance_scenarios", async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const keep = new Set(s.map(x => x.id));
+    const { data: existing } = await supabase
       .from("insurance_scenarios")
-      .upsert(s.map(x => insuranceToRow(x, user.id)), { onConflict: "id" });
-  }
+      .select("id")
+      .eq("user_id", user.id);
+    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+    if (toDelete.length > 0) {
+      await supabase.from("insurance_scenarios").delete().in("id", toDelete);
+    }
+    if (s.length > 0) {
+      await supabase
+        .from("insurance_scenarios")
+        .upsert(s.map(x => insuranceToRow(x, user.id)), { onConflict: "id" });
+    }
+  });
+}
+
+// ── Tracked refi loans ────────────────────────────────────────────
+export function getTrackedLoans(): TrackedLoan[] {
+  return _trackedLoans;
+}
+
+export function saveTrackedLoans(loans: TrackedLoan[]) {
+  _trackedLoans = loans;
+  notify();
+  void persistTrackedLoans(loans);
+}
+
+function persistTrackedLoans(loans: TrackedLoan[]) {
+  return enqueueWrite("tracked_loans", async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const keep = new Set(loans.map(l => l.id));
+    const { data: existing } = await supabase
+      .from("tracked_loans")
+      .select("id")
+      .eq("user_id", user.id);
+    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+    if (toDelete.length > 0) {
+      await supabase.from("tracked_loans").delete().in("id", toDelete);
+    }
+    if (loans.length > 0) {
+      await supabase
+        .from("tracked_loans")
+        .upsert(loans.map(l => trackedLoanToRow(l, user.id)), { onConflict: "id" });
+    }
+  });
 }

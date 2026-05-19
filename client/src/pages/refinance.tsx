@@ -7,26 +7,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { LiveRatesCard } from "@/components/refi/live-rates-card";
 import { StatementAnalyzer } from "@/components/refi/statement-analyzer";
-import { LoanTracker, type TrackedLoan, type MortgageAnalysis, type LiveRate, type PropertyType } from "@/components/refi/loan-tracker";
+import { LoanTracker, type MortgageAnalysis, type LiveRate, type PropertyType } from "@/components/refi/loan-tracker";
 import { formatCurrency } from "@/lib/refi-calculations";
 import { useQuery } from "@tanstack/react-query";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
+import { getTrackedLoans, saveTrackedLoans, subscribeAuthChange, type TrackedLoan } from "@/lib/auth";
 
-const STORAGE_KEY = "refinance-tracked-loans";
 const MAX_TRACKED_LOANS = 10;
-
-function loadTrackedLoans(): TrackedLoan[] {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored) return [];
-    const loans = JSON.parse(stored) as TrackedLoan[];
-    return loans.map(l => ({ ...l, propertyType: l.propertyType ?? "primary" }));
-  } catch { return []; }
-}
-
-function saveTrackedLoans(loans: TrackedLoan[]): void {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(loans)); } catch {}
-}
 
 function analysisToTrackedLoan(analysis: MortgageAnalysis, propertyType: PropertyType): TrackedLoan {
   const now = new Date().toISOString();
@@ -97,7 +84,22 @@ export default function Refinance() {
   const address = new URLSearchParams(search).get("address") || "";
 
   const [statementData, setStatementData] = useState<MortgageAnalysis | null>(null);
-  const [trackedLoans, setTrackedLoans] = useState<TrackedLoan[]>(loadTrackedLoans);
+  const [trackedLoans, setTrackedLoansState] = useState<TrackedLoan[]>(() => getTrackedLoans());
+
+  // Keep local state in sync with auth cache (login, logout, hydration completes).
+  useEffect(() => {
+    const unsub = subscribeAuthChange(() => setTrackedLoansState(getTrackedLoans()));
+    return unsub;
+  }, []);
+
+  // Wrap setter so any update also persists to Supabase via the auth helper.
+  function updateLoans(updater: TrackedLoan[] | ((prev: TrackedLoan[]) => TrackedLoan[])) {
+    setTrackedLoansState(prev => {
+      const next = typeof updater === "function" ? (updater as (p: TrackedLoan[]) => TrackedLoan[])(prev) : updater;
+      saveTrackedLoans(next);
+      return next;
+    });
+  }
 
   const [analyzerLocked, setAnalyzerLocked] = useState(false);
   const [showLeadDialog, setShowLeadDialog] = useState(false);
@@ -111,8 +113,6 @@ export default function Refinance() {
     queryKey: ["/api/rates"],
     staleTime: 15 * 60 * 1000,
   });
-
-  useEffect(() => { saveTrackedLoans(trackedLoans); }, [trackedLoans]);
 
   const handleAnalysisComplete = (analysis: MortgageAnalysis) => {
     setStatementData(analysis);
@@ -131,7 +131,7 @@ export default function Refinance() {
 
   const handlePropertyTypeSelect = (propertyType: PropertyType) => {
     if (!pendingAnalysis) return;
-    setTrackedLoans(prev => [analysisToTrackedLoan(pendingAnalysis, propertyType), ...prev]);
+    updateLoans(prev => [analysisToTrackedLoan(pendingAnalysis, propertyType), ...prev]);
     setPendingAnalysis(null);
     setShowPropertyTypeDialog(false);
   };
@@ -195,8 +195,8 @@ export default function Refinance() {
         <LoanTracker
           loans={trackedLoans}
           liveRates={ratesData?.rates ?? []}
-          onRemove={id => setTrackedLoans(prev => prev.filter(l => l.id !== id))}
-          onUpdate={(id, updates) => setTrackedLoans(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l))}
+          onRemove={id => updateLoans(prev => prev.filter(l => l.id !== id))}
+          onUpdate={(id, updates) => updateLoans(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l))}
           maxLoans={MAX_TRACKED_LOANS}
         />
       </main>
