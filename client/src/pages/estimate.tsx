@@ -481,6 +481,42 @@ function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffi
 
 // ─── Main component ──────────────────────────────────────────────────────────
 
+/**
+ * Wrapper used by the Property Estimate (step 4) summary's pencil/edit
+ * buttons. When `editing` is true, the wrapped step Card is rendered inside
+ * a Dialog overlay on top of the estimate so the user never leaves step 4
+ * or loses their address / Zillow cache / active scenario tab. When false,
+ * children pass through unchanged so the questionnaire flow (steps 1-3)
+ * renders normally. All form fields inside the wrapped Card continue to
+ * bind to the active scenario's `inputs`/`setInputs`, so edits flow
+ * through the existing recalculation + debounced auto-save effects with
+ * no separate save path.
+ */
+function StepEditWrapper({
+  editing,
+  title,
+  onClose,
+  children,
+}: {
+  editing: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  if (!editing) return <>{children}</>;
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        {children}
+        <Button onClick={onClose} className="w-full mt-2">Done</Button>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Estimate() {
   const search = useSearch();
   const [, setLocation] = useLocation();
@@ -1047,6 +1083,17 @@ export default function Estimate() {
 
   // Share dialog
   const [step, setStep] = useState(fromDashboard ? 4 : 1);
+  // Which questionnaire page is currently being edited from the Property
+  // Estimate (step 4) summary. `null` = not editing. When set, that step's
+  // Card is rendered inside a Dialog overlay on top of the estimate so the
+  // user never leaves step 4. Closing the dialog (or switching scenarios)
+  // resets to null. All form fields inside continue to bind to the active
+  // scenario's `inputs`/`setInputs`, so edits flow through the existing
+  // calculation + debounced auto-save effects (no separate save path).
+  const [editingPage, setEditingPage] = useState<1 | 2 | 3 | null>(null);
+  // Close any open edit dialog when the user switches scenario tabs so
+  // the dialog can't bleed across scenarios while inputs swap underneath.
+  useEffect(() => { setEditingPage(null); }, [activeScenarioId]);
   const [answersOpen, setAnswersOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
@@ -2113,8 +2160,18 @@ export default function Estimate() {
               );
             })()}
 
-            {/* ── STEP 1: Borrower Profile ─── */}
-            {step === 1 && (
+            {/* ── STEP 1: Borrower Profile ───
+                Rendered either as a normal questionnaire step (step === 1)
+                or, when the user clicks the pencil on the summary, inside
+                a Dialog overlay (editingPage === 1) without leaving the
+                Property Estimate. The Card body is identical in both
+                modes; only the wrapper differs. */}
+            {(step === 1 || editingPage === 1) && (
+              <StepEditWrapper
+                editing={editingPage === 1}
+                title="Edit Borrower Profile"
+                onClose={() => setEditingPage(null)}
+              >
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -2213,6 +2270,7 @@ export default function Estimate() {
 
                 </CardContent>
               </Card>
+              </StepEditWrapper>
             )}
 
             {step === 1 && (
@@ -2224,7 +2282,12 @@ export default function Estimate() {
             )}
 
             {/* ── STEP 2: Additional Info ─── */}
-            {step === 2 && (
+            {(step === 2 || editingPage === 2) && (
+              <StepEditWrapper
+                editing={editingPage === 2}
+                title="Edit Additional Info"
+                onClose={() => setEditingPage(null)}
+              >
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -2479,6 +2542,7 @@ export default function Estimate() {
                   )}
                 </CardContent>
               </Card>
+              </StepEditWrapper>
             )}
 
             {step === 2 && (
@@ -2493,7 +2557,12 @@ export default function Estimate() {
             )}
 
             {/* ── STEP 3: Purchase Details ─── */}
-            {step === 3 && (
+            {(step === 3 || editingPage === 3) && (
+              <StepEditWrapper
+                editing={editingPage === 3}
+                title="Edit Purchase Details"
+                onClose={() => setEditingPage(null)}
+              >
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base flex items-center gap-2">
@@ -2727,6 +2796,7 @@ export default function Estimate() {
 
                 </CardContent>
               </Card>
+              </StepEditWrapper>
             )}
 
             {step === 3 && (
@@ -2760,29 +2830,29 @@ export default function Estimate() {
                     <div className="border-t border-border px-4 py-4 grid grid-cols-1 sm:grid-cols-3 gap-6">
                       <div>
                         <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 1 — Borrower</p>
-                        <SummaryRow label="Property Use" value={inputs.occupancy === "primary" ? "Primary" : inputs.occupancy === "secondary" ? "Secondary" : "Investment"} onEdit={() => setStep(1)} />
-                        <SummaryRow label="Credit Score" value={String(inputs.creditScore)} onEdit={() => setStep(1)} />
-                        <SummaryRow label="Monthly Income" value={fmt(inputs.monthlyIncome)} onEdit={() => setStep(1)} />
-                        <SummaryRow label="Monthly Debts" value={fmt(inputs.monthlyDebts)} onEdit={() => setStep(1)} />
-                        <SummaryRow label="Reserves" value={fmt(inputs.reserves)} onEdit={() => setStep(1)} />
+                        <SummaryRow label="Property Use" value={inputs.occupancy === "primary" ? "Primary" : inputs.occupancy === "secondary" ? "Secondary" : "Investment"} onEdit={() => setEditingPage(1)} />
+                        <SummaryRow label="Credit Score" value={String(inputs.creditScore)} onEdit={() => setEditingPage(1)} />
+                        <SummaryRow label="Monthly Income" value={fmt(inputs.monthlyIncome)} onEdit={() => setEditingPage(1)} />
+                        <SummaryRow label="Monthly Debts" value={fmt(inputs.monthlyDebts)} onEdit={() => setEditingPage(1)} />
+                        <SummaryRow label="Reserves" value={fmt(inputs.reserves)} onEdit={() => setEditingPage(1)} />
                       </div>
                       <div>
                         <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 2 — Additional</p>
-                        <SummaryRow label="Has Mortgage?" value={inputs.hasMortgage === true ? "Yes" : inputs.hasMortgage === false ? "No" : "—"} onEdit={() => setStep(2)} />
-                        {inputs.hasMortgage === true && <SummaryRow label="Current FHA?" value={inputs.currentLoanFHA === true ? "Yes" : inputs.currentLoanFHA === false ? "No" : "—"} onEdit={() => setStep(2)} />}
-                        {inputs.hasRentalIncome === true && <SummaryRow label="Rental Income" value={fmt(inputs.monthlyRentalIncome) + "/mo"} onEdit={() => setStep(2)} />}
-                        <SummaryRow label="Veteran?" value={inputs.isVeteran === true ? "Yes" : inputs.isVeteran === false ? "No" : "—"} onEdit={() => setStep(2)} />
-                        {inputs.isVeteran === true && <SummaryRow label="VA Disability?" value={inputs.vaDisability === true ? "Yes" : inputs.vaDisability === false ? "No" : "—"} onEdit={() => setStep(2)} />}
-                        {inputs.isVeteran === true && inputs.vaDisability === true && <SummaryRow label="VA Rating 100%?" value={inputs.vaDisabilityRating100 === true ? "Yes" : inputs.vaDisabilityRating100 === false ? "No" : "—"} onEdit={() => setStep(2)} />}
-                        {inputs.isVeteran === true && inputs.vaDisability === false && <SummaryRow label="VA Loan Use" value={inputs.vaLoanUse === "first" ? "First (2.15%)" : inputs.vaLoanUse === "second" ? "Second (3.30%)" : "—"} onEdit={() => setStep(2)} />}
+                        <SummaryRow label="Has Mortgage?" value={inputs.hasMortgage === true ? "Yes" : inputs.hasMortgage === false ? "No" : "—"} onEdit={() => setEditingPage(2)} />
+                        {inputs.hasMortgage === true && <SummaryRow label="Current FHA?" value={inputs.currentLoanFHA === true ? "Yes" : inputs.currentLoanFHA === false ? "No" : "—"} onEdit={() => setEditingPage(2)} />}
+                        {inputs.hasRentalIncome === true && <SummaryRow label="Rental Income" value={fmt(inputs.monthlyRentalIncome) + "/mo"} onEdit={() => setEditingPage(2)} />}
+                        <SummaryRow label="Veteran?" value={inputs.isVeteran === true ? "Yes" : inputs.isVeteran === false ? "No" : "—"} onEdit={() => setEditingPage(2)} />
+                        {inputs.isVeteran === true && <SummaryRow label="VA Disability?" value={inputs.vaDisability === true ? "Yes" : inputs.vaDisability === false ? "No" : "—"} onEdit={() => setEditingPage(2)} />}
+                        {inputs.isVeteran === true && inputs.vaDisability === true && <SummaryRow label="VA Rating 100%?" value={inputs.vaDisabilityRating100 === true ? "Yes" : inputs.vaDisabilityRating100 === false ? "No" : "—"} onEdit={() => setEditingPage(2)} />}
+                        {inputs.isVeteran === true && inputs.vaDisability === false && <SummaryRow label="VA Loan Use" value={inputs.vaLoanUse === "first" ? "First (2.15%)" : inputs.vaLoanUse === "second" ? "Second (3.30%)" : "—"} onEdit={() => setEditingPage(2)} />}
                       </div>
                       <div>
                         <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 3 — Purchase</p>
-                        <SummaryRow label="Purchase Price" value={fmt(inputs.purchasePrice)} onEdit={() => setStep(3)} />
-                        <SummaryRow label="Loan Type" value={inputs.loanType.toUpperCase()} onEdit={() => setStep(3)} />
-                        <SummaryRow label="Down Payment" value={`${Number(inputs.downPaymentPct).toFixed(1)}%`} onEdit={() => setStep(3)} />
-                        {inputs.sellerConcessions > 0 && <SummaryRow label="Seller Concessions" value={fmt(inputs.sellerConcessions)} onEdit={() => setStep(3)} />}
-                        <SummaryRow label="Interest Rate" value={`${inputs.interestRate.toFixed(3)}%`} onEdit={() => setStep(3)} />
+                        <SummaryRow label="Purchase Price" value={fmt(inputs.purchasePrice)} onEdit={() => setEditingPage(3)} />
+                        <SummaryRow label="Loan Type" value={inputs.loanType.toUpperCase()} onEdit={() => setEditingPage(3)} />
+                        <SummaryRow label="Down Payment" value={`${Number(inputs.downPaymentPct).toFixed(1)}%`} onEdit={() => setEditingPage(3)} />
+                        {inputs.sellerConcessions > 0 && <SummaryRow label="Seller Concessions" value={fmt(inputs.sellerConcessions)} onEdit={() => setEditingPage(3)} />}
+                        <SummaryRow label="Interest Rate" value={`${inputs.interestRate.toFixed(3)}%`} onEdit={() => setEditingPage(3)} />
                       </div>
                     </div>
                   )}

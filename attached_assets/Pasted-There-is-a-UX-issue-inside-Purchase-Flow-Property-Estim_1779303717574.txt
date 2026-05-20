@@ -1,0 +1,106 @@
+There is a UX issue inside Purchase Flow → Property Estimate.
+
+Current behavior:
+After I enter an address and land on the Property Estimate screen, I see summary sections like:
+- Borrower Profile
+- Additional Questions
+- Purchase Details
+
+When I click the pencil/edit icon next to any of these sections, the app takes me back to that page of the questionnaire.
+
+This is not the behavior I want.
+
+Expected behavior:
+Inside Property Estimate, clicking the pencil/edit icon should allow the user to edit those fields directly on the Property Estimate screen.
+
+Do not send the user back to the questionnaire page.
+
+Required behavior:
+1. The pencil/edit icon should open inline editing on the same Property Estimate screen.
+2. The user should be able to change the values directly inside that section.
+3. The user should be able to save/confirm the edited fields without leaving Property Estimate.
+4. If the app already auto-saves, the changes should auto-save after editing.
+5. The estimate calculations should update immediately after the values change.
+6. The user should remain on the same property/scenario tab.
+7. The user should not lose the address, Zillow/cache data, or current scenario state.
+8. The user should not be routed backward into the questionnaire flow.
+
+Sections that should support same-screen editing:
+- Borrower Profile
+- Additional Questions
+- Purchase Details
+- Any other editable summary card inside Property Estimate
+
+Implementation options:
+Preferred:
+- Convert each summary card into an editable card.
+- When the pencil is clicked, switch that card into edit mode.
+- Show the existing values as editable inputs/selects/toggles.
+- Save changes directly to the current property/scenario state.
+- Auto-save to the dashboard if the user is logged in.
+
+Alternative if faster:
+- Open a modal or side panel on the same Property Estimate screen.
+- Let the user edit the fields there.
+- Save/update values without navigating away.
+
+Do not:
+- Navigate back to the questionnaire step.
+- Reset the property estimate.
+- Re-run onboarding.
+- Lose the selected address.
+- Lose Zillow/cache values.
+- Update the wrong property tab.
+- Use array index instead of stable property/scenario ID.
+
+Important:
+All edits must be scoped to the active property/scenario ID.
+
+If a user is editing property 2, the change should update only property 2.
+If a user later switches back to property 1, property 1 should keep its own values.
+
+Auto-save:
+- If logged in, save edits automatically to the dashboard/scenario record.
+- Use a short debounce for typed fields.
+- Show status such as:
+  - “Saving…”
+  - “Saved”
+  - “Unable to save — retrying”
+
+Calculation updates:
+After editing any relevant field, recalculate dependent numbers on the same screen:
+- purchase price
+- down payment
+- loan amount
+- taxes
+- insurance
+- HOA/condo fees
+- cash to close
+- monthly payment
+- affordability/qualification values
+- any other connected estimate outputs
+
+Acceptance test:
+1. Enter an address in Purchase Flow → Property Estimate.
+2. Confirm Property Estimate screen loads.
+3. Click pencil/edit next to Borrower Profile.
+4. Confirm the user stays on Property Estimate.
+5. Confirm editable fields appear inline, in a modal, or side panel.
+6. Change a borrower value.
+7. Confirm estimate numbers update without leaving the screen.
+8. Click pencil/edit next to Additional Questions.
+9. Confirm it edits on the same screen.
+10. Click pencil/edit next to Purchase Details.
+11. Confirm it edits on the same screen.
+12. Confirm the app never routes back to the questionnaire pages.
+13. Confirm the address and Zillow/cache data stay intact.
+14. Confirm logged-in users’ edits auto-save.
+15. Confirm edits only apply to the active property/scenario tab.
+
+Please make the smallest safe code change possible and tell me:
+- Which edit buttons were changed
+- Whether you used inline editing, modal, or side panel
+- Which route/navigation behavior was removed
+- How edits update the active property/scenario state
+- How auto-save is triggered after edits
+- Which files/functions were changed
