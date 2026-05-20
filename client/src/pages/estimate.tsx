@@ -57,6 +57,7 @@ import {
   LayoutDashboard,
 } from "lucide-react";
 import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import {
   Dialog,
@@ -243,6 +244,15 @@ interface Scenario {
   address: string;
   savedInputs: Inputs | null;
   placeMeta?: PlaceMeta;
+  /** Status of the background Zillow auto-fetch for this scenario. */
+  zillowStatus?: "loading" | "applied" | "unavailable";
+  /**
+   * Snapshot of the inputs we auto-populated when this scenario was first
+   * created (defaults / carried-over values). When the Zillow scrape
+   * returns, a field is only overwritten if its current value still equals
+   * the baseline — i.e., the user hasn't manually touched it.
+   */
+  baselineInputs?: Inputs;
 }
 
 function makeDefaultInputs(price = 350000): Inputs {
@@ -425,9 +435,9 @@ export default function Estimate() {
   );
   // Seed scenarios from the user's saved dashboard properties so all of them appear as subtabs
   // when navigating from the dashboard (or anywhere else, for logged-in users).
-  const initialScenariosRef = useRef<{ list: Scenario[]; activeId: string } | null>(null);
+  const initialScenariosRef = useRef<{ list: Scenario[]; activeId: string; freshSeededId: string | null } | null>(null);
   if (initialScenariosRef.current === null) {
-    const fallback = { list: [{ id: "sc0", address, savedInputs: null }], activeId: "sc0" };
+    const fallback = { list: [{ id: "sc0", address, savedInputs: null }], activeId: "sc0", freshSeededId: "sc0" as string | null };
     const hasSession = typeof window !== "undefined"
       && (getSession() !== null || localStorage.getItem("tateo_auth") === "1");
     if (!hasSession) {
@@ -438,17 +448,42 @@ export default function Estimate() {
       const key = address.trim().toLowerCase();
       const match = list.find(s => s.address.trim().toLowerCase() === key);
       if (match) {
-        initialScenariosRef.current = { list, activeId: match.id };
+        // Reopening a saved property — NOT a fresh URL seed; don't auto-zillow.
+        initialScenariosRef.current = { list, activeId: match.id, freshSeededId: null };
       } else if (address && address !== "Unknown Address") {
+        // A genuinely-new address arrived via the URL — auto-zillow eligible.
         const newScenario: Scenario = { id: "sc0", address, savedInputs: null };
-        initialScenariosRef.current = { list: [newScenario, ...list], activeId: newScenario.id };
+        initialScenariosRef.current = { list: [newScenario, ...list], activeId: newScenario.id, freshSeededId: newScenario.id };
       } else {
-        initialScenariosRef.current = list.length ? { list, activeId: list[0].id } : fallback;
+        initialScenariosRef.current = list.length ? { list, activeId: list[0].id, freshSeededId: null } : fallback;
       }
     }
   }
   const [scenarios, setScenarios] = useState<Scenario[]>(initialScenariosRef.current.list);
   const [activeScenarioId, setActiveScenarioId] = useState(initialScenariosRef.current.activeId);
+
+  // Fire a background Zillow lookup once on mount for the URL-seeded initial
+  // scenario — but ONLY when it's a genuinely-new address (the user just
+  // typed it in / clicked through from the home page), not when reopening a
+  // saved dashboard property. The decision was made at init-time and
+  // recorded as `freshSeededId`.
+  const initialZillowFiredRef = useRef(false);
+  useEffect(() => {
+    if (initialZillowFiredRef.current) return;
+    const freshId = initialScenariosRef.current?.freshSeededId;
+    if (!freshId) return;
+    const active = scenarios.find(s => s.id === freshId);
+    if (!active || !active.address || active.address === "Unknown Address") return;
+    initialZillowFiredRef.current = true;
+    // Snapshot baseline now, before Zillow can return. Also seed the
+    // ref-backed map so the merge path doesn't depend on React state timing.
+    baselineByIdRef.current[active.id] = { ...inputs };
+    setScenarios(prev =>
+      prev.map(s => s.id === active.id && !s.baselineInputs ? { ...s, baselineInputs: { ...inputs } } : s)
+    );
+    triggerZillowLookup(active.id, active.address);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [showAddressPrompt, setShowAddressPrompt] = useState(false);
   const [showZillowLookup, setShowZillowLookup] = useState(false);
 
@@ -465,6 +500,116 @@ export default function Estimate() {
       setLocation(`/estimate?address=${encodeURIComponent(p.address)}`);
     }
   }
+  // Addresses we've already fired the background Zillow fetch for in this
+  // session — keyed by `${scenarioId}|${normalizedAddress}` so the same
+  // address in different scenarios still works, but the same scenario won't
+  // double-fetch.
+  const zillowFetchedKeysRef = useRef<Set<string>>(new Set());
+  // Mirror of activeScenarioId for the async completion path. The async
+  // callback may resolve long after the user has switched tabs, so we read
+  // the *current* active id from this ref. The ref is updated SYNCHRONOUSLY
+  // at every tab-switch site (via `setActive` below) so there is no
+  // post-render window where it points at a stale tab.
+  const activeScenarioIdRef = useRef(activeScenarioId);
+  // Map of scenarioId -> baseline inputs snapshot. Backed by a ref so the
+  // async Zillow callback can read the correct baseline without depending
+  // on React state-update timing.
+  const baselineByIdRef = useRef<Record<string, Inputs>>({});
+
+  // Synchronous setter used at every tab-switch site so the ref always
+  // matches the active tab the user is actually looking at.
+  function setActive(nextId: string) {
+    activeScenarioIdRef.current = nextId;
+    setActiveScenarioId(nextId);
+  }
+
+  // Pure merge: produce next inputs from current+baseline+Zillow, honoring
+  // the "don't overwrite user edits" rule by comparing current vs baseline.
+  function mergeZillowIntoInputs(
+    current: Inputs,
+    baseline: Inputs | undefined,
+    zPrice: number | null,
+    zHoa: number | null,
+  ): Inputs {
+    const next: Inputs = { ...current };
+    if (zPrice != null && (!baseline || current.purchasePrice === baseline.purchasePrice)) {
+      next.purchasePrice = zPrice;
+    }
+    if (zHoa != null && (!baseline || current.hoaMonthly === baseline.hoaMonthly)) {
+      next.hoaMonthly = zHoa;
+    }
+    return next;
+  }
+
+  // Fire the background Zillow lookup for a specific scenario by id. Never
+  // touches any other scenario, even if the user switches tabs mid-flight.
+  // All state mutation at completion goes through functional updaters so the
+  // dirty-check is deterministic against the latest state.
+  function triggerZillowLookup(scenarioId: string, addr: string) {
+    if (!addr || addr === "Unknown Address") return;
+    const key = `${scenarioId}|${addr.trim().toLowerCase()}`;
+    if (zillowFetchedKeysRef.current.has(key)) return;
+    zillowFetchedKeysRef.current.add(key);
+
+    setScenarios(prev =>
+      prev.map(s => s.id === scenarioId ? { ...s, zillowStatus: "loading" } : s)
+    );
+
+    (async () => {
+      try {
+        const res = await apiRequest("POST", "/api/zillow-property-lookup", { addressOrUrl: addr });
+        const body = await res.json();
+        const p = body?.property as LookedUpProperty | undefined;
+        if (!p) {
+          setScenarios(prev =>
+            prev.map(s => s.id === scenarioId ? { ...s, zillowStatus: "unavailable" } : s)
+          );
+          return;
+        }
+        const zPrice = p.purchasePrice ?? p.listingPrice ?? p.zestimate ?? null;
+        const zHoa = p.hoaMonthly ?? null;
+        // Resolve active-ness from the ref so a tab switch mid-flight
+        // doesn't cause us to mirror this update onto a different tab.
+        const isActive = activeScenarioIdRef.current === scenarioId;
+
+        // Update the scenario's saved snapshot using ONLY the latest state
+        // visible to the functional updater.
+        setScenarios(prev =>
+          prev.map(s => {
+            if (s.id !== scenarioId) return s;
+            // For an inactive tab, the canonical "current" is its savedInputs.
+            // For the active tab, savedInputs is whatever was last snapshotted
+            // (typically stale) — the live `inputs` state is the source of
+            // truth and is merged separately below.
+            const baseSnapshot = s.savedInputs ?? s.baselineInputs ?? null;
+            if (!baseSnapshot) return { ...s, zillowStatus: "applied" };
+            const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa);
+            return { ...s, savedInputs: merged, zillowStatus: "applied" };
+          })
+        );
+
+        // Mirror into live `inputs` only if this scenario is still active
+        // RIGHT NOW. Baseline comes from the ref-backed map so we don't
+        // depend on React state timing or nest setter side effects.
+        if (isActive) {
+          const baseline = baselineByIdRef.current[scenarioId];
+          setInputs(curr => mergeZillowIntoInputs(curr, baseline, zPrice, zHoa));
+          if (zPrice != null) {
+            toast({
+              title: "Zillow data applied",
+              description: `Updated estimated price to ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(zPrice)}.`,
+            });
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[zillow-auto] lookup failed for ${addr}:`, err?.message || err);
+        setScenarios(prev =>
+          prev.map(s => s.id === scenarioId ? { ...s, zillowStatus: "unavailable" } : s)
+        );
+      }
+    })();
+  }
+
   const [newScenarioAddress, setNewScenarioAddress] = useState("");
   const newScenarioInputRef = useRef<HTMLInputElement>(null);
   const newScenarioAcRef = useRef<any>(null);
@@ -604,7 +749,7 @@ export default function Estimate() {
     setScenarios(prev =>
       prev.map(s => s.id === activeScenarioId ? { ...s, savedInputs: inputs } : s)
     );
-    setActiveScenarioId(targetId);
+    setActive(targetId);
     setLocation(`/estimate?address=${encodeURIComponent(target.address)}`);
     if (target.savedInputs) setInputs(target.savedInputs);
     else setInputs(inputsForAddress(target.address));
@@ -630,9 +775,11 @@ export default function Estimate() {
       }
     }
 
+    // Free any baseline ref entry for the removed scenario.
+    delete baselineByIdRef.current[id];
     if (id === activeScenarioId) {
       const next = remaining[Math.max(0, idx - 1)];
-      setActiveScenarioId(next.id);
+      setActive(next.id);
       setLocation(`/estimate?address=${encodeURIComponent(next.address)}`);
       if (next.savedInputs) setInputs(next.savedInputs);
       else setInputs(inputsForAddress(next.address));
@@ -674,7 +821,7 @@ export default function Estimate() {
     const dup = scenarios.find(s => s.address.trim().toLowerCase() === dupKey);
     if (dup) {
       toast({ title: "Already added", description: "Switching to that property." });
-      setActiveScenarioId(dup.id);
+      setActive(dup.id);
       setLocation(`/estimate?address=${encodeURIComponent(dup.address)}${fromDashboard ? "&from=dashboard" : ""}`);
       setNewScenarioAddress("");
       setShowAddressPrompt(false);
@@ -689,14 +836,31 @@ export default function Estimate() {
     // doesn't re-enter everything for the new property. They can
     // still tweak anything on the new tab.
     const carriedInputs: Inputs = { ...inputs };
+    // Seed the ref-backed baseline map BEFORE the async Zillow fetch, so the
+    // async callback can read the correct baseline regardless of React
+    // state-update timing.
+    baselineByIdRef.current[newId] = { ...carriedInputs };
     setScenarios(prev => [
       ...prev.map(s => s.id === activeScenarioId ? { ...s, savedInputs: inputs } : s),
-      { id: newId, address: addr, savedInputs: carriedInputs, placeMeta: meta },
+      {
+        id: newId,
+        address: addr,
+        savedInputs: carriedInputs,
+        placeMeta: meta,
+        // Snapshot the carried inputs so we can later tell whether the user
+        // has manually edited any field before Zillow data arrives.
+        baselineInputs: { ...carriedInputs },
+      },
     ]);
-    setActiveScenarioId(newId);
+    setActive(newId);
     setLocation(`/estimate?address=${encodeURIComponent(addr)}${fromDashboard ? "&from=dashboard" : ""}`);
     // Keep inputs as-is (carry over). Only let flood re-fetch for the new address.
     floodLoadedRef.current = null;
+    // Kick off the background Zillow scrape for this new scenario — the user
+    // can keep using the app while it loads. We pass the stable id so the
+    // result lands on the right tab even if the user switches in the
+    // meantime.
+    triggerZillowLookup(newId, addr);
     setNewScenarioAddress("");
     setShowAddressPrompt(false);
 
@@ -1486,6 +1650,27 @@ export default function Estimate() {
               >
                 <MapPin className="h-3 w-3 shrink-0" />
                 <span>{shortLabel(sc.address)}</span>
+                {sc.zillowStatus === "loading" && (
+                  <span
+                    className="inline-block h-2 w-2 rounded-full bg-primary/70 animate-pulse"
+                    title="Pulling Zillow data…"
+                    aria-label="Pulling Zillow data"
+                  />
+                )}
+                {sc.zillowStatus === "applied" && (
+                  <span
+                    className="inline-block h-2 w-2 rounded-full bg-emerald-500"
+                    title="Zillow data updated"
+                    aria-label="Zillow data updated"
+                  />
+                )}
+                {sc.zillowStatus === "unavailable" && (
+                  <span
+                    className="inline-block h-2 w-2 rounded-full bg-amber-400"
+                    title="Zillow data unavailable"
+                    aria-label="Zillow data unavailable"
+                  />
+                )}
                 {scenarios.length > 1 && (
                   <button
                     onClick={(e) => removeScenario(sc.id, e)}

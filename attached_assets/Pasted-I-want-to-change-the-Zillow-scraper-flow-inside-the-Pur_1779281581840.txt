@@ -1,0 +1,83 @@
+I want to change the Zillow scraper flow inside the Purchase Flow → Property Estimate section.
+
+Current behavior:
+- A client enters/selects a home address.
+- The scenario is created with automatically populated default/estimated data.
+- To get Zillow data, I currently have to manually click a button that says “Pull from Zillow.”
+- I do not want the user to have to click that button.
+
+New expected behavior:
+When a client enters/selects a home address in the Purchase Flow → Property Estimate section, the Zillow scraper should automatically run in the background.
+
+Flow should work like this:
+1. User enters/selects a home address from Google Maps autocomplete.
+2. The property/scenario is created immediately using the app’s normal default/estimated values.
+3. The user can continue using the scenario right away.
+4. In the background, automatically start the Zillow scraper for that selected address.
+5. While the Zillow scraper is running, keep the initial auto-populated/default data in the scenario.
+6. Once the Zillow scraper finishes successfully, replace only the relevant data points with the Zillow scrape data.
+7. Do not require the user to click “Pull from Zillow.”
+8. The Zillow scrape should run automatically every time a new property/scenario address is added.
+
+Important:
+The Zillow scraper should not block the user from moving forward. The initial/default values should stay visible until Zillow data is returned.
+
+Data replacement rules:
+- Replace purchase price with Zillow listing price or Zestimate/home value only.
+- Do not use rent Zestimate as purchase price.
+- Replace rent estimate only with Zillow rent Zestimate/rental estimate.
+- Replace property tax estimate only if Zillow returns a valid tax value.
+- Replace insurance estimate only if Zillow returns a valid insurance value.
+- Replace beds, baths, square footage, year built, lot size, and property type only if Zillow returns valid values.
+- Do not overwrite valid existing scenario data with null, empty, zero, or obviously bad scraped values.
+- Do not overwrite user-edited fields if the user manually changes a field while the Zillow scrape is still running.
+
+Please add source tracking for each auto-populated field:
+Each field should know whether its value came from:
+- app default estimate
+- Google address data
+- Zillow scrape
+- user manual edit
+
+This matters because:
+- Zillow can replace app default values.
+- Zillow should not replace values that the user manually edited after the scenario was created.
+
+Implementation requirements:
+- Trigger the Zillow scraper automatically after a valid Google Places address is selected and the property/scenario is created.
+- Use the stable property/scenario ID when starting the Zillow scrape.
+- When the Zillow result comes back, update only that same property/scenario ID.
+- Do not rely on the currently active tab, because the user may switch tabs while the scrape is running.
+- Add a loading/status indicator on the scenario while Zillow data is being fetched, such as:
+  - “Pulling Zillow data…”
+  - “Zillow data updated”
+  - “Zillow data unavailable”
+- Keep or hide the manual “Pull from Zillow” button as a fallback only, but the primary behavior should be automatic.
+- Prevent duplicate Zillow scraper calls for the same property address unless the address changes or the user manually retries.
+- Handle errors gracefully if Zillow data is unavailable or the scrape fails.
+- Add temporary debug logs showing:
+  - Property/scenario ID created
+  - Address sent to Zillow scraper
+  - Zillow scraper start time
+  - Raw Zillow response
+  - Normalized Zillow data
+  - Which fields were replaced
+  - Which fields were skipped because they were manually edited or invalid
+- Remove unnecessary debug logs after confirming it works.
+
+Acceptance test:
+1. Go to Purchase Flow → Property Estimate.
+2. Click “+ Add Property.”
+3. Select a home address from Google Maps autocomplete.
+4. Confirm a new property/scenario tab is created immediately.
+5. Confirm default/estimated values populate immediately.
+6. Confirm Zillow scraper starts automatically without clicking “Pull from Zillow.”
+7. Confirm the user can continue interacting with the app while Zillow is running.
+8. Confirm once Zillow finishes, the relevant fields update automatically.
+9. Confirm purchase price uses listing price or Zestimate/home value, not rent Zestimate.
+10. Confirm rent Zestimate only updates rent/rental estimate fields.
+11. Confirm switching tabs while Zillow is running does not update the wrong scenario.
+12. Confirm manually edited fields are not overwritten by Zillow after the user changes them.
+13. Confirm adding a second property automatically triggers a separate Zillow scrape for that second address.
+
+Please make the smallest safe code change possible and tell me exactly which files/components/functions were changed.
