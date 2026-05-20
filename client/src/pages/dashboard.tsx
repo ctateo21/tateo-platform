@@ -724,7 +724,7 @@ function InsuranceTab() {
       if (!seen.has(key)) { seen.add(key); list.push({ address: s.address, source: "Purchase" }); }
     });
 
-    loadRefiLoans().forEach(l => {
+    (getTrackedLoans() as TrackedLoan[]).forEach(l => {
       const key = l.propertyAddress.trim().toLowerCase();
       if (!seen.has(key)) { seen.add(key); list.push({ address: l.propertyAddress, source: "Refinance" }); }
     });
