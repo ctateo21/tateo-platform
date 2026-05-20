@@ -1,0 +1,103 @@
+The Zillow scraper is running, but it is returning “not valid” because the city from Google Maps does not always match the city used by Zillow.
+
+Example issue:
+- Google Maps formats the address as St. Petersburg, FL.
+- Zillow recognizes the same property/address as Kenneth City, FL.
+- Because of the city mismatch, the scraper treats the Zillow result as invalid.
+- This causes the app to reject the correct Zillow data.
+
+Fix this by making the Zillow validation smarter.
+
+Expected behavior:
+The Zillow scrape should not fail just because Google Maps and Zillow use different city names for the same property.
+
+Validation should prioritize stronger address identifiers:
+1. Street number
+2. Street name
+3. ZIP code
+4. State
+5. Coordinates / nearby location, if available
+6. Zillow property ID / zpid, if available
+
+City should be treated as a soft match, not a hard requirement.
+
+Required changes:
+- Do not reject a Zillow result only because the city differs.
+- If street number, street name, ZIP code, and state match, accept the Zillow result even if the city is different.
+- If ZIP code matches and the coordinates are close, accept the Zillow result even if the city is different.
+- If Zillow returns a valid zpid for the selected address, accept the result unless the street/ZIP/state are clearly wrong.
+- Store both city values if they differ:
+  - `googleCity`
+  - `zillowCity`
+  - `displayCity`
+- Use the Zillow city for Zillow-specific data if needed.
+- Use the Google formatted address as the user-facing selected address unless Zillow provides a better normalized property address.
+- Add a warning/debug note internally when city mismatch happens, but do not fail the scrape.
+
+Add address normalization:
+- Normalize street suffixes:
+  - Street/St
+  - Avenue/Ave
+  - Road/Rd
+  - Drive/Dr
+  - Boulevard/Blvd
+  - Lane/Ln
+  - Way/Wy
+  - Court/Ct
+  - Place/Pl
+- Ignore punctuation and capitalization.
+- Compare ZIP5 only if ZIP+4 is returned.
+- Trim extra spaces.
+- Compare house number separately from street name.
+
+Validation logic should be something like:
+- Hard reject only if:
+  - street number does not match, or
+  - ZIP/state do not match, or
+  - result is clearly a different property
+- Soft accept if:
+  - street number matches,
+  - normalized street name matches,
+  - ZIP5 matches,
+  - state matches,
+  - but city differs.
+
+Example:
+Google address:
+4311 63rd Way N, St. Petersburg, FL 33709
+
+Zillow address:
+4311 63rd Way N, Kenneth City, FL 33709
+
+This should be accepted because:
+- Street number matches
+- Street name matches
+- ZIP matches
+- State matches
+- City mismatch is explainable due to municipal/addressing differences
+
+Also update the UI loading/status behavior:
+- If Zillow data is rejected because of city mismatch only, do not show “Zillow data unavailable.”
+- Instead accept the data and update the property fields.
+- If there is a mismatch warning, show nothing to the user unless needed.
+- Internally log: “Accepted Zillow match despite city mismatch.”
+
+Debug logs to add temporarily:
+- Google normalized address
+- Zillow normalized address
+- Which fields matched
+- Which fields mismatched
+- Final validation decision
+- Reason accepted or rejected
+- Whether city mismatch was ignored as soft mismatch
+
+Acceptance test:
+1. Enter a property where Google Maps says St. Petersburg, FL but Zillow says Kenneth City, FL.
+2. Confirm Zillow scraper runs.
+3. Confirm result is not rejected solely because of city mismatch.
+4. Confirm purchase price, taxes, rent estimate, beds, baths, square footage, year built, lot size, and property type update if returned by Zillow.
+5. Confirm the property estimate tab updates automatically.
+6. Confirm clearly wrong Zillow matches are still rejected.
+7. Confirm city mismatch is logged but does not block valid data.
+
+Please make the smallest safe code change possible and tell me exactly which files/components/functions were changed.

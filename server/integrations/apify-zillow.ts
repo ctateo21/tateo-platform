@@ -58,6 +58,14 @@ export interface PropertyScenario {
   occupancyType: OccupancyType;
   rawZillowData: unknown;
   lastPulledAt: string;
+  /** City as parsed from the original Google-formatted address (if available). */
+  googleCity?: string;
+  /** City as reported by Zillow for the matched property (if available). */
+  zillowCity?: string;
+  /** UI-preferred city — defaults to Google's, falls back to Zillow's. */
+  displayCity?: string;
+  /** True when street/ZIP/state matched but Google and Zillow disagree on city. */
+  cityMismatch?: boolean;
 }
 
 // ── Apify HTTP call ─────────────────────────────────────────────────
@@ -117,6 +125,182 @@ function num(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "number" ? v : Number(String(v).replace(/[^0-9.\-]/g, ""));
   return Number.isFinite(n) ? n : null;
+}
+
+// ── Address normalization & matching ────────────────────────────────
+// Why this exists: Zillow and Google occasionally disagree on the *city*
+// for the same property (e.g. an address in 33709 that Google labels
+// "St. Petersburg, FL" but Zillow indexes under "Kenneth City, FL"). The
+// Apify actor's built-in geocoder rejects those queries and returns zero
+// rows, which the UI then surfaces as "Zillow data unavailable" even
+// though the underlying property exists. We retry with the city stripped
+// and validate the returned row ourselves using stronger identifiers
+// (street #, normalized street name, ZIP5, state). City becomes a soft
+// signal — mismatch is logged but never blocks an otherwise-valid match.
+
+// Street-suffix canonicalization. Both sides get reduced to the short form
+// so "Way" / "Wy" / "way" all compare equal. Conservative list — only the
+// suffixes the spec explicitly calls out.
+const SUFFIX_MAP: Record<string, string> = {
+  street: "st", st: "st",
+  avenue: "ave", ave: "ave", av: "ave",
+  road: "rd", rd: "rd",
+  drive: "dr", dr: "dr",
+  boulevard: "blvd", blvd: "blvd", boulvd: "blvd",
+  lane: "ln", ln: "ln",
+  way: "way", wy: "way",
+  court: "ct", ct: "ct",
+  place: "pl", pl: "pl",
+};
+
+function stripPunctLower(s: string): string {
+  return s.toLowerCase().replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeStreetName(s: string): string {
+  const cleaned = stripPunctLower(s);
+  if (!cleaned) return "";
+  return cleaned
+    .split(" ")
+    .map(tok => SUFFIX_MAP[tok] ?? tok)
+    .join(" ");
+}
+
+function normalizeCity(s: string): string {
+  return stripPunctLower(s);
+}
+
+interface ParsedAddr {
+  streetNum?: string;
+  streetName?: string;   // normalized
+  city?: string;         // normalized (lowercase, no punct)
+  cityRaw?: string;      // original casing/punct for display
+  state?: string;        // uppercase 2-letter
+  zip5?: string;
+}
+
+/**
+ * Parse a free-form address string of the shape
+ *   "4311 63rd Way N, St. Petersburg, FL 33709"
+ * Tolerant: any missing piece simply comes back undefined.
+ */
+function parseAddressString(addr: string): ParsedAddr {
+  const parts = addr.split(",").map(s => s.trim()).filter(Boolean);
+  const out: ParsedAddr = {};
+  const street = parts[0] ?? "";
+  const m = street.match(/^(\d+\w?)\s+(.+)$/);
+  if (m) {
+    out.streetNum = m[1];
+    out.streetName = normalizeStreetName(m[2]);
+  }
+  // City is typically parts[1] when a "<state> <zip>" tail exists.
+  const last = parts[parts.length - 1] ?? "";
+  const sz = last.match(/\b([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?\b/);
+  if (sz) {
+    out.state = sz[1].toUpperCase();
+    out.zip5 = sz[2];
+  }
+  if (parts.length >= 3) {
+    out.cityRaw = parts[1];
+    out.city = normalizeCity(parts[1]);
+  } else if (parts.length === 2 && !sz) {
+    // "Street, City" without state/zip — best effort.
+    out.cityRaw = parts[1];
+    out.city = normalizeCity(parts[1]);
+  }
+  return out;
+}
+
+/**
+ * Pull a comparable ParsedAddr out of an Apify Zillow row. The actor
+ * usually returns an `address` object with discrete fields; fall back to
+ * parsing the joined string if not.
+ */
+function parseAddressFromRow(row: any): ParsedAddr {
+  const a = row?.address;
+  if (a && typeof a === "object") {
+    const out: ParsedAddr = {};
+    const street = String(a.streetAddress ?? "").trim();
+    const m = street.match(/^(\d+\w?)\s+(.+)$/);
+    if (m) {
+      out.streetNum = m[1];
+      out.streetName = normalizeStreetName(m[2]);
+    }
+    if (a.city) {
+      out.cityRaw = String(a.city);
+      out.city = normalizeCity(out.cityRaw);
+    }
+    if (a.state) out.state = String(a.state).toUpperCase().slice(0, 2);
+    if (a.zipcode) out.zip5 = String(a.zipcode).slice(0, 5);
+    return out;
+  }
+  // String fallback.
+  return parseAddressString(typeof a === "string" ? a : String(row?.streetAddress ?? ""));
+}
+
+interface MatchDecision {
+  accept: boolean;
+  reason: string;
+  cityMismatch: boolean;
+  matched: string[];
+  mismatched: string[];
+}
+
+/**
+ * Decide whether a Zillow row is the same property the caller asked for.
+ *
+ * Hard reject when any of street#, normalized street name, ZIP5, or state
+ * disagree (those are strong identifiers). City is soft: a mismatch is
+ * recorded and logged but never blocks acceptance. If we lack the data to
+ * compare a field on either side, that field is skipped rather than treated
+ * as a mismatch — this keeps the matcher tolerant of sparse rows.
+ */
+function decideAddressMatch(googleParsed: ParsedAddr, row: any): MatchDecision {
+  const zillow = parseAddressFromRow(row);
+  const matched: string[] = [];
+  const mismatched: string[] = [];
+
+  const check = (field: keyof ParsedAddr, hard: boolean): "ok" | "diff" | "skip" => {
+    const g = googleParsed[field];
+    const z = zillow[field];
+    if (!g || !z) return "skip";
+    if (g === z) { matched.push(field); return "ok"; }
+    mismatched.push(field);
+    return "diff";
+  };
+
+  const streetNum = check("streetNum", true);
+  const streetName = check("streetName", true);
+  const zip = check("zip5", true);
+  const state = check("state", true);
+  const cityRes = check("city", false);
+
+  if (streetNum === "diff") return { accept: false, reason: "street number mismatch", cityMismatch: false, matched, mismatched };
+  if (zip === "diff")       return { accept: false, reason: "ZIP mismatch",            cityMismatch: false, matched, mismatched };
+  if (state === "diff")     return { accept: false, reason: "state mismatch",          cityMismatch: false, matched, mismatched };
+  if (streetName === "diff")return { accept: false, reason: "street name mismatch",    cityMismatch: false, matched, mismatched };
+
+  // Require at least one strong identifier to actually have matched —
+  // otherwise we have nothing to base acceptance on (e.g. an unparseable
+  // input). Without this, an empty Google parse would accept anything.
+  const strongMatched = matched.some(f => f === "streetNum" || f === "zip5");
+  if (!strongMatched) {
+    return { accept: false, reason: "no strong identifier matched", cityMismatch: false, matched, mismatched };
+  }
+
+  const cityMismatch = cityRes === "diff";
+  return {
+    accept: true,
+    reason: cityMismatch ? "soft accept (city mismatch ignored)" : "full match",
+    cityMismatch,
+    matched,
+    mismatched,
+  };
+}
+
+/** Re-cased "St Petersburg" → "St Petersburg" (Title Case) for display. */
+function toTitleCase(s: string): string {
+  return s.replace(/\b\w/g, c => c.toUpperCase());
 }
 
 /**
@@ -406,15 +590,84 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
   const input = addressOrUrl?.trim();
   if (!input) throw new Error("Missing address or Zillow URL");
 
-  const rows = await runApify(input);
-  if (rows.length === 0) {
+  // URL lookups bypass the address matcher — the URL itself uniquely
+  // identifies the listing, so trust the actor's first row.
+  if (isZillowUrl(input)) {
+    const rows = await runApify(input);
+    if (rows.length === 0) throw new Error("No Zillow results found for that address");
+    const normalized = normalizeOne(rows[0]);
+    const hasAnyValuation = normalized.zestimate != null || normalized.listingPrice != null;
+    if (!normalized.address && !hasAnyValuation) {
+      throw new Error("No Zillow results found for that address");
+    }
+    return normalized;
+  }
+
+  const googleParsed = parseAddressString(input);
+  console.log("[zillow-validate] google normalized:", googleParsed);
+
+  // Walk a list of rows and return the first one our matcher accepts.
+  // Logs every per-row decision so a mistaken acceptance can be traced.
+  const pickAcceptable = (rows: unknown[], attemptLabel: string): { row: any; decision: MatchDecision } | null => {
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const decision = decideAddressMatch(googleParsed, row);
+      console.log(
+        `[zillow-validate] ${attemptLabel} row[${i}] decision:`,
+        {
+          accept: decision.accept,
+          reason: decision.reason,
+          matched: decision.matched,
+          mismatched: decision.mismatched,
+          cityMismatch: decision.cityMismatch,
+          zillowNorm: parseAddressFromRow(row),
+        },
+      );
+      if (decision.accept) return { row, decision };
+    }
+    return null;
+  };
+
+  // Attempt 1: query Apify with the address exactly as the caller provided
+  // it. This is the cheapest path and works for most properties.
+  let rows = await runApify(input);
+  let picked = rows.length > 0 ? pickAcceptable(rows, "attempt1") : null;
+
+  // Attempt 2: if the first attempt didn't yield a row that passes our
+  // matcher (most commonly because Apify rejected the query due to a
+  // city/geocoder mismatch), retry once with the city stripped out.
+  // Required identifiers: street, state, ZIP. We only retry when those
+  // exist in the original input — otherwise the stripped query is too
+  // ambiguous to be useful.
+  if (!picked && googleParsed.streetNum && googleParsed.streetName && googleParsed.state && googleParsed.zip5) {
+    const stripped = `${googleParsed.streetNum} ${googleParsed.streetName}, ${googleParsed.state} ${googleParsed.zip5}`;
+    console.log(`[zillow-validate] attempt1 had no acceptable row (rows=${rows.length}); retrying without city:`, stripped);
+    const retryRows = await runApify(stripped);
+    picked = retryRows.length > 0 ? pickAcceptable(retryRows, "attempt2-no-city") : null;
+  }
+
+  if (!picked) {
+    console.log("[zillow-validate] final decision: REJECT — no row passed validation");
     throw new Error("No Zillow results found for that address");
   }
-  const normalized = normalizeOne(rows[0]);
 
-  // Fail-safe: a "successful" Apify run can still return a row with no
-  // address and no valuation. That's garbage for downstream consumers, so
-  // surface it as a 404 rather than silently caching empty data.
+  console.log(
+    "[zillow-validate] final decision: ACCEPT —",
+    picked.decision.reason,
+    picked.decision.cityMismatch ? "(city mismatch ignored as soft mismatch)" : "",
+  );
+
+  const normalized = normalizeOne(picked.row);
+
+  // Stamp city metadata onto the response so the UI can choose whichever
+  // city it wants to show. The Google city stays user-facing by default.
+  const zillowAddr = parseAddressFromRow(picked.row);
+  if (googleParsed.cityRaw) normalized.googleCity = googleParsed.cityRaw;
+  if (zillowAddr.cityRaw) normalized.zillowCity = zillowAddr.cityRaw;
+  normalized.displayCity =
+    normalized.googleCity ?? (zillowAddr.city ? toTitleCase(zillowAddr.city) : undefined);
+  normalized.cityMismatch = picked.decision.cityMismatch;
+
   const hasAnyValuation = normalized.zestimate != null || normalized.listingPrice != null;
   if (!normalized.address && !hasAnyValuation) {
     throw new Error("No Zillow results found for that address");

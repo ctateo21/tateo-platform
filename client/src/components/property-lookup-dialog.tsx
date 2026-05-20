@@ -36,6 +36,14 @@ export interface LookedUpProperty {
   insurancePolicyType: "HO3" | "HO6" | "DP3" | "";
   occupancyType: string;
   lastPulledAt: string;
+  /** City as parsed from the original Google-formatted address (if available). */
+  googleCity?: string;
+  /** City as reported by Zillow for the matched property (if available). */
+  zillowCity?: string;
+  /** UI-preferred city — defaults to Google's, falls back to Zillow's. */
+  displayCity?: string;
+  /** True when street/ZIP/state matched but Google and Zillow disagree on city. */
+  cityMismatch?: boolean;
 }
 
 interface Props {
