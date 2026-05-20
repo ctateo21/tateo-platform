@@ -56,7 +56,7 @@ import {
   ClipboardList,
   LayoutDashboard,
 } from "lucide-react";
-import { getSession, getPurchaseScenarios, savePurchaseScenarios, areScenariosHydrated, subscribeAuthChange } from "@/lib/auth";
+import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
 import { useAuth } from "@/context/auth-context";
 import { apiRequest } from "@/lib/queryClient";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
@@ -1698,20 +1698,6 @@ export default function Estimate() {
     };
   }, [inputs]);
 
-  // Track hydration state from auth.ts so we never write to Supabase
-  // before the user's existing scenarios have been loaded. Without this,
-  // the immediate-save effect below would see an empty in-memory cache
-  // during the post-login hydration window, treat the current address as
-  // brand new, and call savePurchaseScenarios([newRow]) — which fires a
-  // delete-then-upsert that DELETES the user's previously-saved rows
-  // from Supabase. That was the cause of "Purchase tab empty after
-  // logout/login".
-  const [scenariosHydrated, setScenariosHydrated] = useState(() => areScenariosHydrated());
-  useEffect(() => {
-    setScenariosHydrated(areScenariosHydrated());
-    return subscribeAuthChange(() => setScenariosHydrated(areScenariosHydrated()));
-  }, []);
-
   // IMMEDIATE persistence — mirrors the Refinance tab's `updateLoans` pattern
   // (refinance.tsx:101-107) which fires `saveTrackedLoans` synchronously on
   // every add. The Purchase flow previously relied SOLELY on the 800ms
@@ -1726,7 +1712,6 @@ export default function Estimate() {
   // address, not on every edit. The debounced effect owns updates.
   useEffect(() => {
     if (!isAuthenticated) return;
-    if (!scenariosHydrated) return; // wait for Supabase load to finish first
     if (!address || address === "Unknown Address") return;
     const existing = getPurchaseScenarios();
     const key = address.trim().toLowerCase();
@@ -1748,7 +1733,7 @@ export default function Estimate() {
       },
     ]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, scenariosHydrated, address]);
+  }, [isAuthenticated, address]);
 
   // Auto-save / update this estimate on the user's dashboard when they're logged in.
   // Debounced so rapid input changes don't thrash storage. Status is written
@@ -1757,7 +1742,6 @@ export default function Estimate() {
   // pinned to the right scenario.
   useEffect(() => {
     if (!isAuthenticated) return;
-    if (!scenariosHydrated) return; // don't write before Supabase has loaded
     if (!address || address === "Unknown Address") return;
     const targetScenarioId = activeScenarioIdRef.current;
     // Mark this scenario as pending-save so the user sees "Saving…"
@@ -1856,7 +1840,7 @@ export default function Estimate() {
       }
     };
   }, [
-    isAuthenticated, scenariosHydrated, address,
+    isAuthenticated, address,
     inputs.purchasePrice, inputs.downPaymentPct, inputs.interestRate, inputs.loanType,
     calc.totalHousing, calc.cashToClose, calc.dti, calc.qualifies,
   ]);

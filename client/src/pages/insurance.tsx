@@ -14,10 +14,6 @@ import { getCountyName } from "@/lib/county-tax-estimator";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { useToast } from "@/hooks/use-toast";
-import {
-  getSession, getInsuranceScenarios, saveInsuranceScenarios,
-  areScenariosHydrated, subscribeAuthChange,
-} from "@/lib/auth";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -196,37 +192,6 @@ export default function InsuranceDashboard() {
   useEffect(() => {
     if (addressParam) setRegionKey(getRegionFromAddress(addressParam));
   }, [addressParam]);
-
-  // ── Durable persistence to Supabase ──────────────────────────────────────
-  // Mirror the Purchase pattern in estimate.tsx: when the user is signed
-  // in, has an address, and Supabase has already loaded their existing
-  // scenarios, upsert this address as an InsuranceScenario so it shows up
-  // on the dashboard Insurance tab across refresh, logout/login, etc.
-  // Previously, insurance.tsx never called any save function — every
-  // record lived only in this component's local state and was lost on
-  // navigation. That's why the Insurance dashboard tab was always empty.
-  const [scenariosHydrated, setScenariosHydrated] = useState(() => areScenariosHydrated());
-  useEffect(() => {
-    setScenariosHydrated(areScenariosHydrated());
-    return subscribeAuthChange(() => setScenariosHydrated(areScenariosHydrated()));
-  }, []);
-
-  useEffect(() => {
-    if (!scenariosHydrated) return;
-    if (!getSession()) return;
-    if (!addressParam) return;
-    const existing = getInsuranceScenarios();
-    const key = addressParam.trim().toLowerCase();
-    if (existing.some(s => s.address.trim().toLowerCase() === key)) return;
-    saveInsuranceScenarios([
-      ...existing,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        address: addressParam,
-        savedAt: new Date().toISOString(),
-      },
-    ]);
-  }, [scenariosHydrated, addressParam]);
 
   // ── Address editing ──────────────────────────────────────────────────────
   const [isEditingAddress, setIsEditingAddress] = useState(false);

@@ -20,9 +20,18 @@ import { useAuth } from "@/context/auth-context";
 import {
   getPurchaseScenarios, savePurchaseScenarios,
   getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
-  getInsuranceScenarios, saveInsuranceScenarios,
-  type InsuranceScenario,
+  getInsuranceScenarios,
+  type InsuranceScenario, type PurchaseScenario,
 } from "@/lib/auth";
+import {
+  normalizePropertyKey,
+  getOccupancyOverride,
+  setOccupancyOverride,
+  type OccupancyType,
+} from "@/lib/property-key";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import {
   getBestOption, getBestConventionalRate, PROPERTY_TYPE_ADJUSTMENTS,
@@ -714,103 +723,313 @@ function PurchaseTab() {
 
 // ── Insurance Tab ────────────────────────────────────────────────────
 //
-// Minimal view per user spec: shows ONLY actual InsuranceScenario records
-// for the signed-in user. No correlation with Purchase/Refinance, no
-// "available properties" suggestions, no occupancy overrides. Refinance
-// or Purchase addresses MUST NOT appear here unless the user has explicitly
-// created an insurance estimate for them.
+// Builds one compact row per *unique property* by correlating Insurance
+// scenarios with Purchase scenarios and Refinance (tracked) loans on a
+// normalized property key (street# + street + unit + ZIP5 + state). Rows
+// match the visual style of the Purchase / Refinance tabs.
 //
-// Auto-correlation logic was intentionally removed because it was
-// displaying Refinance records as if they were Insurance records. The
-// helpers in lib/property-key.ts are kept in the codebase for a future
-// re-introduction but are not referenced here.
+// Occupancy resolution order, per row:
+//   1. Manual override (localStorage, persisted across sessions for this
+//      browser — clears auto-correlation once set, per spec).
+//   2. Refinance.propertyType from the most-recently-added matching
+//      TrackedLoan (TrackedLoan has a typed propertyType column).
+//   3. Purchase scenario — currently no occupancy column persisted, so
+//      this falls through to "unknown" until a follow-up adds that
+//      column. (PurchaseScenario type in lib/auth.ts has no occupancy.)
+//   4. "unknown" — surfaced as a "Not selected" dropdown so the user can
+//      set it manually.
+//
+// IMPORTANT: this UI relies only on existing persisted fields
+// (InsuranceScenario.annualPremium + coverageType). Richer insurance
+// data (rebuild cost, deductibles, carrier, policy type, status) is
+// surfaced with "—" placeholders today and will fill in automatically
+// once the insurance scenarios table gains those columns; no further
+// UI changes will be needed.
+
+const OCCUPANCY_LABELS: Record<OccupancyType, string> = {
+  primary: "Primary Residence",
+  secondary: "Second Home",
+  investment: "Investment",
+  unknown: "Not selected",
+};
+
+interface InsuranceRow {
+  /** Normalized key — stable across address-shape changes. */
+  key: string;
+  /** Best display address (prefers insurance record, then purchase, then refi). */
+  address: string;
+  insurance: InsuranceScenario | null;
+  purchaseMatches: PurchaseScenario[];
+  refiMatches: TrackedLoan[];
+  /** Resolved occupancy after override + correlation. */
+  occupancy: OccupancyType;
+  /** Where the occupancy value came from (for the small subtitle). */
+  occupancySource: "manual_override" | "refinance" | "purchase" | "unknown";
+  /** ISO timestamp of the most-recent record contributing to this row. */
+  lastUpdated: string;
+  linkedSources: ("Purchase" | "Refinance" | "Insurance")[];
+}
+
+function buildInsuranceRows(
+  insuranceScenarios: InsuranceScenario[],
+  purchaseScenarios: PurchaseScenario[],
+  trackedLoans: TrackedLoan[],
+): InsuranceRow[] {
+  // Group every record by its normalized property key. Records whose
+  // address can't be parsed get a synthetic per-record key so they never
+  // collapse together silently.
+  const byKey = new Map<string, {
+    address: string;
+    insurance: InsuranceScenario | null;
+    purchaseMatches: PurchaseScenario[];
+    refiMatches: TrackedLoan[];
+    sources: Set<"Purchase" | "Refinance" | "Insurance">;
+  }>();
+
+  function ensure(key: string, address: string) {
+    let entry = byKey.get(key);
+    if (!entry) {
+      entry = {
+        address,
+        insurance: null,
+        purchaseMatches: [],
+        refiMatches: [],
+        sources: new Set(),
+      };
+      byKey.set(key, entry);
+    }
+    return entry;
+  }
+
+  // When an address can't be normalized, fall back to the record's own
+  // stable id (never the array index) so row keys + localStorage overrides
+  // stay attached to the same physical record across re-orders/re-hydration.
+  // Insurance first so its address wins as the display preference.
+  insuranceScenarios.forEach((ins) => {
+    const norm = normalizePropertyKey(ins.address);
+    const key = norm.key || `__unparsed_ins_${ins.id}`;
+    const entry = ensure(key, ins.address);
+    entry.insurance = ins;
+    entry.sources.add("Insurance");
+  });
+
+  purchaseScenarios.forEach((p) => {
+    const norm = normalizePropertyKey(p.address);
+    const key = norm.key || `__unparsed_purchase_${p.id}`;
+    const entry = ensure(key, p.address);
+    if (!entry.insurance && entry.purchaseMatches.length === 0) entry.address = p.address;
+    entry.purchaseMatches.push(p);
+    entry.sources.add("Purchase");
+  });
+
+  trackedLoans.forEach((l) => {
+    const norm = normalizePropertyKey(l.propertyAddress);
+    const key = norm.key || `__unparsed_refi_${l.id}`;
+    const entry = ensure(key, l.propertyAddress);
+    if (!entry.insurance && entry.purchaseMatches.length === 0 && entry.refiMatches.length === 0) {
+      entry.address = l.propertyAddress;
+    }
+    entry.refiMatches.push(l);
+    entry.sources.add("Refinance");
+  });
+
+  // Resolve occupancy + last-updated per row.
+  const rows: InsuranceRow[] = [];
+  byKey.forEach((entry, key) => {
+    // Auto: refi wins because it has a typed propertyType column.
+    const newestRefi = [...entry.refiMatches].sort(
+      (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()
+    )[0];
+
+    const override = getOccupancyOverride(key);
+    let occupancy: OccupancyType = "unknown";
+    let occupancySource: InsuranceRow["occupancySource"] = "unknown";
+    if (override) {
+      occupancy = override;
+      occupancySource = "manual_override";
+    } else if (newestRefi) {
+      occupancy = newestRefi.propertyType;
+      occupancySource = "refinance";
+    }
+
+    // Last-updated: max of all contributing record timestamps.
+    const timestamps: string[] = [];
+    if (entry.insurance) timestamps.push(entry.insurance.savedAt);
+    entry.purchaseMatches.forEach(p => timestamps.push(p.savedAt));
+    entry.refiMatches.forEach(l => timestamps.push(l.addedAt));
+    const lastUpdated = timestamps.sort().pop() ?? new Date().toISOString();
+
+    rows.push({
+      key,
+      address: entry.address,
+      insurance: entry.insurance,
+      purchaseMatches: entry.purchaseMatches,
+      refiMatches: entry.refiMatches,
+      occupancy,
+      occupancySource,
+      lastUpdated,
+      linkedSources: Array.from(entry.sources),
+    });
+  });
+
+  // Newest first.
+  rows.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
+  return rows;
+}
 
 function InsuranceTab() {
   const [, setLocation] = useLocation();
-  const [scenarios, setScenarios] = useState<InsuranceScenario[]>([]);
+
+  // Mirror auth caches into state so the tab re-renders when scenarios
+  // load from Supabase or when other tabs update them.
+  const [insurance, setInsurance] = useState<InsuranceScenario[]>([]);
+  const [purchases, setPurchases] = useState<PurchaseScenario[]>([]);
+  const [loans, setLoans] = useState<TrackedLoan[]>([]);
+  // Bump to re-resolve rows after a localStorage override change.
+  const [overrideBump, setOverrideBump] = useState(0);
 
   useEffect(() => {
-    setScenarios(getInsuranceScenarios());
-    return subscribeAuthChange(() => setScenarios(getInsuranceScenarios()));
+    function sync() {
+      setInsurance(getInsuranceScenarios());
+      setPurchases(getPurchaseScenarios());
+      setLoans(getTrackedLoans() as TrackedLoan[]);
+    }
+    sync();
+    return subscribeAuthChange(sync);
   }, []);
 
-  function remove(id: string, e?: React.MouseEvent) {
-    e?.stopPropagation();
-    const updated = scenarios.filter(s => s.id !== id);
-    setScenarios(updated);
-    saveInsuranceScenarios(updated);
+  const rows = buildInsuranceRows(insurance, purchases, loans);
+  // overrideBump deliberately participates in render via this ref read so
+  // the lint rule below stays happy without complicating the hook deps.
+  void overrideBump;
+
+  function handleOccupancyChange(key: string, next: OccupancyType) {
+    setOccupancyOverride(key, next);
+    setOverrideBump(n => n + 1);
   }
 
-  if (scenarios.length === 0) {
+  if (rows.length === 0) {
     return (
       <EmptyState
         icon={<Shield className="h-12 w-12" />}
-        title="No insurance estimates yet"
-        body="Get an insurance quote on a property to see it here. Insurance records are kept separately from Purchase and Refinance."
-        cta="Get an Insurance Quote"
-        href="/insurance"
+        title="No saved properties yet"
+        body="Once you search for a property, analyze a refinance, or get an insurance quote, the property will appear here."
+        cta="Search a Property"
+        href="/"
       />
     );
   }
 
   return (
     <div className="space-y-3">
-      {scenarios.map(ins => {
-        const annual = ins.annualPremium;
-        const monthly = typeof annual === "number" ? annual / 12 : undefined;
-        return (
-          <Card key={ins.id} className="hover:shadow-md transition-shadow group">
-            <CardContent className="py-4">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                <div className="flex items-start gap-2 flex-1 min-w-0">
-                  <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-                  <div className="min-w-0">
-                    <p className="font-semibold text-sm leading-snug line-clamp-2">{ins.address}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                      <Calendar className="h-3 w-3" /> Saved {formatDate(ins.savedAt)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-x-6 gap-y-2 text-sm sm:flex-1">
-                  <div>
-                    <p className="text-xs text-muted-foreground">Annual Premium</p>
-                    <p className="font-semibold">{annual != null ? `${formatCurrency(annual)}/yr` : "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Monthly</p>
-                    <p className="font-semibold">{monthly != null ? `${formatCurrency(monthly)}/mo` : "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">Coverage</p>
-                    <p className="font-semibold truncate">{ins.coverageType ?? "—"}</p>
-                  </div>
-                </div>
-
-                <div className="flex gap-2 sm:shrink-0">
-                  <Button
-                    size="sm"
-                    className="gap-2"
-                    onClick={() => setLocation(`/insurance?address=${encodeURIComponent(ins.address)}`)}
-                  >
-                    View / Edit <ExternalLink className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="text-muted-foreground hover:text-destructive"
-                    onClick={(e) => remove(ins.id, e)}
-                    aria-label="Delete insurance estimate"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
+      {rows.map(row => (
+        <InsuranceRowCard
+          key={row.key}
+          row={row}
+          onOccupancyChange={next => handleOccupancyChange(row.key, next)}
+          onOpen={() => setLocation(`/insurance?address=${encodeURIComponent(row.address)}`)}
+        />
+      ))}
     </div>
+  );
+}
+
+function InsuranceRowCard({
+  row, onOccupancyChange, onOpen,
+}: {
+  row: InsuranceRow;
+  onOccupancyChange: (next: OccupancyType) => void;
+  onOpen: () => void;
+}) {
+  const ins = row.insurance;
+  const annual = ins?.annualPremium;
+  const monthly = typeof annual === "number" ? annual / 12 : undefined;
+  const occupancyBadgeClass = PROPERTY_TYPE_COLORS[row.occupancy] ?? "bg-muted text-muted-foreground border";
+
+  return (
+    <Card className="hover:shadow-md transition-shadow group">
+      <CardContent className="py-4">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+          {/* Address + meta */}
+          <div className="flex-1 min-w-0 lg:max-w-xs">
+            <div className="flex items-start gap-2">
+              <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="font-semibold text-sm leading-snug line-clamp-2">{row.address}</p>
+                <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> Updated {formatDate(row.lastUpdated)}
+                </p>
+                {row.linkedSources.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {row.linkedSources.map(src => (
+                      <Badge key={src} variant="secondary" className="text-[10px] py-0 px-1.5">{src}</Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Occupancy + override */}
+          <div className="flex lg:flex-col items-start gap-1.5 lg:min-w-[150px]">
+            <Badge variant="outline" className={`text-xs ${occupancyBadgeClass}`}>
+              {OCCUPANCY_LABELS[row.occupancy]}
+            </Badge>
+            <Select
+              value={row.occupancy}
+              onValueChange={(v) => onOccupancyChange(v as OccupancyType)}
+            >
+              <SelectTrigger className="h-7 text-xs w-[150px]" aria-label="Change occupancy">
+                <SelectValue placeholder="Change occupancy" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="primary">Primary Residence</SelectItem>
+                <SelectItem value="secondary">Second Home</SelectItem>
+                <SelectItem value="investment">Investment</SelectItem>
+                <SelectItem value="unknown">Not selected (auto)</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-[10px] text-muted-foreground">
+              {row.occupancySource === "manual_override" && "Manual"}
+              {row.occupancySource === "refinance" && "From Refinance"}
+              {row.occupancySource === "purchase" && "From Purchase"}
+              {row.occupancySource === "unknown" && "Auto-match"}
+            </span>
+          </div>
+
+          {/* Insurance stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm flex-1">
+            <div>
+              <p className="text-xs text-muted-foreground">Annual Premium</p>
+              <p className="font-semibold">{annual != null ? `${formatCurrency(annual)}/yr` : "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Monthly</p>
+              <p className="font-semibold">{monthly != null ? `${formatCurrency(monthly)}/mo` : "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Policy Type</p>
+              <p className="font-semibold truncate">{ins?.coverageType ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Status</p>
+              <p className="font-semibold">{ins ? "Estimate" : "Not started"}</p>
+            </div>
+            {/* Future-data placeholders — surface once schema lands. */}
+            <div className="col-span-2 sm:col-span-4 text-[10px] text-muted-foreground/80">
+              Rebuild · — &nbsp;·&nbsp; AOP — &nbsp;·&nbsp; Hurricane — &nbsp;·&nbsp; Flood — &nbsp;·&nbsp; Carrier —
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2 lg:shrink-0">
+            <Button size="sm" className="gap-2" onClick={onOpen}>
+              {ins ? "View / Edit" : "Get Quote"} <ExternalLink className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

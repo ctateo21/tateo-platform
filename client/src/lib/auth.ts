@@ -75,14 +75,6 @@ let _session: AuthUser | null = null;
 let _purchaseScenarios: PurchaseScenario[] = [];
 let _insuranceScenarios: InsuranceScenario[] = [];
 let _trackedLoans: TrackedLoan[] = [];
-// True once the most recent successful loadScenarios() has populated the
-// caches from Supabase for the current signed-in user. Components that
-// write to these caches (estimate.tsx auto-save, etc.) must wait until
-// this is true — otherwise a write fired during the post-login hydration
-// window will see empty caches, conclude "this is a new record", and
-// trigger persist*Scenarios() which uses delete-then-upsert and will
-// DELETE the user's previously-saved rows.
-let _scenariosHydrated = false;
 const _listeners = new Set<() => void>();
 
 function notify() { _listeners.forEach(fn => { try { fn(); } catch {} }); }
@@ -93,16 +85,6 @@ export function subscribeAuthChange(fn: () => void): () => void {
 }
 
 export function getSession(): AuthUser | null { return _session; }
-
-/**
- * True only after the most recent sign-in has finished loading the user's
- * scenarios from Supabase. Returns true for guests (no session, nothing
- * to hydrate). Components that auto-save should gate their writes on this.
- */
-export function areScenariosHydrated(): boolean {
-  if (!_session) return true; // nothing to hydrate — safe no-op
-  return _scenariosHydrated;
-}
 
 function rowToProfile(row: any): AuthUser {
   return {
@@ -228,16 +210,9 @@ async function loadScenarios(userId: string) {
     supabase.from("insurance_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
-  if (pRes.error) console.warn("[auth] purchase_scenarios load error:", pRes.error.message);
-  if (iRes.error) console.warn("[auth] insurance_scenarios load error:", iRes.error.message);
-  if (lRes.error) console.warn("[auth] tracked_loans load error:", lRes.error.message);
   _purchaseScenarios = (pRes.data ?? []).map(rowToPurchase);
   _insuranceScenarios = (iRes.data ?? []).map(rowToInsurance);
   _trackedLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
-  // Mark hydrated BEFORE notify() so the very first listener tick after a
-  // sign-in sees fully-populated caches + the hydrated flag together.
-  _scenariosHydrated = true;
-  console.info(`[auth] scenarios hydrated for ${userId}: purchase=${_purchaseScenarios.length}, insurance=${_insuranceScenarios.length}, loans=${_trackedLoans.length}`);
 }
 
 // One-time migration of pre-existing localStorage data into Supabase the
@@ -305,15 +280,10 @@ async function hydrateFromSupabase() {
     _session = null;
     _purchaseScenarios = [];
     _insuranceScenarios = [];
-    _scenariosHydrated = false;
     try { localStorage.removeItem("tateo_auth"); } catch {}
     notify();
     return;
   }
-  // Reset hydration flag for the *new* user so any in-flight auto-save
-  // effect waits until we've loaded this account's scenarios before
-  // deciding what's "new" vs. "existing".
-  _scenariosHydrated = false;
   try { localStorage.setItem("tateo_auth", "1"); } catch {}
 
   // Build a safe fallback from the Supabase auth record so the UI can show
@@ -406,7 +376,6 @@ export async function logout(): Promise<void> {
   _purchaseScenarios = [];
   _insuranceScenarios = [];
   _trackedLoans = [];
-  _scenariosHydrated = false;
   notify();
 }
 
@@ -514,36 +483,21 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
   // rows. If the user has changed by the time the queue drains, drop it.
   const userId = _session?.id;
   if (!userId) return Promise.resolve();
-  // SAFETY GATE: refuse to run delete-then-upsert before scenarios are
-  // hydrated. Otherwise a caller seeing an empty in-memory list (because
-  // load is still in flight) would cause us to DELETE the user's
-  // previously-saved rows in Supabase.
-  if (!_scenariosHydrated) {
-    console.warn("[auth] persistPurchaseScenarios skipped: scenarios not yet hydrated");
-    return Promise.resolve();
-  }
   return enqueueWrite("purchase_scenarios", async () => {
     if (_session?.id !== userId) return; // user changed; abort this stale job
     const keep = new Set(s.map(x => x.id));
-    const { data: existing, error: selErr } = await supabase
+    const { data: existing } = await supabase
       .from("purchase_scenarios")
       .select("id")
       .eq("user_id", userId);
-    if (selErr) {
-      console.warn("[auth] purchase_scenarios select error:", selErr.message);
-      return;
-    }
     const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
     if (toDelete.length > 0) {
-      const { error: delErr } = await supabase.from("purchase_scenarios").delete().in("id", toDelete).eq("user_id", userId);
-      if (delErr) console.warn("[auth] purchase_scenarios delete error:", delErr.message);
+      await supabase.from("purchase_scenarios").delete().in("id", toDelete).eq("user_id", userId);
     }
     if (s.length > 0) {
-      const { error: upErr } = await supabase
+      await supabase
         .from("purchase_scenarios")
         .upsert(s.map(x => purchaseToRow(x, userId)), { onConflict: "id" });
-      if (upErr) console.warn("[auth] purchase_scenarios upsert error:", upErr.message);
-      else console.info(`[auth] persisted ${s.length} purchase scenario(s)`);
     }
   });
 }
@@ -562,10 +516,6 @@ export function saveInsuranceScenarios(s: InsuranceScenario[]) {
 function persistInsuranceScenarios(s: InsuranceScenario[]) {
   const userId = _session?.id;
   if (!userId) return Promise.resolve();
-  if (!_scenariosHydrated) {
-    console.warn("[auth] persistInsuranceScenarios skipped: scenarios not yet hydrated");
-    return Promise.resolve();
-  }
   return enqueueWrite("insurance_scenarios", async () => {
     if (_session?.id !== userId) return;
     const keep = new Set(s.map(x => x.id));
@@ -599,10 +549,6 @@ export function saveTrackedLoans(loans: TrackedLoan[]) {
 function persistTrackedLoans(loans: TrackedLoan[]) {
   const userId = _session?.id;
   if (!userId) return Promise.resolve();
-  if (!_scenariosHydrated) {
-    console.warn("[auth] persistTrackedLoans skipped: scenarios not yet hydrated");
-    return Promise.resolve();
-  }
   return enqueueWrite("tracked_loans", async () => {
     if (_session?.id !== userId) return;
     const keep = new Set(loans.map(l => l.id));
