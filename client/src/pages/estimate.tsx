@@ -233,6 +233,13 @@ interface Inputs {
   hasMortgage: boolean | null;
   isVeteran: boolean | null;
   vaDisability: boolean | null;
+  /** Follow-up to `vaDisability === true`: is the rating 100%?
+   *  Strictly boolean — there is no "not sure" / unknown state. When the
+   *  user has not answered (or has not been asked because they don't
+   *  receive VA disability), this is null. A `true` value combined with
+   *  `occupancy === "primary"` zeros out `annualTaxes` as a homestead
+   *  exemption estimate (see `computePropertyTax`). */
+  vaDisabilityRating100: boolean | null;
   vaLoanUse: "first" | "second" | null;
   currentLoanFHA: boolean | null;
   hasRentalIncome: boolean | null;
@@ -298,8 +305,30 @@ function makeDefaultInputs(price = 350000): Inputs {
     monthlyDebts: 0, monthlyIncome: 8000, reserves: 35000,
     impactWindows: false, roofAttachment: "toenails", swr: false,
     hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, monthlyRentalIncome: 0, rentalType: null,
-    isVeteran: null, vaDisability: null, vaLoanUse: null,
+    isVeteran: null, vaDisability: null, vaDisabilityRating100: null, vaLoanUse: null,
   };
+}
+
+/**
+ * Single source of truth for annual property tax estimation. Returns $0
+ * when the user has confirmed 100% VA disability AND the property will be
+ * their primary residence — Florida (and most counties we serve) grant a
+ * full homestead property-tax exemption in that case. Final eligibility
+ * must still be confirmed with the county property appraiser; this is an
+ * estimate-only adjustment shown to the user with a clarifying note next
+ * to the Property Taxes row.
+ *
+ * Any other combination (no VA disability, not 100%, or non-primary use)
+ * falls back to the standard county-aware estimate.
+ */
+function computePropertyTax(
+  address: string,
+  purchasePrice: number,
+  occupancy: "primary" | "secondary" | "investment",
+  vaDisabilityRating100: boolean | null,
+): number {
+  if (vaDisabilityRating100 === true && occupancy === "primary") return 0;
+  return estimateAnnualTax(address, purchasePrice, occupancy === "primary");
 }
 
 function shortLabel(addr: string): string {
@@ -1454,7 +1483,7 @@ export default function Estimate() {
       taxAddressRef.current = address;
       setInputs((p) => ({
         ...p,
-        annualTaxes: estimateAnnualTax(address, p.purchasePrice, p.occupancy === "primary"),
+        annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, p.vaDisabilityRating100),
       }));
     }
   }, [address]);
@@ -1497,7 +1526,7 @@ export default function Estimate() {
         interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan),
         downPaymentPct: newDown,
         rentalType: occ === "investment" ? p.rentalType : null,
-        annualTaxes: estimateAnnualTax(address, p.purchasePrice, occ === "primary"),
+        annualTaxes: computePropertyTax(address, p.purchasePrice, occ, p.vaDisabilityRating100),
       };
     });
   }
@@ -2317,8 +2346,11 @@ export default function Estimate() {
                             loanType: "va",
                             downPaymentPct: 0,
                             vaDisability: null,
+                            vaDisabilityRating100: null,
                             vaLoanUse: null,
                             interestRate: fullRate(rates.va, p.creditScore, p.occupancy, 0, "va"),
+                            // Clear any prior exemption since the rating-100 answer is being reset
+                            annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, null),
                           }))}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                         >
@@ -2330,8 +2362,10 @@ export default function Estimate() {
                             isVeteran: false,
                             loanType: "conventional",
                             vaDisability: null,
+                            vaDisabilityRating100: null,
                             vaLoanUse: null,
                             interestRate: fullRate(rates.conventional, p.creditScore, p.occupancy, p.downPaymentPct, "conventional"),
+                            annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, null),
                           }))}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                         >
@@ -2345,13 +2379,27 @@ export default function Estimate() {
                             <p className="text-xs text-muted-foreground mb-2">Do you receive VA disability?</p>
                             <div className="flex gap-2">
                               <button
-                                onClick={() => setInputs((p) => ({ ...p, vaDisability: true, vaLoanUse: null }))}
+                                onClick={() => setInputs((p) => ({
+                                  ...p,
+                                  vaDisability: true,
+                                  vaLoanUse: null,
+                                  // vaDisabilityRating100 stays untouched if already answered;
+                                  // otherwise the follow-up question will render below.
+                                }))}
                                 className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.vaDisability === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                               >
                                 Yes
                               </button>
                               <button
-                                onClick={() => setInputs((p) => ({ ...p, vaDisability: false, vaLoanUse: null }))}
+                                onClick={() => setInputs((p) => ({
+                                  ...p,
+                                  vaDisability: false,
+                                  vaLoanUse: null,
+                                  // User no longer receives VA disability → reset the
+                                  // rating-100 answer and drop any homestead exemption.
+                                  vaDisabilityRating100: null,
+                                  annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, null),
+                                }))}
                                 className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.vaDisability === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                               >
                                 No
@@ -2361,6 +2409,49 @@ export default function Estimate() {
                               <p className="text-[11px] text-green-700 mt-1.5 font-medium">No funding fee — loan amount equals the base loan only.</p>
                             )}
                           </div>
+
+                          {/* Follow-up: rating 100%? Only when they've said
+                              they receive VA disability. Strictly Yes/No —
+                              no "Not sure" option, per product spec, so the
+                              homestead-exemption estimate is only applied
+                              when the user has explicitly confirmed both
+                              100% rating AND primary residence. */}
+                          {inputs.vaDisability === true && (
+                            <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                              <p className="text-xs text-muted-foreground mb-2">Is your VA disability rating 100%?</p>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setInputs((p) => ({
+                                    ...p,
+                                    vaDisabilityRating100: true,
+                                    // Apply (or clear) exemption based on current occupancy.
+                                    annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, true),
+                                  }))}
+                                  className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.vaDisabilityRating100 === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                                  data-testid="btn-va-rating-100-yes"
+                                >
+                                  Yes
+                                </button>
+                                <button
+                                  onClick={() => setInputs((p) => ({
+                                    ...p,
+                                    vaDisabilityRating100: false,
+                                    // Drop any exemption — normal estimate applies.
+                                    annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, false),
+                                  }))}
+                                  className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.vaDisabilityRating100 === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                                  data-testid="btn-va-rating-100-no"
+                                >
+                                  No
+                                </button>
+                              </div>
+                              {inputs.vaDisabilityRating100 === false && (
+                                <p className="text-[11px] text-muted-foreground mt-1.5">
+                                  VA disability may qualify for a smaller exemption, but this estimate only applies a full property-tax exemption when 100% VA disability and primary residence are selected.
+                                </p>
+                              )}
+                            </div>
+                          )}
 
                           {inputs.vaDisability === false && (
                             <div className="animate-in fade-in slide-in-from-top-2 duration-200">
@@ -2418,7 +2509,7 @@ export default function Estimate() {
                       ...p,
                       purchasePrice: v,
                       purchasePriceSource: "user",
-                      annualTaxes: estimateAnnualTax(address, v, p.occupancy === "primary"),
+                      annualTaxes: computePropertyTax(address, v, p.occupancy, p.vaDisabilityRating100),
                     }))}
                     min={50000} max={3000000} step={5000}
                     prefix="$"
@@ -2682,6 +2773,7 @@ export default function Estimate() {
                         {inputs.hasRentalIncome === true && <SummaryRow label="Rental Income" value={fmt(inputs.monthlyRentalIncome) + "/mo"} onEdit={() => setStep(2)} />}
                         <SummaryRow label="Veteran?" value={inputs.isVeteran === true ? "Yes" : inputs.isVeteran === false ? "No" : "—"} onEdit={() => setStep(2)} />
                         {inputs.isVeteran === true && <SummaryRow label="VA Disability?" value={inputs.vaDisability === true ? "Yes" : inputs.vaDisability === false ? "No" : "—"} onEdit={() => setStep(2)} />}
+                        {inputs.isVeteran === true && inputs.vaDisability === true && <SummaryRow label="VA Rating 100%?" value={inputs.vaDisabilityRating100 === true ? "Yes" : inputs.vaDisabilityRating100 === false ? "No" : "—"} onEdit={() => setStep(2)} />}
                         {inputs.isVeteran === true && inputs.vaDisability === false && <SummaryRow label="VA Loan Use" value={inputs.vaLoanUse === "first" ? "First (2.15%)" : inputs.vaLoanUse === "second" ? "Second (3.30%)" : "—"} onEdit={() => setStep(2)} />}
                       </div>
                       <div>
@@ -2781,6 +2873,34 @@ export default function Estimate() {
                     sub={`${fmt(inputs.annualTaxes)}/yr`}
                     link={address && address !== "Unknown Address" ? getCountyTaxLink(address) ?? undefined : undefined}
                   />
+                  {/* Homestead-exemption disclosure. Only shown when the
+                      $0 estimate is actually being applied (100% VA
+                      disability + primary residence). Final eligibility is
+                      county-determined, so we name the property appraiser
+                      as the authoritative source. */}
+                  {inputs.vaDisabilityRating100 === true && inputs.occupancy === "primary" && (
+                    <p
+                      className="text-[11px] text-emerald-700 -mt-1 mb-1 px-1"
+                      data-testid="note-va-property-tax-exemption"
+                    >
+                      Estimated property taxes set to $0 because 100% VA disability may qualify for a full homestead property tax exemption. Final eligibility must be confirmed with the county property appraiser.
+                    </p>
+                  )}
+                  {/* Inverse-case disclosure: user answered VA 100% = Yes,
+                      but the property isn't primary residence — so no
+                      exemption is applied. Rendered HERE (next to the
+                      Property Taxes row) rather than inside the veteran
+                      section, because the veteran block is gated on
+                      occupancy === "primary" and would never render the
+                      warning otherwise. */}
+                  {inputs.vaDisabilityRating100 === true && inputs.occupancy !== "primary" && (
+                    <p
+                      className="text-[11px] text-amber-700 -mt-1 mb-1 px-1"
+                      data-testid="note-va-exemption-non-primary"
+                    >
+                      Full property-tax exemption only applies when this property is your primary residence. Currently set to {inputs.occupancy} — normal tax estimate applied.
+                    </p>
+                  )}
                   <Row
                     label="Homeowners Insurance"
                     value={`${fmt(calc.monthlyHOIns)}/mo`}
