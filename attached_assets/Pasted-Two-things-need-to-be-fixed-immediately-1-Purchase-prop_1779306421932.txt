@@ -1,0 +1,140 @@
+Two things need to be fixed immediately:
+
+1. Purchase properties still disappear after logout/login.
+2. The Insurance tab view was changed incorrectly after the last prompt and needs to be reverted to the view it had before that last change.
+
+Do not make a broad redesign. Focus only on these two fixes.
+
+PART 1 — Purchase properties still disappear after logout/login
+
+Current issue:
+When I add properties under the Purchase tab/property estimate, they appear during the current session. But after I log out and log back in, the Purchase tab is empty again.
+
+This means the Purchase properties are still not being durably loaded or saved correctly.
+
+Expected behavior:
+Purchase properties should never disappear unless I manually delete them.
+
+If a logged-in user adds a property in Purchase Flow → Property Estimate:
+- It should save to Supabase immediately.
+- It should be associated with the logged-in user.
+- It should have a stable ID.
+- It should have a purchase flow/type marker.
+- It should reload after refresh, logout/login, and navigation.
+- It should appear in the Purchase dashboard even if Zillow data has not finished loading.
+- It should appear in the Purchase dashboard even if no mortgage statement or document was uploaded.
+
+Please stop assuming this is fixed. Trace it end-to-end.
+
+Debug this exact chain:
+1. User selects address in Purchase Property Estimate.
+2. Purchase scenario/property object is created.
+3. Supabase insert/upsert runs.
+4. Supabase confirms the record was saved.
+5. User logs out.
+6. User logs back in.
+7. Dashboard queries Supabase.
+8. Purchase tab filters records.
+9. Purchase tab renders saved purchase records.
+
+Find exactly where this chain breaks.
+
+Specific things to inspect:
+- Is the Purchase property actually inserted/upserted into Supabase?
+- Which table is it saved to?
+- Is `user_id` populated?
+- Is `flow_type`, `scenario_type`, `category`, or equivalent set to `"purchase"`?
+- Is the address saved in the field the Purchase dashboard loader expects?
+- Is the normalized property key saved?
+- Is the purchase dashboard querying the same table where purchase records are saved?
+- Is the purchase dashboard filtering by the wrong field/value?
+- Is the purchase dashboard excluding records without uploaded documents?
+- Is the purchase dashboard excluding incomplete scenarios?
+- Is purchase data only saved in local state/session storage?
+- Is the scenario ID being regenerated on reload?
+- Is an empty local state overwriting the saved purchase list after login?
+- Is the dashboard loading before auth/user profile is ready and then never refetching?
+- Is RLS blocking the purchase records from being read after login?
+- Is the purchase record saved under the wrong user ID?
+- Are purchase records being inserted but then deleted/overwritten by a sync effect?
+
+Fix requirements:
+1. Make Purchase save/load behavior match the working Refinance save/load pattern.
+2. Reuse the Refinance persistence pattern if possible.
+3. Purchase records must be saved durably in Supabase immediately after address selection.
+4. Purchase dashboard must load Purchase records from Supabase after auth is ready.
+5. Purchase records must be filtered as Purchase records only.
+6. Purchase records must not require mortgage statements, documents, or completed questionnaires.
+7. Purchase records must remain visible after logout/login unless explicitly deleted.
+8. Do not rely on local/session state as the source of truth.
+9. Do not allow an empty local state to overwrite saved Supabase records.
+10. Do not create duplicate records when Zillow/cache data returns; update the same saved Purchase record by stable ID.
+
+Add temporary logs for this fix:
+- When Purchase property is created locally: property ID, address, user ID
+- Supabase save/upsert payload
+- Supabase save/upsert result or error
+- Dashboard auth/user ready state
+- Purchase dashboard Supabase query
+- Purchase dashboard query result count
+- Purchase dashboard filters applied
+- Final Purchase records rendered
+- Any errors from Supabase or RLS
+
+Acceptance test for Purchase:
+1. Log in.
+2. Add a Purchase property address.
+3. Confirm the Supabase save/upsert succeeds.
+4. Confirm the Purchase tab shows the property.
+5. Refresh the browser.
+6. Confirm the Purchase tab still shows the property.
+7. Log out.
+8. Log back in.
+9. Confirm the Purchase tab still shows the property.
+10. Add a second Purchase property.
+11. Log out and back in again.
+12. Confirm both Purchase properties are still there.
+13. Confirm no Purchase property disappears unless deleted.
+
+PART 2 — Revert Insurance tab view to the version before the last prompt
+
+Current issue:
+After the last prompt, the Insurance tab view got messed up.
+
+Expected behavior:
+Revert the Insurance tab view to the version it had immediately before the last prompt/change.
+
+Important:
+- Do not continue the incorrect Insurance tab changes from the last prompt.
+- Revert only the Insurance tab UI/view changes that caused the messed-up view.
+- Keep any unrelated working persistence fixes.
+- Do not break Purchase or Refinance.
+- If address correlation logic caused the Insurance tab to display incorrectly, disable or remove that UI behavior for now.
+- Insurance tab should not show Refinance properties as Insurance rows.
+- Insurance tab should only show actual Insurance records.
+- If there is no insurance record, do not show a refinance or purchase record as if it is an insurance policy/estimate.
+
+Insurance revert requirements:
+1. Identify the last changes made to the Insurance tab view.
+2. Revert the Insurance tab layout/view to the prior stable version before that change.
+3. Remove or disable any logic that caused refinance records to appear in the Insurance tab.
+4. Keep the Insurance tab filtered to actual insurance records only.
+5. If automatic correlation is causing visual bugs, defer it for now.
+6. Do not touch the working Purchase or Refinance dashboard layouts.
+
+Acceptance test for Insurance:
+1. Log in.
+2. Go to Dashboard → Insurance.
+3. Confirm the view matches the version before the last prompt/change.
+4. Confirm Refinance properties are not displayed as Insurance rows.
+5. Confirm only actual Insurance records are displayed.
+6. Confirm Purchase and Refinance tabs are unchanged.
+7. Confirm no dashboard tab shows records from the wrong flow/type.
+
+Please make the smallest safe code change possible and report back:
+- Exactly why Purchase records were disappearing after logout/login
+- Whether the issue was save, load, filter, auth timing, RLS, or local state overwrite
+- Which table and fields are used for Purchase persistence
+- What was changed to make Purchase records persist like Refinance
+- What Insurance tab changes were reverted
+- Which files/functions were changed
