@@ -1,0 +1,138 @@
+The latest changes made the dashboard worse.
+
+Current issue:
+- No Purchase property estimates are saved/shown.
+- No Insurance estimates are saved/shown.
+- Refinance still appears to be the only reliable saved dashboard area.
+
+This needs to be treated as a dashboard data persistence/load regression, not a UI-only issue.
+
+Do not add new features right now.
+Do not redesign the dashboard right now.
+Do not add address correlation right now.
+First restore reliable saved records for Purchase and Insurance.
+
+Primary goal:
+Purchase and Insurance records must save and reload the same way Refinance records do.
+
+Expected behavior:
+1. Purchase property estimates should save permanently for the logged-in user.
+2. Insurance estimates should save permanently for the logged-in user.
+3. Purchase tab should show saved Purchase estimates.
+4. Insurance tab should show saved Insurance estimates.
+5. Refinance tab should show saved Refinance estimates.
+6. No tab should be empty if saved records exist.
+7. No tab should show records from the wrong flow.
+8. Saved records should remain after refresh, logout/login, and navigation.
+9. Records should only disappear if manually deleted.
+
+Immediate debugging steps:
+Please compare the working Refinance save/load flow against Purchase and Insurance.
+
+Trace each flow separately:
+
+REFINANCE — working reference:
+- Which table stores refinance records?
+- What fields are required?
+- What flow/type value is used?
+- How is `user_id` saved?
+- What dashboard query loads refinance records?
+- What filters are applied?
+- Why does it reload correctly after logout/login?
+
+PURCHASE — broken:
+- Is a purchase record inserted/upserted into Supabase after address selection?
+- What table is it saved to?
+- Does the saved record have `user_id`?
+- Does it have `flow_type`, `scenario_type`, `category`, or equivalent set to purchase?
+- Does it have full address and normalized property key?
+- Does the Purchase dashboard query the same table?
+- Is the Purchase dashboard filtering by the wrong value?
+- Is the Purchase dashboard excluding incomplete records?
+- Is it requiring uploaded documents or completed questionnaire fields?
+- Is local empty state overwriting Supabase records after login?
+- Is the dashboard loading before auth/user is ready and not refetching?
+- Is RLS blocking read/write access?
+
+INSURANCE — broken:
+- Is an insurance record inserted/upserted into Supabase after address/estimate entry?
+- What table is it saved to?
+- Does the saved record have `user_id`?
+- Does it have `flow_type`, `scenario_type`, `category`, or equivalent set to insurance?
+- Does the Insurance dashboard query actual insurance records only?
+- Did the previous correlation/view changes break the filter?
+- Is Insurance now filtering out everything because it expects fields that do not exist?
+- Is it showing nothing because the component was reverted but the query shape changed?
+- Is local empty state overwriting saved insurance records after login?
+- Is RLS blocking read/write access?
+
+Fix requirements:
+1. Restore or implement durable Supabase save/load for Purchase records.
+2. Restore or implement durable Supabase save/load for Insurance records.
+3. Use the proven Refinance persistence pattern as the model.
+4. Make sure all three tabs use clear flow/type filtering:
+   - Purchase tab: purchase records only
+   - Refinance tab: refinance records only
+   - Insurance tab: insurance records only
+5. Do not require uploaded documents for Purchase or Insurance records to show.
+6. Do not require Zillow data for Purchase records to show.
+7. Do not require carrier/premium data for Insurance records to show.
+8. A record with just an address should still save and show in the correct tab.
+9. Dashboard load should wait until authenticated user is ready before querying.
+10. Dashboard should refetch records after auth becomes ready.
+11. Empty local state should never overwrite Supabase records.
+12. Zillow/cache updates should update the existing Purchase record by stable ID.
+13. Insurance edits should update the existing Insurance record by stable ID.
+14. Do not show Refinance records in Insurance unless a separate actual insurance record exists.
+15. Keep the UI simple until data persistence is fixed.
+
+Minimal recovery plan:
+- If the last changes broke Insurance view/query, revert only the Insurance query/view changes that caused saved insurance records to disappear.
+- If Purchase records are not being inserted, add the same immediate upsert behavior that Refinance uses.
+- If Purchase records are being inserted but not displayed, fix the Purchase dashboard query/filter.
+- If Insurance records are being inserted but not displayed, fix the Insurance dashboard query/filter.
+
+Add temporary debug logs:
+On save:
+- flow type
+- table name
+- record ID
+- user ID
+- address
+- Supabase payload
+- Supabase response/error
+
+On dashboard load:
+- authenticated user ID
+- query table
+- query filters
+- returned record count
+- returned records grouped by flow/type
+- final records rendered in each tab
+
+Acceptance test:
+1. Log in.
+2. Add a Purchase property with only an address.
+3. Confirm it saves to Supabase.
+4. Refresh.
+5. Confirm it still appears in Purchase.
+6. Log out and log back in.
+7. Confirm it still appears in Purchase.
+8. Add an Insurance estimate/property with only an address.
+9. Confirm it saves to Supabase.
+10. Refresh.
+11. Confirm it still appears in Insurance.
+12. Log out and log back in.
+13. Confirm it still appears in Insurance.
+14. Confirm Refinance still shows its saved records.
+15. Confirm Purchase does not show Refinance or Insurance records.
+16. Confirm Insurance does not show Refinance or Purchase records.
+17. Confirm records only disappear after delete.
+
+Please report back with:
+- Whether Purchase was failing on save, load, filter, auth timing, local state overwrite, or RLS
+- Whether Insurance was failing on save, load, filter, auth timing, local state overwrite, or RLS
+- Which Supabase tables and fields are used by each dashboard tab
+- What changed to make Purchase persist
+- What changed to make Insurance persist
+- Which files/functions were changed
