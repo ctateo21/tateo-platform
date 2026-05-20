@@ -10,9 +10,9 @@ import { Separator } from "@/components/ui/separator";
 import { useAuth } from "@/context/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import {
-  updateProfile, updatePassword, inviteUser, removeInvitedUser,
+  updateProfile, updatePassword, inviteUser, removeInvitedUser, AGENTS,
 } from "@/lib/auth";
-import { User, Lock, UserPlus, Trash2, Loader2 } from "lucide-react";
+import { User, Lock, UserPlus, Trash2, Loader2, Users } from "lucide-react";
 
 function formatPhone(raw: string) {
   const d = raw.replace(/\D/g, "").slice(0, 10);
@@ -43,6 +43,38 @@ export default function Settings() {
   const [confirmPw, setConfirmPw] = useState("");
   const [pwError, setPwError] = useState("");
   const [pwSaving, setPwSaving] = useState(false);
+
+  // ── Working-with (assigned agent) state ────────────────────────
+  // The agent the user chose at registration is stored on the profile and
+  // should be editable here — NOT re-asked inside the property estimate
+  // flow. `agent` field on AuthUser holds the agent display name.
+  const initialAgent = AGENTS.find(a => a.name === user?.agent)?.id ?? null;
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(initialAgent);
+  const [agentSaving, setAgentSaving] = useState(false);
+  useEffect(() => {
+    setSelectedAgentId(AGENTS.find(a => a.name === user?.agent)?.id ?? null);
+  }, [user?.agent]);
+
+  async function handleSaveAgent(nextId: string) {
+    if (!user) return;
+    const agentName = AGENTS.find(a => a.id === nextId)?.name ?? "";
+    if (!agentName || agentName === user.agent) {
+      setSelectedAgentId(nextId);
+      return;
+    }
+    setSelectedAgentId(nextId);
+    setAgentSaving(true);
+    const result = await updateProfile(user.email, { agent: agentName });
+    setAgentSaving(false);
+    if (!result.ok) {
+      // Revert selection on failure.
+      setSelectedAgentId(AGENTS.find(a => a.name === user.agent)?.id ?? null);
+      toast({ title: "Couldn't update agent", description: result.error, variant: "destructive" });
+      return;
+    }
+    refresh();
+    toast({ title: "Agent updated", description: `You're now working with ${agentName}.` });
+  }
 
   // ── Invite state ───────────────────────────────────────────────
   const [inviteeName, setInviteeName] = useState("");
@@ -211,11 +243,6 @@ export default function Settings() {
                 value={phone} onChange={e => setPhone(formatPhone(e.target.value))}
               />
             </div>
-            {user.agent && (
-              <div className="text-xs text-muted-foreground">
-                Working with <strong>{user.agent}</strong>
-              </div>
-            )}
             {profileError && (
               <Alert variant="destructive" className="py-2"><AlertDescription>{profileError}</AlertDescription></Alert>
             )}
@@ -224,6 +251,53 @@ export default function Settings() {
               {profileSaving ? "Saving…" : "Save Changes"}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+
+      {/* ── Working With (assigned agent) ── */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <Users className="h-5 w-5" /> Working With
+          </CardTitle>
+          <CardDescription>
+            Choose who handles your account. You can change this anytime — we
+            won't ask you again inside the property estimate flow.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {AGENTS.map(agent => (
+              <button
+                key={agent.id}
+                type="button"
+                onClick={() => handleSaveAgent(agent.id)}
+                disabled={agentSaving}
+                className={`flex flex-col items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                  selectedAgentId === agent.id
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/50"
+                } ${agentSaving ? "opacity-60 cursor-wait" : ""}`}
+              >
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold text-white ${
+                  agent.id === "team" ? "bg-secondary" : "bg-primary"
+                }`}>
+                  {agent.id === "team"
+                    ? <Users className="h-5 w-5" />
+                    : <span>{agent.initials}</span>}
+                </div>
+                <span className="text-xs font-medium text-center leading-tight">
+                  {agent.name}
+                </span>
+              </button>
+            ))}
+          </div>
+          {user.agent && (
+            <p className="text-xs text-muted-foreground mt-3">
+              Currently working with <strong>{user.agent}</strong>
+              {agentSaving && <Loader2 className="inline h-3 w-3 animate-spin ml-1.5" />}
+            </p>
+          )}
         </CardContent>
       </Card>
 

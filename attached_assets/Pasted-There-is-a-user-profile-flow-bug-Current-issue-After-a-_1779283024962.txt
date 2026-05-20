@@ -1,0 +1,78 @@
+There is a user/profile flow bug.
+
+Current issue:
+After a user profile has already been created and the user is logged in, the app still asks “Who do you want to work with?” again when the user tries to add another property estimate under the Purchase Flow.
+
+This should not happen.
+
+Expected behavior:
+- The “Who do you want to work with?” question should only be asked during the initial profile/onboarding setup.
+- Once the user has completed their profile, the app should save that selection to the user profile.
+- After the profile exists, the app should never ask this question again inside the Purchase Flow or when adding another property estimate.
+- The user should be able to change who they want to work with later inside account/profile/settings.
+- Adding another property estimate should go directly to the property estimate flow, not reopen onboarding/profile questions.
+
+Please inspect:
+- The onboarding/profile completion logic.
+- The Purchase Flow route guards.
+- The logic that decides whether to show the “Who do you want to work with?” screen.
+- Whether the app is checking only local/session state instead of the logged-in user profile.
+- Whether adding a new property estimate incorrectly resets the onboarding/profile step.
+- Whether the “who I want to work with” value is being stored permanently in the user profile.
+- Whether the profile completion flag is being lost on refresh, login, or new property creation.
+- Whether the Purchase Flow treats a new property estimate like a new user onboarding session.
+
+Fix requirements:
+1. Add or confirm a persistent profile field for this selection, such as:
+   - `preferredPartnerType`
+   - `workingWith`
+   - `selectedProfessional`
+   - or the existing equivalent field already used by the app.
+
+2. Add or confirm a persistent profile completion flag, such as:
+   - `profileCompleted`
+   - `onboardingCompleted`
+   - or the existing equivalent field already used by the app.
+
+3. When a logged-in user enters the Purchase Flow:
+   - Load the user profile from the database/authenticated user record.
+   - If the profile is completed, skip the “Who do you want to work with?” question.
+   - Use the saved profile value automatically.
+
+4. When a user adds another property estimate:
+   - Do not reset onboarding state.
+   - Do not ask profile-level questions again.
+   - Only create a new property/scenario under the existing user profile.
+
+5. Move the ability to change “Who do you want to work with?” into user settings/profile settings:
+   - User can view the current saved selection.
+   - User can edit/change it there.
+   - Changes should save back to the persistent user profile.
+
+6. Make sure this works across:
+   - Refreshing the browser
+   - Logging out and logging back in
+   - Adding multiple property estimates
+   - Switching between purchase scenarios/tabs
+   - Starting a new purchase estimate after profile completion
+
+Important:
+- Do not use temporary local component state as the source of truth for whether the user has completed this step.
+- Do not show onboarding/profile questions inside the property estimate flow once the profile exists.
+- Do not erase or reset the saved “who I want to work with” value when creating a new property estimate.
+- Use the authenticated user ID to fetch/update the correct profile.
+- Keep property/scenario data separate from user profile data.
+
+Acceptance test:
+1. Create a user profile and answer “Who do you want to work with?”
+2. Confirm the answer saves to the user profile.
+3. Log out and log back in.
+4. Go to Purchase Flow → Property Estimate.
+5. Add another property estimate.
+6. Confirm the app does NOT ask “Who do you want to work with?”
+7. Confirm the app uses the saved profile value automatically.
+8. Go to profile/settings.
+9. Confirm the user can change the saved “Who do you want to work with?” answer there.
+10. Confirm future purchase estimates use the updated settings value.
+
+Please make the smallest safe code change possible and tell me exactly which files/components/functions were changed.

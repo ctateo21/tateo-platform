@@ -57,6 +57,7 @@ import {
   LayoutDashboard,
 } from "lucide-react";
 import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
+import { useAuth } from "@/context/auth-context";
 import { apiRequest } from "@/lib/queryClient";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import {
@@ -430,9 +431,19 @@ export default function Estimate() {
   const { toast } = useToast();
 
   // ── Auth & multi-scenario state ─────────────────────────────────────────────
-  const [isAuthenticated, setIsAuthenticated] = useState(() =>
-    typeof window !== "undefined" && (getSession() !== null || localStorage.getItem("tateo_auth") === "1")
+  // SOURCE OF TRUTH: the auth context, which subscribes to Supabase session
+  // changes. The previous local `useState` was set only once on mount, and
+  // because Supabase session hydration is async, a logged-in user landing
+  // here before hydration finished would be treated as a guest forever —
+  // which is what caused the lead-capture dialog (with "Who are you working
+  // with?") to re-appear when adding a new property estimate.
+  const { user: authUser } = useAuth();
+  // Local-only flag for guests who completed the lead-capture flow but did
+  // not create a real account. Persisted across reloads via localStorage.
+  const [leadUnlocked, setLeadUnlocked] = useState(() =>
+    typeof window !== "undefined" && localStorage.getItem("tateo_auth") === "1"
   );
+  const isAuthenticated = !!authUser || leadUnlocked;
   // Seed scenarios from the user's saved dashboard properties so all of them appear as subtabs
   // when navigating from the dashboard (or anywhere else, for logged-in users).
   const initialScenariosRef = useRef<{ list: Scenario[]; activeId: string; freshSeededId: string | null } | null>(null);
@@ -1117,8 +1128,8 @@ export default function Estimate() {
   function handleLeadSuccess() {
     if (leadDialogForScenario) {
       setLeadDialogForScenario(false);
-      localStorage.setItem("tateo_auth", "1");
-      setIsAuthenticated(true);
+      try { localStorage.setItem("tateo_auth", "1"); } catch {}
+      setLeadUnlocked(true);
       setShowAddressPrompt(true);
     } else if (leadDialogAction === "share") {
       const url = window.location.href;

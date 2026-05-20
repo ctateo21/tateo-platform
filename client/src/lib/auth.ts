@@ -381,7 +381,7 @@ export async function logout(): Promise<void> {
 
 export async function updateProfile(
   _currentEmail: string,
-  updates: { name?: string; email?: string; phone?: string }
+  updates: { name?: string; email?: string; phone?: string; agent?: string }
 ): Promise<{ ok: boolean; error?: string }> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: "Not signed in." };
@@ -408,6 +408,7 @@ export async function updateProfile(
   if (updates.name !== undefined) patch.name = updates.name.trim();
   if (targetEmail) patch.email = targetEmail;
   if (phone !== undefined) patch.phone = phone;
+  if (updates.agent !== undefined) patch.agent = updates.agent.trim() || null;
 
   if (Object.keys(patch).length > 0) {
     const { error: pErr } = await supabase.from("profiles").update(patch).eq("id", user.id);
