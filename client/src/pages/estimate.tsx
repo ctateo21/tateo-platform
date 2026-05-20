@@ -258,6 +258,13 @@ interface Scenario {
   address: string;
   savedInputs: Inputs | null;
   placeMeta?: PlaceMeta;
+  /** Per-scenario dashboard auto-save status. "idle" means no pending
+   *  change. "saving" is set while the debounced auto-save effect is
+   *  about to write. "saved" is set right after a successful write
+   *  (auto-clears to "idle" after a short delay). "error" stays sticky
+   *  until the next successful save. Per-id so saves on one tab never
+   *  leak a "Saving…" label onto another tab. */
+  saveStatus?: "idle" | "saving" | "saved" | "error";
   /** Status of the background Zillow/cache lookup for this scenario.
    *  - "loading":            request in flight (cache check or scrape).
    *  - "loaded_from_cache":  served from Supabase property_cache.
@@ -452,6 +459,11 @@ export default function Estimate() {
   const address = params.get("address") || "Unknown Address";
   const servicesAll = params.get("services") === "all";
   const fromDashboard = params.get("from") === "dashboard";
+  // Debug flag (?debug=1) re-exposes admin-only escape hatches that were
+  // removed from the normal user UI now that Zillow auto-pulls and the
+  // dashboard auto-saves. Keeps these reachable for QA without polluting
+  // the real user flow.
+  const debugMode = params.get("debug") === "1";
 
   const { toast } = useToast();
 
@@ -1611,11 +1623,23 @@ export default function Estimate() {
   }, [inputs]);
 
   // Auto-save / update this estimate on the user's dashboard when they're logged in.
-  // Debounced so rapid input changes don't thrash localStorage.
+  // Debounced so rapid input changes don't thrash storage. Status is written
+  // to the SPECIFIC scenario id (snapshotted at effect start), so even if the
+  // user switches tabs mid-debounce the "Saving…"/"Saved" indicator stays
+  // pinned to the right scenario.
   useEffect(() => {
     if (!isAuthenticated) return;
     if (!address || address === "Unknown Address") return;
+    const targetScenarioId = activeScenarioIdRef.current;
+    // Mark this scenario as pending-save so the user sees "Saving…"
+    // immediately on edit, not only when the debounce fires.
+    setScenarios(prev => prev.map(s =>
+      s.id === targetScenarioId ? { ...s, saveStatus: "saving" } : s
+    ));
+    let timerFired = false;
     const handle = setTimeout(() => {
+      timerFired = true;
+      let didWrite = false;
       try {
         const existing = getPurchaseScenarios();
         const key = address.trim().toLowerCase();
@@ -1643,10 +1667,12 @@ export default function Estimate() {
             && cur.interestRate === next.interestRate
             && cur.loanType === next.loanType
             && cur.address === address;
-          if (same) return;
-          const updated = [...existing];
-          updated[idx] = { ...cur, ...next };
-          savePurchaseScenarios(updated);
+          if (!same) {
+            const updated = [...existing];
+            updated[idx] = { ...cur, ...next };
+            savePurchaseScenarios(updated);
+            didWrite = true;
+          }
         } else {
           savePurchaseScenarios([
             ...existing,
@@ -1656,12 +1682,50 @@ export default function Estimate() {
               ...next,
             },
           ]);
+          didWrite = true;
         }
+        // On no-op (nothing changed) we still flip the status back to
+        // "saved" so a stale "Saving…" never sticks.
+        setScenarios(prev => prev.map(s =>
+          s.id === targetScenarioId ? { ...s, saveStatus: "saved" } : s
+        ));
+        // Auto-clear "saved" back to "idle" after a moment so the
+        // indicator doesn't permanently camp on the screen.
+        const clearHandle = setTimeout(() => {
+          setScenarios(prev => prev.map(s =>
+            s.id === targetScenarioId && s.saveStatus === "saved"
+              ? { ...s, saveStatus: "idle" }
+              : s
+          ));
+        }, 1800);
+        // Best-effort cleanup; if the effect re-runs before the timeout
+        // fires, the cleanup below clears the outer timer but this inner
+        // one is short-lived enough to be harmless.
+        void clearHandle;
+        void didWrite;
       } catch (err) {
         console.warn("Auto-save to dashboard failed:", err);
+        setScenarios(prev => prev.map(s =>
+          s.id === targetScenarioId ? { ...s, saveStatus: "error" } : s
+        ));
       }
     }, 800);
-    return () => clearTimeout(handle);
+    // If the effect re-runs (more edits) or unmounts before the 800ms
+    // timer fires, the pending write is canceled. Revert the "saving"
+    // marker on that scenario back to "idle" so the indicator never
+    // sticks (e.g. user switches tabs mid-debounce). Only clear if the
+    // status is still "saving"; if a later cycle already finalized it
+    // to "saved"/"error", leave that alone.
+    return () => {
+      clearTimeout(handle);
+      if (!timerFired) {
+        setScenarios(prev => prev.map(s =>
+          s.id === targetScenarioId && s.saveStatus === "saving"
+            ? { ...s, saveStatus: "idle" }
+            : s
+        ));
+      }
+    };
   }, [
     isAuthenticated, address,
     inputs.purchasePrice, inputs.downPaymentPct, inputs.interestRate, inputs.loanType,
@@ -1866,17 +1930,26 @@ export default function Estimate() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={() => setShowZillowLookup(true)}
-                data-testid="estimate-open-zillow-lookup"
-              >
-                <Home className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Pull from Zillow</span>
-              </Button>
-              {(() => {
+              {/* "Pull from Zillow" and "Save to Dashboard" have been
+                  retired from the normal UI: Zillow now auto-runs after a
+                  valid address selection (see triggerZillowLookup), and
+                  dashboard saving is automatic for logged-in users via the
+                  debounced auto-save effect above. The escape hatches stay
+                  available under ?debug=1 for QA. */}
+              {debugMode && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setShowZillowLookup(true)}
+                  data-testid="estimate-open-zillow-lookup"
+                  title="Debug: manually open Zillow lookup dialog"
+                >
+                  <Home className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">Pull from Zillow (debug)</span>
+                </Button>
+              )}
+              {debugMode && (() => {
                 const sessionUser = getSession();
                 if (!sessionUser) return null;
                 return (
@@ -1884,6 +1957,7 @@ export default function Estimate() {
                     variant="outline"
                     size="sm"
                     className="gap-1.5"
+                    title="Debug: manually save current scenario"
                     onClick={() => {
                       const existing = getPurchaseScenarios();
                       const alreadySaved = existing.some(
@@ -1906,7 +1980,7 @@ export default function Estimate() {
                       }
                     }}
                   >
-                    <LayoutDashboard className="h-4 w-4" /> Save to Dashboard
+                    <LayoutDashboard className="h-4 w-4" /> Save to Dashboard (debug)
                   </Button>
                 );
               })()}
@@ -1975,6 +2049,37 @@ export default function Estimate() {
                       Purchase price is being derived from property data.
                     </span>
                   )}
+                </div>
+              );
+            })()}
+
+            {/* Per-scenario dashboard auto-save indicator. Only renders for
+                logged-in users, and only when there's a transient status
+                to show on the ACTIVE tab. Driven by `saveStatus` on the
+                Scenario object, which the auto-save effect writes per id —
+                so a save in progress on tab 2 never shows "Saving…" on
+                tab 1. Logged-out users see no indicator (their work stays
+                local; the "Save Scenario" button still routes them to
+                account creation). */}
+            {isAuthenticated && (() => {
+              const sc = scenarios.find(s => s.id === activeScenarioId);
+              const ss = sc?.saveStatus;
+              if (!ss || ss === "idle") return null;
+              const cfg =
+                ss === "saving"
+                  ? { msg: "Saving to your dashboard…", cls: "text-muted-foreground", dot: "bg-blue-400 animate-pulse" }
+                : ss === "saved"
+                  ? { msg: "Saved to your dashboard", cls: "text-emerald-700", dot: "bg-emerald-500" }
+                : { msg: "Unable to save — will retry on next change", cls: "text-amber-700", dot: "bg-amber-500" };
+              return (
+                <div
+                  className={`flex items-center gap-1.5 text-[11px] ${cfg.cls} -mt-2`}
+                  data-testid="indicator-dashboard-save-status"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${cfg.dot}`} aria-hidden="true" />
+                  <span>{cfg.msg}</span>
                 </div>
               );
             })()}

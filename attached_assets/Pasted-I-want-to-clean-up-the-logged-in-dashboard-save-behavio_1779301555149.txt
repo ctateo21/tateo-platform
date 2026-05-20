@@ -1,0 +1,133 @@
+I want to clean up the logged-in dashboard save behavior across the app.
+
+Current issue:
+When a user is logged in and inside their dashboard, the app now auto-saves property/scenario data. Because of this, buttons like “Pull from Zillow” and “Save to Dashboard” are no longer needed inside Property Estimate.
+
+Expected behavior:
+When a logged-in user enters or selects an address anywhere inside the dashboard, the address and all related numbers should automatically save to that user’s dashboard/profile without requiring a manual save button.
+
+This should apply to:
+- Purchase Flow → Property Estimate
+- Refinance Flow
+- Insurance Flow
+- Any dashboard section where the user enters a property address and related numbers
+
+Required behavior:
+1. When the user enters/selects an address:
+   - Create or update the relevant property/scenario record automatically.
+   - Save the address.
+   - Save the calculated numbers.
+   - Save Zillow/cache data once it loads.
+   - Save user-edited values after they change them.
+
+2. Auto-save should work for:
+   - address
+   - purchase price / estimated value
+   - loan amount
+   - down payment
+   - taxes
+   - insurance
+   - HOA/condo fees
+   - rent estimate
+   - refinance numbers
+   - insurance quote/estimate numbers
+   - any other existing scenario fields already used by these flows
+
+3. Remove or hide these buttons from Property Estimate:
+   - “Pull from Zillow”
+   - “Save to Dashboard”
+
+Reason:
+- Zillow/cache should run automatically after address selection.
+- Dashboard saving should happen automatically.
+- Users should not have to manually pull or save.
+
+4. If a manual fallback is still needed for debugging:
+   - Do not show it in the normal user UI.
+   - It can be hidden behind a developer/debug flag or placed in an admin/debug-only area.
+
+5. Add auto-save status indicators:
+Show small status text somewhere unobtrusive:
+- “Saving…”
+- “Saved”
+- “Unable to save — retrying”
+- “Property data loading from Zillow…”
+- “Property data updated”
+
+Important:
+- Auto-save status should be tied to the specific property/scenario ID.
+- Do not use a single global saving flag for all tabs.
+- If property 2 is saving, property 1 should not show “Saving…”
+- If Zillow data updates property 2, only property 2 should be saved/updated.
+
+6. Logged-in behavior:
+If the user is logged in:
+- Auto-save all address/scenario data to the dashboard automatically.
+- Do not require “Save to Dashboard.”
+- The saved record should persist after refresh, logout/login, and switching tabs.
+
+7. Not-logged-in behavior:
+If the user is not logged in:
+- Keep the estimate usable locally.
+- Prompt the user to create an account or log in before permanently saving to dashboard.
+- Do not show confusing “Save to Dashboard” behavior unless it leads to login/account creation.
+
+8. Zillow/cache behavior:
+- Do not show “Pull from Zillow” as a normal button.
+- Zillow/cache lookup should automatically start after a valid address is selected.
+- If cached data exists, apply it automatically.
+- If no cache exists, run Zillow scraper automatically.
+- Once Zillow/cache data is loaded, update the visible fields and auto-save the updated scenario.
+
+9. Debounce auto-save:
+To avoid excessive database writes:
+- Auto-save address immediately after valid Google Maps selection.
+- Auto-save Zillow/cache results immediately after they are applied.
+- Auto-save user edits with a short debounce, such as 500–1000ms.
+- Avoid saving on every keystroke if the user is typing numbers manually.
+
+10. Prevent overwrites:
+- Do not overwrite user-edited values with Zillow/cache values after the user manually changes them.
+- Save by stable property/scenario ID, not array index or active tab.
+- Do not allow one tab’s data to overwrite another tab’s data.
+
+11. Inspect current code for:
+- Where “Pull from Zillow” button is rendered
+- Where “Save to Dashboard” button is rendered
+- Whether these buttons call logic that should now run automatically
+- Whether the auto-save function is shared across purchase/refinance/insurance or duplicated
+- Whether Zillow/cache result application triggers auto-save
+- Whether calculated field changes are included in the saved scenario data
+- Whether dashboard records are created before Zillow/cache data finishes
+- Whether the saved dashboard record is updated after Zillow/cache data finishes
+
+Implementation preference:
+- Make the smallest safe change.
+- Reuse the existing save-to-dashboard logic, but call it automatically.
+- Reuse the existing Pull-from-Zillow logic, but call it automatically after address selection/cache miss.
+- Hide/remove the buttons from the normal UI once the automatic flow works.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Purchase Flow → Property Estimate.
+3. Add/select a property address.
+4. Confirm the property/scenario is created and saved automatically.
+5. Confirm Zillow/cache starts automatically without clicking “Pull from Zillow.”
+6. Confirm the “Pull from Zillow” button is no longer visible.
+7. Confirm the “Save to Dashboard” button is no longer visible.
+8. Confirm Zillow/cache data updates the visible fields.
+9. Confirm those updated fields are auto-saved to the dashboard.
+10. Refresh the page and confirm the address and numbers persist.
+11. Add another property tab and confirm it saves separately.
+12. Confirm one property’s data does not overwrite another property.
+13. Test Refinance Flow and Insurance Flow and confirm address/numbers auto-save there too.
+14. Confirm user-edited values auto-save after a short delay.
+15. Confirm logged-out users can still use the estimate but are prompted to log in before permanent dashboard saving.
+
+Please tell me exactly:
+- Which components had the buttons removed/hidden
+- Which existing functions are now called automatically
+- How auto-save is triggered after address selection
+- How auto-save is triggered after Zillow/cache data loads
+- How auto-save is triggered after user edits
+- Which files/functions were changed

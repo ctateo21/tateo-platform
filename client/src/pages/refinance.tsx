@@ -84,6 +84,9 @@ export default function Refinance() {
   const search = useSearch();
   const [, setLocation] = useLocation();
   const address = new URLSearchParams(search).get("address") || "";
+  // ?debug=1 re-exposes the manual "Pull from Zillow" button. The normal
+  // flow now auto-runs a Zillow lookup whenever a tracked loan is added.
+  const debugMode = new URLSearchParams(search).get("debug") === "1";
 
   const [statementData, setStatementData] = useState<MortgageAnalysis | null>(null);
   const [trackedLoans, setTrackedLoansState] = useState<TrackedLoan[]>(() => getTrackedLoans());
@@ -161,10 +164,45 @@ export default function Refinance() {
 
   const handlePropertyTypeSelect = (propertyType: PropertyType) => {
     if (!pendingAnalysis) return;
-    updateLoans(prev => [analysisToTrackedLoan(pendingAnalysis, propertyType), ...prev]);
+    const newLoan = analysisToTrackedLoan(pendingAnalysis, propertyType);
+    updateLoans(prev => [newLoan, ...prev]);
     setPendingAnalysis(null);
     setShowPropertyTypeDialog(false);
+    // Auto-pull Zillow for the newly tracked address so the user doesn't
+    // need to click a separate "Pull from Zillow" button. We update the
+    // loan's estimatedHomeValue (the only field refinance actually uses
+    // from Zillow) and only overwrite if the Zillow value is meaningful.
+    // Failures are silent — the loan is still tracked with the statement
+    // value as a fallback.
+    autoPullZillowForLoan(newLoan).catch(err => {
+      console.warn("[refinance] auto Zillow lookup failed:", err?.message || err);
+    });
   };
+
+  // Background Zillow auto-pull for a freshly tracked loan. Keyed by
+  // propertyAddress so it only updates the matching loan(s) regardless of
+  // array order or later additions.
+  async function autoPullZillowForLoan(loan: TrackedLoan) {
+    const addr = loan.propertyAddress;
+    if (!addr || addr === "Unknown address") return;
+    const res = await fetch("/api/zillow-property-lookup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ addressOrUrl: addr }),
+    });
+    if (!res.ok) return;
+    const body = await res.json();
+    const p = body?.property as LookedUpProperty | undefined;
+    if (!p) return;
+    const homeValue = p.estimatedHomeValue ?? p.zestimate ?? p.listingPrice;
+    if (!homeValue) return;
+    const key = addr.trim().toLowerCase();
+    updateLoans(prev => prev.map(l =>
+      l.propertyAddress.trim().toLowerCase() === key
+        ? { ...l, estimatedHomeValue: homeValue }
+        : l
+    ));
+  }
 
   const handleSavePromptAnswer = (accepted: boolean, analysis: MortgageAnalysis) => {
     if (accepted) {
@@ -193,18 +231,23 @@ export default function Refinance() {
             <h1 className="text-lg font-semibold">Refinance Calculator</h1>
           </div>
           {address && <span className="text-sm text-muted-foreground hidden sm:block">· {address}</span>}
-          <div className="ml-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5"
-              onClick={() => setShowZillowLookup(true)}
-              data-testid="refinance-open-zillow-lookup"
-            >
-              <Home className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Pull from Zillow</span>
-            </Button>
-          </div>
+          {/* "Pull from Zillow" is now auto-run after a statement is
+              tracked. Button stays available under ?debug=1 for QA. */}
+          {debugMode && (
+            <div className="ml-auto">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setShowZillowLookup(true)}
+                data-testid="refinance-open-zillow-lookup"
+                title="Debug: manually open Zillow lookup"
+              >
+                <Home className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Pull from Zillow (debug)</span>
+              </Button>
+            </div>
+          )}
         </div>
       </header>
 
