@@ -22,6 +22,7 @@ export interface InvitedUser {
 }
 
 export interface AuthUser {
+  id: string;
   name: string;
   email: string;
   phone?: string;
@@ -95,6 +96,7 @@ export function getSession(): AuthUser | null { return _session; }
 
 function rowToProfile(row: any): AuthUser {
   return {
+    id: row.id,
     name: row.name,
     email: row.email,
     phone: row.phone ?? undefined,
@@ -217,6 +219,7 @@ async function loadScenarios(userId: string) {
     supabase.from("insurance_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
+  console.log("[purchase-debug] loadScenarios SELECT purchase_scenarios", { userId, error: pRes.error?.message, rawCount: pRes.data?.length, rawRows: pRes.data });
   const dbPurchases  = (pRes.data ?? []).map(rowToPurchase);
   const dbInsurance  = (iRes.data ?? []).map(rowToInsurance);
   const dbLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
@@ -340,6 +343,7 @@ async function hydrateFromSupabase() {
   // not yet applied, transient network error, or profile row missing).
   const meta = session.user.user_metadata || {};
   const fallback: AuthUser = {
+    id: session.user.id,
     name: meta.name || session.user.email?.split("@")[0] || "User",
     email: session.user.email || "",
     phone: meta.phone ?? undefined,
@@ -532,14 +536,15 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
   // execution can never cause us to write Account A's data into Account B's
   // rows. If the user has changed by the time the queue drains, drop it.
   const userId = _session?.id;
-  if (!userId) return Promise.resolve();
+  console.log("[purchase-debug] persist enqueue", { userId, sessionEmail: _session?.email, count: s.length, ids: s.map(x=>x.id), addresses: s.map(x=>x.address) });
+  if (!userId) { console.warn("[purchase-debug] persist ABORT no userId — _session=", _session); return Promise.resolve(); }
   // Snapshot hydration state at enqueue time too — if hydration races and
   // completes between enqueue and execution, we still want the original
   // intent (upsert-only) honored so we don't accidentally delete the rows
   // the SELECT just loaded but the caller's `s` array doesn't yet know about.
   const wasHydrated = _scenariosHydratedFor === userId;
   return enqueueWrite("purchase_scenarios", async () => {
-    if (_session?.id !== userId) return; // user changed; abort this stale job
+    if (_session?.id !== userId) { console.warn("[purchase-debug] persist ABORT user changed"); return; }
     // HYDRATION GATE: if the cache for this user wasn't fully loaded from
     // Supabase yet, the in-memory `s` array doesn't represent the user's
     // full set — it's just the rows the current session knows about. A
@@ -557,9 +562,14 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
       }
     }
     if (s.length > 0) {
-      await supabase
+      const payload = s.map(x => purchaseToRow(x, userId));
+      console.log("[purchase-debug] upsert -> purchase_scenarios", { wasHydrated, count: payload.length, payload });
+      const { data, error } = await supabase
         .from("purchase_scenarios")
-        .upsert(s.map(x => purchaseToRow(x, userId)), { onConflict: "id" });
+        .upsert(payload, { onConflict: "id" })
+        .select();
+      if (error) console.error("[purchase-debug] upsert ERROR", error);
+      else console.log("[purchase-debug] upsert OK rows returned=", data?.length, data);
     }
   });
 }

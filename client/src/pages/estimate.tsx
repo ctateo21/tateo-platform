@@ -1711,27 +1711,27 @@ export default function Estimate() {
   // Deps intentionally exclude `inputs`/`calc` so this fires ONCE per new
   // address, not on every edit. The debounced effect owns updates.
   useEffect(() => {
-    if (!isAuthenticated) return;
-    if (!address || address === "Unknown Address") return;
+    console.log("[purchase-debug] immediate-save effect fired", { isAuthenticated, address });
+    if (!isAuthenticated) { console.log("[purchase-debug] immediate-save SKIP not authenticated"); return; }
+    if (!address || address === "Unknown Address") { console.log("[purchase-debug] immediate-save SKIP no address"); return; }
     const existing = getPurchaseScenarios();
     const key = address.trim().toLowerCase();
-    if (existing.some(s => s.address.trim().toLowerCase() === key)) return;
-    savePurchaseScenarios([
-      ...existing,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        address,
-        savedAt: new Date().toISOString(),
-        price: inputs.purchasePrice,
-        monthlyPayment: Math.round(calc.totalHousing),
-        cashToClose: Math.round(calc.cashToClose),
-        dti: calc.dti,
-        qualifies: calc.qualifies,
-        downPaymentPct: inputs.downPaymentPct,
-        interestRate: inputs.interestRate,
-        loanType: inputs.loanType,
-      },
-    ]);
+    if (existing.some(s => s.address.trim().toLowerCase() === key)) { console.log("[purchase-debug] immediate-save SKIP address already saved", { existingCount: existing.length }); return; }
+    const newRow = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      address,
+      savedAt: new Date().toISOString(),
+      price: inputs.purchasePrice,
+      monthlyPayment: Math.round(calc.totalHousing),
+      cashToClose: Math.round(calc.cashToClose),
+      dti: calc.dti,
+      qualifies: calc.qualifies,
+      downPaymentPct: inputs.downPaymentPct,
+      interestRate: inputs.interestRate,
+      loanType: inputs.loanType,
+    };
+    console.log("[purchase-debug] immediate-save ADDING new row", newRow);
+    savePurchaseScenarios([...existing, newRow]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, address]);
 
