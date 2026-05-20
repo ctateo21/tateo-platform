@@ -1,0 +1,99 @@
+The “Add Property” address flow inside Purchase Side → Property Estimate is still broken.
+
+When I am inside Property Estimate and try to add another property/scenario:
+
+1. I type an address into the add-property address input.
+2. Google Maps autocomplete dropdown appears.
+3. I click the Google Maps address result.
+4. The selected address does NOT autofill into the input.
+5. The selected address does NOT save.
+6. A new property tab/scenario is NOT created for that address.
+
+Fix this exact flow.
+
+Required behavior:
+- User clicks “+ Add Property.”
+- Address input opens.
+- User starts typing an address.
+- Google Maps autocomplete dropdown appears.
+- User clicks a Google Maps address result.
+- The selected Google address immediately autofills into the input.
+- A new property/scenario tab is automatically created for that address.
+- The full formatted address is saved to that new property/scenario.
+- The newly created property/scenario becomes the active tab.
+- The user should not need to click a separate “Save,” “Add,” or “Confirm” button.
+- The selected address must persist after switching tabs, adding another property, refreshing, or continuing through the estimate flow.
+
+Please debug the Google Places autocomplete integration specifically.
+
+Likely causes to inspect:
+- The Google Places `place_changed` listener is not firing.
+- The autocomplete instance is only attached to the first property address input.
+- The new add-property input is rendered dynamically but autocomplete is not initialized on it.
+- The autocomplete ref is stale or points to the wrong input.
+- The input is controlled by React state, but the selected Google address is not being written back into state.
+- The selected Google Place result is being overwritten by an empty typed value.
+- The dropdown click is being interrupted by an `onBlur`, modal close, outside-click handler, form submit, or hidden button behind the dropdown.
+- The new property is being created before the Google Place data is available.
+- The save function is using array index instead of a stable property ID.
+- The property tab UI is displaying labels but not actually saving the full property object.
+
+Implementation requirements:
+- Use Google Places `place_changed` as the source of truth for adding a property.
+- Do not create the new property until a valid Google Place is selected.
+- In the `place_changed` handler:
+  1. Get the selected place from the autocomplete instance.
+  2. Confirm the place has a valid `formatted_address` or usable address components.
+  3. Build a normalized address object.
+  4. Create a new property/scenario object with a stable unique ID.
+  5. Save the full formatted address and available metadata to that property.
+  6. Add the property to the property/scenario array.
+  7. Set the new property ID as the active tab.
+  8. Close/reset the add-property input UI.
+
+Address object should include, where available:
+- `formattedAddress`
+- `placeId`
+- `streetNumber`
+- `streetName`
+- `city`
+- `county`
+- `state`
+- `zip`
+- `country`
+- `latitude`
+- `longitude`
+
+Important:
+- Do not use the array index as the permanent property identifier.
+- Do not allow an empty typed input value to overwrite a selected Google Maps address.
+- Do not rely on `onBlur` to save the address.
+- Do not require a second button click after selecting the Google address.
+- Remove or disable any Cancel/Add button behavior that interferes with selecting the Google dropdown result.
+- Make sure the Google autocomplete dropdown has a higher z-index than surrounding UI.
+- Make sure clicking a Google Maps dropdown result cannot trigger any underlying button.
+
+Add temporary debug logs while fixing:
+- Log when the autocomplete instance initializes.
+- Log when `place_changed` fires.
+- Log the selected place object.
+- Log the normalized address object.
+- Log the new property/scenario ID created.
+- Log the active property ID after creation.
+
+After confirming the flow works, remove unnecessary debug logs.
+
+Acceptance test:
+1. Add first property address.
+2. Confirm it saves and appears as tab/scenario 1.
+3. Click “+ Add Property.”
+4. Type a second address.
+5. Click the Google Maps autocomplete result.
+6. Confirm the input autofills.
+7. Confirm a new tab/scenario is created immediately.
+8. Confirm the new tab is active.
+9. Confirm the full address is displayed on the tab.
+10. Switch between property tabs and confirm each address remains tied to the correct property.
+11. Refresh and confirm both property addresses persist.
+
+Please make the smallest safe code change possible and tell me exactly which files/components were changed.
