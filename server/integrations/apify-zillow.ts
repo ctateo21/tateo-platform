@@ -66,6 +66,12 @@ export interface PropertyScenario {
   displayCity?: string;
   /** True when street/ZIP/state matched but Google and Zillow disagree on city. */
   cityMismatch?: boolean;
+  /** True when Zillow reports the home as sold (homeStatus SOLD / RECENTLY_SOLD). */
+  isSold?: boolean;
+  /** Last sold price reported by Zillow (only set when isSold). */
+  soldPrice?: number | null;
+  /** Last sold date reported by Zillow as an ISO string (only set when isSold). */
+  soldDate?: string | null;
 }
 
 // ── Apify HTTP call ─────────────────────────────────────────────────
@@ -151,18 +157,47 @@ const SUFFIX_MAP: Record<string, string> = {
   way: "way", wy: "way",
   court: "ct", ct: "ct",
   place: "pl", pl: "pl",
+  // Directionals — canonicalized so "Way N" and "Way North" produce the
+  // same cache key. Also covers two-letter combos.
+  north: "n", n: "n",
+  south: "s", s: "s",
+  east: "e", e: "e",
+  west: "w", w: "w",
+  northeast: "ne", ne: "ne",
+  northwest: "nw", nw: "nw",
+  southeast: "se", se: "se",
+  southwest: "sw", sw: "sw",
 };
 
 function stripPunctLower(s: string): string {
   return s.toLowerCase().replace(/[.,]/g, "").replace(/\s+/g, " ").trim();
 }
 
+// Tokens that are ONLY canonicalized to their short form when they appear
+// as the first or last token of a street name (e.g. "North Ave" / "Way N").
+// Restricting position avoids accidentally collapsing a literally-named
+// interior token like "Old North Road" → "Old N Rd" (wrong).
+const DIRECTIONAL_SET = new Set([
+  "north", "south", "east", "west", "northeast", "northwest", "southeast", "southwest",
+  "n", "s", "e", "w", "ne", "nw", "se", "sw",
+]);
+
 function normalizeStreetName(s: string): string {
   const cleaned = stripPunctLower(s);
   if (!cleaned) return "";
-  return cleaned
-    .split(" ")
-    .map(tok => SUFFIX_MAP[tok] ?? tok)
+  const tokens = cleaned.split(" ");
+  return tokens
+    .map((tok, i) => {
+      const mapped = SUFFIX_MAP[tok];
+      if (mapped == null) return tok;
+      // Suffixes (st/ave/rd/dr/blvd/ln/way/ct/pl) canonicalize anywhere.
+      // Directionals only canonicalize at the first or last position.
+      if (DIRECTIONAL_SET.has(tok)) {
+        const isEdge = i === 0 || i === tokens.length - 1;
+        return isEdge ? mapped : tok;
+      }
+      return mapped;
+    })
     .join(" ");
 }
 
@@ -177,6 +212,29 @@ interface ParsedAddr {
   cityRaw?: string;      // original casing/punct for display
   state?: string;        // uppercase 2-letter
   zip5?: string;
+}
+
+/**
+ * Build a stable cache key for a property based on STRONG identifiers only
+ * (street number + normalized street name + ZIP5 + state). City is
+ * intentionally excluded — Google and Zillow can disagree on city for the
+ * same property. Returns null if the address lacks the minimum required
+ * identifiers (street# + street name + ZIP5).
+ *
+ * Example outputs:
+ *   "addr:v2:4311-63rd-way-n-33709"   (street + zip5; state omitted)
+ *   null                              (when zip or street missing)
+ */
+export function buildNormalizedPropertyKey(addr: string): string | null {
+  if (!addr) return null;
+  const parsed = parseAddressString(addr);
+  if (!parsed.streetNum || !parsed.streetName || !parsed.zip5) return null;
+  // State is intentionally excluded — ZIP5 already implies state, and
+  // including state would prevent state-less variants (e.g. "4311 63rd
+  // Way N 33709") from sharing a cache entry with state-tagged ones.
+  const street = `${parsed.streetNum}-${parsed.streetName}`.replace(/\s+/g, "-");
+  const slug = `${street}-${parsed.zip5}`.replace(/[^a-z0-9-]/gi, "").toLowerCase();
+  return `addr:v2:${slug}`;
 }
 
 /** Drop Google's trailing country tag so it doesn't confuse the parser. */
@@ -196,7 +254,20 @@ function parseAddressString(addr: string): ParsedAddr {
   const cleaned = stripCountrySuffix(addr);
   const parts = cleaned.split(",").map(s => s.trim()).filter(Boolean);
   const out: ParsedAddr = {};
-  const street = parts[0] ?? "";
+  let street = parts[0] ?? "";
+
+  // No-comma form like "4311 63rd Way N 33709" — peel a trailing ZIP5 (and
+  // optional state immediately before it) out of the street part so the
+  // normalizer doesn't treat "33709" as part of the street name.
+  if (parts.length === 1) {
+    const tail = street.match(/^(.*?)\s+(?:([A-Za-z]{2})\s+)?(\d{5})(?:-\d{4})?\s*$/);
+    if (tail) {
+      street = tail[1].trim();
+      if (tail[2]) out.state = tail[2].toUpperCase();
+      out.zip5 = tail[3];
+    }
+  }
+
   const m = street.match(/^(\d+\w?)\s+(.+)$/);
   if (m) {
     out.streetNum = m[1];
@@ -545,6 +616,29 @@ function normalizeOne(row: any): PropertyScenario {
     homeStatusRaw.includes("RENTAL") ||
     homeStatusRaw === "RENT";
 
+  // Detect sold status. When a property is sold, we prefer its actual
+  // sale price over the (now-stale) listing price or Zestimate so the
+  // purchase-price field stays stable for scenarios built around the
+  // sold value.
+  const isSold =
+    homeStatusRaw.includes("SOLD") ||
+    homeStatusRaw === "RECENTLY_SOLD";
+  const rawSoldPrice = num(
+    row.lastSoldPrice ?? row.soldPrice ?? row.hdpData?.homeInfo?.lastSoldPrice,
+  );
+  const soldPrice =
+    isSold && rawSoldPrice != null && rawSoldPrice >= MIN_PURCHASE_PRICE
+      ? rawSoldPrice
+      : null;
+  const soldDateRaw = row.dateSold ?? row.lastSoldDate ?? row.hdpData?.homeInfo?.dateSold;
+  const soldDate = (() => {
+    if (!isSold || !soldDateRaw) return null;
+    const n = typeof soldDateRaw === "number" ? soldDateRaw : Number(soldDateRaw);
+    if (Number.isFinite(n) && n > 0) return new Date(n).toISOString();
+    const d = new Date(String(soldDateRaw));
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  })();
+
   // Rent Zestimate — Zillow's monthly rent estimate. Captured separately
   // and never permitted to populate the purchase price.
   const rentZestimate = num(
@@ -566,10 +660,14 @@ function normalizeOne(row: any): PropertyScenario {
       ? rawListingPrice
       : null;
 
-  // Purchase price priority: active sale listing price → home Zestimate → null.
+  // Purchase price priority:
+  //   1. last sold price (when the home is sold — stable, real transaction)
+  //   2. active sale listing price (when actively for sale)
+  //   3. home Zestimate (fallback estimate)
+  //   4. null
   // Never fall back to rent.
-  const purchasePrice = listingPrice ?? zestimate;
-  const estimatedHomeValue = zestimate ?? listingPrice;
+  const purchasePrice = soldPrice ?? listingPrice ?? zestimate;
+  const estimatedHomeValue = soldPrice ?? zestimate ?? listingPrice;
   const clues = parseInsuranceClues(description);
 
   return {
@@ -595,6 +693,9 @@ function normalizeOne(row: any): PropertyScenario {
     occupancyType: "",
     rawZillowData: row,
     lastPulledAt: new Date().toISOString(),
+    isSold,
+    soldPrice,
+    soldDate,
   };
 }
 
@@ -612,7 +713,8 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
     const rows = await runApify(input);
     if (rows.length === 0) throw new Error("No Zillow results found for that address");
     const normalized = normalizeOne(rows[0]);
-    const hasAnyValuation = normalized.zestimate != null || normalized.listingPrice != null;
+    const hasAnyValuation =
+      normalized.zestimate != null || normalized.listingPrice != null || normalized.soldPrice != null;
     if (!normalized.address && !hasAnyValuation) {
       throw new Error("No Zillow results found for that address");
     }
@@ -716,7 +818,8 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
     normalized.googleCity ?? (zillowAddr.city ? toTitleCase(zillowAddr.city) : undefined);
   normalized.cityMismatch = picked.decision.cityMismatch;
 
-  const hasAnyValuation = normalized.zestimate != null || normalized.listingPrice != null;
+  const hasAnyValuation =
+    normalized.zestimate != null || normalized.listingPrice != null || normalized.soldPrice != null;
   if (!normalized.address && !hasAnyValuation) {
     throw new Error("No Zillow results found for that address");
   }

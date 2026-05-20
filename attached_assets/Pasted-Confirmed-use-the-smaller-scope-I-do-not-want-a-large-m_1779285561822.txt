@@ -1,0 +1,134 @@
+Confirmed — use the smaller scope.
+
+I do not want a large multi-day rebuild right now.
+
+What I want:
+
+1. The Zillow scrape should still run automatically as soon as a user enters/selects a valid property address.
+2. While the scrape is running, the user should see the normal default values and a loading status/bar.
+3. Once the scrape succeeds, push the scraped Zillow data into the visible Property Estimate fields.
+4. Store the successful scrape in the existing Supabase `property_cache` table.
+5. If any user enters the same property later, pull from the cache instead of running the Zillow scraper again.
+6. The cache should match the same property even if the address formatting is different.
+
+Important correction:
+I do NOT want the app to rescrape every 72 hours for updated purchase price.
+
+Instead:
+- Use the original successful scrape data for that property.
+- Keep using that original Zillow scrape data until the property is sold.
+- Once the home is sold, update the cache with the sold price.
+- Do not keep refreshing the Zestimate/purchase price every 24 or 72 hours.
+
+Reason:
+For the purchase flow, I want the original property data to stay stable while users are building scenarios. I do not want the purchase price changing every time the cache refreshes.
+
+Please make the smallest safe code change using the existing `property_cache` table.
+
+Fix these items only:
+
+1. Cache key issue:
+The cache currently uses the raw input string. That is causing the same property to miss the cache when entered with slightly different formatting.
+
+Please create a normalized property key.
+
+Example:
+Input variations:
+- 4311 63rd Way N, St. Petersburg, FL 33709, USA
+- 4311 63rd Way N, Kenneth City, FL 33709
+- 4311 63rd Way North, FL 33709
+- 4311 63rd Way N 33709
+
+These should resolve to the same cache key, such as:
+`4311-63rd-way-n-33709-fl`
+
+The normalized key should prioritize:
+- street number
+- normalized street name
+- unit number if applicable
+- ZIP5
+- state
+
+Do not use city as the primary unique match field because Google Maps and Zillow may use different cities for the same property.
+
+2. TTL issue:
+Remove or bypass the 24-hour TTL for purchase-price/property-detail cache.
+
+For this use case:
+- If the cache has a successful scrape for that property, use it.
+- Do not treat it as stale after 24 hours.
+- Do not automatically rescrape just because time passed.
+
+3. Cache hit behavior:
+Before running Zillow scraper:
+- Normalize the entered Google Maps address.
+- Generate normalized property key.
+- Check `property_cache`.
+- If successful cached data exists, immediately apply it to the property estimate.
+- Do not run the Zillow scraper.
+- Show status like “Property data loaded from cache.”
+
+4. Cache miss behavior:
+If no successful cached record exists:
+- Create the property scenario immediately with default values.
+- Show loading bar/status: “Pulling Zillow data…”
+- Run the Zillow scraper automatically in the background.
+- When successful, save normalized Zillow data to `property_cache`.
+- Apply the Zillow data to the visible Property Estimate fields.
+- Show status: “Zillow data updated.”
+
+5. Failed scrape behavior:
+If Zillow fails:
+- Do not cache it as a permanent failure that blocks future attempts.
+- Show “Zillow data unavailable — using default estimates.”
+- Allow retry.
+
+6. Sold property behavior:
+If Zillow data shows the property is sold:
+- Store the sold status.
+- Store the sold price.
+- Store the sold date, if available.
+- Use the sold price as the stable purchase/value field after the property is sold.
+- Do not keep updating the purchase price after that unless the property is listed/sold again and a new scrape is intentionally triggered.
+
+7. Purchase price mapping:
+Make sure purchase price uses:
+- active listing price, if available, or
+- Zestimate/home value, if not actively listed, or
+- sold price, if the property is sold.
+
+Never use rent Zestimate as purchase price.
+
+Rent Zestimate should only populate rent/rental estimate fields.
+
+8. In-flight dedup:
+If easy to add safely:
+- Prevent duplicate scraper calls if two users enter the same uncached property at the same time.
+- If this is not a small change, skip it for now and tell me.
+
+9. Do not build right now:
+- Do not create a new 22-column table.
+- Do not add full field-source tracking to every input yet.
+- Do not add scheduled 72-hour cron rescraping.
+- Do not do a multi-day architecture change.
+
+Acceptance test:
+1. User enters a property address.
+2. App creates the property scenario immediately.
+3. App checks normalized cache key.
+4. If no cache exists, Zillow scraper runs automatically.
+5. Zillow data updates the visible Property Estimate fields.
+6. Successful Zillow data is stored in `property_cache`.
+7. Another user enters the same property with slightly different address formatting.
+8. App uses the cached data instead of scraping again.
+9. Google city and Zillow city mismatch does not break cache matching.
+10. Purchase price never uses rent Zestimate.
+11. Cached data does not expire after 24 hours.
+12. Sold properties use sold price once available.
+
+Please make the smallest safe code change and tell me:
+- How you changed the cache key
+- How you changed/bypassed the 24-hour TTL
+- How cache hit vs cache miss works
+- Whether in-flight dedup was included or deferred
+- Which files/functions were changed

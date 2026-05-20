@@ -26,7 +26,7 @@ import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowPropert
 import { getHillsboroughTaxEstimate, isHillsboroughCountyAddress } from "./integrations/hillsborough-tax";
 import { fetchGoogleReviews, getMockReviews } from "./integrations/google-reviews";
 import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
-import { fetchZillowProperty, derivePolicyType, type PropertyScenario } from "./integrations/apify-zillow";
+import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
 import { supabaseAdmin } from "./supabase";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1448,9 +1448,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ── POST /api/zillow-property-lookup ──────────────────────────────
-  // Backend-only Apify Zillow Scraper. Cached in Supabase `property_cache`
-  // for 24h so repeated lookups don't burn Apify credits.
-  const PROPERTY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+  // Backend-only Apify Zillow Scraper. Successful results are cached
+  // indefinitely in Supabase `property_cache` keyed by a NORMALIZED
+  // property key (street# + street name + ZIP5 + state, no city) so the
+  // same property entered with different formatting — or under a
+  // different city name (e.g. Google says St. Petersburg, Zillow says
+  // Kenneth City) — shares one cache entry. Cached entries do NOT
+  // auto-expire; the original successful scrape stays stable for as long
+  // as the property is owned. To force a re-pull (e.g. after a sale)
+  // delete the row from `property_cache`.
+
+  // In-process dedup so concurrent lookups for the same property don't
+  // double-scrape Apify. Keyed by cacheKey, value is the in-flight
+  // Promise; cleared once it resolves/rejects. Effective per server
+  // instance — best-effort only.
+  const inFlightZillow = new Map<string, Promise<PropertyScenario>>();
+
   app.post("/api/zillow-property-lookup", async (req, res) => {
     const addressOrUrl = String(req.body?.addressOrUrl ?? "").trim();
     if (!addressOrUrl) {
@@ -1458,9 +1471,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     // Namespaced cache key. URLs and addresses live in distinct keyspaces
     // so a URL that happens to look like an address can never collide.
-    // For URLs we also drop query strings + trailing slashes to maximize
-    // hit-rate (same listing fetched with different tracking params should
-    // share one cache entry).
+    // - URLs: drop query strings + trailing slashes so the same listing
+    //   fetched with different tracking params shares one entry.
+    // - Addresses: use the NORMALIZED property key (street + zip + state)
+    //   when parseable, falling back to a sanitized raw string only when
+    //   the address is too sparse to normalize.
     const isUrl = /^https?:\/\//i.test(addressOrUrl);
     let cacheKey: string;
     if (isUrl) {
@@ -1472,10 +1487,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         cacheKey = `url:${addressOrUrl.toLowerCase()}`;
       }
     } else {
-      cacheKey = `addr:${addressOrUrl.toLowerCase().replace(/\s+/g, " ").trim()}`;
+      const normalizedKey = buildNormalizedPropertyKey(addressOrUrl);
+      cacheKey = normalizedKey
+        ?? `addr:raw:${addressOrUrl.toLowerCase().replace(/\s+/g, " ").trim()}`;
     }
+    console.log(`[zillow-lookup] input=${JSON.stringify(addressOrUrl)} cacheKey=${cacheKey}`);
 
-    // 1. Cache check (only if Supabase admin is configured).
+    // 1. Cache check (only if Supabase admin is configured). Successful
+    // entries are served regardless of age — see header comment.
     if (supabaseAdmin) {
       try {
         const { data: cached } = await supabaseAdmin
@@ -1483,21 +1502,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .select("normalized, fetched_at")
           .eq("cache_key", cacheKey)
           .maybeSingle();
-        if (cached?.fetched_at) {
-          const age = Date.now() - new Date(cached.fetched_at).getTime();
-          if (age < PROPERTY_CACHE_TTL_MS) {
-            return res.json({ cached: true, property: cached.normalized });
-          }
+        if (cached?.normalized) {
+          const ageMs = cached.fetched_at
+            ? Date.now() - new Date(cached.fetched_at).getTime()
+            : null;
+          console.log(`[zillow-lookup] cache HIT key=${cacheKey} ageHours=${ageMs != null ? (ageMs / 3_600_000).toFixed(1) : "?"}`);
+          return res.json({ cached: true, property: cached.normalized });
         }
+        console.log(`[zillow-lookup] cache MISS key=${cacheKey}`);
       } catch (e: any) {
         console.warn("[zillow-lookup] cache read failed:", e?.message);
       }
     }
 
-    // 2. Live Apify call.
+    // 2. Live Apify call — deduped by cacheKey so two concurrent requests
+    // for the same property share one Apify run.
     let property: PropertyScenario;
     try {
-      property = await fetchZillowProperty(addressOrUrl);
+      let inFlight = inFlightZillow.get(cacheKey);
+      if (inFlight) {
+        console.log(`[zillow-lookup] joining in-flight scrape for key=${cacheKey}`);
+      } else {
+        inFlight = fetchZillowProperty(addressOrUrl);
+        inFlightZillow.set(cacheKey, inFlight);
+        inFlight.finally(() => {
+          // Clear only if the slot still points at this same promise.
+          if (inFlightZillow.get(cacheKey) === inFlight) {
+            inFlightZillow.delete(cacheKey);
+          }
+        });
+      }
+      property = await inFlight;
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       const status = /No Zillow results/i.test(msg) ? 404
@@ -1505,10 +1540,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         : /Missing/i.test(msg) ? 400
         : 502;
       console.error("[zillow-lookup] apify error:", msg);
+      // Failures are NOT cached — allow future retries.
       return res.status(status).json({ error: msg });
     }
 
     // 3. Write-through cache (best-effort; never block the response).
+    // Only successful scrapes are cached.
     if (supabaseAdmin) {
       void supabaseAdmin
         .from("property_cache")
@@ -1523,6 +1560,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         )
         .then(({ error }) => {
           if (error) console.warn("[zillow-lookup] cache write failed:", error.message);
+          else console.log(`[zillow-lookup] cache WRITE key=${cacheKey} sold=${property.isSold ?? false}`);
         });
     }
 
