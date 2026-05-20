@@ -1,0 +1,154 @@
+Also add Zillow scrape caching in Supabase so the app does not scrape the same property repeatedly.
+
+Current issue:
+Every time a user adds a property address, the app attempts to run the Zillow scraper, even if that same property was already scraped before by another user or scenario.
+
+New expected behavior:
+Once a property has been successfully scraped from Zillow one time, store the normalized Zillow data in Supabase. Then, if any user enters the same property later, the app should automatically use the stored Zillow data instead of running a new scrape, as long as the stored data is still fresh.
+
+Caching requirements:
+1. Create a Supabase table for cached Zillow property data, such as:
+
+   `zillow_property_cache`
+
+2. Store one record per unique property.
+
+Suggested fields:
+- `id`
+- `normalized_property_key`
+- `street_number`
+- `street_name`
+- `unit_number`
+- `city`
+- `state`
+- `zip5`
+- `county`
+- `latitude`
+- `longitude`
+- `google_formatted_address`
+- `zillow_formatted_address`
+- `zillow_city`
+- `zpid`
+- `zillow_url`
+- `raw_zillow_response`
+- `normalized_zillow_data`
+- `last_scraped_at`
+- `next_rescrape_at`
+- `scrape_status`
+- `invalid_reason`
+- `created_at`
+- `updated_at`
+
+3. The `normalized_property_key` should be based on strong address identifiers, not the Google city alone.
+
+Example:
+`4311-63rd-way-n-33709-fl`
+
+Do not make city the primary unique key because Google may say St. Petersburg while Zillow says Kenneth City.
+
+4. Before running the Zillow scraper:
+   - Normalize the selected Google Maps address.
+   - Generate the `normalized_property_key`.
+   - Check Supabase for a matching cached Zillow record.
+   - If a valid record exists and `last_scraped_at` is less than 72 hours old, use the cached data.
+   - Push the cached Zillow data into the property estimate fields immediately.
+   - Do not run the scraper.
+
+5. If no cached record exists, or the cached record is older than 72 hours:
+   - Show loading status: “Pulling Zillow data…”
+   - Run the Zillow address-resolution/scraper flow.
+   - If successful, save the normalized Zillow result to Supabase.
+   - Then push the data into the property estimate fields.
+   - Set `last_scraped_at` to now.
+   - Set `next_rescrape_at` to now + 72 hours.
+
+6. If the scraper fails:
+   - Store the failed attempt if helpful, but do not permanently block future retries.
+   - Save `scrape_status = error` and `invalid_reason`.
+   - Allow retry attempts.
+   - Do not show cached failed data as valid property data.
+
+7. If multiple users try to scrape the same property at the same time:
+   - Avoid duplicate scraper runs if possible.
+   - Check for an existing in-progress scrape record.
+   - If a scrape is already running for that `normalized_property_key`, wait/poll for the result or reuse it once complete.
+   - Do not trigger 5 duplicate Apify runs for the same address.
+
+8. Add scheduled rescraping:
+   - Every 72 hours, rescrape all valid addresses in the database.
+   - This should run as a background job, cron, scheduled Supabase Edge Function, or other scheduled server process.
+   - It should update the cached Zillow data in Supabase.
+   - It should not require a user to open the app.
+   - It should not overwrite user-edited scenario fields directly.
+   - It should only refresh the shared cached Zillow data.
+
+9. When users open an existing property scenario:
+   - If the cached Zillow data has been refreshed, use it only for fields that are still Zillow/default-sourced.
+   - Do not overwrite fields marked as user-edited.
+
+10. Add field-source tracking:
+Each property estimate field should know whether it came from:
+- app default
+- Google Maps
+- Zillow cache
+- fresh Zillow scrape
+- user manual edit
+
+This matters because cached or refreshed Zillow data should update default/Zillow fields, but should not overwrite user-edited fields.
+
+Implementation flow:
+1. User selects Google Maps address.
+2. Normalize address and generate `normalized_property_key`.
+3. Create property/scenario tab immediately with default data.
+4. Check Supabase Zillow cache.
+5. If fresh cache exists:
+   - Apply cached Zillow data immediately.
+   - Show status: “Zillow data loaded from cache.”
+6. If no fresh cache exists:
+   - Show loading bar: “Pulling Zillow data…”
+   - Run scraper.
+   - Save successful result to Supabase cache.
+   - Apply scraped data to property estimate.
+   - Show status: “Zillow data updated.”
+7. If scraper fails:
+   - Show status: “Zillow data unavailable — using default estimates.”
+
+Important:
+- Cache lookup and updates must use stable property keys.
+- Do not use Google city as the only match criteria.
+- Do not use rent Zestimate as purchase price.
+- Purchase price should use listing price or Zestimate/home value only.
+- Rent Zestimate should only update rental estimate fields.
+- Cached data must still update the visible Property Estimate fields automatically.
+- Updating the Supabase cache alone is not enough; the UI state/form state must also update.
+
+Add temporary debug logs:
+- Normalized property key
+- Supabase cache lookup result
+- Whether cache hit or cache miss
+- Cached data age
+- Whether scraper was skipped due to fresh cache
+- Whether scraper was triggered due to stale/missing cache
+- Zillow scrape result
+- Supabase cache insert/update result
+- Property estimate fields updated from cache/scrape
+- Fields skipped because they were user-edited
+
+Acceptance test:
+1. Add a new property address.
+2. Confirm property tab is created immediately.
+3. Confirm app checks Supabase cache before scraping.
+4. If no cache exists, confirm scraper runs.
+5. Confirm successful scrape is stored in Supabase.
+6. Add the same property under a different user/profile/scenario.
+7. Confirm the app uses Supabase cached data instead of running the scraper again.
+8. Confirm cached Zillow data pushes into the visible Property Estimate fields.
+9. Confirm after 72 hours, the background job rescrapes cached addresses.
+10. Confirm refreshed cache does not overwrite user-edited scenario values.
+11. Confirm city mismatch cases still work, such as Google = St. Petersburg but Zillow = Kenneth City.
+
+Please make the smallest safe code change possible and tell me:
+- Which Supabase tables/migrations were added
+- Which functions/components were changed
+- How the 72-hour background rescrape job is scheduled
+- How cache hits/misses are handled
