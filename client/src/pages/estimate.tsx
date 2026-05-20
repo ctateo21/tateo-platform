@@ -458,13 +458,33 @@ export default function Estimate() {
   const newScenarioAcRef = useRef<any>(null);
   const [leadDialogForScenario, setLeadDialogForScenario] = useState(false);
 
-  // Keep active scenario's address in sync when URL changes (inline edit)
+  // Keep active scenario's address in sync when URL changes (inline edit).
+  // Defensive: never overwrite an existing valid address with empty/placeholder.
   useEffect(() => {
+    if (!address || address === "Unknown Address") return;
     setScenarios(prev =>
       prev.map(s => s.id === activeScenarioId ? { ...s, address } : s)
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
+
+  // Reorder property tabs via drag-and-drop. Operates on the full scenario
+  // objects (keyed by id), so address + savedInputs stay glued to the right
+  // property; activeScenarioId is unchanged so the active tab follows its
+  // scenario after the move.
+  const [draggingScenarioId, setDraggingScenarioId] = useState<string | null>(null);
+  function moveScenario(fromId: string, toId: string) {
+    if (fromId === toId) return;
+    setScenarios(prev => {
+      const fromIdx = prev.findIndex(s => s.id === fromId);
+      const toIdx = prev.findIndex(s => s.id === toId);
+      if (fromIdx === -1 || toIdx === -1) return prev;
+      const next = prev.slice();
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  }
 
   // Init Google Maps autocomplete on the new-scenario address prompt
   useEffect(() => {
@@ -563,7 +583,30 @@ export default function Estimate() {
 
   function confirmNewScenario() {
     const addr = newScenarioAddress.trim();
+    // Defensive: reject empty / obviously-partial addresses so a half-typed
+    // entry (or an empty place_changed callback) can't overwrite anything.
+    // A real Google formatted_address always has at least one comma
+    // ("123 Main St, Tampa, FL 33602").
     if (!addr) return;
+    if (addr.length < 6 || !addr.includes(",")) {
+      toast({
+        title: "Address looks incomplete",
+        description: "Please pick a full address from the suggestions (street, city, state).",
+        variant: "destructive",
+      });
+      return;
+    }
+    // Don't add a duplicate tab for an address we already have open.
+    const dupKey = addr.toLowerCase();
+    const dup = scenarios.find(s => s.address.trim().toLowerCase() === dupKey);
+    if (dup) {
+      toast({ title: "Already added", description: "Switching to that property." });
+      setActiveScenarioId(dup.id);
+      setLocation(`/estimate?address=${encodeURIComponent(dup.address)}${fromDashboard ? "&from=dashboard" : ""}`);
+      setNewScenarioAddress("");
+      setShowAddressPrompt(false);
+      return;
+    }
     const newId = `sc_${Date.now()}`;
     // Carry over the current borrower/purchase inputs so the user
     // doesn't re-enter everything for the new property. They can
@@ -1333,15 +1376,36 @@ export default function Estimate() {
         <div className="bg-white border-b shadow-sm sticky top-[73px] z-40">
           {/* Scenario tabs */}
           <div className="container mx-auto px-4 pt-2 flex items-center gap-1 overflow-x-auto scrollbar-none">
-            {scenarios.map((sc, idx) => (
+            {scenarios.map((sc) => (
               <div
                 key={sc.id}
                 onClick={() => switchScenario(sc.id)}
+                draggable
+                onDragStart={(e) => {
+                  setDraggingScenarioId(sc.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  // Required for Firefox to actually fire drag events.
+                  try { e.dataTransfer.setData("text/plain", sc.id); } catch {}
+                }}
+                onDragOver={(e) => {
+                  if (draggingScenarioId && draggingScenarioId !== sc.id) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const fromId = draggingScenarioId || e.dataTransfer.getData("text/plain");
+                  if (fromId) moveScenario(fromId, sc.id);
+                  setDraggingScenarioId(null);
+                }}
+                onDragEnd={() => setDraggingScenarioId(null)}
+                title="Drag to reorder"
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium cursor-pointer whitespace-nowrap border border-b-0 transition-colors ${
                   sc.id === activeScenarioId
                     ? "bg-white border-border text-foreground shadow-sm -mb-px relative z-10"
                     : "bg-gray-100 border-transparent text-muted-foreground hover:bg-gray-200"
-                }`}
+                } ${draggingScenarioId === sc.id ? "opacity-50" : ""}`}
               >
                 <MapPin className="h-3 w-3 shrink-0" />
                 <span>{shortLabel(sc.address)}</span>

@@ -1,0 +1,53 @@
+I need you to debug and fix the address-saving flow for the Purchase Side → Property Estimate section.
+
+Current issue:
+1. When I add the first property address, the Google Maps address autocomplete works correctly.
+2. The first address saves in full and displays correctly.
+3. When I click “+ Add Property” and add a second property, the address often does not save completely.
+4. Sometimes when I select the Google Maps autocomplete address for the second/new property, it does not save at all.
+5. This issue appears to happen only after adding additional properties dynamically.
+
+Expected behavior:
+Every time I add a new property:
+- The Google Maps autocomplete should initialize correctly for the new address input.
+- Selecting an address from Google Maps should populate the full address.
+- The full formatted address should save reliably.
+- The saved property should retain the full address after clicking away, saving, refreshing, or adding another property.
+- This should work for the first property and every additional property added with “+ Add Property.”
+
+Also add this functionality:
+On the property tabs where the saved address is listed next to “+ Add Property,” users should be able to reorder the property tabs.
+
+Example:
+- If there are two property tabs and the second property should be reviewed first, the user should be able to move the second tab into the first position.
+- The current first tab should then move to the second position.
+- Reordering the tabs should not break or overwrite any property data.
+- The active selected tab should remain attached to the correct property after reordering.
+- The property estimate data, address, insurance/tax assumptions, mortgage inputs, and any other property-specific fields must stay tied to the correct property ID.
+
+Please inspect the code for:
+- Whether Google Places autocomplete is only being initialized on the first address input.
+- Whether dynamically added address fields are missing autocomplete binding.
+- Whether all property rows are using unique IDs/keys instead of sharing the same address state.
+- Whether the address field is controlled correctly in React state.
+- Whether the selected Google Place object is being written back into the correct property index.
+- Whether the save handler is only saving the first property or overwriting later properties.
+- Whether the app is storing only partial address fields instead of the full `formatted_address`.
+- Whether property tabs are using array index instead of a stable property ID.
+- Whether reordering tabs would accidentally move the visible tab only, instead of moving the full property object.
+
+Fix requirements:
+- Refactor the address state so each property has its own address object.
+- Ensure each added property has a unique stable ID.
+- Initialize or reinitialize Google Places autocomplete for each new property input.
+- On place selection, save the full formatted address to the correct property.
+- Make sure the full address persists in the property estimate data structure.
+- Add defensive checks so empty/partial Google Places results do not overwrite an existing valid address.
+- Add a reorder function for property tabs.
+- Reorder the full property objects, not just the tab labels.
+- Use stable property IDs instead of array indexes wherever possible.
+- Make sure the selected/active property tab follows the correct property ID after reordering.
+- Add console logs temporarily to verify which property ID is being updated when an address is selected or when tabs are reordered.
+- After fixing, remove unnecessary debug logs.
+
+Please make the smallest safe code change possible and explain exactly what files/components were changed.
