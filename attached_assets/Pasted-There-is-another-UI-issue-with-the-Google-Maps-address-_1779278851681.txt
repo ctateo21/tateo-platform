@@ -1,0 +1,39 @@
+There is another UI issue with the Google Maps address dropdown.
+
+When I click an address option inside the Google Maps autocomplete dropdown, it looks like the click may be hitting the “Cancel” button behind the dropdown instead of selecting/saving the address correctly.
+
+Please fix this by changing the add-property address flow:
+
+Current issue:
+- The Google Maps dropdown appears over or near the Cancel / Add Property buttons.
+- When I click an address in the dropdown, the click may be triggering the Cancel button or another button behind the dropdown.
+- This may be why the address sometimes does not save.
+
+New expected behavior:
+- Remove the Cancel button from this address-entry flow.
+- Remove the manual “Add Property” confirmation button from this address-entry flow.
+- When a user selects an address from the Google Maps dropdown, the property should automatically be added.
+- The full Google Maps formatted address should immediately save to the new property.
+- The new property tab should automatically appear using the selected address.
+- The newly added property should become the active selected property tab.
+- The user should not need to click a second “Add Property” button after choosing an address.
+- Clicking a Google Maps address option should never trigger any hidden/underlying button.
+
+Please inspect and fix:
+- z-index / overlay issues with the Google Maps autocomplete dropdown.
+- Any button sitting behind the dropdown.
+- Any `onBlur`, `onClick`, or modal close behavior that fires before the Google Maps selection is saved.
+- Whether selecting a Place result is being interrupted by the Cancel button or by closing the add-property UI too early.
+- Whether the property is created before the selected Google Place result is fully written into state.
+
+Implementation requirements:
+- Use Google Places `place_changed` as the source of truth.
+- On `place_changed`, create the new property automatically.
+- Save the full `formatted_address` to that new property.
+- Attach any available Google Place metadata to the property address object, including place ID, street, city, state, ZIP, county if available, latitude, and longitude.
+- Do not overwrite an existing valid address with an empty or partial result.
+- After the property is created, close the add-property input UI.
+- Make the newly created property the active tab.
+- Keep all data tied to the correct stable property ID.
+- Make the smallest safe code change possible.
+- Tell me exactly which files/components were changed.

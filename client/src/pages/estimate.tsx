@@ -227,10 +227,22 @@ interface Inputs {
 
 const FALLBACK_RATES = { conventional: 6.82, fha: 6.17, va: 6.25, usda: 6.38, dscr: 6.82, bank_statement: 6.82 };
 
+interface PlaceMeta {
+  placeId?: string;
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  county?: string;
+  lat?: number;
+  lng?: number;
+}
+
 interface Scenario {
   id: string;
   address: string;
   savedInputs: Inputs | null;
+  placeMeta?: PlaceMeta;
 }
 
 function makeDefaultInputs(price = 350000): Inputs {
@@ -456,7 +468,38 @@ export default function Estimate() {
   const [newScenarioAddress, setNewScenarioAddress] = useState("");
   const newScenarioInputRef = useRef<HTMLInputElement>(null);
   const newScenarioAcRef = useRef<any>(null);
+  // Holds the latest "auto-add on place_changed" handler so the Google
+  // Autocomplete listener (whose closure is captured at attach time)
+  // always sees current state when it fires.
+  const autoAddRef = useRef<((addr: string, meta?: PlaceMeta) => void) | null>(null);
+  // Idempotency: prevents Google's known double-fire of place_changed (and
+  // any rapid re-selection of the same suggestion) from creating duplicate
+  // tabs. Cleared when the dialog is closed.
+  const lastAddedPlaceKeyRef = useRef<string | null>(null);
   const [leadDialogForScenario, setLeadDialogForScenario] = useState(false);
+
+  // Keep `autoAddRef` pointing at the latest confirmNewScenario closure
+  // so the Google Autocomplete listener (attached once when the dialog opens)
+  // always sees current inputs/scenarios when it fires.
+  useEffect(() => {
+    autoAddRef.current = (addr, meta) => {
+      // Idempotency guard — Google sometimes fires place_changed twice for
+      // a single selection. Key on placeId when available, otherwise on the
+      // normalized address string.
+      const key = (meta?.placeId || addr.trim().toLowerCase());
+      if (lastAddedPlaceKeyRef.current === key) return;
+      lastAddedPlaceKeyRef.current = key;
+      setNewScenarioAddress(addr);
+      // Pass `addr` explicitly so we don't depend on the async state update.
+      confirmNewScenario(meta, addr);
+    };
+  });
+
+  // Reset the idempotency key whenever the Add Property dialog opens so
+  // re-adding the same address in a later session still works.
+  useEffect(() => {
+    if (showAddressPrompt) lastAddedPlaceKeyRef.current = null;
+  }, [showAddressPrompt]);
 
   // Keep active scenario's address in sync when URL changes (inline edit).
   // Defensive: never overwrite an existing valid address with empty/placeholder.
@@ -504,11 +547,39 @@ export default function Estimate() {
         if (cancelled || !(window as any).google?.maps?.places?.Autocomplete || !newScenarioInputRef.current) return;
         const ac = new (window as any).google.maps.places.Autocomplete(
           newScenarioInputRef.current,
-          { types: ["address"], componentRestrictions: { country: "us" }, fields: ["formatted_address"] }
+          {
+            types: ["address"],
+            componentRestrictions: { country: "us" },
+            fields: ["formatted_address", "place_id", "address_components", "geometry"],
+          }
         );
         ac.addListener("place_changed", () => {
           const place = ac.getPlace();
-          if (place?.formatted_address) setNewScenarioAddress(place.formatted_address);
+          const formatted = place?.formatted_address as string | undefined;
+          // Defensive: ignore empty/partial results so an existing valid
+          // address can never be overwritten with nothing.
+          if (!formatted || formatted.length < 6 || !formatted.includes(",")) {
+            return;
+          }
+          // Extract metadata from address_components (forgiving of missing parts).
+          const comps: any[] = place?.address_components || [];
+          const get = (type: string) =>
+            comps.find(c => Array.isArray(c?.types) && c.types.includes(type));
+          const streetNumber = get("street_number")?.long_name || "";
+          const route = get("route")?.long_name || "";
+          const meta: PlaceMeta = {
+            placeId: place?.place_id,
+            street: [streetNumber, route].filter(Boolean).join(" ") || undefined,
+            city: get("locality")?.long_name || get("sublocality")?.long_name,
+            state: get("administrative_area_level_1")?.short_name,
+            zip: get("postal_code")?.long_name,
+            county: get("administrative_area_level_2")?.long_name,
+            lat: place?.geometry?.location?.lat?.(),
+            lng: place?.geometry?.location?.lng?.(),
+          };
+          setNewScenarioAddress(formatted);
+          // Auto-add — `place_changed` is the source of truth, no extra click needed.
+          autoAddRef.current?.(formatted, meta);
         });
         newScenarioAcRef.current = ac;
       } catch (err) {
@@ -581,8 +652,10 @@ export default function Estimate() {
     }
   }
 
-  function confirmNewScenario() {
-    const addr = newScenarioAddress.trim();
+  function confirmNewScenario(meta?: PlaceMeta, addrOverride?: string) {
+    // Prefer the explicitly passed value (from the autocomplete callback) over
+    // React state, which may not have flushed yet when this runs.
+    const addr = (addrOverride ?? newScenarioAddress).trim();
     // Defensive: reject empty / obviously-partial addresses so a half-typed
     // entry (or an empty place_changed callback) can't overwrite anything.
     // A real Google formatted_address always has at least one comma
@@ -607,14 +680,18 @@ export default function Estimate() {
       setShowAddressPrompt(false);
       return;
     }
-    const newId = `sc_${Date.now()}`;
+    // Collision-safe id — Date.now() can collide if Google double-fires within
+    // the same millisecond. randomUUID is available in all modern browsers.
+    const newId = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+      ? `sc_${crypto.randomUUID()}`
+      : `sc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     // Carry over the current borrower/purchase inputs so the user
     // doesn't re-enter everything for the new property. They can
     // still tweak anything on the new tab.
     const carriedInputs: Inputs = { ...inputs };
     setScenarios(prev => [
       ...prev.map(s => s.id === activeScenarioId ? { ...s, savedInputs: inputs } : s),
-      { id: newId, address: addr, savedInputs: carriedInputs },
+      { id: newId, address: addr, savedInputs: carriedInputs, placeMeta: meta },
     ]);
     setActiveScenarioId(newId);
     setLocation(`/estimate?address=${encodeURIComponent(addr)}${fromDashboard ? "&from=dashboard" : ""}`);
@@ -2600,7 +2677,7 @@ export default function Estimate() {
           </DialogHeader>
           <div className="space-y-3 pt-1">
             <p id="add-property-desc" className="text-sm text-muted-foreground">
-              Enter the address for your new scenario (up to 5 total).
+              Start typing an address and pick a suggestion — your new property tab is added automatically.
             </p>
             <div className="relative">
               <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -2610,30 +2687,18 @@ export default function Estimate() {
                 value={newScenarioAddress}
                 onChange={(e) => setNewScenarioAddress(e.target.value)}
                 onKeyDown={(e) => {
-                  // If the Google suggestions dropdown is visible, let Google
-                  // handle Enter (it selects the highlighted suggestion and
-                  // fires place_changed). Otherwise, submit the typed value.
+                  // If the suggestions dropdown is visible, always let Google
+                  // consume Enter (it fires place_changed → auto-add).
                   if (e.key !== "Enter") return;
                   const pac = document.querySelector(".pac-container") as HTMLElement | null;
                   const pacOpen = pac && pac.offsetParent !== null && pac.children.length > 0;
-                  if (pacOpen) {
-                    e.preventDefault(); // let Google's listener consume it
-                    return;
-                  }
-                  confirmNewScenario();
+                  if (pacOpen) e.preventDefault();
                 }}
                 placeholder="123 Main St, City, State…"
                 autoComplete="off"
+                autoFocus
                 className="w-full pl-9 pr-3 py-2 text-sm border rounded-md outline-none focus:ring-2 ring-primary/30 focus:border-primary"
               />
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => { setShowAddressPrompt(false); setNewScenarioAddress(""); }}>
-                Cancel
-              </Button>
-              <Button className="flex-1" onClick={confirmNewScenario} disabled={!newScenarioAddress.trim()}>
-                Add Property
-              </Button>
             </div>
           </div>
         </DialogContent>
