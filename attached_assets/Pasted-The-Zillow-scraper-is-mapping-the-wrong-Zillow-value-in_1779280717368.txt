@@ -1,0 +1,60 @@
+The Zillow scraper is mapping the wrong Zillow value into the purchase price field.
+
+Current bug:
+When property data is pulled from Zillow, the app is using the rental estimate / rent Zestimate as the purchase price. This is incorrect.
+
+Example of incorrect behavior:
+- Zillow returns both a home value Zestimate and a rental estimate.
+- The app is saving the rental estimate into the purchase price / estimated purchase price field.
+- This causes the purchase estimate calculations to use rent as if it were the home price.
+
+Expected behavior:
+The purchase price field should use the actual home value Zestimate, not the rental estimate.
+
+Fix requirements:
+1. Inspect the Zillow scraper response/data mapping.
+2. Identify all value fields returned from Zillow, including:
+   - Zestimate / home value estimate
+   - rent Zestimate / rental estimate
+   - listing price, if available
+   - property tax estimate, if available
+   - insurance estimate, if available
+3. Map these fields correctly:
+   - `purchasePrice`, `estimatedPurchasePrice`, or `homeValue` should use the Zillow home Zestimate or listing price.
+   - `monthlyRent`, `rentEstimate`, or `zillowRentEstimate` should use the rental estimate / rent Zestimate.
+4. Do not allow rent Zestimate to populate the purchase price field.
+5. If both listing price and Zestimate are available:
+   - Use listing price as the purchase price for active listings.
+   - Use Zestimate/home value estimate as the fallback.
+6. If no listing price or Zestimate exists:
+   - Leave purchase price blank or null.
+   - Do not fall back to rental estimate.
+7. Add a defensive check:
+   - If the scraped value appears to be a monthly rent value, do not save it as purchase price.
+   - For example, values under $20,000 should generally not be treated as a purchase price unless explicitly marked as a sale price.
+8. Make sure the correct purchase price flows into:
+   - property estimate
+   - purchase side calculator
+   - loan amount calculations
+   - down payment calculations
+   - cash-to-close estimates
+   - scenario tabs/property cards
+
+Please add temporary debug logs showing:
+- Raw Zillow scraper response
+- Parsed listing price
+- Parsed Zestimate/home value
+- Parsed rent Zestimate/rental estimate
+- Final value saved as purchase price
+- Final value saved as rent estimate
+
+After confirming the correct values are mapped, remove unnecessary debug logs.
+
+Acceptance test:
+1. Pull a Zillow property that has both Zestimate and rent Zestimate.
+2. Confirm purchase price uses listing price or home Zestimate.
+3. Confirm rental estimate is saved only to rent/rental fields.
+4. Confirm rent Zestimate never populates purchase price.
+5. Confirm purchase-side calculations use the corrected purchase price.
+
+Please make the smallest safe code change possible and tell me exactly which files/components/functions were changed.

@@ -42,6 +42,8 @@ export interface PropertyScenario {
   listingPrice: number | null;
   purchasePrice: number | null;
   estimatedHomeValue: number | null;
+  /** Zillow's monthly rent estimate (Rent Zestimate). Never used as a purchase price. */
+  rentZestimate: number | null;
   hoaMonthly: number | null;
   propertyType: PropertyTypeNorm | "";
   yearBuilt: number | null;
@@ -323,11 +325,49 @@ export function derivePolicyType(
 }
 
 // ── Top-level normalize ─────────────────────────────────────────────
+// Minimum value (USD) we will accept as a *purchase* price. Anything below
+// this is almost certainly a monthly rent figure and must not flow into
+// purchase-price / loan-amount calculations.
+const MIN_PURCHASE_PRICE = 20_000;
+
 function normalizeOne(row: any): PropertyScenario {
   const description = pickDescription(row);
   const propertyType = normalizePropertyType(row.homeType ?? row.propertyType ?? row.hdpData?.homeInfo?.homeType);
-  const zestimate = num(row.zestimate ?? row.zestimateValue ?? row.priceHistory?.[0]?.price);
-  const listingPrice = num(row.price ?? row.listPrice ?? row.unformattedPrice);
+
+  // Detect whether the active Zillow listing is a rental. When it is,
+  // `row.price` is the monthly rent — NOT a sale price — and must be
+  // discarded for purchase-price purposes.
+  const homeStatusRaw = String(
+    row.homeStatus ?? row.listingStatus ?? row.hdpData?.homeInfo?.homeStatus ?? ""
+  ).toUpperCase();
+  const isRentalListing =
+    homeStatusRaw.includes("FOR_RENT") ||
+    homeStatusRaw.includes("RENTAL") ||
+    homeStatusRaw === "RENT";
+
+  // Rent Zestimate — Zillow's monthly rent estimate. Captured separately
+  // and never permitted to populate the purchase price.
+  const rentZestimate = num(
+    row.rentZestimate ?? row.rentZestimateValue ?? row.zestimateRent ?? row.monthlyRent
+  );
+
+  // Home-value Zestimate. Important: do NOT fall back to
+  // `priceHistory[0].price` here — the most recent priceHistory event can
+  // be a rental listing event, which would inject rent into the home value.
+  const rawZestimate = num(row.zestimate ?? row.zestimateValue);
+  const zestimate =
+    rawZestimate != null && rawZestimate >= MIN_PURCHASE_PRICE ? rawZestimate : null;
+
+  // Listing price — only trust `row.price` / `row.listPrice` for
+  // sale listings, never for rentals. Also reject obvious rent values.
+  const rawListingPrice = num(row.price ?? row.listPrice ?? row.unformattedPrice);
+  const listingPrice =
+    !isRentalListing && rawListingPrice != null && rawListingPrice >= MIN_PURCHASE_PRICE
+      ? rawListingPrice
+      : null;
+
+  // Purchase price priority: active sale listing price → home Zestimate → null.
+  // Never fall back to rent.
   const purchasePrice = listingPrice ?? zestimate;
   const estimatedHomeValue = zestimate ?? listingPrice;
   const clues = parseInsuranceClues(description);
@@ -340,6 +380,7 @@ function normalizeOne(row: any): PropertyScenario {
     listingPrice,
     purchasePrice,
     estimatedHomeValue,
+    rentZestimate,
     hoaMonthly: normalizeHoaMonthly(row.monthlyHoaFee ?? row.hoaFee ?? row.hoa),
     propertyType,
     yearBuilt: num(row.yearBuilt),

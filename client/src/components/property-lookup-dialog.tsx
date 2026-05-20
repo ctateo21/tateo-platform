@@ -21,6 +21,8 @@ export interface LookedUpProperty {
   listingPrice: number | null;
   purchasePrice: number | null;
   estimatedHomeValue: number | null;
+  /** Monthly rent estimate. Never use as a purchase price. */
+  rentZestimate: number | null;
   hoaMonthly: number | null;
   propertyType: string;
   yearBuilt: number | null;
