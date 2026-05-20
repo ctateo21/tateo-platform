@@ -1,0 +1,14 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "kOrCH1Z-JWez6I-ZO2zs8"
+uri = "file://dist/supabase-schema.sql.txt"
+type = "text"
+title = "supabase/schema.sql (rename to .sql after download)"
+
+[[outputs]]
+id = "yVE6y31diWM_RFFvnVR4c"
+uri = "file://dist/supabase-schema.tar.gz"
+type = "unspecified"
+title = "supabase/schema.sql (compressed)"
