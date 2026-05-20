@@ -1,0 +1,102 @@
+I rolled the app back to the point before the prompt where I said:
+
+“I just logged out and logged back in. My purchase dashboard was empty, but my refinance dashboard had the properties I uploaded mortgage statements for. then my insurance tab has the refinance properties in the insurance tab too. The purchase tab properties should never go away unless I delete them.”
+
+Important:
+The Insurance tab view is now good. Do not change the Insurance tab view, layout, query, or correlation logic right now.
+
+Only fix the Purchase address persistence issue.
+
+Current issue:
+When a logged-in user enters a new property address in the Purchase Flow → Property Estimate, the address/property appears during the current session, but it is still not saving permanently. After logout/login or returning later, the Purchase tab does not reliably show the property.
+
+Expected behavior:
+When a logged-in user enters/selects a new property address in Purchase Flow → Property Estimate:
+- The purchase property/scenario should save immediately.
+- The full address should save.
+- The normalized property key should save.
+- The user ID should save.
+- The record should be marked as Purchase.
+- The property should appear in the Purchase dashboard.
+- The property should remain after refresh, logout/login, and navigation.
+- It should only disappear if the user deletes it.
+
+Do not touch:
+- Insurance tab view
+- Insurance dashboard layout
+- Insurance record filtering
+- Refinance tab behavior
+- Address correlation logic
+- Any UI redesign
+
+Use Refinance as the working reference:
+The Refinance tab is saving and loading correctly. Please compare Purchase persistence to Refinance persistence and copy/adapt the same reliable pattern.
+
+Inspect:
+1. Where Refinance addresses/properties are saved.
+2. Where Purchase addresses/properties are saved.
+3. Whether Purchase is saving to Supabase or only local state.
+4. Whether Purchase is missing the required `user_id`.
+5. Whether Purchase is missing the required flow/type/category value.
+6. Whether Purchase records are inserted but the Purchase dashboard query is not loading them.
+7. Whether Purchase dashboard filtering excludes incomplete records.
+8. Whether Purchase records require Zillow data, questionnaire completion, or uploaded documents before showing.
+9. Whether Purchase records are saved with a temporary ID that changes after reload.
+10. Whether the dashboard loads before auth is ready and then does not refetch.
+11. Whether an empty local state overwrites loaded Supabase records.
+
+Fix requirements:
+1. On valid Google Maps address selection in Purchase Property Estimate, immediately upsert/create a durable Purchase record in Supabase.
+2. Save at minimum:
+   - stable purchase scenario/property ID
+   - authenticated user ID
+   - full formatted address
+   - normalized property key
+   - flow/type/category = purchase
+   - created_at
+   - updated_at
+   - current estimate/default values if available
+3. The record should save even if Zillow/cache data has not returned yet.
+4. The record should save even if the questionnaire is incomplete.
+5. The record should save even if only the address exists.
+6. When Zillow/cache data later returns, update the same saved Purchase record by stable ID.
+7. When the user edits fields, update the same saved Purchase record by stable ID.
+8. Purchase dashboard should query Supabase after auth/user is ready and load all saved Purchase records for that user.
+9. Purchase dashboard should not rely on local/session state as the source of truth.
+10. Purchase records should not be deleted, hidden, or overwritten unless the user explicitly deletes them.
+
+Add temporary debug logs only around Purchase:
+- Address selected
+- Generated/stable purchase scenario ID
+- Authenticated user ID
+- Supabase table being written to
+- Purchase save/upsert payload
+- Purchase save/upsert response or error
+- Purchase dashboard query after login
+- Query filters used
+- Number of purchase records returned
+- Purchase records rendered
+
+Acceptance test:
+1. Log in.
+2. Go to Purchase Flow → Property Estimate.
+3. Enter/select a new address.
+4. Confirm the Purchase record is saved to Supabase immediately.
+5. Confirm the Purchase dashboard shows the property.
+6. Refresh the browser.
+7. Confirm the Purchase dashboard still shows the property.
+8. Log out.
+9. Log back in.
+10. Confirm the Purchase dashboard still shows the property.
+11. Add a second Purchase property.
+12. Confirm both Purchase properties remain after refresh and logout/login.
+13. Confirm Zillow/cache updates do not create duplicates and update the same Purchase record.
+14. Confirm Insurance tab view is unchanged.
+15. Confirm Refinance tab behavior is unchanged.
+
+Please make the smallest safe code change possible and report:
+- Why Purchase addresses were not persisting
+- How Refinance persistence differs from Purchase
+- Which Purchase save/load function was fixed
+- Which Supabase table and fields are used
+- Which files/functions were changed

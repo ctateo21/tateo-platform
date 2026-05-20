@@ -75,6 +75,13 @@ let _session: AuthUser | null = null;
 let _purchaseScenarios: PurchaseScenario[] = [];
 let _insuranceScenarios: InsuranceScenario[] = [];
 let _trackedLoans: TrackedLoan[] = [];
+// User id whose scenario tables have been fully loaded into the caches
+// above. Used to gate the destructive "delete anything not in keep-set"
+// pass inside persist*() — see HYDRATION GATE comment near
+// persistPurchaseScenarios for the full rationale (a write that fires
+// before hydration completes would otherwise wipe the user's existing
+// rows from Supabase).
+let _scenariosHydratedFor: string | null = null;
 const _listeners = new Set<() => void>();
 
 function notify() { _listeners.forEach(fn => { try { fn(); } catch {} }); }
@@ -210,9 +217,40 @@ async function loadScenarios(userId: string) {
     supabase.from("insurance_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
-  _purchaseScenarios = (pRes.data ?? []).map(rowToPurchase);
-  _insuranceScenarios = (iRes.data ?? []).map(rowToInsurance);
-  _trackedLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
+  const dbPurchases  = (pRes.data ?? []).map(rowToPurchase);
+  const dbInsurance  = (iRes.data ?? []).map(rowToInsurance);
+  const dbLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
+
+  // Merge in any local-only rows that were added during the hydration
+  // window (i.e. before this SELECT returned). Replacing the cache
+  // outright would visually drop a just-added Purchase the user just
+  // typed in. We keep DB rows authoritative and append local-only rows
+  // (matched by stable id) on top.
+  const pDbIds = new Set(dbPurchases.map(p => p.id));
+  const iDbIds = new Set(dbInsurance.map(p => p.id));
+  const lDbIds = new Set(dbLoans.map(l => l.id));
+  const pLocalOnly = _purchaseScenarios.filter(p => !pDbIds.has(p.id));
+  const iLocalOnly = _insuranceScenarios.filter(p => !iDbIds.has(p.id));
+  const lLocalOnly = _trackedLoans.filter(l => !lDbIds.has(l.id));
+
+  _purchaseScenarios = [...pLocalOnly, ...dbPurchases];
+  _insuranceScenarios = [...iLocalOnly, ...dbInsurance];
+  _trackedLoans       = [...lLocalOnly, ...dbLoans];
+
+  // Only flip the hydration flag if EVERY table loaded cleanly. A
+  // transient network/RLS/schema error on any table would otherwise mark
+  // hydration "complete" with an incomplete cache, re-enabling the
+  // destructive diff-delete in persist*() and bringing back the original
+  // wipe bug under failure conditions.
+  if (!pRes.error && !iRes.error && !lRes.error) {
+    _scenariosHydratedFor = userId;
+  } else {
+    console.warn("[auth] loadScenarios partial failure — staying unhydrated to avoid destructive writes", {
+      purchase: pRes.error?.message,
+      insurance: iRes.error?.message,
+      tracked_loans: lRes.error?.message,
+    });
+  }
 }
 
 // One-time migration of pre-existing localStorage data into Supabase the
@@ -280,9 +318,20 @@ async function hydrateFromSupabase() {
     _session = null;
     _purchaseScenarios = [];
     _insuranceScenarios = [];
+    _trackedLoans = [];
+    _scenariosHydratedFor = null;
     try { localStorage.removeItem("tateo_auth"); } catch {}
     notify();
     return;
+  }
+  // If we're hydrating for a different user than was last loaded, clear
+  // caches and the hydration flag so the new user can't see (or save
+  // over) the old user's rows during the load window.
+  if (_scenariosHydratedFor && _scenariosHydratedFor !== session.user.id) {
+    _purchaseScenarios = [];
+    _insuranceScenarios = [];
+    _trackedLoans = [];
+    _scenariosHydratedFor = null;
   }
   try { localStorage.setItem("tateo_auth", "1"); } catch {}
 
@@ -376,6 +425,7 @@ export async function logout(): Promise<void> {
   _purchaseScenarios = [];
   _insuranceScenarios = [];
   _trackedLoans = [];
+  _scenariosHydratedFor = null;
   notify();
 }
 
@@ -483,16 +533,28 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
   // rows. If the user has changed by the time the queue drains, drop it.
   const userId = _session?.id;
   if (!userId) return Promise.resolve();
+  // Snapshot hydration state at enqueue time too — if hydration races and
+  // completes between enqueue and execution, we still want the original
+  // intent (upsert-only) honored so we don't accidentally delete the rows
+  // the SELECT just loaded but the caller's `s` array doesn't yet know about.
+  const wasHydrated = _scenariosHydratedFor === userId;
   return enqueueWrite("purchase_scenarios", async () => {
     if (_session?.id !== userId) return; // user changed; abort this stale job
-    const keep = new Set(s.map(x => x.id));
-    const { data: existing } = await supabase
-      .from("purchase_scenarios")
-      .select("id")
-      .eq("user_id", userId);
-    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
-    if (toDelete.length > 0) {
-      await supabase.from("purchase_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+    // HYDRATION GATE: if the cache for this user wasn't fully loaded from
+    // Supabase yet, the in-memory `s` array doesn't represent the user's
+    // full set — it's just the rows the current session knows about. A
+    // diff-and-delete pass here would wipe their existing properties.
+    // In that case we upsert-only and let `loadScenarios` reconcile.
+    if (wasHydrated) {
+      const keep = new Set(s.map(x => x.id));
+      const { data: existing } = await supabase
+        .from("purchase_scenarios")
+        .select("id")
+        .eq("user_id", userId);
+      const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+      if (toDelete.length > 0) {
+        await supabase.from("purchase_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+      }
     }
     if (s.length > 0) {
       await supabase
@@ -516,16 +578,19 @@ export function saveInsuranceScenarios(s: InsuranceScenario[]) {
 function persistInsuranceScenarios(s: InsuranceScenario[]) {
   const userId = _session?.id;
   if (!userId) return Promise.resolve();
+  const wasHydrated = _scenariosHydratedFor === userId;
   return enqueueWrite("insurance_scenarios", async () => {
     if (_session?.id !== userId) return;
-    const keep = new Set(s.map(x => x.id));
-    const { data: existing } = await supabase
-      .from("insurance_scenarios")
-      .select("id")
-      .eq("user_id", userId);
-    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
-    if (toDelete.length > 0) {
-      await supabase.from("insurance_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+    if (wasHydrated) {
+      const keep = new Set(s.map(x => x.id));
+      const { data: existing } = await supabase
+        .from("insurance_scenarios")
+        .select("id")
+        .eq("user_id", userId);
+      const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+      if (toDelete.length > 0) {
+        await supabase.from("insurance_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+      }
     }
     if (s.length > 0) {
       await supabase
@@ -549,16 +614,19 @@ export function saveTrackedLoans(loans: TrackedLoan[]) {
 function persistTrackedLoans(loans: TrackedLoan[]) {
   const userId = _session?.id;
   if (!userId) return Promise.resolve();
+  const wasHydrated = _scenariosHydratedFor === userId;
   return enqueueWrite("tracked_loans", async () => {
     if (_session?.id !== userId) return;
-    const keep = new Set(loans.map(l => l.id));
-    const { data: existing } = await supabase
-      .from("tracked_loans")
-      .select("id")
-      .eq("user_id", userId);
-    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
-    if (toDelete.length > 0) {
-      await supabase.from("tracked_loans").delete().in("id", toDelete).eq("user_id", userId);
+    if (wasHydrated) {
+      const keep = new Set(loans.map(l => l.id));
+      const { data: existing } = await supabase
+        .from("tracked_loans")
+        .select("id")
+        .eq("user_id", userId);
+      const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+      if (toDelete.length > 0) {
+        await supabase.from("tracked_loans").delete().in("id", toDelete).eq("user_id", userId);
+      }
     }
     if (loans.length > 0) {
       await supabase
