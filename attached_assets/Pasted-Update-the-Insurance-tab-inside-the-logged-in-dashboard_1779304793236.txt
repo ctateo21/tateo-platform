@@ -1,0 +1,172 @@
+Update the Insurance tab inside the logged-in dashboard and add automatic address correlation between Insurance, Purchase, and Refinance dashboard records.
+
+Current issue:
+Inside the Dashboard → Insurance tab, each property address is shown as a large card, but the card has little or no useful data.
+
+This view should match the cleaner line-item style used in the Purchase and Refinance dashboard views.
+
+Expected behavior:
+In the Insurance tab, display each property as a compact row/line item instead of a mostly empty card.
+
+Each insurance property row should show useful insurance-related summary data.
+
+Insurance row display should include:
+- Property address
+- Correlated property type/occupancy: Primary / Second Home / Investment
+- Matched source if useful: Purchase / Refinance / Manual
+- Annual premium
+- Monthly premium, if calculated
+- Rebuild cost / Coverage A
+- AOP deductible
+- Hurricane/wind deductible
+- Flood deductible, if applicable
+- Carrier, if available
+- Policy type, if available: HO3, HO6, DP3, flood, condo master, etc.
+- Policy status, if available: estimate, quoted, bound, active, renewal, missing data
+- Last updated date
+- Action button: View / Edit
+
+Preferred layout:
+Use the same visual structure as the Purchase and Refinance dashboard property rows:
+- Compact horizontal line item
+- Address on the left
+- Key numbers across the row
+- View/Edit action on the right
+- Responsive layout for mobile
+
+Do not use the current empty card layout unless the card is redesigned to include the same useful data.
+
+Data handling:
+- If a value is missing, show a clean placeholder like “—” or “Not entered.”
+- Do not show blank empty areas.
+- Format money values clearly:
+  - `$3,250/yr`
+  - `$271/mo`
+  - `$650,000`
+- Format deductibles clearly:
+  - `$2,500 AOP`
+  - `2% hurricane`
+  - `$1,000 flood`
+- Make sure the row pulls data from the existing insurance scenario/property record.
+- If insurance data is currently stored under a different object than purchase/refinance, map it into the row summary.
+
+Automatic address correlation:
+If an insurance property address matches an address already saved under the Purchase or Refinance tabs, the insurance record should automatically correlate to that same property.
+
+Example:
+- Purchase tab has: 3102 W Nassau St — Primary Residence
+- Insurance tab has: 3102 W Nassau St
+- The Insurance tab should automatically recognize this as the same property and start correlated to the Purchase property record.
+- If Refinance has the same address, it should also be considered part of the same property relationship.
+
+Correlation should be based on:
+- normalized address key
+- street number
+- normalized street name
+- unit number, if applicable
+- ZIP5
+- state
+
+Do not rely only on city because Google/Zillow may use different city names for the same address.
+
+Primary/secondary/investment logic:
+When an insurance record matches a Purchase or Refinance property, automatically pull or display the occupancy type from the matching record:
+- primary residence
+- second home
+- investment property
+
+The Insurance tab should start with this matched/correlated occupancy type.
+
+But the user must be able to change it:
+- The correlation should be automatic as the default.
+- The user should be able to override/change the linked property or occupancy type manually.
+- If changed manually, save that override.
+- Do not keep forcing the automatic match after the user overrides it.
+
+Suggested fields:
+- `linkedPropertyId`
+- `linkedPurchaseScenarioId`
+- `linkedRefinanceScenarioId`
+- `normalizedPropertyKey`
+- `occupancyType`
+- `occupancySource`: `"purchase" | "refinance" | "insurance_manual" | "unknown"`
+- `correlationSource`: `"auto_address_match" | "manual_override" | "none"`
+
+Matching rules:
+1. When loading the Insurance tab, generate normalized property keys for insurance records.
+2. Compare them against normalized keys from Purchase and Refinance records.
+3. If there is one clear match, auto-link the records.
+4. If both Purchase and Refinance match the same address:
+   - Prefer the one with the most recently updated occupancy type, or
+   - Prefer Purchase if Refinance does not have a clearer occupancy value.
+5. If there are multiple conflicting matches, do not guess silently.
+   - Show “Possible match” and allow the user to select the correct linked property.
+6. Once the user manually changes the linked property or occupancy type, preserve that manual override.
+
+Important:
+- Address correlation should not merge or overwrite full scenario data.
+- It should only link related records and prefill/display shared property-level information.
+- Do not let an Insurance edit overwrite Purchase or Refinance data unless intentionally designed later.
+- Do not use array indexes for matching.
+- Use stable IDs and normalized property keys.
+- Keep this compatible with the Zillow/property cache normalized key logic.
+- Keep stable property/scenario IDs so clicking the row opens the correct insurance record.
+- Do not break the Purchase or Refinance dashboard views.
+
+Auto-save/dashboard consistency:
+- If a user edits insurance details, the dashboard row should update automatically.
+- If Zillow/property cache data provides rebuild cost or property details, show those where relevant.
+- If QuoteRush/carrier quote data exists later, the row should be able to display premium/carrier/deductibles from that data.
+
+Implementation requirements:
+1. Find the Dashboard → Insurance tab component.
+2. Replace or refactor the current property card list into a compact row/table/list layout.
+3. Match the style and spacing of the Purchase and Refinance dashboard views.
+4. Add a reusable insurance row summary component if appropriate.
+5. Pull and display existing insurance fields:
+   - address
+   - occupancy/property type correlation
+   - matched source
+   - premium
+   - rebuild cost / Coverage A
+   - deductibles
+   - carrier
+   - policy type
+   - status
+   - last updated
+6. Add fallback placeholders for missing values.
+7. Make each row clickable or include a View/Edit button to open the insurance scenario.
+8. Add automatic address correlation between Insurance, Purchase, and Refinance records using normalized property keys.
+9. Preserve manual overrides for linked property and occupancy type.
+10. Do not break the Purchase or Refinance dashboard views.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Insurance.
+3. Confirm properties are displayed as compact line items, not empty cards.
+4. Confirm each row shows the address plus insurance data.
+5. Confirm missing data shows clean placeholders, not empty boxes.
+6. Confirm premium, rebuild cost, and deductibles display if available.
+7. Confirm clicking View/Edit opens the correct insurance property/scenario.
+8. Confirm the layout visually matches Purchase and Refinance dashboard rows.
+9. Confirm mobile view remains readable.
+10. Confirm Purchase and Refinance tabs are unchanged.
+11. Add a purchase property with occupancy type Primary Residence.
+12. Add an insurance property with the same address.
+13. Confirm the Insurance row automatically shows Primary Residence and is linked to that purchase property.
+14. Add a refinance property with the same address.
+15. Confirm the Insurance row recognizes the relationship without duplicating or overwriting data.
+16. Manually change the Insurance occupancy type to Investment.
+17. Confirm the manual change is saved and not overwritten by auto-correlation.
+18. Add another insurance property with no matching purchase/refinance address.
+19. Confirm it shows Unknown or Not selected until user chooses.
+20. Confirm the Insurance tab still uses the compact line-item view, not empty cards.
+
+Please make the smallest safe code change possible and tell me:
+- Which Insurance dashboard component was changed
+- Which fields are now displayed
+- Whether a reusable row component was created
+- How missing insurance data is handled
+- How address normalization/correlation works
+- How manual overrides are saved and preserved
+- Which files/functions were changed
