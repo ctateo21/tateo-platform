@@ -770,6 +770,18 @@ interface InsuranceRow {
   linkedSources: ("Purchase" | "Refinance" | "Insurance")[];
 }
 
+/**
+ * Build merged rows from insurance + purchase + refi records.
+ *
+ * IMPORTANT: returns rows for EVERY unique property, including those with
+ * no insurance record yet. The InsuranceTab is responsible for splitting
+ * these into:
+ *   - "Insurance records" (row.insurance != null)
+ *   - "Available properties — start insurance estimate" (row.insurance == null)
+ * so a refinance/purchase property is never displayed AS an insurance
+ * record. Correlation metadata (linked Purchase/Refinance badges,
+ * occupancy derived from refi) still enriches actual insurance rows.
+ */
 function buildInsuranceRows(
   insuranceScenarios: InsuranceScenario[],
   purchaseScenarios: PurchaseScenario[],
@@ -898,17 +910,24 @@ function InsuranceTab() {
     return subscribeAuthChange(sync);
   }, []);
 
-  const rows = buildInsuranceRows(insurance, purchases, loans);
-  // overrideBump deliberately participates in render via this ref read so
-  // the lint rule below stays happy without complicating the hook deps.
+  const allRows = buildInsuranceRows(insurance, purchases, loans);
+  // overrideBump deliberately participates in render so the lint rule below
+  // stays happy without complicating hook deps.
   void overrideBump;
+
+  // Split: only rows with an actual InsuranceScenario count as Insurance
+  // records. Rows that only have Purchase/Refinance correlation appear in
+  // a separate "Available properties" suggestion section — they are NOT
+  // displayed as if they were insurance records.
+  const insuranceRows = allRows.filter(r => r.insurance != null);
+  const availableRows = allRows.filter(r => r.insurance == null);
 
   function handleOccupancyChange(key: string, next: OccupancyType) {
     setOccupancyOverride(key, next);
     setOverrideBump(n => n + 1);
   }
 
-  if (rows.length === 0) {
+  if (insuranceRows.length === 0 && availableRows.length === 0) {
     return (
       <EmptyState
         icon={<Shield className="h-12 w-12" />}
@@ -921,16 +940,85 @@ function InsuranceTab() {
   }
 
   return (
-    <div className="space-y-3">
-      {rows.map(row => (
-        <InsuranceRowCard
-          key={row.key}
-          row={row}
-          onOccupancyChange={next => handleOccupancyChange(row.key, next)}
-          onOpen={() => setLocation(`/insurance?address=${encodeURIComponent(row.address)}`)}
-        />
-      ))}
+    <div className="space-y-6">
+      {/* Insurance records — actual InsuranceScenario rows only */}
+      <div className="space-y-3">
+        <div className="flex items-baseline gap-2">
+          <h3 className="text-sm font-semibold">Insurance Records</h3>
+          <span className="text-xs text-muted-foreground">
+            {insuranceRows.length} saved
+          </span>
+        </div>
+        {insuranceRows.length === 0 ? (
+          <Card>
+            <CardContent className="py-8 text-center text-sm text-muted-foreground">
+              No insurance estimates yet. Start one from any available property below.
+            </CardContent>
+          </Card>
+        ) : (
+          insuranceRows.map(row => (
+            <InsuranceRowCard
+              key={row.key}
+              row={row}
+              onOccupancyChange={next => handleOccupancyChange(row.key, next)}
+              onOpen={() => setLocation(`/insurance?address=${encodeURIComponent(row.address)}`)}
+            />
+          ))
+        )}
+      </div>
+
+      {/* Available properties from Purchase / Refinance — clearly labeled
+          as suggestions, not as existing insurance records. */}
+      {availableRows.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-baseline gap-2">
+            <h3 className="text-sm font-semibold">Available Properties</h3>
+            <span className="text-xs text-muted-foreground">
+              From your Purchase &amp; Refinance — start an insurance estimate
+            </span>
+          </div>
+          {availableRows.map(row => (
+            <AvailablePropertyRow
+              key={row.key}
+              row={row}
+              onStart={() => setLocation(`/insurance?address=${encodeURIComponent(row.address)}`)}
+            />
+          ))}
+        </div>
+      )}
     </div>
+  );
+}
+
+function AvailablePropertyRow({
+  row, onStart,
+}: {
+  row: InsuranceRow;
+  onStart: () => void;
+}) {
+  return (
+    <Card className="hover:shadow-md transition-shadow border-dashed">
+      <CardContent className="py-3">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex items-start gap-2 flex-1 min-w-0">
+            <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="font-medium text-sm leading-snug truncate">{row.address}</p>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {row.linkedSources.map(src => (
+                  <Badge key={src} variant="secondary" className="text-[10px] py-0 px-1.5">
+                    From {src}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          </div>
+          <Button size="sm" variant="outline" className="gap-2 shrink-0" onClick={onStart}>
+            <Shield className="h-3.5 w-3.5" /> Start Insurance Estimate
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

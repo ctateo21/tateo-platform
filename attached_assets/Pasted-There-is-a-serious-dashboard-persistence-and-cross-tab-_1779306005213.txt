@@ -1,0 +1,122 @@
+There is a serious dashboard persistence and cross-tab data separation bug.
+
+Current behavior after logout/login:
+1. I logged out and logged back in.
+2. My Purchase dashboard was empty.
+3. My Refinance dashboard still had the properties tied to uploaded mortgage statements.
+4. My Insurance tab is showing the refinance properties too.
+
+This is incorrect.
+
+Expected behavior:
+- Purchase tab properties should never disappear after logout/login unless the user manually deletes them.
+- Refinance tab should show only refinance records.
+- Insurance tab should show only insurance records, unless intentionally correlated as linked properties.
+- Correlation does not mean copying refinance properties into the Insurance tab as insurance records.
+- Purchase, Refinance, and Insurance records must remain separated by flow/type.
+
+Critical rules:
+1. Purchase properties must persist permanently for the logged-in user unless deleted.
+2. Purchase properties must be saved to Supabase immediately after address selection.
+3. Purchase dashboard must load saved purchase records after refresh, logout/login, and navigation.
+4. Refinance properties must not appear as Insurance records.
+5. Insurance tab can show a linked/correlated occupancy/address relationship, but it should not create or display refinance records as insurance rows unless there is an actual insurance record.
+6. Do not rely on local/session state for Purchase dashboard records.
+7. Do not filter Purchase records out accidentally because they do not have uploaded documents or mortgage statements.
+
+Likely issues to inspect:
+- Purchase records are not being persisted to the same durable database pattern as Refinance.
+- Purchase records may be saved locally but not inserted/upserted into Supabase.
+- Purchase records may be missing `user_id`.
+- Purchase records may be missing `flow_type = "purchase"` or equivalent.
+- Purchase records may be saved but the dashboard query is not loading them.
+- Purchase records may be filtered out because they lack mortgage statement uploads.
+- Refinance records may be reused as generic property records and displayed in Insurance without checking flow/type.
+- Insurance tab auto-correlation may be incorrectly rendering linked Refinance properties as insurance records.
+- Dashboard loader may be merging all properties across flows without proper filtering.
+- Scenario IDs may be regenerated on login, causing Purchase records to appear missing.
+- Purchase properties may only exist in front-end state and disappear on logout.
+
+Fix requirements:
+
+A. Purchase persistence
+1. When a logged-in user adds/selects an address in Purchase Flow → Property Estimate, immediately create/upsert a durable purchase scenario record in Supabase.
+2. Save:
+   - user ID
+   - stable scenario/property ID
+   - full formatted address
+   - normalized property key
+   - flow/type = purchase
+   - created_at
+   - updated_at
+   - purchase estimate values
+   - Zillow/cache data when available
+   - user-edited values
+3. On logout/login, dashboard load must query saved purchase records from Supabase and display them.
+4. Purchase records should remain until explicitly deleted by the user.
+5. Do not require a mortgage statement, uploaded document, or completed questionnaire for a purchase record to appear.
+
+B. Dashboard tab filtering
+1. Purchase tab should load only purchase records.
+2. Refinance tab should load only refinance records.
+3. Insurance tab should load only insurance records.
+4. If there is a shared property table, every dashboard row must still be filtered by flow/scenario type or by an explicit relationship table.
+5. Do not show refinance records in the Insurance tab as if they are insurance records.
+
+C. Insurance correlation correction
+1. Insurance can correlate to Purchase or Refinance by normalized address key.
+2. But correlation should only add linked metadata to an existing insurance record.
+3. Do not create an insurance row just because a refinance record exists.
+4. If the Insurance tab has no insurance scenario/record for an address, do not show that address as an insurance property row unless there is a deliberate “Create insurance estimate” action.
+5. If you want to show a suggested linked property, label it separately as “Available property — start insurance estimate,” not as an existing insurance record.
+
+D. Stable IDs and no overwrites
+1. Use stable scenario/property IDs.
+2. Do not use array index as the identifier.
+3. Adding a new purchase property should append a new purchase record, not replace old records.
+4. Zillow/cache updates should update the same purchase record by stable ID.
+5. Refinance updates should not touch purchase records.
+6. Insurance updates should not touch purchase/refinance records except for saved link/correlation metadata.
+
+E. Delete behavior
+1. Add/confirm delete behavior is the only normal way a Purchase dashboard property disappears.
+2. If a user deletes a purchase property, then remove/archive it.
+3. Otherwise, keep it visible.
+
+Debugging required:
+Please add temporary logs or inspect:
+- Purchase scenario created: ID, user_id, flow/type, address
+- Purchase save/upsert response from Supabase
+- Purchase dashboard query after login
+- Number of purchase records returned
+- Refinance dashboard query and filters
+- Insurance dashboard query and filters
+- Any function that merges purchase/refinance/insurance records into one list
+- Any filtering that requires mortgage statement uploads
+- Any code that shows refinance records inside Insurance tab
+
+Acceptance test:
+1. Log in.
+2. Add a purchase property address.
+3. Confirm it appears in Purchase dashboard.
+4. Log out.
+5. Log back in.
+6. Confirm Purchase dashboard still shows that property.
+7. Refresh the browser.
+8. Confirm Purchase dashboard still shows that property.
+9. Add a second purchase property.
+10. Confirm both purchase properties persist.
+11. Confirm Refinance dashboard shows only refinance records.
+12. Confirm Insurance dashboard does not show refinance records as insurance rows.
+13. Confirm Insurance only shows actual insurance records.
+14. Confirm Insurance can still correlate to matching purchase/refinance addresses after an insurance record exists.
+15. Delete a purchase property.
+16. Confirm it disappears only after deletion.
+
+Please make the smallest safe code change possible and tell me:
+- Why Purchase records disappeared after logout/login
+- Why Refinance records were showing in Insurance
+- Which Supabase table/query/filter was wrong
+- How Purchase records are now saved permanently
+- How dashboard tabs are now filtered by flow/type
+- Which files/functions were changed
