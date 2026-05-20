@@ -44,6 +44,7 @@ export interface PurchaseScenario {
   qualifies?: boolean;
   downPaymentPct?: number;
   loanType?: string;
+  occupancy?: "primary" | "secondary" | "investment";
 }
 
 export interface InsuranceScenario {
@@ -52,6 +53,12 @@ export interface InsuranceScenario {
   savedAt: string;
   annualPremium?: number;
   coverageType?: string;
+  // Property-use carryover from Purchase / Refinance. See
+  // shared/property-key.ts and the auto-fill effect in pages/insurance.tsx.
+  occupancyType?: "primary" | "secondary" | "investment";
+  occupancySource?: "purchase" | "refinance" | "insurance_manual" | "unknown";
+  linkedPurchaseScenarioId?: string;
+  linkedRefinanceScenarioId?: string;
 }
 
 export type TrackedLoanPropertyType = "primary" | "secondary" | "investment";
@@ -120,6 +127,7 @@ function rowToPurchase(row: any): PurchaseScenario {
     qualifies: row.qualifies ?? undefined,
     downPaymentPct: row.down_payment_pct ?? undefined,
     loanType: row.loan_type ?? undefined,
+    occupancy: row.occupancy ?? undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -137,6 +145,7 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     qualifies: s.qualifies ?? null,
     down_payment_pct: s.downPaymentPct ?? null,
     loan_type: s.loanType ?? null,
+    occupancy: s.occupancy ?? null,
   };
 }
 function rowToInsurance(row: any): InsuranceScenario {
@@ -146,6 +155,10 @@ function rowToInsurance(row: any): InsuranceScenario {
     savedAt: row.saved_at,
     annualPremium: row.annual_premium ?? undefined,
     coverageType: row.coverage_type ?? undefined,
+    occupancyType: row.occupancy_type ?? undefined,
+    occupancySource: row.occupancy_source ?? undefined,
+    linkedPurchaseScenarioId: row.linked_purchase_scenario_id ?? undefined,
+    linkedRefinanceScenarioId: row.linked_refinance_scenario_id ?? undefined,
   };
 }
 function insuranceToRow(s: InsuranceScenario, userId: string) {
@@ -156,6 +169,10 @@ function insuranceToRow(s: InsuranceScenario, userId: string) {
     saved_at: s.savedAt,
     annual_premium: s.annualPremium ?? null,
     coverage_type: s.coverageType ?? null,
+    occupancy_type: s.occupancyType ?? null,
+    occupancy_source: s.occupancySource ?? null,
+    linked_purchase_scenario_id: s.linkedPurchaseScenarioId ?? null,
+    linked_refinance_scenario_id: s.linkedRefinanceScenarioId ?? null,
   };
 }
 function rowToTrackedLoan(row: any): TrackedLoan {
@@ -219,7 +236,6 @@ async function loadScenarios(userId: string) {
     supabase.from("insurance_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
-  console.log("[purchase-debug] loadScenarios SELECT purchase_scenarios", { userId, error: pRes.error?.message, rawCount: pRes.data?.length, rawRows: pRes.data });
   const dbPurchases  = (pRes.data ?? []).map(rowToPurchase);
   const dbInsurance  = (iRes.data ?? []).map(rowToInsurance);
   const dbLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
@@ -536,15 +552,14 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
   // execution can never cause us to write Account A's data into Account B's
   // rows. If the user has changed by the time the queue drains, drop it.
   const userId = _session?.id;
-  console.log("[purchase-debug] persist enqueue", { userId, sessionEmail: _session?.email, count: s.length, ids: s.map(x=>x.id), addresses: s.map(x=>x.address) });
-  if (!userId) { console.warn("[purchase-debug] persist ABORT no userId — _session=", _session); return Promise.resolve(); }
+  if (!userId) return Promise.resolve();
   // Snapshot hydration state at enqueue time too — if hydration races and
   // completes between enqueue and execution, we still want the original
   // intent (upsert-only) honored so we don't accidentally delete the rows
   // the SELECT just loaded but the caller's `s` array doesn't yet know about.
   const wasHydrated = _scenariosHydratedFor === userId;
   return enqueueWrite("purchase_scenarios", async () => {
-    if (_session?.id !== userId) { console.warn("[purchase-debug] persist ABORT user changed"); return; }
+    if (_session?.id !== userId) return; // user changed; abort this stale job
     // HYDRATION GATE: if the cache for this user wasn't fully loaded from
     // Supabase yet, the in-memory `s` array doesn't represent the user's
     // full set — it's just the rows the current session knows about. A
@@ -562,14 +577,9 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
       }
     }
     if (s.length > 0) {
-      const payload = s.map(x => purchaseToRow(x, userId));
-      console.log("[purchase-debug] upsert -> purchase_scenarios", { wasHydrated, count: payload.length, payload });
-      const { data, error } = await supabase
+      await supabase
         .from("purchase_scenarios")
-        .upsert(payload, { onConflict: "id" })
-        .select();
-      if (error) console.error("[purchase-debug] upsert ERROR", error);
-      else console.log("[purchase-debug] upsert OK rows returned=", data?.length, data);
+        .upsert(s.map(x => purchaseToRow(x, userId)), { onConflict: "id" });
     }
   });
 }

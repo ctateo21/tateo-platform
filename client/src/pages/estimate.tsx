@@ -1711,27 +1711,28 @@ export default function Estimate() {
   // Deps intentionally exclude `inputs`/`calc` so this fires ONCE per new
   // address, not on every edit. The debounced effect owns updates.
   useEffect(() => {
-    console.log("[purchase-debug] immediate-save effect fired", { isAuthenticated, address });
-    if (!isAuthenticated) { console.log("[purchase-debug] immediate-save SKIP not authenticated"); return; }
-    if (!address || address === "Unknown Address") { console.log("[purchase-debug] immediate-save SKIP no address"); return; }
+    if (!isAuthenticated) return;
+    if (!address || address === "Unknown Address") return;
     const existing = getPurchaseScenarios();
     const key = address.trim().toLowerCase();
-    if (existing.some(s => s.address.trim().toLowerCase() === key)) { console.log("[purchase-debug] immediate-save SKIP address already saved", { existingCount: existing.length }); return; }
-    const newRow = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      address,
-      savedAt: new Date().toISOString(),
-      price: inputs.purchasePrice,
-      monthlyPayment: Math.round(calc.totalHousing),
-      cashToClose: Math.round(calc.cashToClose),
-      dti: calc.dti,
-      qualifies: calc.qualifies,
-      downPaymentPct: inputs.downPaymentPct,
-      interestRate: inputs.interestRate,
-      loanType: inputs.loanType,
-    };
-    console.log("[purchase-debug] immediate-save ADDING new row", newRow);
-    savePurchaseScenarios([...existing, newRow]);
+    if (existing.some(s => s.address.trim().toLowerCase() === key)) return;
+    savePurchaseScenarios([
+      ...existing,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        address,
+        savedAt: new Date().toISOString(),
+        price: inputs.purchasePrice,
+        monthlyPayment: Math.round(calc.totalHousing),
+        cashToClose: Math.round(calc.cashToClose),
+        dti: calc.dti,
+        qualifies: calc.qualifies,
+        downPaymentPct: inputs.downPaymentPct,
+        interestRate: inputs.interestRate,
+        loanType: inputs.loanType,
+        occupancy: inputs.occupancy,
+      },
+    ]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, address]);
 
@@ -1767,6 +1768,7 @@ export default function Estimate() {
           downPaymentPct: inputs.downPaymentPct,
           interestRate: inputs.interestRate,
           loanType: inputs.loanType,
+          occupancy: inputs.occupancy,
         };
         if (idx >= 0) {
           // Only write if something actually changed (avoid noisy storage writes)
@@ -1779,6 +1781,7 @@ export default function Estimate() {
             && cur.downPaymentPct === next.downPaymentPct
             && cur.interestRate === next.interestRate
             && cur.loanType === next.loanType
+            && cur.occupancy === next.occupancy
             && cur.address === address;
           if (!same) {
             const updated = [...existing];
