@@ -1698,6 +1698,43 @@ export default function Estimate() {
     };
   }, [inputs]);
 
+  // IMMEDIATE persistence — mirrors the Refinance tab's `updateLoans` pattern
+  // (refinance.tsx:101-107) which fires `saveTrackedLoans` synchronously on
+  // every add. The Purchase flow previously relied SOLELY on the 800ms
+  // debounced effect below; if the user added a property and navigated away
+  // within 800ms, the cleanup `clearTimeout(handle)` cancelled the pending
+  // write and the property never reached Supabase. This effect closes that
+  // gap by ensuring every new address has a dashboard row the instant it
+  // becomes the active address — the debounced effect below then handles
+  // subsequent value updates (price, P&I, DTI, etc.) in place.
+  //
+  // Deps intentionally exclude `inputs`/`calc` so this fires ONCE per new
+  // address, not on every edit. The debounced effect owns updates.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (!address || address === "Unknown Address") return;
+    const existing = getPurchaseScenarios();
+    const key = address.trim().toLowerCase();
+    if (existing.some(s => s.address.trim().toLowerCase() === key)) return;
+    savePurchaseScenarios([
+      ...existing,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        address,
+        savedAt: new Date().toISOString(),
+        price: inputs.purchasePrice,
+        monthlyPayment: Math.round(calc.totalHousing),
+        cashToClose: Math.round(calc.cashToClose),
+        dti: calc.dti,
+        qualifies: calc.qualifies,
+        downPaymentPct: inputs.downPaymentPct,
+        interestRate: inputs.interestRate,
+        loanType: inputs.loanType,
+      },
+    ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, address]);
+
   // Auto-save / update this estimate on the user's dashboard when they're logged in.
   // Debounced so rapid input changes don't thrash storage. Status is written
   // to the SPECIFIC scenario id (snapshotted at effect start), so even if the
