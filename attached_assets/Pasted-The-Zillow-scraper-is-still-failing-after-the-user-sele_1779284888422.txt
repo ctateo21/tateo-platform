@@ -1,0 +1,135 @@
+The Zillow scraper is still failing after the user selects a valid Google Maps address.
+
+Screenshot evidence:
+The Apify Zillow Detail Scraper ran successfully, but the output says:
+
+Address sent:
+4311 63rd Way N, St. Petersburg, FL 33709, USA
+
+Result:
+Invalid address or Zillow has no data for this address
+
+Issue:
+Google Maps is formatting this property as St. Petersburg, FL, but Zillow recognizes this same property under a different municipality, likely Kenneth City, FL. The scraper is treating the Google Maps formatted address as the only possible valid address and is failing.
+
+This needs a more reliable Zillow lookup flow.
+
+Current broken flow:
+1. User selects a valid address from Google Maps autocomplete.
+2. App sends the Google formatted address directly to the Zillow Detail Scraper.
+3. Zillow scraper returns invalid because Zillow does not recognize that exact city/address formatting.
+4. No Zillow data updates the property estimate.
+
+Expected behavior:
+The app should still find the Zillow property even when Google Maps and Zillow use different city names.
+
+Required fix:
+Do not rely only on the Google Maps formatted address string.
+
+Instead, create a Zillow lookup fallback system:
+
+Primary attempt:
+- Send the full Google formatted address to the Zillow scraper.
+
+If that fails:
+1. Try the same address without “USA.”
+2. Try street + ZIP only.
+   Example:
+   4311 63rd Way N 33709
+3. Try street + ZIP + state.
+   Example:
+   4311 63rd Way N, FL 33709
+4. Try known alternate city names from the same ZIP/county if available.
+   Example:
+   4311 63rd Way N, Kenneth City, FL 33709
+5. If the detail scraper requires an exact Zillow URL or zpid, first run a Zillow search actor/API using street + ZIP, find the best matching result, then pass the Zillow URL/zpid into the detail scraper.
+
+Important validation rule:
+City should not be a hard requirement.
+
+Accept a Zillow result if:
+- Street number matches
+- Normalized street name matches
+- ZIP5 matches
+- State matches
+
+Even if:
+- Google city = St. Petersburg
+- Zillow city = Kenneth City
+
+Hard reject only if:
+- Street number is different
+- ZIP/state are different
+- Street name is clearly different
+- Coordinates are far away
+- Zillow result is clearly a different property
+
+Address normalization requirements:
+- Strip “USA” before Zillow lookup retries.
+- Compare ZIP5 only.
+- Normalize capitalization and punctuation.
+- Normalize street suffixes:
+  - Street/St
+  - Avenue/Ave
+  - Road/Rd
+  - Drive/Dr
+  - Boulevard/Blvd
+  - Lane/Ln
+  - Way/Wy
+  - Court/Ct
+  - Place/Pl
+- Compare house number separately from street name.
+- Treat city mismatch as a warning, not a failure.
+
+Specific example that must work:
+Google Maps selected address:
+4311 63rd Way N, St. Petersburg, FL 33709, USA
+
+If Zillow recognizes it as:
+4311 63rd Way N, Kenneth City, FL 33709
+
+The app should accept it and update the property estimate.
+
+Also inspect the Apify actor requirements:
+- Confirm whether the current Zillow Detail Scraper accepts a plain address.
+- If it works better with Zillow URLs or zpids, change the flow so the app first searches Zillow by address/ZIP, gets the Zillow URL/zpid, then runs the detail scraper.
+- Do not assume the Google formatted address is enough for the detail scraper.
+
+Implementation requirements:
+1. Add a Zillow address-resolution function before the detail scrape.
+2. Try multiple address formats when the first scrape fails.
+3. If needed, use a Zillow search step to find the Zillow URL/zpid.
+4. Validate the Zillow result using street number, street name, ZIP, and state.
+5. Accept city mismatches when the stronger identifiers match.
+6. Once valid Zillow data is found, merge it into the correct property estimate tab by stable property ID.
+7. Update the visible Property Estimate fields automatically.
+8. Keep the loading bar active while retries/search are happening.
+9. Show “Pulling Zillow data…” while running.
+10. Show “Zillow data updated” when successful.
+11. Show “Zillow data unavailable — using default estimates” only after all retry/search attempts fail.
+
+Add temporary debug logs:
+- Google formatted address
+- Parsed street number
+- Parsed street name
+- Parsed city
+- Parsed state
+- Parsed ZIP
+- Each Zillow lookup attempt string
+- Whether each lookup attempt succeeded or failed
+- If Zillow search is used, log candidate results
+- Selected Zillow URL/zpid
+- Google city vs Zillow city
+- Validation match fields
+- Final accept/reject decision
+- Fields pushed into Property Estimate
+
+Acceptance test:
+1. Enter/select: 4311 63rd Way N, St. Petersburg, FL 33709, USA.
+2. Confirm first Zillow lookup may fail.
+3. Confirm fallback lookup tries street + ZIP and/or alternate city.
+4. Confirm Zillow result is accepted if it returns Kenneth City, FL with the same street and ZIP.
+5. Confirm the property estimate fields update automatically.
+6. Confirm the app does not reject valid Zillow data only because the city differs.
+
+Please make the smallest safe code change possible and tell me exactly which files/components/functions were changed.

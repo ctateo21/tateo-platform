@@ -179,13 +179,22 @@ interface ParsedAddr {
   zip5?: string;
 }
 
+/** Drop Google's trailing country tag so it doesn't confuse the parser. */
+function stripCountrySuffix(addr: string): string {
+  return addr.replace(/,\s*(USA|United States(?:\s+of\s+America)?)\s*\.?\s*$/i, "").trim();
+}
+
 /**
  * Parse a free-form address string of the shape
- *   "4311 63rd Way N, St. Petersburg, FL 33709"
- * Tolerant: any missing piece simply comes back undefined.
+ *   "4311 63rd Way N, St. Petersburg, FL 33709, USA"
+ * Tolerant: any missing piece simply comes back undefined. The state/ZIP
+ * tail is searched across ALL comma-separated parts (not just the last)
+ * so a trailing "USA" or other noise doesn't strand state+zip in the
+ * middle of the array.
  */
 function parseAddressString(addr: string): ParsedAddr {
-  const parts = addr.split(",").map(s => s.trim()).filter(Boolean);
+  const cleaned = stripCountrySuffix(addr);
+  const parts = cleaned.split(",").map(s => s.trim()).filter(Boolean);
   const out: ParsedAddr = {};
   const street = parts[0] ?? "";
   const m = street.match(/^(\d+\w?)\s+(.+)$/);
@@ -193,18 +202,25 @@ function parseAddressString(addr: string): ParsedAddr {
     out.streetNum = m[1];
     out.streetName = normalizeStreetName(m[2]);
   }
-  // City is typically parts[1] when a "<state> <zip>" tail exists.
-  const last = parts[parts.length - 1] ?? "";
-  const sz = last.match(/\b([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?\b/);
-  if (sz) {
-    out.state = sz[1].toUpperCase();
-    out.zip5 = sz[2];
+  // Find "<state> <zip5>" anywhere in the parts (handles cases where a
+  // country suffix or stray fragment ended up at the tail).
+  let szIdx = -1;
+  for (let i = parts.length - 1; i >= 1; i--) {
+    const sz = parts[i].match(/\b([A-Za-z]{2})\s+(\d{5})(?:-\d{4})?\b/);
+    if (sz) {
+      out.state = sz[1].toUpperCase();
+      out.zip5 = sz[2];
+      szIdx = i;
+      break;
+    }
   }
-  if (parts.length >= 3) {
-    out.cityRaw = parts[1];
-    out.city = normalizeCity(parts[1]);
-  } else if (parts.length === 2 && !sz) {
-    // "Street, City" without state/zip — best effort.
+  // City sits between the street and the state/zip part. If we found
+  // state+zip at index N, the city is at N-1 (when N-1 > 0). Otherwise
+  // fall back to parts[1] if it's the only piece after the street.
+  if (szIdx > 1) {
+    out.cityRaw = parts[szIdx - 1];
+    out.city = normalizeCity(parts[szIdx - 1]);
+  } else if (szIdx === -1 && parts.length >= 2) {
     out.cityRaw = parts[1];
     out.city = normalizeCity(parts[1]);
   }
@@ -628,22 +644,54 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
     return null;
   };
 
-  // Attempt 1: query Apify with the address exactly as the caller provided
-  // it. This is the cheapest path and works for most properties.
-  let rows = await runApify(input);
-  let picked = rows.length > 0 ? pickAcceptable(rows, "attempt1") : null;
+  // Build an ordered list of query variants to try. We start with the
+  // caller's input as-is, then progressively strip pieces that Zillow's
+  // geocoder is known to choke on (country suffix, then city). Each
+  // variant is tried at most once; duplicates are deduped so a property
+  // with a missing field doesn't burn extra Apify calls.
+  const variants: string[] = [];
+  const pushVariant = (s: string | undefined | null) => {
+    const v = (s ?? "").trim().replace(/\s+/g, " ");
+    if (v && !variants.includes(v)) variants.push(v);
+  };
 
-  // Attempt 2: if the first attempt didn't yield a row that passes our
-  // matcher (most commonly because Apify rejected the query due to a
-  // city/geocoder mismatch), retry once with the city stripped out.
-  // Required identifiers: street, state, ZIP. We only retry when those
-  // exist in the original input — otherwise the stripped query is too
-  // ambiguous to be useful.
-  if (!picked && googleParsed.streetNum && googleParsed.streetName && googleParsed.state && googleParsed.zip5) {
-    const stripped = `${googleParsed.streetNum} ${googleParsed.streetName}, ${googleParsed.state} ${googleParsed.zip5}`;
-    console.log(`[zillow-validate] attempt1 had no acceptable row (rows=${rows.length}); retrying without city:`, stripped);
-    const retryRows = await runApify(stripped);
-    picked = retryRows.length > 0 ? pickAcceptable(retryRows, "attempt2-no-city") : null;
+  pushVariant(input);
+  // Drop "USA" / "United States" — same data, but the actor sometimes
+  // geocodes the country-suffixed form to nothing.
+  pushVariant(stripCountrySuffix(input));
+  if (googleParsed.streetNum && googleParsed.streetName) {
+    const street = `${googleParsed.streetNum} ${googleParsed.streetName}`;
+    // "<street>, <state> <zip>" — city omitted entirely. Most-likely
+    // winner when Google and Zillow disagree on the city.
+    if (googleParsed.state && googleParsed.zip5) {
+      pushVariant(`${street}, ${googleParsed.state} ${googleParsed.zip5}`);
+    }
+    // "<street> <zip>" — even shorter; helps when the actor's
+    // state-parser is the failure point.
+    if (googleParsed.zip5) {
+      pushVariant(`${street} ${googleParsed.zip5}`);
+    }
+  }
+
+  console.log(`[zillow-validate] will try ${variants.length} address variant(s):`, variants);
+
+  let picked: { row: any; decision: MatchDecision } | null = null;
+  for (let i = 0; i < variants.length; i++) {
+    const variant = variants[i];
+    console.log(`[zillow-validate] attempt ${i + 1}/${variants.length}:`, variant);
+    let rows: unknown[];
+    try {
+      rows = await runApify(variant);
+    } catch (err: any) {
+      console.log(`[zillow-validate] attempt ${i + 1} threw:`, err?.message ?? err);
+      continue;
+    }
+    if (rows.length === 0) {
+      console.log(`[zillow-validate] attempt ${i + 1} returned 0 rows`);
+      continue;
+    }
+    picked = pickAcceptable(rows, `attempt${i + 1}`);
+    if (picked) break;
   }
 
   if (!picked) {
