@@ -198,9 +198,22 @@ const INS_CLAIM_ADJ = [1.00, 1.14, 1.26, 1.40];
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+/** Where the current purchasePrice value came from. Used to label the
+ *  purchase-price field while Zillow/cache is loading and to keep
+ *  user-typed values from being overwritten by background fetches. */
+type PurchasePriceSource =
+  | "default"
+  | "user"
+  | "zillow_listing"
+  | "zillow_zestimate"
+  | "zillow_sold"
+  | "zillow_cache";
+
 interface Inputs {
   occupancy: "primary" | "secondary" | "investment";
   purchasePrice: number;
+  /** Provenance of `purchasePrice`. Defaults to "default" on a new scenario. */
+  purchasePriceSource?: PurchasePriceSource;
   downPaymentPct: number;
   sellerConcessions: number;
   loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement";
@@ -245,8 +258,20 @@ interface Scenario {
   address: string;
   savedInputs: Inputs | null;
   placeMeta?: PlaceMeta;
-  /** Status of the background Zillow auto-fetch for this scenario. */
-  zillowStatus?: "loading" | "applied" | "unavailable";
+  /** Status of the background Zillow/cache lookup for this scenario.
+   *  - "loading":            request in flight (cache check or scrape).
+   *  - "loaded_from_cache":  served from Supabase property_cache.
+   *  - "loaded_from_zillow": fresh Apify scrape applied.
+   *  - "error":              lookup failed; defaults remain in use.
+   *  Legacy values ("applied"/"unavailable") are kept as aliases so older
+   *  code paths and any persisted state still render correctly. */
+  zillowStatus?:
+    | "loading"
+    | "applied"
+    | "unavailable"
+    | "loaded_from_cache"
+    | "loaded_from_zillow"
+    | "error";
   /**
    * Snapshot of the inputs we auto-populated when this scenario was first
    * created (defaults / carried-over values). When the Zillow scrape
@@ -258,7 +283,7 @@ interface Scenario {
 
 function makeDefaultInputs(price = 350000): Inputs {
   return {
-    occupancy: "primary", purchasePrice: price, downPaymentPct: 5, sellerConcessions: 0,
+    occupancy: "primary", purchasePrice: price, purchasePriceSource: "default", downPaymentPct: 5, sellerConcessions: 0,
     loanType: "conventional", creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
@@ -505,6 +530,10 @@ export default function Estimate() {
     setInputs(prev => ({
       ...prev,
       purchasePrice: p.purchasePrice ?? p.listingPrice ?? p.zestimate ?? prev.purchasePrice,
+      purchasePriceSource:
+        (p.purchasePrice ?? p.listingPrice ?? p.zestimate) != null
+          ? inferPriceSource(p, p.purchasePrice ?? p.listingPrice ?? p.zestimate ?? null, false)
+          : prev.purchasePriceSource,
       hoaMonthly: p.hoaMonthly ?? prev.hoaMonthly,
     }));
     if (p.address && p.address.trim().toLowerCase() !== address.trim().toLowerCase()) {
@@ -543,20 +572,44 @@ export default function Estimate() {
 
   // Pure merge: produce next inputs from current+baseline+Zillow, honoring
   // the "don't overwrite user edits" rule by comparing current vs baseline.
+  // When purchasePrice is replaced, also stamp its source so the UI can
+  // label it (e.g. "Source: Zillow sold price").
   function mergeZillowIntoInputs(
     current: Inputs,
     baseline: Inputs | undefined,
     zPrice: number | null,
     zHoa: number | null,
+    priceSource: PurchasePriceSource | null = null,
   ): Inputs {
     const next: Inputs = { ...current };
-    if (zPrice != null && (!baseline || current.purchasePrice === baseline.purchasePrice)) {
+    // Treat the field as user-edited if the source is "user" (explicit)
+    // or if the current value diverges from the baseline default.
+    const userEditedPrice =
+      current.purchasePriceSource === "user" ||
+      (baseline != null && current.purchasePrice !== baseline.purchasePrice);
+    if (zPrice != null && !userEditedPrice) {
       next.purchasePrice = zPrice;
+      if (priceSource) next.purchasePriceSource = priceSource;
     }
     if (zHoa != null && (!baseline || current.hoaMonthly === baseline.hoaMonthly)) {
       next.hoaMonthly = zHoa;
     }
     return next;
+  }
+
+  // Given a LookedUpProperty + cache flag + the resolved zPrice, infer
+  // which Zillow field actually populated the purchase price so the UI
+  // can show a precise source label.
+  function inferPriceSource(
+    p: LookedUpProperty,
+    zPrice: number | null,
+    fromCache: boolean,
+  ): PurchasePriceSource {
+    if (fromCache) return "zillow_cache";
+    if (zPrice == null) return "zillow_zestimate";
+    if (p.isSold && p.soldPrice != null && p.soldPrice === zPrice) return "zillow_sold";
+    if (p.listingPrice != null && p.listingPrice === zPrice) return "zillow_listing";
+    return "zillow_zestimate";
   }
 
   // Fire the background Zillow lookup for a specific scenario by id. Never
@@ -578,14 +631,17 @@ export default function Estimate() {
         const res = await apiRequest("POST", "/api/zillow-property-lookup", { addressOrUrl: addr });
         const body = await res.json();
         const p = body?.property as LookedUpProperty | undefined;
+        const fromCache: boolean = body?.cached === true;
         if (!p) {
           setScenarios(prev =>
-            prev.map(s => s.id === scenarioId ? { ...s, zillowStatus: "unavailable" } : s)
+            prev.map(s => s.id === scenarioId ? { ...s, zillowStatus: "error" } : s)
           );
           return;
         }
         const zPrice = p.purchasePrice ?? p.listingPrice ?? p.zestimate ?? null;
         const zHoa = p.hoaMonthly ?? null;
+        const priceSource = inferPriceSource(p, zPrice, fromCache);
+        const nextStatus = fromCache ? "loaded_from_cache" : "loaded_from_zillow";
         // Resolve active-ness from the ref so a tab switch mid-flight
         // doesn't cause us to mirror this update onto a different tab.
         const isActive = activeScenarioIdRef.current === scenarioId;
@@ -600,9 +656,9 @@ export default function Estimate() {
             // (typically stale) — the live `inputs` state is the source of
             // truth and is merged separately below.
             const baseSnapshot = s.savedInputs ?? s.baselineInputs ?? null;
-            if (!baseSnapshot) return { ...s, zillowStatus: "applied" };
-            const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa);
-            return { ...s, savedInputs: merged, zillowStatus: "applied" };
+            if (!baseSnapshot) return { ...s, zillowStatus: nextStatus };
+            const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa, priceSource);
+            return { ...s, savedInputs: merged, zillowStatus: nextStatus };
           })
         );
 
@@ -611,10 +667,10 @@ export default function Estimate() {
         // depend on React state timing or nest setter side effects.
         if (isActive) {
           const baseline = baselineByIdRef.current[scenarioId];
-          setInputs(curr => mergeZillowIntoInputs(curr, baseline, zPrice, zHoa));
+          setInputs(curr => mergeZillowIntoInputs(curr, baseline, zPrice, zHoa, priceSource));
           if (zPrice != null) {
             toast({
-              title: "Zillow data applied",
+              title: fromCache ? "Property data loaded from saved records" : "Zillow data applied",
               description: `Updated estimated price to ${new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(zPrice)}.`,
             });
           }
@@ -622,7 +678,7 @@ export default function Estimate() {
       } catch (err: any) {
         console.warn(`[zillow-auto] lookup failed for ${addr}:`, err?.message || err);
         setScenarios(prev =>
-          prev.map(s => s.id === scenarioId ? { ...s, zillowStatus: "unavailable" } : s)
+          prev.map(s => s.id === scenarioId ? { ...s, zillowStatus: "error" } : s)
         );
       }
     })();
@@ -877,7 +933,13 @@ export default function Estimate() {
     // Carry over the current borrower/purchase inputs so the user
     // doesn't re-enter everything for the new property. They can
     // still tweak anything on the new tab.
-    const carriedInputs: Inputs = { ...inputs };
+    //
+    // Reset `purchasePriceSource` to "default" for the new scenario:
+    // the carried-over price is a starting estimate for a different
+    // property, not a user edit for THIS property. Without this reset
+    // the merge guard would mistakenly treat the inherited "user" source
+    // as sticky and refuse to apply the new tab's Zillow/cache price.
+    const carriedInputs: Inputs = { ...inputs, purchasePriceSource: "default" };
     // Seed the ref-backed baseline map BEFORE the async Zillow fetch, so the
     // async callback can read the correct baseline regardless of React
     // state-update timing.
@@ -895,6 +957,13 @@ export default function Estimate() {
       },
     ]);
     setActive(newId);
+    // Mirror the reset carriedInputs into live state. Without this, live
+    // `inputs.purchasePriceSource` would still carry the prior tab's
+    // "user" marker, causing `mergeZillowIntoInputs` to skip applying the
+    // new tab's Zillow/cache price on the active tab. This keeps the
+    // active merge, the source label, and the new-scenario snapshot all
+    // consistent with the new-tab baseline.
+    setInputs(carriedInputs);
     // The new scenario object already carries `address: addr`, so the
     // URL→active-scenario sync effect must NOT run here — otherwise it
     // would fire during wouter's pre-batch intermediate render (with
@@ -1705,18 +1774,26 @@ export default function Estimate() {
                     aria-label="Pulling Zillow data"
                   />
                 )}
-                {sc.zillowStatus === "applied" && (
+                {(sc.zillowStatus === "applied" ||
+                  sc.zillowStatus === "loaded_from_zillow") && (
                   <span
                     className="inline-block h-2 w-2 rounded-full bg-emerald-500"
-                    title="Zillow data updated"
-                    aria-label="Zillow data updated"
+                    title="Property data updated from Zillow"
+                    aria-label="Property data updated from Zillow"
                   />
                 )}
-                {sc.zillowStatus === "unavailable" && (
+                {sc.zillowStatus === "loaded_from_cache" && (
+                  <span
+                    className="inline-block h-2 w-2 rounded-full bg-emerald-400"
+                    title="Property data loaded from saved records"
+                    aria-label="Property data loaded from saved records"
+                  />
+                )}
+                {(sc.zillowStatus === "unavailable" || sc.zillowStatus === "error") && (
                   <span
                     className="inline-block h-2 w-2 rounded-full bg-amber-400"
-                    title="Zillow data unavailable"
-                    aria-label="Zillow data unavailable"
+                    title="Property data unavailable"
+                    aria-label="Property data unavailable"
                   />
                 )}
                 {scenarios.length > 1 && (
@@ -1861,6 +1938,46 @@ export default function Estimate() {
           </div>
 
           <div className="max-w-2xl mx-auto space-y-4">
+
+            {/* Per-scenario property-data status banner. Shows loading,
+                cache-hit, fresh-zillow, or error feedback for the active
+                tab only. Tied to the active scenario's id — switching tabs
+                shows the status of the new tab, never the old one. */}
+            {(() => {
+              const sc = scenarios.find(s => s.id === activeScenarioId);
+              const status = sc?.zillowStatus;
+              if (!status || status === "applied") return null;
+              const cfg =
+                status === "loading"
+                  ? { msg: "Loading property data from Zillow…", cls: "bg-blue-50 border-blue-200 text-blue-800", pulse: true }
+                : status === "loaded_from_cache"
+                  ? { msg: "Property data loaded from saved records.", cls: "bg-emerald-50 border-emerald-200 text-emerald-800", pulse: false }
+                : status === "loaded_from_zillow"
+                  ? { msg: "Property data updated from Zillow.", cls: "bg-emerald-50 border-emerald-200 text-emerald-800", pulse: false }
+                : status === "error" || status === "unavailable"
+                  ? { msg: "Property data unavailable — using default estimates.", cls: "bg-amber-50 border-amber-200 text-amber-800", pulse: false }
+                : null;
+              if (!cfg) return null;
+              return (
+                <div
+                  className={`flex items-center gap-2 text-xs px-3 py-2 rounded-md border ${cfg.cls}`}
+                  data-testid="banner-property-data-status"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span
+                    className={`inline-block h-2 w-2 rounded-full ${cfg.pulse ? "bg-current animate-pulse" : "bg-current"}`}
+                    aria-hidden="true"
+                  />
+                  <span>{cfg.msg}</span>
+                  {cfg.pulse && (
+                    <span className="ml-auto text-[10px] opacity-70">
+                      Purchase price is being derived from property data.
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ── STEP 1: Borrower Profile ─── */}
             {step === 1 && (
@@ -2195,11 +2312,42 @@ export default function Estimate() {
                     onChange={(v) => setInputs((p) => ({
                       ...p,
                       purchasePrice: v,
+                      purchasePriceSource: "user",
                       annualTaxes: estimateAnnualTax(address, v, p.occupancy === "primary"),
                     }))}
                     min={50000} max={3000000} step={5000}
                     prefix="$"
                   />
+                  {/* Source label — tells the user where the purchase price
+                      came from so the default $350k isn't mistaken for a
+                      derived value while Zillow/cache is still loading. */}
+                  {(() => {
+                    const activeScenarioStatus =
+                      scenarios.find(s => s.id === activeScenarioId)?.zillowStatus;
+                    const loading = activeScenarioStatus === "loading";
+                    const src = inputs.purchasePriceSource ?? "default";
+                    const label =
+                      loading && src === "default"
+                        ? "Temporary estimate — waiting for property data…"
+                      : src === "user" ? "Source: You entered this value"
+                      : src === "zillow_sold" ? "Source: Zillow sold price"
+                      : src === "zillow_listing" ? "Source: Zillow listing price"
+                      : src === "zillow_zestimate" ? "Source: Zillow Zestimate"
+                      : src === "zillow_cache" ? "Source: Saved property data"
+                      : "Source: Temporary estimate";
+                    const tone =
+                      loading && src === "default" ? "text-amber-600"
+                      : src === "default" || activeScenarioStatus === "error" ? "text-muted-foreground"
+                      : "text-emerald-700";
+                    return (
+                      <p
+                        className={`text-[11px] -mt-3 ${tone}`}
+                        data-testid="text-purchase-price-source"
+                      >
+                        {label}
+                      </p>
+                    );
+                  })()}
 
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1.5 block">Loan Type</Label>

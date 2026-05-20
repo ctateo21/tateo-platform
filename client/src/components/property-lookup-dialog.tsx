@@ -44,6 +44,12 @@ export interface LookedUpProperty {
   displayCity?: string;
   /** True when street/ZIP/state matched but Google and Zillow disagree on city. */
   cityMismatch?: boolean;
+  /** True when Zillow reports the home as sold. */
+  isSold?: boolean;
+  /** Last sold price reported by Zillow (only set when isSold). */
+  soldPrice?: number | null;
+  /** Last sold date (ISO string) reported by Zillow (only set when isSold). */
+  soldDate?: string | null;
 }
 
 interface Props {

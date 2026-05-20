@@ -1,0 +1,123 @@
+The Purchase Flow → Property Estimate screen has a UX issue while Zillow/cache data is loading.
+
+Current behavior:
+- When a user starts a new property estimate, the purchase price initially shows the preset/default value of $350,000.
+- Then, after around 15 seconds, the Zillow/cache data loads and the purchase price changes.
+- This feels confusing because the user may think $350,000 is the actual derived purchase price.
+- Users need to clearly know the address/property data is still loading and the purchase price has not been finalized yet.
+
+Expected behavior:
+When a user adds/selects a new property address:
+1. Create the property estimate scenario immediately.
+2. Show the default values temporarily if needed.
+3. Clearly display a loading bar/status message showing that Zillow/cache property data is still loading.
+4. Make it obvious that the purchase price is waiting to be derived from Zillow/cache data.
+5. Once Zillow/cache data finishes loading, update the relevant fields and remove/complete the loading state.
+
+Please add a visible property-level loading state.
+
+Suggested UI:
+- Show a loading bar or progress indicator near the top of the Property Estimate tab.
+- Message while loading:
+  “Loading property data from Zillow…”
+- Under/near the purchase price field, show:
+  “Purchase price is being derived from property data.”
+- The purchase price field can either:
+  Option A: show the default $350,000 but clearly label it as “Temporary estimate,” or
+  Option B: show a skeleton/loading placeholder instead of $350,000 until Zillow/cache data returns.
+
+Preferred behavior:
+Use Option B if it is safe:
+- Do not show $350,000 as if it is the real purchase price while Zillow/cache is still loading.
+- Show a loading/skeleton state for purchase price until the app confirms the final value source.
+
+If Option B is too large of a change, use Option A:
+- Keep $350,000 temporarily, but display a clear label:
+  “Temporary estimate — waiting for Zillow property data.”
+
+Property-level status states:
+Add or use an existing property-specific status field, such as:
+
+`propertyDataStatus: "idle" | "checking_cache" | "loading_zillow" | "loaded_from_cache" | "loaded_from_zillow" | "error"`
+
+Status messages:
+- `checking_cache`: “Checking saved property data…”
+- `loading_zillow`: “Loading property data from Zillow…”
+- `loaded_from_cache`: “Property data loaded from saved records.”
+- `loaded_from_zillow`: “Property data updated from Zillow.”
+- `error`: “Property data unavailable — using default estimates.”
+
+Important:
+- The loading state must be tied to the specific property/scenario ID.
+- Do not use one global loading flag that affects all tabs.
+- If the user switches tabs, only the property currently loading should show the loading bar.
+- If property 2 is loading, property 1 should not show a loading bar.
+- The loading state should start immediately after a valid address is selected.
+- The loading state should remain active while:
+  - checking Supabase property cache
+  - running Zillow scraper
+  - normalizing Zillow data
+  - applying Zillow/cache data to the visible fields
+- The loading state should end only after the visible Property Estimate fields are updated or the process fails.
+
+Purchase price handling:
+- Do not make the default $350,000 look like a confirmed purchase price while Zillow/cache data is still loading.
+- If the purchase price source is default, show it as temporary.
+- Once Zillow/cache returns:
+  - active listing price should replace the default if available
+  - Zestimate/home value should replace the default if listing price is not available
+  - sold price should replace the default if property is sold
+  - rent Zestimate should never be used as purchase price
+
+Add source label near purchase price if possible:
+- “Source: Temporary estimate”
+- “Source: Zillow listing price”
+- “Source: Zillow Zestimate”
+- “Source: Zillow sold price”
+- “Source: Saved property data”
+- “Source: User entered”
+
+Do not overwrite user edits:
+- If the user manually edits the purchase price while Zillow/cache is loading, do not overwrite their manual number when Zillow returns.
+- If this source tracking does not exist yet, at minimum add a dirty/manual-edit check for purchase price.
+
+Implementation flow:
+1. User selects address.
+2. Create scenario with stable property ID.
+3. Immediately set `propertyDataStatus = "checking_cache"` or `"loading_zillow"`.
+4. Show loading bar/status in that property tab.
+5. Check Supabase cache.
+6. If cache hit:
+   - apply cached data to visible fields
+   - update purchase price source
+   - set status to `loaded_from_cache`
+7. If cache miss:
+   - set status to `loading_zillow`
+   - run Zillow scraper
+   - apply Zillow result to visible fields
+   - update purchase price source
+   - save result to cache
+   - set status to `loaded_from_zillow`
+8. If Zillow fails:
+   - keep default values
+   - clearly label them as default estimates
+   - set status to `error`
+
+Acceptance test:
+1. Start a new property estimate.
+2. Select a Google Maps address.
+3. Confirm a new property tab is created immediately.
+4. Confirm a loading bar/status appears immediately.
+5. Confirm the purchase price does not appear as a final confirmed $350,000 while loading.
+6. Confirm the user sees language explaining property data is still loading.
+7. Confirm once cache/Zillow returns, the purchase price and other fields update automatically.
+8. Confirm the loading bar changes to loaded/error state.
+9. Confirm switching tabs does not show the loading bar on the wrong property.
+10. Confirm user-edited purchase price is not overwritten by Zillow/cache after manual edit.
+
+Please make the smallest safe code change possible and tell me exactly:
+- Which property status field was added or reused
+- Which component displays the loading bar
+- How purchase price is labeled while loading
+- How the status changes from cache check to Zillow scrape to completed/error
+- Which files/functions were changed
