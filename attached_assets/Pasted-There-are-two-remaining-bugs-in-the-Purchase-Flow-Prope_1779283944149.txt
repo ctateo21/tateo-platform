@@ -1,0 +1,129 @@
+There are two remaining bugs in the Purchase Flow → Property Estimate add-property flow.
+
+Bug 1: Adding a second property overwrites the first property tab/address.
+
+Example:
+- I had the first property tab saved as: 3102 W Nassau.
+- I clicked “+ Add Property” and entered a second address.
+- The second address was added, but the app also changed the first tab to the same new address.
+- The original first address, 3102 W Nassau, was not preserved.
+
+This is a serious data/state bug.
+
+Expected behavior:
+- Each property/scenario tab must keep its own independent address and property data.
+- Adding a new property should append a new property object.
+- Adding a new property should never mutate, overwrite, or replace the existing first property.
+- The first property tab should remain 3102 W Nassau.
+- The second property tab should show the newly selected address.
+- Each tab should keep its own purchase price, Zillow data, taxes, insurance, mortgage inputs, and assumptions.
+
+Likely causes to inspect:
+- The app may be using shared address state across all property tabs.
+- The app may be using array index as the permanent property identifier.
+- The app may be updating all properties instead of only the newly created property.
+- The app may be mutating an existing property object instead of creating a new object.
+- The new property may be created by copying the first property object by reference instead of cloning it.
+- The tab label may be reading from a global selected address instead of each property’s own address.
+- The Google Places callback may be updating the active/first property instead of the intended new property.
+- The save function may be replacing the whole property array with the new property instead of appending.
+- React keys may be using array indexes, causing the tab UI to reuse the wrong component/state.
+
+Fix requirements for Bug 1:
+1. Each property/scenario must have a stable unique ID, such as `propertyId` or `scenarioId`.
+2. Do not use array index as the React key or as the permanent property identifier.
+3. When a new address is selected from Google Maps:
+   - Create a brand-new property object with a new stable ID.
+   - Save the selected address only to that new property.
+   - Append the new property to the property/scenario array.
+   - Set the new property ID as the active tab.
+4. Do not mutate existing property objects.
+5. Use immutable state updates.
+6. Update property data by stable property ID only.
+7. Confirm the first property object/address is unchanged after adding the second property.
+8. Make sure tab labels render from each property object’s saved address, not from a shared/global address value.
+9. Make sure all property-specific values stay tied to the correct property ID.
+
+Bug 2: Zillow scraper does not automatically run after adding the new address.
+
+Expected behavior:
+- After a user selects a valid Google Maps address and the new property/scenario is created, the Zillow scraper should automatically run in the background.
+- The user should not have to click “Pull from Zillow.”
+- Default scenario values should appear immediately.
+- Once Zillow finishes, Zillow data should replace only valid default fields for that same property ID.
+- Zillow should not update the wrong tab if the user switches tabs while the scrape is running.
+
+Likely causes to inspect:
+- The auto-Zillow function is not being called after property creation.
+- The old “Pull from Zillow” button logic was not refactored into a reusable function.
+- The Zillow function depends on active tab/index instead of property ID.
+- The Zillow function is running before the new property/address exists in state.
+- The Zillow function is not receiving the formatted address.
+- The Zillow trigger is tied to a button click instead of the Google Places `place_changed` handler.
+- A race condition may cause the scraper to run with an empty address or wrong property ID.
+
+Fix requirements for Bug 2:
+1. Refactor the existing manual Zillow button logic into a reusable function, such as:
+   `fetchAndApplyZillowData(propertyId, address)`
+2. After a valid Google Places address is selected:
+   - Create the new property object.
+   - Append it to state.
+   - Set it as active.
+   - Immediately call `fetchAndApplyZillowData(newPropertyId, formattedAddress)` in the background.
+3. The Zillow function must update the property by stable property ID, not by active tab index.
+4. Do not block the UI while Zillow is running.
+5. Add a Zillow status to the property, such as:
+   - `idle`
+   - `loading`
+   - `success`
+   - `error`
+6. Show a small status message on the scenario:
+   - “Pulling Zillow data…”
+   - “Zillow data updated”
+   - “Zillow data unavailable”
+7. Prevent duplicate Zillow pulls for the same property/address unless the address changes or the user manually retries.
+8. Do not overwrite user-edited fields with Zillow data.
+9. Do not use rent Zestimate as purchase price.
+10. Use listing price or Zestimate/home value for purchase price only.
+11. Use rent Zestimate only for rent/rental estimate fields.
+
+Important implementation detail:
+The order should be:
+
+1. User selects Google Maps address.
+2. Normalize Google address.
+3. Generate new stable property ID.
+4. Build new property/scenario object with default values and the selected address.
+5. Append new property object to property array immutably.
+6. Set active property ID to the new property ID.
+7. Start Zillow scraper in background using the new property ID and address.
+8. When Zillow returns, update only the property with that same property ID.
+
+Add temporary debug logs:
+- Current property array before adding new property
+- New selected Google address
+- New generated property ID
+- Property array after adding new property
+- Active property ID after adding new property
+- Zillow scraper called with property ID and address
+- Raw Zillow response
+- Normalized Zillow data
+- Property ID being updated by Zillow result
+- Fields updated by Zillow
+- Fields skipped because they were user-edited, invalid, null, or belonged to another property
+
+Acceptance test:
+1. Add first property: 3102 W Nassau.
+2. Confirm first tab shows 3102 W Nassau.
+3. Add a second property with a different address.
+4. Confirm first tab still shows 3102 W Nassau.
+5. Confirm second tab shows only the new address.
+6. Confirm the second property becomes the active tab.
+7. Confirm the first property’s data did not change.
+8. Confirm Zillow scraper automatically starts for the second property without clicking “Pull from Zillow.”
+9. Switch back to the first tab while Zillow is running.
+10. Confirm Zillow data from the second property does not update the first property.
+11. Confirm Zillow data updates only the second property.
+12. Refresh and confirm both property tabs and addresses persist correctly.
+
+Please make the smallest safe code change possible and tell me exactly which files/components/functions were changed.

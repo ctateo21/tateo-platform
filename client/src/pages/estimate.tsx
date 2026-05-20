@@ -534,6 +534,13 @@ export default function Estimate() {
     setActiveScenarioId(nextId);
   }
 
+  // Ref-backed flag that suppresses the `[address]` URL→scenario sync
+  // effect for the next URL change. Set synchronously by code paths
+  // (add/switch/remove) that already own the address for the active
+  // scenario, so the effect doesn't corrupt the wrong tab during the
+  // wouter intermediate render. See the comment on that effect below.
+  const skipNextAddressSyncRef = useRef(false);
+
   // Pure merge: produce next inputs from current+baseline+Zillow, honoring
   // the "don't overwrite user edits" rule by comparing current vs baseline.
   function mergeZillowIntoInputs(
@@ -659,8 +666,29 @@ export default function Estimate() {
 
   // Keep active scenario's address in sync when URL changes (inline edit).
   // Defensive: never overwrite an existing valid address with empty/placeholder.
+  //
+  // CRITICAL: wouter's `setLocation` uses `useSyncExternalStore`, which is
+  // intentionally NOT batched with React 18's queued updates. That means
+  // when `confirmNewScenario` / `switchScenario` / `removeScenario` call
+  // `setScenarios` + `setActive` + `setLocation` together, React renders
+  // ONCE for the URL change with the OLD scenarios + OLD activeScenarioId
+  // still in place — and only then flushes the queued scenario/active
+  // updates. If this effect runs in that intermediate render, it
+  // overwrites the OLD active scenario's address with the NEW URL value,
+  // corrupting the previously-saved tab (the original "first tab now
+  // shows the new address" bug).
+  //
+  // Those three code paths already set each scenario's `address` field
+  // explicitly, so they don't need this effect at all — they set the
+  // skip-ref synchronously just before calling `setLocation`. Only the
+  // genuine inline-address-edit path (which calls `setLocation` without
+  // mutating scenarios first) goes through here.
   useEffect(() => {
     if (!address || address === "Unknown Address") return;
+    if (skipNextAddressSyncRef.current) {
+      skipNextAddressSyncRef.current = false;
+      return;
+    }
     setScenarios(prev =>
       prev.map(s => s.id === activeScenarioId ? { ...s, address } : s)
     );
@@ -761,6 +789,7 @@ export default function Estimate() {
       prev.map(s => s.id === activeScenarioId ? { ...s, savedInputs: inputs } : s)
     );
     setActive(targetId);
+    skipNextAddressSyncRef.current = true;
     setLocation(`/estimate?address=${encodeURIComponent(target.address)}`);
     if (target.savedInputs) setInputs(target.savedInputs);
     else setInputs(inputsForAddress(target.address));
@@ -791,6 +820,7 @@ export default function Estimate() {
     if (id === activeScenarioId) {
       const next = remaining[Math.max(0, idx - 1)];
       setActive(next.id);
+      skipNextAddressSyncRef.current = true;
       setLocation(`/estimate?address=${encodeURIComponent(next.address)}`);
       if (next.savedInputs) setInputs(next.savedInputs);
       else setInputs(inputsForAddress(next.address));
@@ -833,6 +863,7 @@ export default function Estimate() {
     if (dup) {
       toast({ title: "Already added", description: "Switching to that property." });
       setActive(dup.id);
+      skipNextAddressSyncRef.current = true;
       setLocation(`/estimate?address=${encodeURIComponent(dup.address)}${fromDashboard ? "&from=dashboard" : ""}`);
       setNewScenarioAddress("");
       setShowAddressPrompt(false);
@@ -864,6 +895,12 @@ export default function Estimate() {
       },
     ]);
     setActive(newId);
+    // The new scenario object already carries `address: addr`, so the
+    // URL→active-scenario sync effect must NOT run here — otherwise it
+    // would fire during wouter's pre-batch intermediate render (with
+    // activeScenarioId still pointing at the OLD tab) and overwrite the
+    // previous tab's address with the new one.
+    skipNextAddressSyncRef.current = true;
     setLocation(`/estimate?address=${encodeURIComponent(addr)}${fromDashboard ? "&from=dashboard" : ""}`);
     // Keep inputs as-is (carry over). Only let flood re-fetch for the new address.
     floodLoadedRef.current = null;
