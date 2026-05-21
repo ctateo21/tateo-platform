@@ -1,0 +1,284 @@
+Build a Down Payment Assistance (DPA) option for FHA loans only in the Purchase Flow.
+
+This should apply only when the user chooses FHA as the loan type.
+
+Do not add DPA options for:
+- Conventional
+- VA
+- USDA
+- DSCR
+- Non-QM
+- Any other loan type
+
+Current FHA behavior:
+When the user chooses FHA, the app should default to normal FHA:
+
+- Down payment = 3.5%
+- FHA upfront MIP stays the same
+- FHA monthly MIP stays the same
+- FHA base rate comes from the existing FHA/Mortgage News Daily pricing logic
+
+New requested behavior:
+When the user chooses FHA, allow the user to compare:
+
+1. Normal FHA with 3.5% down
+2. FHA with DPA and 0% down
+
+The goal is for the user to clearly see that DPA creates a higher rate/payment compared to normal FHA.
+
+Page 3 — Purchase Details requirements:
+On Page 3 of the Purchase Details flow:
+
+1. If loan type is FHA, automatically default down payment to 3.5%.
+2. Show an option to switch to 0% down using FHA DPA.
+3. If the user chooses 0% down / DPA, ask:
+   “Which DPA option do you want?”
+4. DPA options:
+   - Repayable
+   - Forgivable
+
+Use “Forgivable,” not “forgiveable,” unless current UI uses the other spelling everywhere.
+
+Disclosure:
+When the user selects Forgivable, show a disclosure:
+
+“Forgivable DPA usually comes with a higher first mortgage interest rate, but you do not have to make a monthly payment on the second lien.”
+
+When the user selects Repayable, show a disclosure:
+
+“Repayable DPA is structured as a second lien. The assisted down payment amount is repaid over a 10-year term at an interest rate 1% higher than the first mortgage rate.”
+
+DPA calculation logic:
+Normal FHA:
+- Down payment = 3.5%
+- No DPA second lien
+- First mortgage loan amount = purchase price - 3.5% down payment
+- Use normal FHA rate/pricing
+- FHA upfront MIP stays the same
+- FHA monthly MIP stays the same
+
+FHA DPA:
+- Down payment shown to user = 0%
+- DPA amount = 3.5% of purchase price
+- First mortgage base loan amount should effectively be the FHA loan amount before UFMIP based on 96.5% LTV unless the current app already calculates FHA differently.
+- FHA upfront MIP stays the same.
+- FHA monthly MIP stays the same.
+- Only the interest rate changes based on the DPA pricing adjustments below.
+- The user should see that DPA increases the payment/rate compared with normal FHA.
+
+Repayable DPA:
+- DPA amount = 3.5% of purchase price
+- Add a second lien payment to the monthly mortgage calculation.
+- Second lien term = 10 years / 120 months
+- Second lien interest rate = first mortgage rate + 1.00%
+- Calculate the monthly second lien payment using the DPA amount, 120-month term, and second lien interest rate.
+- Add this second lien payment into the total monthly payment and DTI.
+- Display this second lien payment separately in the estimate.
+
+Forgivable DPA / Silent second:
+- DPA amount = 3.5% of purchase price
+- No monthly second lien payment.
+- First mortgage interest rate is higher based on the silent second pricing below.
+- Display that the DPA is a silent/forgivable second lien with no monthly payment.
+- Add any required discount points to cash to close if applicable based on the pricing below.
+
+DPA FHA pricing adjustments:
+Build this into the FHA pricing parameters.
+
+FHA DPA — Repayable 3.5% assistance:
+- Credit score 680+:
+  - First mortgage rate = base FHA/MND rate + 0.65%
+- Credit score 660–679:
+  - First mortgage rate = base FHA/MND rate + 0.82%
+- Credit score 640–659:
+  - First mortgage rate = base FHA/MND rate + 0.95%
+- Credit score 620–639:
+  - First mortgage rate = base FHA/MND rate + 1.10%
+- Credit score 600–619:
+  - First mortgage rate = base FHA/MND rate + 1.32%
+- Credit score below 600:
+  - DPA is not available
+
+FHA DPA — Forgivable / Silent second:
+- Credit score 680+:
+  - First mortgage rate = base FHA/MND rate + 1.53%
+  - Discount points = 0
+- Credit score 640–679:
+  - First mortgage rate = base FHA/MND rate + 1.53%
+  - Discount points = 1.00 point
+- Credit score 600–639:
+  - First mortgage rate = base FHA/MND rate + 1.53%
+  - Discount points = 1.50 points
+- Credit score below 600:
+  - DPA is not available
+
+Discount point handling:
+- If forgivable DPA requires discount points, calculate points as a percentage of the applicable loan amount.
+- Add those points to cash to close.
+- Display them clearly as DPA/FHA discount points.
+- Do not treat points as down payment.
+
+Page 4 — See My Estimate requirements:
+On Page 4 / See My Estimate, the user must be able to toggle between normal FHA and FHA DPA while viewing the estimate.
+
+Location:
+- Page 4 → See My Estimate
+- Inside the Real Estate tab/section
+- Where it says Down Payment
+
+Behavior:
+1. If loan type is FHA, show a dropdown or toggle under the Down Payment line.
+2. Options:
+   - 3.5% down — Standard FHA
+   - 0% down — FHA DPA
+3. If the user selects 0% down — FHA DPA, show DPA type options:
+   - Repayable
+   - Forgivable
+4. When the user changes between 3.5% down and 0% DPA on Page 4:
+   - immediately update rate
+   - immediately update down payment
+   - immediately update DPA amount
+   - immediately update second lien payment, if repayable
+   - immediately update discount points, if forgivable
+   - immediately update total monthly payment
+   - immediately update cash to close
+   - immediately update DTI
+   - immediately update qualification status
+5. The user should be able to toggle back and forth to compare:
+   - normal FHA 3.5% down
+   - FHA DPA repayable
+   - FHA DPA forgivable
+
+Important:
+- Page 3 and Page 4 must stay synced.
+- If the user chooses DPA on Page 3, Page 4 should show DPA selected.
+- If the user changes back to normal FHA on Page 4, Page 3 should reflect that if they go back.
+- Save the selected DPA option to the purchase scenario for logged-in users.
+- Persist after refresh/logout/login.
+
+Suggested fields:
+Add or reuse fields like:
+
+- `loan_type`: `"fha"`
+- `down_payment_percent`
+- `down_payment_amount`
+- `uses_dpa`: boolean
+- `dpa_type`: `"repayable" | "forgivable" | null`
+- `dpa_amount`
+- `dpa_second_lien_payment`
+- `dpa_second_lien_rate`
+- `dpa_second_lien_term_months`
+- `dpa_rate_adjustment`
+- `dpa_discount_points_percent`
+- `dpa_discount_points_amount`
+- `dpa_available`: boolean
+- `dpa_unavailable_reason`
+
+Stored values:
+- Use `repayable`
+- Use `forgivable`
+- Use `standard_fha` or `uses_dpa = false` for normal FHA
+
+Unavailable logic:
+If credit score is below 600:
+- Disable DPA.
+- Show a message:
+  “FHA DPA is not available below a 600 credit score.”
+- Keep the user on standard FHA 3.5% down.
+
+If credit score changes and makes DPA unavailable:
+- Reset to standard FHA 3.5% down.
+- Remove DPA second lien payment.
+- Remove DPA rate adjustment.
+- Remove DPA discount points.
+
+FHA MIP:
+Do not change FHA monthly MIP or upfront MIP logic.
+- Monthly MIP stays the same.
+- Upfront MIP stays the same.
+- Only the interest rate changes based on DPA pricing.
+- Repayable DPA also adds the second lien monthly payment.
+- Forgivable DPA has no second lien monthly payment but may add discount points.
+
+Dashboard and auto-save:
+- Save selected DPA option to the purchase scenario.
+- Save calculated DPA amount.
+- Save DPA payment/points.
+- Purchase dashboard should reflect the updated payment, cash to close, DTI, and qualification status.
+- Do not require a manual Save button.
+- Use stable property/scenario ID.
+
+UI display on Page 4:
+When standard FHA is selected, show:
+- Down Payment: 3.5%
+- Down Payment Amount
+- Loan Amount
+- FHA UFMIP
+- Monthly FHA MIP
+- Principal & Interest
+- Total Monthly Payment
+
+When FHA DPA Repayable is selected, show:
+- Down Payment: 0%
+- DPA Assistance Amount: 3.5% of purchase price
+- DPA Type: Repayable
+- First Mortgage Rate
+- DPA Second Lien Rate: first mortgage rate + 1.00%
+- DPA Second Lien Term: 10 years
+- DPA Second Lien Monthly Payment
+- FHA UFMIP
+- Monthly FHA MIP
+- Principal & Interest
+- Total Monthly Payment including DPA second lien
+
+When FHA DPA Forgivable is selected, show:
+- Down Payment: 0%
+- DPA Assistance Amount: 3.5% of purchase price
+- DPA Type: Forgivable / Silent second
+- First Mortgage Rate
+- DPA Monthly Payment: $0
+- DPA Discount Points, if applicable
+- FHA UFMIP
+- Monthly FHA MIP
+- Principal & Interest
+- Total Monthly Payment
+
+Acceptance test:
+1. Go to Purchase Details Page 3.
+2. Select FHA.
+3. Confirm down payment defaults to 3.5%.
+4. Confirm a 0% down FHA DPA option appears.
+5. Select 0% down.
+6. Confirm the app asks Repayable or Forgivable.
+7. Select Repayable with credit score 680+.
+8. Confirm first mortgage rate = base FHA/MND rate + 0.65%.
+9. Confirm DPA amount = 3.5% of purchase price.
+10. Confirm second lien payment is calculated over 120 months at first mortgage rate + 1.00%.
+11. Confirm total monthly payment and DTI include the second lien payment.
+12. Select Forgivable with credit score 680+.
+13. Confirm first mortgage rate = base FHA/MND rate + 1.53%.
+14. Confirm no second lien monthly payment.
+15. Select Forgivable with credit score 640–679.
+16. Confirm first mortgage rate = base FHA/MND rate + 1.53% and 1 discount point is added.
+17. Select Forgivable with credit score 600–639.
+18. Confirm first mortgage rate = base FHA/MND rate + 1.53% and 1.5 discount points are added.
+19. Set credit score below 600.
+20. Confirm DPA is unavailable and app reverts to standard FHA 3.5% down.
+21. Go to Page 4 / See My Estimate.
+22. Confirm FHA down payment toggle appears under the Down Payment line in the Real Estate tab/section.
+23. Toggle between 3.5% Standard FHA and 0% FHA DPA.
+24. Confirm payments, cash to close, DTI, rate, and qualification status update immediately.
+25. Confirm Page 3 and Page 4 stay synced.
+26. Confirm DPA options do not appear for Conventional, VA, USDA, DSCR, Non-QM, or any non-FHA loan type.
+27. Refresh/logout/login and confirm the selected FHA/DPA settings persist.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 3 Purchase Details component was changed
+- Which Page 4 See My Estimate component was changed
+- Which FHA pricing function was changed
+- How DPA pricing adjustments are applied
+- How repayable second lien payment is calculated
+- How forgivable discount points are calculated and added to cash to close
+- How FHA MIP was preserved
+- How Page 3 and Page 4 stay synced
+- Which files/functions were changed

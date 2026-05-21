@@ -50,6 +50,14 @@ export interface PurchaseScenario {
   // forward-compatible with environments where the column has not yet been
   // added — see the conditional include in purchaseToRow below.
   loanTermYears?: 15 | 30;
+  // FHA-only Down Payment Assistance flags. Persisted as `uses_dpa`
+  // (boolean) and `dpa_type` (text: "repayable" | "forgivable") in
+  // Supabase. Always written (mirroring the loan_term_years pattern) so
+  // toggling DPA off actually clears the saved row. Requires migration:
+  //   ALTER TABLE purchase_scenarios ADD COLUMN uses_dpa BOOLEAN;
+  //   ALTER TABLE purchase_scenarios ADD COLUMN dpa_type TEXT;
+  usesDPA?: boolean;
+  dpaType?: "repayable" | "forgivable" | null;
 }
 
 export interface InsuranceScenario {
@@ -144,6 +152,13 @@ function rowToPurchase(row: any): PurchaseScenario {
     loanTermYears: row.loan_term_years === 15 ? 15
                   : row.loan_term_years === 30 ? 30
                   : undefined,
+    // Tolerates the columns not existing yet — undefined surfaces as
+    // "DPA off" downstream. Strict pairing: dpaType is only honored
+    // when usesDPA is true.
+    usesDPA: row.uses_dpa === true ? true : row.uses_dpa === false ? false : undefined,
+    dpaType: row.uses_dpa === true && (row.dpa_type === "repayable" || row.dpa_type === "forgivable")
+      ? row.dpa_type
+      : null,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -167,6 +182,14 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     //   ALTER TABLE purchase_scenarios ADD COLUMN loan_term_years SMALLINT;
     // Without the column the upsert will fail; auth.ts catches and logs.
     loan_term_years: s.loanTermYears ?? 30,
+    // Always include both DPA columns so flipping DPA off actually clears
+    // the saved row (same pattern as loan_term_years above). Requires
+    // one-time migration:
+    //   ALTER TABLE purchase_scenarios ADD COLUMN uses_dpa BOOLEAN;
+    //   ALTER TABLE purchase_scenarios ADD COLUMN dpa_type TEXT;
+    // Without the columns the upsert will fail; auth.ts catches and logs.
+    uses_dpa: !!s.usesDPA,
+    dpa_type: s.usesDPA && s.dpaType ? s.dpaType : null,
   };
   return base;
 }
