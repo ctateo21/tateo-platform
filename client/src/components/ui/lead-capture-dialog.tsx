@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mail, Phone, KeyRound, CheckCircle2, Loader2, User, Users } from "lucide-react";
+import { useAuth } from "@/context/auth-context";
 
 // ─── Agent config ──────────────────────────────────────────────────────────
 
@@ -45,6 +46,26 @@ export default function LeadCaptureDialog({
   scenarioDetails,
   onSuccess,
 }: LeadCaptureDialogProps) {
+  // ── Skip-when-already-onboarded guard ─────────────────────────────────
+  // Once a user has signed up and chosen who they're working with, that
+  // value lives on profiles.agent (AuthUser.agent). This dialog should
+  // never re-ask the question — every flow that triggers it (refinance
+  // "Save to my Loan Dashboard", purchase scenario save/share, insurance
+  // save/share, etc.) just needs the caller's onSuccess to fire so the
+  // underlying save can proceed.
+  //
+  // We detect the "already onboarded" state by checking the authenticated
+  // user's saved agent. When present, we immediately fire onSuccess and
+  // close, before any dialog UI mounts.
+  const { user } = useAuth();
+  const hasSavedRep = !!user?.agent;
+  useEffect(() => {
+    if (open && hasSavedRep) {
+      onSuccess();
+      onOpenChange(false);
+    }
+  }, [open, hasSavedRep, onSuccess, onOpenChange]);
+
   const [step, setStep] = useState<Step>("agent");
   const [agentId, setAgentId] = useState<AgentId | null>(null);
 
