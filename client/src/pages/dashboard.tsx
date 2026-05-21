@@ -56,6 +56,33 @@ const PROPERTY_TYPE_COLORS: Record<string, string> = new Proxy({}, {
   get: (_t, key: string) => _getOccupancyColor(key),
 }) as Record<string, string>;
 
+/**
+ * Property thumbnail used on Purchase dashboard cards. Renders the
+ * Zillow primary photo when present, falling back to a MapPin
+ * placeholder when no URL is saved or the URL fails to load. Fixed
+ * dimensions (16:10 ratio) so the card layout doesn't shift while
+ * the image loads.
+ */
+function PropertyThumb({ photoUrl, address }: { photoUrl: string | null; address: string }) {
+  const [errored, setErrored] = useState(false);
+  const showImage = !!photoUrl && !errored;
+  return (
+    <div className="w-full lg:w-40 h-24 lg:h-24 rounded-md overflow-hidden bg-muted flex items-center justify-center shrink-0 border">
+      {showImage ? (
+        <img
+          src={photoUrl!}
+          alt={address}
+          className="w-full h-full object-cover"
+          loading="lazy"
+          onError={() => setErrored(true)}
+        />
+      ) : (
+        <MapPin className="h-6 w-6 text-muted-foreground/50" />
+      )}
+    </div>
+  );
+}
+
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
 }
@@ -629,6 +656,15 @@ function PurchaseTab() {
             >
               <CardContent className="py-4">
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                  {/* Property thumbnail — Zillow photo when available,
+                       MapPin placeholder otherwise. Fixed aspect avoids
+                       layout shift while the image loads, and a graceful
+                       onError swap restores the placeholder if the URL
+                       404s (Zillow occasionally rotates CDN paths). */}
+                  <PropertyThumb
+                    photoUrl={s.primaryPhotoUrl ?? null}
+                    address={s.address}
+                  />
                   {/* Address + meta */}
                   <div className="flex-1 min-w-0 lg:max-w-xs">
                     <div className="flex items-start gap-2">

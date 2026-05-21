@@ -64,6 +64,18 @@ export interface PurchaseScenario {
   // yet — undefined falls back to 0 downstream. Requires migration:
   //   ALTER TABLE purchase_scenarios ADD COLUMN seller_concessions NUMERIC;
   sellerConcessions?: number;
+  // Primary property photo URL captured from the Zillow lookup. Stored on
+  // the scenario row so dashboard cards can render a thumbnail without
+  // re-hitting Apify. Persisted as `primary_photo_url` (TEXT) in Supabase
+  // — always written so clearing a photo actually clears the saved row.
+  // Tolerates the column not existing yet (the upsert will fail and
+  // auth.ts catches/logs). Requires migration:
+  //   ALTER TABLE purchase_scenarios ADD COLUMN primary_photo_url TEXT;
+  // The full propertyPhotos[] array is intentionally NOT persisted here
+  // — it lives in the shared `property_cache` table (keyed by address)
+  // and is rehydrated whenever the estimate page calls
+  // /api/zillow-property-lookup.
+  primaryPhotoUrl?: string | null;
 }
 
 export interface InsuranceScenario {
@@ -174,6 +186,15 @@ function rowToPurchase(row: any): PurchaseScenario {
       const n = Number(row.seller_concessions);
       return Number.isFinite(n) ? n : undefined;
     })(),
+    // Tolerates the column not existing yet — undefined surfaces as
+    // "no photo" downstream and the dashboard falls back to its
+    // placeholder icon.
+    primaryPhotoUrl:
+      typeof row.primary_photo_url === "string" && row.primary_photo_url.length > 0
+        ? row.primary_photo_url
+        : row.primary_photo_url === null
+          ? null
+          : undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -210,6 +231,14 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     // Requires migration:
     //   ALTER TABLE purchase_scenarios ADD COLUMN seller_concessions NUMERIC;
     seller_concessions: typeof s.sellerConcessions === "number" ? s.sellerConcessions : 0,
+    // Always include so clearing a photo (or a Zillow miss returning null)
+    // actually clears the saved row. Requires migration:
+    //   ALTER TABLE purchase_scenarios ADD COLUMN primary_photo_url TEXT;
+    // Without the column the upsert will fail; auth.ts catches and logs.
+    primary_photo_url:
+      typeof s.primaryPhotoUrl === "string" && s.primaryPhotoUrl.length > 0
+        ? s.primaryPhotoUrl
+        : null,
   };
   return base;
 }

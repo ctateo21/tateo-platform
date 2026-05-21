@@ -268,6 +268,12 @@ interface Inputs {
    *  product. NOT persisted — intentionally resets on hydrate/refresh
    *  so the recommendation rule can re-engage on a fresh session. */
   loanTypeManuallySet?: boolean;
+  /** Primary property photo URL from the Zillow lookup. Populated by
+   *  `triggerZillowLookup` via `mergeZillowIntoInputs`, hydrated from
+   *  the saved scenario on mount, and mirrored to Supabase by the
+   *  auto-save effect. null = lookup ran but no photos found;
+   *  undefined = no lookup yet. */
+  primaryPhotoUrl?: string | null;
 }
 
 // FALLBACK_RATES.conventional15 is the Mortgage News Daily 15-year fixed
@@ -334,6 +340,7 @@ function makeDefaultInputs(price = 350000): Inputs {
     loanTermYears: 30,
     usesDPA: false, dpaType: null,
     loanTypeManuallySet: false,
+    primaryPhotoUrl: undefined,
   };
 }
 
@@ -799,6 +806,7 @@ export default function Estimate() {
     zPrice: number | null,
     zHoa: number | null,
     priceSource: PurchasePriceSource | null = null,
+    zPhotoUrl: string | null = null,
   ): Inputs {
     const next: Inputs = { ...current };
     // Treat the field as user-edited if the source is "user" (explicit)
@@ -813,6 +821,10 @@ export default function Estimate() {
     if (zHoa != null && (!baseline || current.hoaMonthly === baseline.hoaMonthly)) {
       next.hoaMonthly = zHoa;
     }
+    // Always reflect the latest Zillow photo result — including null
+    // (lookup ran, no photos). The user can't manually edit this field,
+    // so there's no "user-edited" guard to honor.
+    next.primaryPhotoUrl = zPhotoUrl;
     return next;
   }
 
@@ -859,6 +871,16 @@ export default function Estimate() {
         }
         const zPrice = p.purchasePrice ?? p.listingPrice ?? p.zestimate ?? null;
         const zHoa = p.hoaMonthly ?? null;
+        // Prefer the explicit primary URL from the new normalizer; fall
+        // back to the legacy `photos[0]` for cache entries that pre-date
+        // the field. null = lookup succeeded but no photos found.
+        const zPhotoUrl: string | null =
+          (typeof p.primaryPhotoUrl === "string" && p.primaryPhotoUrl.length > 0
+            ? p.primaryPhotoUrl
+            : null)
+          ?? (Array.isArray(p.photos) && typeof p.photos[0] === "string" && p.photos[0].length > 0
+            ? p.photos[0]
+            : null);
         const priceSource = inferPriceSource(p, zPrice, fromCache);
         const nextStatus = fromCache ? "loaded_from_cache" : "loaded_from_zillow";
         // Resolve active-ness from the ref so a tab switch mid-flight
@@ -876,7 +898,7 @@ export default function Estimate() {
             // truth and is merged separately below.
             const baseSnapshot = s.savedInputs ?? s.baselineInputs ?? null;
             if (!baseSnapshot) return { ...s, zillowStatus: nextStatus };
-            const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa, priceSource);
+            const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa, priceSource, zPhotoUrl);
             return { ...s, savedInputs: merged, zillowStatus: nextStatus };
           })
         );
@@ -886,7 +908,7 @@ export default function Estimate() {
         // depend on React state timing or nest setter side effects.
         if (isActive) {
           const baseline = baselineByIdRef.current[scenarioId];
-          setInputs(curr => mergeZillowIntoInputs(curr, baseline, zPrice, zHoa, priceSource));
+          setInputs(curr => mergeZillowIntoInputs(curr, baseline, zPrice, zHoa, priceSource, zPhotoUrl));
           if (zPrice != null) {
             toast({
               title: fromCache ? "Property data loaded from saved records" : "Zillow data applied",
@@ -1624,6 +1646,14 @@ export default function Estimate() {
       sellerConcessions: typeof saved.sellerConcessions === "number"
         ? Math.max(0, saved.sellerConcessions)
         : base.sellerConcessions,
+      // Hydrate the saved Zillow photo so the dashboard thumbnail
+      // survives refresh/logout/login without re-hitting Apify.
+      // `undefined` (no lookup yet) preserves the default and lets
+      // triggerZillowLookup populate it when the scrape completes.
+      primaryPhotoUrl:
+        typeof saved.primaryPhotoUrl === "string" || saved.primaryPhotoUrl === null
+          ? saved.primaryPhotoUrl
+          : base.primaryPhotoUrl,
       annualTaxes: Math.round(price * 0.015),
       annualHOIns: Math.round(price * 0.0075),
     };
@@ -2100,6 +2130,10 @@ export default function Estimate() {
         loanType: inputs.loanType,
         occupancy: inputs.occupancy,
         sellerConcessions: inputs.sellerConcessions,
+        // Capture whatever the Zillow lookup has populated so far. The
+        // debounced auto-save below will overwrite this once the scrape
+        // completes if it landed after this immediate-add fired.
+        primaryPhotoUrl: inputs.primaryPhotoUrl ?? null,
       },
     ]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2142,6 +2176,9 @@ export default function Estimate() {
           usesDPA: !!inputs.usesDPA,
           dpaType: inputs.dpaType ?? null,
           sellerConcessions: inputs.sellerConcessions,
+          // Mirror the latest Zillow photo onto the saved scenario so
+          // dashboard cards render the thumbnail without re-scraping.
+          primaryPhotoUrl: inputs.primaryPhotoUrl ?? null,
         };
         if (idx >= 0) {
           // Only write if something actually changed (avoid noisy storage writes)
@@ -2159,6 +2196,7 @@ export default function Estimate() {
             && (!!cur.usesDPA) === next.usesDPA
             && (cur.dpaType ?? null) === next.dpaType
             && (cur.sellerConcessions ?? 0) === (next.sellerConcessions ?? 0)
+            && (cur.primaryPhotoUrl ?? null) === (next.primaryPhotoUrl ?? null)
             && cur.address === address;
           if (!same) {
             const updated = [...existing];
@@ -2222,6 +2260,11 @@ export default function Estimate() {
   }, [
     isAuthenticated, address,
     inputs.purchasePrice, inputs.downPaymentPct, inputs.interestRate, inputs.loanType,
+    // primaryPhotoUrl is included so the debounced save fires when the
+    // Zillow lookup populates a photo (and only a photo) — otherwise
+    // the dashboard thumbnail would not persist until the user touches
+    // another tracked field.
+    inputs.primaryPhotoUrl,
     calc.totalHousing, calc.cashToClose, calc.dti, calc.qualifies,
   ]);
 

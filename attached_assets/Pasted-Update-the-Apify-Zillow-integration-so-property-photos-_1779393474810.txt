@@ -1,0 +1,149 @@
+Update the Apify Zillow integration so property photos are pulled automatically and displayed in the app.
+
+Current goal:
+When Zillow property data is pulled through Apify, also capture any available property photos from the Apify/Zillow response.
+
+Start with photo URLs only. Do not download or store image files yet.
+
+Reason:
+- Faster
+- Cheaper
+- Less storage
+- Easier MVP
+- Lower copyright/storage risk
+- Still lets the dashboard and property detail pages look better
+
+Step 1 — Inspect current Apify Zillow response
+
+First, inspect the raw Apify Zillow dataset response and look for any photo/image fields, including:
+
+- photos
+- images
+- imageUrls
+- photoUrls
+- imgSrc
+- hiResImageLink
+- responsivePhotos
+- media
+- carouselPhotos
+- image
+- propertyImages
+- listingPhotos
+
+Normalize all available image URLs into this structure:
+
+propertyPhotos: [
+  {
+    url: "",
+    caption: null,
+    width: null,
+    height: null,
+    source: "Zillow via Apify"
+  }
+]
+
+Set:
+
+primaryPhotoUrl = first available property photo URL
+
+If no photos are found:
+- propertyPhotos = []
+- primaryPhotoUrl = null
+
+Step 2 — Add photo fields to the property/scenario model
+
+Add or reuse these fields on the property/scenario record:
+
+{
+  primaryPhotoUrl: null,
+  propertyPhotos: []
+}
+
+Apply this to any relevant saved property/scenario model used by:
+- Purchase property estimates
+- Refinance properties
+- Insurance properties
+- Shared property cache, if applicable
+
+Step 3 — Save photos with Zillow/property cache data
+
+When a Zillow scrape succeeds:
+1. Normalize the Zillow data.
+2. Extract property photo URLs.
+3. Save `primaryPhotoUrl`.
+4. Save `propertyPhotos`.
+5. Store these fields with the property scenario and/or property cache record.
+
+If cached Zillow data is used instead of a fresh scrape:
+- Load the cached `primaryPhotoUrl`.
+- Load the cached `propertyPhotos`.
+- Display them the same way as fresh scrape results.
+
+Important:
+- Do not expose the Apify token to the frontend.
+- Do not download image files yet.
+- Store only image URLs.
+- Do not store duplicate photo URLs.
+- If the same URL appears multiple times, keep only one.
+- If the image URL is invalid or empty, skip it.
+- Do not let missing photos break the Zillow scrape flow.
+
+Step 4 — Frontend display
+
+Use `primaryPhotoUrl` on dashboard/property cards.
+
+Display the primary image on:
+- Dashboard → Purchase property rows/cards
+- Dashboard → Refinance property rows/cards
+- Dashboard → Insurance property rows/cards, if applicable
+- Property detail pages
+- See My Estimate pages, if applicable
+
+For property detail pages:
+- Use `propertyPhotos` to support a photo gallery or carousel later.
+- For now, showing the primary image is enough if that is the smallest safe change.
+
+Fallback behavior:
+If no `primaryPhotoUrl` exists:
+- Show the existing placeholder image/icon.
+- Do not leave a broken image.
+- Do not show empty white space.
+
+Step 5 — Optional future image scraper placeholder
+
+If the current Zillow scraper does not return enough photos, create a placeholder function only:
+
+fetchZillowPhotos(zillowUrlOrZpid)
+
+Do not fully wire a second Apify actor yet unless it is already simple and safe.
+
+The future purpose of this function:
+- Pass Zillow URL or ZPID into a Zillow property-images-specific Apify actor.
+- Return:
+  - primary photo
+  - all property photo URLs
+  - image resolution if available
+  - image type if available
+
+But for now, first try extracting photos from the current Zillow scraper output.
+
+Acceptance test:
+1. Run a Zillow scrape for a property that has photos.
+2. Inspect the raw Apify response.
+3. Confirm photo/image fields are found if available.
+4. Confirm all photo URLs are normalized into `propertyPhotos`.
+5. Confirm the first available image is saved as `primaryPhotoUrl`.
+6. Confirm duplicate image URLs are removed.
+7. Confirm the property dashboard card displays the primary photo.
+8. Confirm the property detail page can access the full `propertyPhotos` array.
+9. Confirm missing photos do not break the property estimate flow.
+10. Confirm Apify token remains server-side only.
+11. Confirm cached property data also includes and reloads photo URLs.
+
+Please make the smallest safe code change possible and tell me:
+- Which Apify response fields contained photos
+- Which normalization function was added or changed
+- Where `primaryPhotoUrl` and `propertyPhotos` are stored
+- Which dashboard/detail components now display the primary photo
+- Whether the second image-specific scraper was deferred
+- Which files/functions were changed

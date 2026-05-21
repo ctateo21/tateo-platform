@@ -31,6 +31,17 @@ export interface LookedUpProperty {
   squareFeet: number | null;
   lotSize: number | null;
   photos: string[];
+  /** Normalized photo objects (URL + metadata) from server normalizer.
+   *  Optional for back-compat with cached responses that pre-date the field. */
+  propertyPhotos?: Array<{
+    url: string;
+    caption: string | null;
+    width: number | null;
+    height: number | null;
+    source: "Zillow via Apify";
+  }>;
+  /** First available photo URL, or null when no photos were found. */
+  primaryPhotoUrl?: string | null;
   listingDescription: string;
   parsedInsuranceClues: Record<string, any>;
   insurancePolicyType: "HO3" | "HO6" | "DP3" | "";
