@@ -432,13 +432,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const html = await response.text();
 
-      function extractRate(text: string, label: string): number | null {
-        // Find the "30 Yr. <label>" heading, then grab the first rate% within the next 1000 chars
-        const anchor = `30 Yr. ${label}`;
+      // Find the "<term> Yr. <label>" heading on MND, then grab the first
+      // rate% within the next 1000 chars. termPrefix lets us pull either the
+      // 30-year or the 15-year fixed conventional rate from the same page.
+      function extractRate(text: string, label: string, termPrefix: "30 Yr." | "15 Yr." = "30 Yr."): number | null {
+        const anchor = `${termPrefix} ${label}`;
         const headIdx = text.indexOf(anchor);
         if (headIdx === -1) return null;
         const section = text.substring(headIdx, headIdx + 1000);
-        // Look for the <div class="rate"> block
         const rateDiv = section.indexOf('<div class="rate">');
         if (rateDiv === -1) return null;
         const after = section.substring(rateDiv, rateDiv + 80);
@@ -449,9 +450,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const rates = {
-        conventional: extractRate(html, "Fixed") ?? 6.82,
-        fha:          extractRate(html, "FHA")   ?? 6.38,
-        va:           extractRate(html, "VA")    ?? 6.25,
+        conventional:   extractRate(html, "Fixed")                ?? 6.82,
+        conventional15: extractRate(html, "Fixed", "15 Yr.")      ?? 6.02,
+        fha:            extractRate(html, "FHA")                  ?? 6.38,
+        va:             extractRate(html, "VA")                   ?? 6.25,
         source: "mortgagenewsdaily.com",
         lastUpdated: new Date().toISOString(),
       };
@@ -459,7 +461,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(rates);
     } catch (err) {
       console.error("Failed to fetch mortgage rates:", err);
-      res.json({ conventional: 6.82, fha: 6.38, va: 6.25, source: "fallback", lastUpdated: null });
+      res.json({ conventional: 6.82, conventional15: 6.02, fha: 6.38, va: 6.25, source: "fallback", lastUpdated: null });
     }
   });
 

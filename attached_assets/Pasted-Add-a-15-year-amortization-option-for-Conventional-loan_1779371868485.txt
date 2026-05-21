@@ -1,0 +1,136 @@
+Add a 15-year amortization option for Conventional loans only in:
+
+1. Purchase Estimate — Page 4
+2. Refinance tab
+
+Current behavior:
+The app appears to calculate Conventional loan payments using a 30-year fixed amortization and the Mortgage News Daily 30-year fixed rate.
+
+Requested change:
+For Conventional loans only, allow the user to choose between:
+
+- 30-year fixed
+- 15-year fixed
+
+This should affect:
+- the interest rate pulled from Mortgage News Daily
+- the amortization term used in the principal and interest payment calculation
+- all dependent payment/qualification calculations
+
+Expected behavior:
+If the loan type is Conventional:
+- Show an amortization/term selector.
+- Options:
+  - 30-year fixed
+  - 15-year fixed
+
+If the user selects 30-year fixed:
+- Use the Mortgage News Daily 30-year fixed rate as the base rate.
+- Use 360 months for the principal and interest calculation.
+
+If the user selects 15-year fixed:
+- Use the Mortgage News Daily 15-year fixed rate as the base rate.
+- Use 180 months for the principal and interest calculation.
+
+Important:
+This should apply only to Conventional loans.
+
+Do not show or apply the 15-year option for:
+- FHA
+- VA
+- USDA
+- DSCR
+- Non-QM
+- Any other loan type unless already supported elsewhere
+
+Interest rate logic:
+- Keep the same existing rate adjustment parameters currently used for Conventional loans.
+- Continue applying adjustments based on:
+  - credit score
+  - LTV
+  - PMI assumptions
+  - any other existing Conventional pricing factors
+- The only change is the base Mortgage News Daily rate source:
+  - 30-year selection uses MND 30-year fixed
+  - 15-year selection uses MND 15-year fixed
+- After pulling the correct base rate, apply the same existing Conventional adjustment logic to the selected term.
+
+Payment calculation:
+For 30-year:
+- amortizationMonths = 360
+
+For 15-year:
+- amortizationMonths = 180
+
+Principal and interest payment must recalculate using the selected amortization term.
+
+Formula should use:
+- loan amount
+- selected interest rate
+- selected amortization term
+
+Do not keep using 360 months when 15-year is selected.
+
+Purchase Estimate Page 4 requirements:
+1. Add an amortization/term selector when loan type is Conventional.
+2. Default to 30-year fixed unless another value is already saved.
+3. If user changes to 15-year fixed:
+   - update base rate to MND 15-year fixed
+   - apply existing Conventional rate adjustments
+   - recalculate principal and interest using 180 months
+   - recalculate monthly payment, DTI, cash to close, qualification status, and any dashboard summary values
+4. Auto-save the selected term to the purchase scenario.
+
+Refinance requirements:
+1. Add the same amortization/term selector for Conventional refinance scenarios.
+2. Default to 30-year fixed unless another value is already saved.
+3. If user changes to 15-year fixed:
+   - update base rate to MND 15-year fixed
+   - apply existing Conventional rate adjustments
+   - recalculate principal and interest using 180 months
+   - recalculate monthly savings/payment comparison, DTI, refinance qualification metrics, and dashboard summary values
+4. Auto-save the selected term to the refinance scenario.
+
+Data fields:
+Add or reuse fields like:
+- `loan_term_years`: `30 | 15`
+- `amortization_months`: `360 | 180`
+- `rate_source`: `"mnd_30_year_fixed" | "mnd_15_year_fixed"`
+
+Stored values should persist after:
+- switching tabs
+- refresh
+- logout/login
+- reopening the scenario
+
+Validation:
+- If loan type changes away from Conventional, hide or disable the 15-year selector.
+- If a Conventional 15-year selection exists and user changes loan type to FHA/VA/etc., reset to that loan type’s default supported term or prevent invalid selection.
+- Do not break existing FHA/VA/refinance/payment calculations.
+- Do not change PMI calculation rules except where payment/qualification is affected by the updated loan term/rate.
+- PMI should still follow existing Conventional PMI logic.
+
+Acceptance test:
+1. Go to Purchase Estimate Page 4.
+2. Select Conventional.
+3. Confirm amortization selector appears with 30-year and 15-year options.
+4. Select 30-year fixed.
+5. Confirm app uses MND 30-year fixed base rate and 360-month amortization.
+6. Select 15-year fixed.
+7. Confirm app uses MND 15-year fixed base rate and 180-month amortization.
+8. Confirm principal and interest payment recalculates correctly.
+9. Confirm DTI, monthly payment, cash to close, and qualification status update.
+10. Refresh/logout/login and confirm selected term persists.
+11. Go to Refinance tab.
+12. Select Conventional.
+13. Repeat 30-year vs 15-year test.
+14. Confirm FHA/VA/other loan types do not show or apply this Conventional-only 15-year option.
+15. Confirm existing rate adjustments for credit score, LTV, and PMI still apply to both 30-year and 15-year Conventional options.
+
+Please make the smallest safe code change possible and tell me:
+- Which Mortgage News Daily rate field/API value is used for 15-year fixed
+- Which Purchase Page 4 component was changed
+- Which Refinance component was changed
+- Which calculation functions now use 180 vs 360 months
+- How Conventional rate adjustments are applied to both terms
+- Which files/functions were changed

@@ -245,9 +245,16 @@ interface Inputs {
   hasRentalIncome: boolean | null;
   monthlyRentalIncome: number;
   rentalType: "annual" | "short-term" | null;
+  /** Amortization term in years. Only 15 or 30. The UI only exposes the
+   *  15-year choice for Conventional loans — every other loan type is
+   *  forced back to 30 by setLoanType. Drives calcPI termMonths (180 vs
+   *  360) and the base MND rate used (conventional15 vs conventional). */
+  loanTermYears: 15 | 30;
 }
 
-const FALLBACK_RATES = { conventional: 6.82, fha: 6.17, va: 6.25, usda: 6.38, dscr: 6.82, bank_statement: 6.82 };
+// FALLBACK_RATES.conventional15 is the Mortgage News Daily 15-year fixed
+// fallback; the live rate comes from /api/mortgage-rates → conventional15.
+const FALLBACK_RATES = { conventional: 6.82, conventional15: 6.02, fha: 6.17, va: 6.25, usda: 6.38, dscr: 6.82, bank_statement: 6.82 };
 
 interface PlaceMeta {
   placeId?: string;
@@ -306,7 +313,23 @@ function makeDefaultInputs(price = 350000): Inputs {
     impactWindows: false, roofAttachment: "toenails", swr: false,
     hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, monthlyRentalIncome: 0, rentalType: null,
     isVeteran: null, vaDisability: null, vaDisabilityRating100: null, vaLoanUse: null,
+    loanTermYears: 30,
   };
+}
+
+// Returns the Mortgage News Daily base rate to use for a given loan type +
+// term. Only Conventional has a 15-year choice; every other product is
+// fixed-30. Centralized so the rate-sync useEffects, setLoanType,
+// setDownPayment, setCreditScore, and the UI term toggle all agree.
+function baseRateFor(
+  rates: { conventional: number; conventional15?: number; fha?: number; va?: number; usda?: number },
+  loanType: string,
+  termYears: 15 | 30,
+): number {
+  if (loanType === "conventional" && termYears === 15) {
+    return rates.conventional15 ?? rates.conventional;
+  }
+  return (rates as any)[loanType] ?? rates.conventional;
 }
 
 /**
@@ -1238,7 +1261,7 @@ export default function Estimate() {
     // ── Mortgage ──────────────────────────────────────────────────────────
     checkPage(20);
     sectionHeader("Monthly Mortgage Breakdown");
-    row("Principal & Interest", fmt(calc.pi), `${inputs.interestRate.toFixed(3)}% / 30 yr`);
+    row("Principal & Interest", fmt(calc.pi), `${inputs.interestRate.toFixed(3)}% / ${inputs.loanTermYears} yr`);
     row("Property Taxes", `${fmt(calc.monthlyTax)}/mo`, `${fmt(inputs.annualTaxes)}/yr`);
     row("Homeowners Insurance", `${fmt(calc.monthlyHOIns)}/mo`);
     row("Flood Insurance", `${fmt(calc.monthlyFlood)}/mo`);
@@ -1385,7 +1408,7 @@ export default function Estimate() {
   const defaultPrice = 350000;
 
   // Live mortgage rates from mortgagenewsdaily.com
-  const { data: liveRates } = useQuery<{ conventional: number; fha: number; va: number; usda?: number; source: string; lastUpdated: string | null }>({
+  const { data: liveRates } = useQuery<{ conventional: number; conventional15?: number; fha: number; va: number; usda?: number; source: string; lastUpdated: string | null }>({
     queryKey: ["/api/mortgage-rates"],
     staleTime: 60 * 60 * 1000,
   });
@@ -1452,6 +1475,10 @@ export default function Estimate() {
       downPaymentPct: saved.downPaymentPct ?? base.downPaymentPct,
       interestRate: saved.interestRate ?? base.interestRate,
       loanType,
+      // 15-year is only valid when the saved loan type is Conventional.
+      // Any other product (FHA/VA/USDA/DSCR/Bank Statement) snaps back
+      // to 30 even if a stale 15 value exists.
+      loanTermYears: loanType === "conventional" && saved.loanTermYears === 15 ? 15 : 30,
       annualTaxes: Math.round(price * 0.015),
       annualHOIns: Math.round(price * 0.0075),
     };
@@ -1519,7 +1546,7 @@ export default function Estimate() {
   useEffect(() => {
     if (liveRates && !ratesLoadedRef.current) {
       ratesLoadedRef.current = true;
-      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType) }));
+      setInputs((p) => ({ ...p, interestRate: fullRate(baseRateFor(liveRates, p.loanType, p.loanTermYears), p.creditScore, p.occupancy, p.downPaymentPct, p.loanType) }));
     }
   }, [liveRates]);
 
@@ -1547,12 +1574,34 @@ export default function Estimate() {
     setInputs((p) => {
       const newMin = getMinDown(lt, p.hasMortgage, p.occupancy);
       const newDown = Math.max(p.downPaymentPct, newMin);
-      const baseRate = (lt === "dscr" || lt === "bank_statement") ? rates.conventional : ((rates as any)[lt] ?? rates.conventional);
+      // 15-year amortization is Conventional-only. Switching to any other
+      // loan type snaps the term back to 30 so we never end up pulling
+      // the 15-year MND rate for an FHA/VA/etc. product.
+      const newTermYears: 15 | 30 = lt === "conventional" ? p.loanTermYears : 30;
+      const altBase = (lt === "dscr" || lt === "bank_statement") ? rates.conventional : baseRateFor(rates, lt, newTermYears);
       return {
         ...p,
         loanType: lt,
-        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, lt),
+        loanTermYears: newTermYears,
+        interestRate: fullRate(altBase, p.creditScore, p.occupancy, newDown, lt),
         downPaymentPct: newDown,
+      };
+    });
+  }
+
+  // Conventional-only 15- vs 30-year amortization toggle. Recomputes the
+  // base rate from MND (conventional15 vs conventional) and re-applies all
+  // existing Conventional rate adjustments (credit, occupancy, LTV) via
+  // fullRate. P&I, DTI, cash-to-close, qualification all derive from
+  // calc.pi inside the useMemo, which already keys off loanTermYears for
+  // termMonths.
+  function setLoanTermYears(years: 15 | 30) {
+    setInputs((p) => {
+      if (p.loanType !== "conventional") return p;
+      return {
+        ...p,
+        loanTermYears: years,
+        interestRate: fullRate(baseRateFor(rates, p.loanType, years), p.creditScore, p.occupancy, p.downPaymentPct, p.loanType),
       };
     });
   }
@@ -1565,11 +1614,14 @@ export default function Estimate() {
         : "conventional";
       const newMin = getMinDown(forcedLoan, p.hasMortgage, occ);
       const newDown = Math.max(p.downPaymentPct, newMin);
-      const baseRate = (forcedLoan === "dscr" || forcedLoan === "bank_statement") ? rates.conventional : ((rates as any)[forcedLoan] ?? rates.conventional);
+      // 15-year amortization survives only when the resulting loan stays Conventional.
+      const newTermYears: 15 | 30 = forcedLoan === "conventional" ? p.loanTermYears : 30;
+      const baseRate = (forcedLoan === "dscr" || forcedLoan === "bank_statement") ? rates.conventional : baseRateFor(rates, forcedLoan, newTermYears);
       return {
         ...p,
         occupancy: occ,
         loanType: forcedLoan,
+        loanTermYears: newTermYears,
         interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan),
         downPaymentPct: newDown,
         rentalType: occ === "investment" ? p.rentalType : null,
@@ -1587,11 +1639,13 @@ export default function Estimate() {
         score < 720 && p.loanType === "conventional" ? "fha" :
         score >= 720 && p.loanType === "fha" ? "conventional" :
         p.loanType;
-      const baseRate = isAltLoan ? rates.conventional : ((rates as any)[autoLoanType] ?? rates.conventional);
+      const newTermYears: 15 | 30 = autoLoanType === "conventional" ? p.loanTermYears : 30;
+      const baseRate = isAltLoan ? rates.conventional : baseRateFor(rates, autoLoanType, newTermYears);
       return {
         ...p,
         creditScore: score,
         loanType: autoLoanType,
+        loanTermYears: newTermYears,
         interestRate: fullRate(baseRate, score, p.occupancy, p.downPaymentPct, autoLoanType),
       };
     });
@@ -1604,7 +1658,7 @@ export default function Estimate() {
       return {
         ...p,
         downPaymentPct: newDown,
-        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown, p.loanType),
+        interestRate: fullRate(baseRateFor(rates, p.loanType, p.loanTermYears), p.creditScore, p.occupancy, newDown, p.loanType),
       };
     });
   }
@@ -1616,7 +1670,7 @@ export default function Estimate() {
   // ─── Calculations ──────────────────────────────────────────────────────────
 
   const calc = useMemo(() => {
-    const { purchasePrice, downPaymentPct, loanType, creditScore, interestRate,
+    const { purchasePrice, downPaymentPct, loanType, loanTermYears, creditScore, interestRate,
       annualTaxes, hoaMonthly, cddAnnual, annualHOIns, annualFloodIns,
       monthlyDebts, monthlyIncome, monthlyRentalIncome, reserves, impactWindows, roofAttachment, swr,
       vaDisability, vaLoanUse } = inputs;
@@ -1629,7 +1683,10 @@ export default function Estimate() {
     const rate = interestRate / 100;
     const ltv = baseLoanAmount / purchasePrice;
 
-    const pi = calcPI(loanAmount, rate);
+    // 15-year Conventional uses 180-month amortization; everything else
+    // stays on the existing 360-month default inside calcPI.
+    const termMonths = loanType === "conventional" && loanTermYears === 15 ? 180 : 360;
+    const pi = calcPI(loanAmount, rate, termMonths);
     const monthlyTax = annualTaxes / 12;
     const monthlyHOIns = annualHOIns / 12;
     const monthlyFlood = annualFloodIns / 12;
@@ -1769,6 +1826,7 @@ export default function Estimate() {
           interestRate: inputs.interestRate,
           loanType: inputs.loanType,
           occupancy: inputs.occupancy,
+          loanTermYears: inputs.loanTermYears,
         };
         if (idx >= 0) {
           // Only write if something actually changed (avoid noisy storage writes)
@@ -1782,6 +1840,7 @@ export default function Estimate() {
             && cur.interestRate === next.interestRate
             && cur.loanType === next.loanType
             && cur.occupancy === next.occupancy
+            && (cur.loanTermYears ?? 30) === next.loanTermYears
             && cur.address === address;
           if (!same) {
             const updated = [...existing];
@@ -2691,6 +2750,35 @@ export default function Estimate() {
                     )}
                   </div>
 
+                  {/* Amortization term — Conventional-only. Drives base rate (30 vs 15-yr MND) and calcPI termMonths (360 vs 180). */}
+                  {inputs.loanType === "conventional" && (
+                    <div>
+                      <Label className="text-xs text-muted-foreground mb-1.5 block">Loan Term</Label>
+                      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Loan term in years">
+                        {([30, 15] as const).map(yrs => (
+                          <button
+                            key={yrs}
+                            type="button"
+                            role="radio"
+                            aria-checked={inputs.loanTermYears === yrs}
+                            onClick={() => setLoanTermYears(yrs)}
+                            className={`px-3 py-2 rounded-md text-sm font-semibold border transition-colors ${
+                              inputs.loanTermYears === yrs
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "border-border text-muted-foreground hover:border-primary"
+                            }`}
+                            data-testid={`button-term-${yrs}`}
+                          >
+                            {yrs}-Year Fixed
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-[11px] mt-1.5 leading-tight text-muted-foreground">
+                        15-year loans usually carry a lower rate and build equity faster but raise the monthly payment.
+                      </p>
+                    </div>
+                  )}
+
                   {(() => {
                     const minDown = getMinDown(inputs.loanType, inputs.hasMortgage, inputs.occupancy);
                     const snapPoints = [
@@ -3008,7 +3096,7 @@ export default function Estimate() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Row label="Principal & Interest" value={fmt(calc.pi)} sub={`${inputs.interestRate.toFixed(2)}% / 30 yr`} />
+                  <Row label="Principal & Interest" value={fmt(calc.pi)} sub={`${inputs.interestRate.toFixed(2)}% / ${inputs.loanTermYears} yr`} />
                   <Row
                     label="Property Taxes"
                     value={`${fmt(calc.monthlyTax)}/mo`}

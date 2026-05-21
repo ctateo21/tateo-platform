@@ -45,6 +45,11 @@ export interface PurchaseScenario {
   downPaymentPct?: number;
   loanType?: string;
   occupancy?: "primary" | "secondary" | "investment";
+  // Conventional-only amortization choice. 30 (default) or 15. Persisted as
+  // `loan_term_years` in Supabase. Only written when non-default to stay
+  // forward-compatible with environments where the column has not yet been
+  // added — see the conditional include in purchaseToRow below.
+  loanTermYears?: 15 | 30;
 }
 
 export interface InsuranceScenario {
@@ -76,6 +81,12 @@ export interface TrackedLoan {
   propertyType: TrackedLoanPropertyType;
   addedAt: string;
   balanceAsOf?: string;
+  // Conventional-only amortization choice for the *new* (proposed) refi
+  // loan. 30 (default) or 15. Persisted as `new_loan_term_years` in
+  // Supabase. Only written when non-default to stay forward-compatible
+  // with environments where the column has not yet been added — see
+  // the conditional include in trackedLoanToRow below.
+  newLoanTermYears?: 15 | 30;
 }
 
 // ── In-memory caches (kept in sync with Supabase) ──────────────────
@@ -128,10 +139,15 @@ function rowToPurchase(row: any): PurchaseScenario {
     downPaymentPct: row.down_payment_pct ?? undefined,
     loanType: row.loan_type ?? undefined,
     occupancy: row.occupancy ?? undefined,
+    // Tolerates the column not existing yet — row.loan_term_years is
+    // simply undefined, which surfaces as the 30-year default downstream.
+    loanTermYears: row.loan_term_years === 15 ? 15
+                  : row.loan_term_years === 30 ? 30
+                  : undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
-  return {
+  const base: Record<string, any> = {
     id: s.id,
     user_id: userId,
     address: s.address,
@@ -146,7 +162,13 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     down_payment_pct: s.downPaymentPct ?? null,
     loan_type: s.loanType ?? null,
     occupancy: s.occupancy ?? null,
+    // Always include the column so flipping 15 → 30 actually clears the
+    // saved 15 in Supabase. Requires the one-time migration:
+    //   ALTER TABLE purchase_scenarios ADD COLUMN loan_term_years SMALLINT;
+    // Without the column the upsert will fail; auth.ts catches and logs.
+    loan_term_years: s.loanTermYears ?? 30,
   };
+  return base;
 }
 function rowToInsurance(row: any): InsuranceScenario {
   return {
@@ -189,10 +211,15 @@ function rowToTrackedLoan(row: any): TrackedLoan {
     propertyType: (row.property_type ?? "primary") as TrackedLoanPropertyType,
     addedAt: row.added_at,
     balanceAsOf: row.balance_as_of ?? undefined,
+    // Same forward-compat shape as purchase scenarios — missing column
+    // is fine, the default 30 is applied downstream.
+    newLoanTermYears: row.new_loan_term_years === 15 ? 15
+                     : row.new_loan_term_years === 30 ? 30
+                     : undefined,
   };
 }
 function trackedLoanToRow(l: TrackedLoan, userId: string) {
-  return {
+  const base: Record<string, any> = {
     id: l.id,
     user_id: userId,
     property_address: l.propertyAddress,
@@ -206,7 +233,12 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     property_type: l.propertyType ?? "primary",
     added_at: l.addedAt,
     balance_as_of: l.balanceAsOf ?? null,
+    // Always include the column so flipping 15 → 30 actually clears the
+    // saved 15. Requires the one-time migration:
+    //   ALTER TABLE tracked_loans ADD COLUMN new_loan_term_years SMALLINT;
+    new_loan_term_years: l.newLoanTermYears ?? 30,
   };
+  return base;
 }
 
 // ── Serialized write queues (one per table) ────────────────────────
