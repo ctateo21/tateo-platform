@@ -980,7 +980,13 @@ function InsuranceRowCard({
               value={row.occupancy === "unknown" ? undefined : row.occupancy}
               onValueChange={(v) => onOccupancyChange(v as OccupancyType)}
             >
-              <SelectTrigger className="h-7 text-xs w-[150px]" aria-label="Property use">
+              {/* Trigger is tinted with the shared occupancy color (blue /
+                  yellow / green) so the selected value visually matches
+                  Refinance buttons and the Insurance detail dropdown. */}
+              <SelectTrigger
+                className={`h-7 text-xs w-[150px] ${row.occupancy === "unknown" ? "" : occupancyBadgeClass}`}
+                aria-label="Property use"
+              >
                 <SelectValue placeholder="Select property use" />
               </SelectTrigger>
               <SelectContent>
