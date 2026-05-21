@@ -353,20 +353,28 @@ function makeDefaultInputs(price = 350000): Inputs {
 //   5. Score ≥ 720 → Conventional.
 function getRecommendedLoanType(args: {
   creditScore: number;
+  isVeteran: Inputs["isVeteran"];
   existingLoanType: Inputs["loanType"];
   userManuallySelectedLoanType: boolean;
   occupancy: Inputs["occupancy"];
 }): Inputs["loanType"] {
-  const { creditScore, existingLoanType, userManuallySelectedLoanType, occupancy } = args;
+  const { creditScore, isVeteran, existingLoanType, userManuallySelectedLoanType, occupancy } = args;
+  // DSCR / Bank Statement are alt-doc products the user explicitly
+  // selects on investment scenarios — never auto-replaced.
   if (existingLoanType === "dscr" || existingLoanType === "bank_statement") return existingLoanType;
+  // FHA/VA/USDA are owner-occupied only — non-primary forces Conventional.
   if (occupancy !== "primary") return "conventional";
-  // Hard rule (user spec): credit score < 720 ALWAYS routes to FHA on
-  // primary-residence loans. Manual overrides do NOT block this rule —
-  // checked before `userManuallySelectedLoanType` so VA/USDA/Conventional
-  // selections all get overridden once the score drops below 720.
+  // Priority 1 (user spec): VA eligibility + primary residence beats every
+  // other rule, INCLUDING the below-720 FHA rule. Manual overrides do not
+  // block this either. The veteran flag is true/false/null — only an
+  // affirmative `true` triggers VA.
+  if (isVeteran === true) return "va";
+  // Priority 2 (user spec): credit score < 720 unconditionally routes to
+  // FHA on primary-residence loans for non-veterans. Manual overrides do
+  // NOT block this rule.
   if (creditScore < 720) return "fha";
-  // Score ≥ 720: a prior manual pick (VA, USDA, Conventional, FHA) is
-  // respected. Otherwise default to Conventional.
+  // Priority 3: score ≥ 720, not a veteran — a prior manual pick is
+  // respected; otherwise default to Conventional.
   if (userManuallySelectedLoanType) return existingLoanType;
   return "conventional";
 }
@@ -1820,34 +1828,40 @@ export default function Estimate() {
       }
       const isAltLoan = p.loanType === "dscr" || p.loanType === "bank_statement";
       // Loan-type recommendation runs through the centralized helper so
-      // the below-720→FHA rule fires regardless of the *current* loan
-      // type (the old gate only flipped Conventional→FHA, leaving VA /
-      // USDA / already-edited-FHA scenarios stuck on the wrong product).
+      // the priority order (VA → FHA<720 → manual override → Conventional)
+      // is applied consistently regardless of the *current* loan type.
       const autoLoanType = getRecommendedLoanType({
         creditScore: score,
+        isVeteran: p.isVeteran,
         existingLoanType: p.loanType,
         userManuallySelectedLoanType: !!p.loanTypeManuallySet,
         occupancy: p.occupancy,
       });
+      const flippedLoanType = autoLoanType !== p.loanType;
       const flippedToFhaFromOther = autoLoanType === "fha" && p.loanType !== "fha";
       const newTermYears: 15 | 30 = autoLoanType === "conventional" ? p.loanTermYears : 30;
       // DPA stays only when the resulting loan stays FHA AND the new
-      // score is still ≥ 600. If we just auto-flipped *into* FHA from a
-      // different product, reset to "Standard FHA 3.5% down" per spec
-      // (DPA off, dpaType null) — the DPA dropdown is still available
-      // for the user to opt into manually. If the auto loan-type
-      // flipped off FHA, strip DPA and clamp the down payment up to
-      // the product minimum of the resulting loan type.
+      // score is still ≥ 600. If we just auto-flipped *into* FHA (or VA,
+      // or anything else) from a different product, reset DPA — DPA is
+      // FHA-only and the user has to opt in again via the picker.
       const dpaKept = autoLoanType === "fha"
-        && !flippedToFhaFromOther
+        && !flippedLoanType
         && !!p.usesDPA
         && score >= DPA_MIN_CREDIT_SCORE;
       const newUsesDPA = dpaKept;
       const newDpaType = dpaKept ? p.dpaType ?? null : null;
       const dpaWasStripped = !!p.usesDPA && !dpaKept;
       const productMin = getMinDown(autoLoanType, p.hasMortgage, p.occupancy);
+      // Down-payment rules on auto-flip:
+      //   • Into FHA (3.5% standard) → productMin = 3.5
+      //   • Into VA  (0% standard, 0% funding fee waived for disabled vets)
+      //     → productMin = 0
+      //   • Into Conventional → productMin (3% no-mortgage / 5% w-mortgage)
+      // getMinDown already encodes per-product floors, so on any flip we
+      // simply reset to the product min. Off-flip paths preserve the
+      // user's existing down payment.
       const newDown = newUsesDPA ? 0
-        : flippedToFhaFromOther ? Math.max(productMin, 3.5)
+        : flippedLoanType ? productMin
         : dpaWasStripped ? Math.max(p.downPaymentPct, productMin)
         : p.downPaymentPct;
       const baseRate = isAltLoan ? rates.conventional : baseRateFor(rates, autoLoanType, newTermYears);
@@ -1864,28 +1878,46 @@ export default function Estimate() {
     });
   }
 
-  // ─── Safety-net invariant: score<720 ⇒ loanType=fha ──────────────────
-  // Per user spec, "anytime the user's credit score goes below 720, the
-  // loan type must automatically switch to FHA." This effect enforces
-  // the invariant defensively in case any other code path (saved-scenario
-  // hydrate, refinance-tab switch, scenario carryover at line ~1171,
-  // savedInputs restore at lines ~1055/1086, etc.) leaves the state in
-  // an inconsistent (score<720, loanType≠fha) combination. It re-routes
-  // through setCreditScore so the FHA-flip side-effects (downPayment=3.5,
-  // DPA reset, rate recalc) stay consistent with the picker path.
-  // Excludes DSCR/Bank-Statement (alt-doc products, never auto-replaced)
-  // and non-primary occupancy (FHA is owner-occupied only — those are
-  // already forced to Conventional by getRecommendedLoanType).
+  // ─── Safety-net invariant: priority-ordered loan-type recommendation ──
+  // Per user spec, the recommendation must follow priority:
+  //   1. Veteran + primary residence  → VA   (beats every other rule)
+  //   2. Score < 720 + primary        → FHA  (beats manual override)
+  //   3. Score ≥ 720                  → existing logic (Conventional or
+  //                                      manual pick)
+  // This effect enforces both priority-1 and priority-2 invariants in
+  // case any other code path (saved-scenario hydrate, scenario tab
+  // switch via switchScenario/removeScenario, scenario carryover at
+  // line ~1171, etc.) leaves the state in an inconsistent combination.
+  // It re-routes through setCreditScore so all side-effects
+  // (down-payment reset, DPA strip, rate recalc) stay consistent with
+  // the picker path. Excludes DSCR/Bank-Statement (alt-doc products,
+  // never auto-replaced) and non-primary occupancy (FHA/VA/USDA are
+  // owner-occupied only — those are already forced to Conventional
+  // by getRecommendedLoanType).
   useEffect(() => {
+    if (inputs.occupancy !== "primary") return;
+    if (inputs.loanType === "dscr" || inputs.loanType === "bank_statement") return;
+    // Priority 1 — veteran + primary ⇒ VA
+    if (inputs.isVeteran === true && inputs.loanType !== "va") {
+      if (typeof window !== "undefined") {
+        console.log("[FHA-RULE] safety-net VA priority firing", {
+          score: inputs.creditScore,
+          loanType: inputs.loanType,
+          isVeteran: inputs.isVeteran,
+          occupancy: inputs.occupancy,
+        });
+      }
+      setCreditScore(inputs.creditScore);
+      return;
+    }
+    // Priority 2 — non-veteran + score<720 + primary ⇒ FHA
     if (
-      inputs.occupancy === "primary"
+      inputs.isVeteran !== true
       && inputs.creditScore < 720
       && inputs.loanType !== "fha"
-      && inputs.loanType !== "dscr"
-      && inputs.loanType !== "bank_statement"
     ) {
       if (typeof window !== "undefined") {
-        console.log("[FHA-RULE] safety-net firing", {
+        console.log("[FHA-RULE] safety-net FHA<720 firing", {
           score: inputs.creditScore,
           loanType: inputs.loanType,
           occupancy: inputs.occupancy,
@@ -1893,7 +1925,7 @@ export default function Estimate() {
       }
       setCreditScore(inputs.creditScore);
     }
-  }, [inputs.creditScore, inputs.loanType, inputs.occupancy]);
+  }, [inputs.creditScore, inputs.loanType, inputs.occupancy, inputs.isVeteran]);
 
   function setDownPayment(pct: number) {
     setInputs((p) => {
