@@ -1,0 +1,71 @@
+Fix the Back button behavior inside the detailed Refinance property view.
+
+Current issue:
+When I go into a saved refinance property detail view and click Back, it takes me to the service selection page that asks:
+- All services
+- Real estate/mortgage
+- Insurance
+
+That is wrong.
+
+Expected behavior:
+When I am inside a detailed Refinance property view and click Back, it should take me back to:
+
+Dashboard → Refinance overview
+
+That overview should show all saved refinance properties.
+
+Navigation requirements:
+1. If the user entered the refinance detail view from Dashboard → Refinance, the Back button should return to Dashboard → Refinance.
+2. Do not send the user back to the service selection/onboarding page.
+3. Do not use browser history blindly if it can route back to the service selection page.
+4. Use the existing dashboard tab route/state/query param.
+   - If the app uses `/dashboard?tab=refinance`, use that.
+   - If the app uses another existing pattern, use the app’s current dashboard tab routing pattern.
+5. If no previous route is known, default Back to Dashboard → Refinance.
+6. Keep the detailed refinance property view working normally.
+7. Do not change Purchase, Insurance, or dashboard data persistence.
+
+Top refinance property tabs:
+If the detailed refinance view has top property tabs, they should show all saved refinance properties for the logged-in user, not only the current one.
+
+Expected behavior:
+- Dashboard → Refinance has Property A, Property B, and Property C.
+- User opens Property B.
+- Detailed refinance view opens for Property B.
+- Property B is active.
+- The top property tabs should show Property A, Property B, and Property C.
+- Clicking Property A or C should switch to that refinance detail view.
+- Back should return to Dashboard → Refinance overview.
+
+Fix requirements:
+1. Update the Back button handler in the refinance detail component.
+2. Back should navigate directly to the main dashboard with Refinance tab active.
+3. Do not route to the service selection page.
+4. When the refinance detail view loads, fetch/load all saved refinance properties for the logged-in user if needed.
+5. Use the current refinance property ID only to determine the active tab.
+6. Render only refinance records in the refinance top tabs.
+7. Do not show Purchase or Insurance records in refinance tabs.
+8. Use stable property/scenario IDs, not array indexes.
+9. Refreshing inside a refinance detail view should keep the current property active and reload the other refinance tabs if applicable.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Refinance.
+3. Open a saved refinance property detail view.
+4. Click Back.
+5. Confirm it returns to Dashboard → Refinance overview.
+6. Confirm it does not go to the service selection page.
+7. Open a refinance detail view again.
+8. Confirm any top property tabs show all saved refinance properties.
+9. Confirm clicking another refinance tab switches to that property.
+10. Refresh while inside a refinance detail view.
+11. Confirm the current refinance property stays active and other refinance tabs reload.
+12. Confirm Purchase and Insurance views are unchanged.
+
+Please make the smallest safe code change possible and tell me:
+- Which refinance detail component was changed
+- What route the Back button now uses
+- Whether all refinance properties are loaded for top tabs
+- How the active refinance property is selected
+- Which files/functions were changed

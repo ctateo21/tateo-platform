@@ -1,0 +1,49 @@
+Update the property-use dropdown colors on Dashboard → Insurance → Overview.
+
+Current issue:
+On the Insurance overview screen, the property-use dropdowns for Primary, Secondary, and Investment are not using the same colors we defined elsewhere.
+
+Expected behavior:
+On Dashboard → Insurance → Overview, the selected property-use dropdown should be colored consistently:
+
+- Primary = Blue
+- Secondary = Yellow
+- Investment = Green
+
+This should apply directly on the Insurance overview screen where each insurance property row/card shows the property-use dropdown.
+
+Requirements:
+1. Use the existing shared property-use/occupancy color mapping if one was already created.
+2. If no shared mapping exists, create one reusable helper and use it here.
+3. The dropdown selected state should visually reflect the selected value:
+   - Primary selected → blue styling
+   - Secondary selected → yellow styling
+   - Investment selected → green styling
+4. If the value is auto-carried over from Purchase or Refinance, still apply the correct color.
+5. If the user manually changes the Insurance dropdown, immediately update the color to match the new value.
+6. Keep labels consistent:
+   - Primary
+   - Secondary
+   - Investment
+7. Keep stored values consistent:
+   - `primary`
+   - `secondary` or `second_home`
+   - `investment`
+8. Do not change the Insurance overview layout.
+9. Do not change Purchase, Refinance, or Insurance persistence logic.
+10. Do not change the occupancy carryover behavior.
+
+Acceptance test:
+1. Go to Dashboard → Insurance → Overview.
+2. Confirm an Insurance property marked Primary shows the dropdown in blue.
+3. Change it to Secondary and confirm the dropdown turns yellow.
+4. Change it to Investment and confirm the dropdown turns green.
+5. Confirm carried-over values from Purchase/Refinance use the correct color.
+6. Confirm manual changes save and keep the correct color after refresh.
+7. Confirm other dashboard views are unchanged.
+
+Please make the smallest safe code change possible and tell me:
+- Which Insurance overview component was changed
+- Which color helper/map is used
+- How the dropdown color updates when the value changes
+- Which files/functions were changed
