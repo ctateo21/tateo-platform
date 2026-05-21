@@ -260,6 +260,14 @@ interface Inputs {
    *  with no monthly payment but a higher first-lien rate (and possibly
    *  discount points added to cash-to-close). Null when usesDPA is off. */
   dpaType?: "repayable" | "forgivable" | null;
+  /** Tracks whether the user has explicitly picked a loan type via the
+   *  loan-type picker (Page 3 or Page 4). When false, the credit-score
+   *  handler is free to auto-recommend via getRecommendedLoanType()
+   *  (e.g. flip to FHA when score < 720). When true, the user's choice
+   *  is preserved and credit-score changes will not re-route the loan
+   *  product. NOT persisted — intentionally resets on hydrate/refresh
+   *  so the recommendation rule can re-engage on a fresh session. */
+  loanTypeManuallySet?: boolean;
 }
 
 // FALLBACK_RATES.conventional15 is the Mortgage News Daily 15-year fixed
@@ -325,7 +333,36 @@ function makeDefaultInputs(price = 350000): Inputs {
     isVeteran: null, vaDisability: null, vaDisabilityRating100: null, vaLoanUse: null,
     loanTermYears: 30,
     usesDPA: false, dpaType: null,
+    loanTypeManuallySet: false,
   };
+}
+
+// Centralized loan-type recommendation. Keeps the credit-score-driven
+// auto-selection rule in one place so the same below-720→FHA behavior
+// applies regardless of which loan product is currently selected (the
+// previous gate `loanType === "conventional"` was too narrow and broke
+// the rule whenever the in-state loan was already FHA, VA, or USDA).
+//
+// Rules, applied in order:
+//   1. DSCR / Bank Statement are alt-doc products — never auto-replace.
+//   2. Non-primary occupancy: FHA/VA/USDA are owner-occupied-only, so
+//      force Conventional.
+//   3. Manual override wins — if the user explicitly picked a loan type
+//      via the picker, respect it.
+//   4. Score < 720 → FHA.
+//   5. Score ≥ 720 → Conventional.
+function getRecommendedLoanType(args: {
+  creditScore: number;
+  existingLoanType: Inputs["loanType"];
+  userManuallySelectedLoanType: boolean;
+  occupancy: Inputs["occupancy"];
+}): Inputs["loanType"] {
+  const { creditScore, existingLoanType, userManuallySelectedLoanType, occupancy } = args;
+  if (existingLoanType === "dscr" || existingLoanType === "bank_statement") return existingLoanType;
+  if (occupancy !== "primary") return "conventional";
+  if (userManuallySelectedLoanType) return existingLoanType;
+  if (creditScore < 720) return "fha";
+  return "conventional";
 }
 
 // Returns the Mortgage News Daily base rate to use for a given loan type +
@@ -1557,6 +1594,14 @@ export default function Estimate() {
       loanTermYears: loanType === "conventional" && saved.loanTermYears === 15 ? 15 : 30,
       usesDPA: savedUsesDPA && savedDpaType !== null,
       dpaType: savedDpaType,
+      // Intentionally NOT hydrated from saved scenario: the manual-
+      // override flag is session-only. On every fresh hydrate the
+      // credit-score handler is free to re-recommend (e.g. below-720
+      // → FHA), even if the saved loanType was something else. The
+      // saved loanType still seeds initial state via `loanType` above;
+      // it only gets overridden once the user actually moves the
+      // credit-score slider.
+      loanTypeManuallySet: false,
       // Hydrate seller concessions from the saved scenario so the
       // slider value survives refresh/logout/login. The runtime clamp
       // effect (~line 1608+) re-applies the program-rule max if the
@@ -1676,6 +1721,11 @@ export default function Estimate() {
         dpaType: newDpaType,
         interestRate: fullRate(altBase, p.creditScore, p.occupancy, newDown, lt, newUsesDPA, newDpaType),
         downPaymentPct: newDown,
+        // Picking a loan type from the picker (Page 3 or Page 4) is a
+        // manual override — locks in the user's choice so subsequent
+        // credit-score changes don't auto-re-route via
+        // getRecommendedLoanType().
+        loanTypeManuallySet: true,
       };
     });
   }
@@ -1751,24 +1801,35 @@ export default function Estimate() {
   function setCreditScore(score: number) {
     setInputs((p) => {
       const isAltLoan = p.loanType === "dscr" || p.loanType === "bank_statement";
-      const autoLoanType =
-        isAltLoan ? p.loanType :
-        p.occupancy !== "primary" ? "conventional" :
-        score < 720 && p.loanType === "conventional" ? "fha" :
-        score >= 720 && p.loanType === "fha" ? "conventional" :
-        p.loanType;
+      // Loan-type recommendation runs through the centralized helper so
+      // the below-720→FHA rule fires regardless of the *current* loan
+      // type (the old gate only flipped Conventional→FHA, leaving VA /
+      // USDA / already-edited-FHA scenarios stuck on the wrong product).
+      const autoLoanType = getRecommendedLoanType({
+        creditScore: score,
+        existingLoanType: p.loanType,
+        userManuallySelectedLoanType: !!p.loanTypeManuallySet,
+        occupancy: p.occupancy,
+      });
+      const flippedToFhaFromOther = autoLoanType === "fha" && p.loanType !== "fha";
       const newTermYears: 15 | 30 = autoLoanType === "conventional" ? p.loanTermYears : 30;
       // DPA stays only when the resulting loan stays FHA AND the new
-      // score is still ≥ 600. If the new score drops below 600 OR the
-      // auto loan-type flipped off FHA, strip DPA and clamp the down
-      // payment up to the product minimum of the resulting loan type
-      // (so we never leave a non-FHA loan sitting at the DPA-forced 0%).
-      const dpaKept = autoLoanType === "fha" && !!p.usesDPA && score >= DPA_MIN_CREDIT_SCORE;
+      // score is still ≥ 600. If we just auto-flipped *into* FHA from a
+      // different product, reset to "Standard FHA 3.5% down" per spec
+      // (DPA off, dpaType null) — the DPA dropdown is still available
+      // for the user to opt into manually. If the auto loan-type
+      // flipped off FHA, strip DPA and clamp the down payment up to
+      // the product minimum of the resulting loan type.
+      const dpaKept = autoLoanType === "fha"
+        && !flippedToFhaFromOther
+        && !!p.usesDPA
+        && score >= DPA_MIN_CREDIT_SCORE;
       const newUsesDPA = dpaKept;
       const newDpaType = dpaKept ? p.dpaType ?? null : null;
       const dpaWasStripped = !!p.usesDPA && !dpaKept;
       const productMin = getMinDown(autoLoanType, p.hasMortgage, p.occupancy);
       const newDown = newUsesDPA ? 0
+        : flippedToFhaFromOther ? Math.max(productMin, 3.5)
         : dpaWasStripped ? Math.max(p.downPaymentPct, productMin)
         : p.downPaymentPct;
       const baseRate = isAltLoan ? rates.conventional : baseRateFor(rates, autoLoanType, newTermYears);

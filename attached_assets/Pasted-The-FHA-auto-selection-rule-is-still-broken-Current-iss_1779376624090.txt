@@ -1,0 +1,92 @@
+The FHA auto-selection rule is still broken.
+
+Current issue:
+When the user enters a credit score below 720, the loan type does not automatically become FHA.
+
+This used to work. The recent FHA DPA changes appear to have broken the loan recommendation / auto-selection logic.
+
+Do not change the FHA DPA pricing logic.
+Do not change the seller concession logic.
+Do not change the discount point logic.
+Only fix the credit-score-based loan type auto-selection.
+
+Expected behavior:
+When credit score is below 720:
+- Loan type should automatically become FHA.
+- FHA should default to standard FHA 3.5% down.
+- FHA DPA should be available as an option, but should not automatically turn on.
+
+When credit score is 720 or higher:
+- Use the existing normal recommendation logic.
+
+Critical rule:
+The below-720 FHA auto-selection must happen before the DPA-specific logic runs.
+
+Likely bug:
+The DPA logic is probably only running when `loanType === "fha"`, but the app no longer has a reliable effect/helper that sets `loanType = "fha"` when credit score drops below 720.
+
+Please inspect these exact areas:
+1. The credit score input handler.
+2. The loan recommendation function.
+3. Any `useEffect` or watcher that listens for credit score changes.
+4. Any Page 3 loan type state.
+5. Any Page 4 loan type state.
+6. Any saved scenario state for `loan_type`, `loanType`, `selectedLoanType`, or `recommendedLoanType`.
+7. Any manual override flag that may be preventing FHA from being selected.
+8. Any new DPA code that resets the loan type or prevents loan recommendation from running.
+
+Fix requirements:
+1. Add/restore a centralized helper like:
+
+   `getRecommendedLoanType({ creditScore, existingLoanType, userManuallySelectedLoanType })`
+
+2. The helper should include this rule:
+
+   If creditScore < 720 and the user has not manually overridden the loan type:
+   return "fha"
+
+3. When FHA is auto-selected because credit score is below 720:
+   - set loan type to FHA
+   - set standard FHA down payment to 3.5%
+   - set `uses_dpa = false`
+   - set `dpa_type = null`
+   - show DPA as an optional 0% down choice
+
+4. The auto-selection should run whenever credit score changes.
+5. Page 3 and Page 4 should use the same loan type state.
+6. The dashboard/saved scenario should persist the auto-selected FHA loan type.
+7. If the user manually selects another loan type after FHA is recommended, respect the manual override only if that is the current intended behavior.
+8. Do not let DPA state determine whether FHA is selected. FHA must be selected first, then DPA options appear.
+
+Add temporary debug logs:
+- Credit score entered
+- Previous loan type
+- Whether user manually selected loan type
+- Recommended loan type
+- Final selected loan type after recommendation
+- Whether FHA DPA was reset to standard FHA
+
+Acceptance test:
+1. Start a new purchase estimate.
+2. Enter credit score 719.
+3. Confirm loan type automatically becomes FHA.
+4. Confirm down payment defaults to 3.5%.
+5. Confirm DPA is off by default.
+6. Confirm 0% FHA DPA remains available as an option.
+7. Enter credit score 680.
+8. Confirm loan type remains FHA.
+9. Enter credit score 600.
+10. Confirm loan type remains FHA, but DPA availability follows the DPA rules.
+11. Enter credit score 720 or higher.
+12. Confirm the existing non-FHA recommendation logic runs.
+13. Go to Page 4 / See My Estimate.
+14. Confirm Page 4 also shows FHA when credit score is below 720.
+15. Confirm FHA DPA pricing still works after manually selecting DPA.
+16. Confirm no Conventional, VA, Refinance, or Insurance logic is changed.
+
+Please report back:
+- Which function was responsible for recommending the loan type
+- Why below-720 FHA selection stopped working
+- Whether a manual override flag was blocking it
+- How Page 3 and Page 4 loan type state are synced
+- Which files/functions were changed
