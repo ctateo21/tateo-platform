@@ -1,0 +1,87 @@
+The credit-score loan type rule is still not working.
+
+Current issue:
+I changed credit score from 780 to 680 and the loan type stayed Conventional.
+
+That is wrong.
+
+Hard rule:
+Anytime the user’s credit score goes below 720, the loan type must automatically switch to FHA.
+
+This should happen immediately when the credit score changes.
+
+Do not keep Conventional selected when credit score is below 720.
+
+Expected behavior:
+- Credit score 720+ → existing recommendation/default logic can apply.
+- Credit score below 720 → force loan type to FHA.
+- This applies even if the previous loan type was Conventional.
+- This applies when changing from 780 to 680.
+- This applies on Page 3 and Page 4 / See My Estimate.
+- This applies before FHA DPA logic runs.
+
+Important:
+For now, do not let a “manual override” block this rule.
+
+If the user changes credit score below 720, set loan type to FHA every time.
+
+Fix requirements:
+1. Find the credit score change handler.
+2. Find the loan type state used by Page 3 and Page 4.
+3. When credit score changes and new score is `< 720`, immediately set:
+   - `loanType = "fha"`
+   - `selectedLoanType = "fha"` if this field exists
+   - `recommendedLoanType = "fha"` if this field exists
+4. Reset FHA values to standard FHA:
+   - down payment = 3.5%
+   - `uses_dpa = false`
+   - `dpa_type = null`
+5. Keep DPA available as an option after FHA is selected.
+6. Auto-save the updated loan type to the purchase scenario.
+7. Recalculate:
+   - rate
+   - principal and interest
+   - FHA MIP
+   - cash to close
+   - DTI
+   - qualification status
+8. Make sure Page 4 / See My Estimate reflects FHA after the score changes.
+9. Do not change DPA pricing logic.
+10. Do not change seller concessions logic.
+11. Do not change discount point logic.
+
+Likely bug:
+The app probably has multiple loan type fields, and only one is being updated.
+
+Please inspect and sync all loan type fields:
+- `loanType`
+- `selectedLoanType`
+- `recommendedLoanType`
+- `loan_type`
+- `scenario.loanType`
+- `purchaseDetails.loanType`
+- any Page 3 local state
+- any Page 4 estimate state
+
+The UI may be reading one field while the recommendation logic updates another.
+
+Required implementation pattern:
+Create one centralized function, for example:
+
+`applyCreditScoreLoanTypeRule(score)`
+
+Logic:
+
+```js
+if (score < 720) {
+  setLoanType("fha");
+  setSelectedLoanType("fha");
+  updatePurchaseScenario({
+    loan_type: "fha",
+    loanType: "fha",
+    down_payment_percent: 3.5,
+    uses_dpa: false,
+    dpa_type: null
+  });
+  recalculatePurchaseEstimate();
+}

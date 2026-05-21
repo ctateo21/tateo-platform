@@ -360,8 +360,14 @@ function getRecommendedLoanType(args: {
   const { creditScore, existingLoanType, userManuallySelectedLoanType, occupancy } = args;
   if (existingLoanType === "dscr" || existingLoanType === "bank_statement") return existingLoanType;
   if (occupancy !== "primary") return "conventional";
-  if (userManuallySelectedLoanType) return existingLoanType;
+  // Hard rule (user spec): credit score < 720 ALWAYS routes to FHA on
+  // primary-residence loans. Manual overrides do NOT block this rule —
+  // checked before `userManuallySelectedLoanType` so VA/USDA/Conventional
+  // selections all get overridden once the score drops below 720.
   if (creditScore < 720) return "fha";
+  // Score ≥ 720: a prior manual pick (VA, USDA, Conventional, FHA) is
+  // respected. Otherwise default to Conventional.
+  if (userManuallySelectedLoanType) return existingLoanType;
   return "conventional";
 }
 
@@ -1800,6 +1806,18 @@ export default function Estimate() {
 
   function setCreditScore(score: number) {
     setInputs((p) => {
+      // Temporary diagnostic so we can confirm the handler actually
+      // fires and observe the before/after loan type on every change.
+      // Tagged so it's easy to grep / strip later.
+      if (typeof window !== "undefined") {
+        console.log("[FHA-RULE] setCreditScore", {
+          prevScore: p.creditScore,
+          newScore: score,
+          prevLoanType: p.loanType,
+          occupancy: p.occupancy,
+          loanTypeManuallySet: p.loanTypeManuallySet,
+        });
+      }
       const isAltLoan = p.loanType === "dscr" || p.loanType === "bank_statement";
       // Loan-type recommendation runs through the centralized helper so
       // the below-720→FHA rule fires regardless of the *current* loan
@@ -1845,6 +1863,37 @@ export default function Estimate() {
       };
     });
   }
+
+  // ─── Safety-net invariant: score<720 ⇒ loanType=fha ──────────────────
+  // Per user spec, "anytime the user's credit score goes below 720, the
+  // loan type must automatically switch to FHA." This effect enforces
+  // the invariant defensively in case any other code path (saved-scenario
+  // hydrate, refinance-tab switch, scenario carryover at line ~1171,
+  // savedInputs restore at lines ~1055/1086, etc.) leaves the state in
+  // an inconsistent (score<720, loanType≠fha) combination. It re-routes
+  // through setCreditScore so the FHA-flip side-effects (downPayment=3.5,
+  // DPA reset, rate recalc) stay consistent with the picker path.
+  // Excludes DSCR/Bank-Statement (alt-doc products, never auto-replaced)
+  // and non-primary occupancy (FHA is owner-occupied only — those are
+  // already forced to Conventional by getRecommendedLoanType).
+  useEffect(() => {
+    if (
+      inputs.occupancy === "primary"
+      && inputs.creditScore < 720
+      && inputs.loanType !== "fha"
+      && inputs.loanType !== "dscr"
+      && inputs.loanType !== "bank_statement"
+    ) {
+      if (typeof window !== "undefined") {
+        console.log("[FHA-RULE] safety-net firing", {
+          score: inputs.creditScore,
+          loanType: inputs.loanType,
+          occupancy: inputs.occupancy,
+        });
+      }
+      setCreditScore(inputs.creditScore);
+    }
+  }, [inputs.creditScore, inputs.loanType, inputs.occupancy]);
 
   function setDownPayment(pct: number) {
     setInputs((p) => {
