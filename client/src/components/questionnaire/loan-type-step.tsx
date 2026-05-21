@@ -52,11 +52,34 @@ const loanTypes = [
 interface LoanTypeStepProps {
   onSubmit: (data: { loanType: string }) => void;
   onBack: () => void;
-  defaultValues?: { loanType?: string };
+  defaultValues?: { loanType?: string; creditScore?: string };
+}
+
+// Parse the questionnaire's credit-score range string (e.g. "700-719",
+// "780+", "below-600") into a representative numeric score. Mirrors the
+// helper in credit-score-step.tsx so the auto-recommendation here uses
+// the same banding the user just answered.
+function creditScoreRangeToNumber(range: string | undefined): number | null {
+  if (!range) return null;
+  if (range === "below-600") return 580;
+  if (range === "780+") return 780;
+  const match = range.match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : null;
 }
 
 export function LoanTypeStep({ onSubmit, onBack, defaultValues }: LoanTypeStepProps) {
-  const [selected, setSelected] = useState<string | null>(defaultValues?.loanType || null);
+  // Auto-recommend FHA when the user's previously-answered credit score is
+  // below 720 AND they haven't already picked a loan type. Respects any
+  // existing manual selection by checking defaultValues.loanType first.
+  // Matches the same <720 threshold used by setCreditScore on the estimate
+  // page so both flows recommend consistently.
+  const recommendedLoanType = (() => {
+    if (defaultValues?.loanType) return defaultValues.loanType;
+    const score = creditScoreRangeToNumber(defaultValues?.creditScore);
+    if (score !== null && score < 720) return "fha";
+    return null;
+  })();
+  const [selected, setSelected] = useState<string | null>(recommendedLoanType);
 
   const handleSubmit = () => {
     if (selected) {
