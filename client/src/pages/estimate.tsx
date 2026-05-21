@@ -2740,6 +2740,38 @@ export default function Estimate() {
                     );
                   })()}
 
+                  {/* ── Loan Amount (read-only, auto-calculated) ────────────
+                      Loan Amount = Purchase Price − Down Payment.
+                      For FHA the UFMIP is financed in, and for VA the funding
+                      fee is financed in, so we surface the same calc.loanAmount
+                      that every downstream number (P&I, DTI, cash to close,
+                      qualification) already uses — keeping one source of truth.
+                      This field is intentionally display-only: the user adjusts
+                      Purchase Price or Down Payment %, and this updates.       */}
+                  <div className="rounded-md border border-border/60 bg-muted/40 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs text-muted-foreground">Loan Amount</span>
+                      <span
+                        className="text-sm font-semibold tabular-nums"
+                        data-testid="text-loan-amount"
+                      >
+                        {inputs.purchasePrice > 0 ? fmt(calc.loanAmount) : "—"}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-muted-foreground mt-1 leading-tight">
+                      Calculated from purchase price minus down payment
+                      {inputs.purchasePrice > 0 && (
+                        <> · Down payment {fmt(calc.downPaymentAmt)}</>
+                      )}
+                      {inputs.loanType === "fha" && calc.fhaUFMIP > 0 && (
+                        <> · includes FHA UFMIP {fmt(calc.fhaUFMIP)}</>
+                      )}
+                      {inputs.loanType === "va" && calc.vaFundingFeeAmt > 0 && (
+                        <> · includes VA funding fee {fmt(calc.vaFundingFeeAmt)}</>
+                      )}
+                    </p>
+                  </div>
+
                   {(() => {
                     const maxConcessions = getMaxSellerConcessions(inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice);
                     const pct = inputs.purchasePrice > 0 ? (inputs.sellerConcessions / inputs.purchasePrice) * 100 : 0;
