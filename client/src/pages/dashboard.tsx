@@ -633,8 +633,8 @@ function PurchaseTab() {
                         variant="outline"
                         className={`text-xs ${
                           s.qualifies
-                            ? "bg-green-50 text-green-700 border-green-200"
-                            : "bg-amber-50 text-amber-700 border-amber-200"
+                            ? "bg-green-100 text-green-800 border-green-300"
+                            : "bg-red-100 text-red-800 border-red-300"
                         }`}
                       >
                         {s.qualifies ? "Qualifies" : "Review"}
