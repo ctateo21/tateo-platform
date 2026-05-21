@@ -1,0 +1,99 @@
+Fix the Insurance tab navigation and property tab visibility.
+
+Current issue 1 — Back button navigation:
+When I am in the Dashboard → Insurance tab and click “Get Quote,” it correctly opens the wide-frame quote/details view for that home.
+
+But when I hit Back, it takes me to the service selection page that asks:
+- All services
+- Real estate/mortgage
+- Insurance
+
+That is wrong.
+
+Expected behavior:
+If the user entered the quote/details view from the Dashboard → Insurance tab, the Back button should return them to:
+
+Dashboard → Insurance tab
+
+It should show the overview/list of all insurance properties.
+
+It should not go back to the service selection/questionnaire page.
+
+Navigation requirements:
+1. Track the entry point when opening the Insurance quote/details view.
+2. If opened from Dashboard → Insurance, Back should return to the dashboard with the Insurance tab active.
+3. Use the correct route/state/query param, such as:
+   - `/dashboard?tab=insurance`
+   - or whatever existing dashboard tab routing pattern the app uses.
+4. Do not use browser history blindly if it sends the user back to onboarding/service selection.
+5. If there is no known previous route, default Back to Dashboard → Insurance.
+6. Keep the wide-frame quote/details view working.
+
+Current issue 2 — Other insurance properties are missing from the top property tabs:
+Inside the Insurance quote/details view, the top property tabs/dashboard tabs only show the current property. They do not show the other insurance properties.
+
+However, on the main Dashboard → Insurance overview, the other insurance properties do appear.
+
+Expected behavior:
+When inside the Insurance quote/details view, the top property tabs should show all insurance properties for that user, not only the current property.
+
+Example:
+- Dashboard → Insurance has Property A, Property B, and Property C.
+- User clicks Get Quote on Property B.
+- Wide-frame quote/details view opens for Property B.
+- The top property tabs should still show Property A, Property B, and Property C.
+- Property B should be active.
+- Clicking Property A or C should switch to that property’s Insurance quote/details view.
+- Back should return to Dashboard → Insurance overview.
+
+Likely causes:
+- The Insurance quote/details view is only loading the selected property instead of loading all insurance records.
+- The top tabs are reading from local selected-property state instead of the full dashboard insurance property list.
+- The route only passes one property ID and does not fetch sibling insurance properties.
+- The quote/details view may not be using the same insurance records query as the Insurance dashboard overview.
+- The tab component may be scoped to the active scenario only instead of all user insurance scenarios.
+
+Fix requirements:
+1. When Insurance quote/details view loads, fetch all saved insurance properties/scenarios for the logged-in user.
+2. Use the selected/current insurance property ID only to determine the active tab.
+3. Render all insurance properties in the top tabs.
+4. Clicking a property tab should navigate/switch to that property’s Insurance quote/details view.
+5. Do not show Purchase or Refinance records in these Insurance top tabs.
+6. Only show actual Insurance records.
+7. Keep stable property/scenario IDs.
+8. Do not use array index for tab identity.
+9. If a property is newly added, make sure it appears in both:
+   - Dashboard → Insurance overview
+   - Insurance quote/details top tabs
+10. If user refreshes while inside the quote/details view, reload all insurance records and keep the correct active property.
+
+Back button requirements:
+- Add or update the Back button handler in the Insurance quote/details view.
+- Back should go to Dashboard → Insurance overview.
+- Do not return to service selection/onboarding.
+- Do not reset the current user session.
+- Do not lose saved insurance property data.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Insurance.
+3. Confirm multiple insurance properties are visible in the overview.
+4. Click Get Quote on one property.
+5. Confirm the wide-frame quote/details view opens.
+6. Confirm the selected property is active.
+7. Confirm the top property tabs show all insurance properties, not just the selected one.
+8. Click another property tab.
+9. Confirm it switches to that property’s quote/details view.
+10. Click Back.
+11. Confirm it returns to Dashboard → Insurance tab overview.
+12. Confirm it does not go to the service selection page.
+13. Refresh inside the Insurance quote/details view.
+14. Confirm all insurance property tabs reload correctly.
+15. Confirm Purchase and Refinance tabs/views are not changed.
+
+Please make the smallest safe code change possible and tell me:
+- Which Insurance quote/details component was changed
+- How the Back button route was changed
+- How all insurance properties are loaded for the top tabs
+- How the active property is selected
+- Which files/functions were changed

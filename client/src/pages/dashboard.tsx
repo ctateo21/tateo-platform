@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   Home, RefreshCw, Shield, Search, LogOut, Trash2, ExternalLink,
   MapPin, Calendar, Plus, X, Pencil, Check,
@@ -1037,6 +1037,22 @@ function InsuranceRowCard({
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
+  const search = useSearch();
+
+  // Drive the active tab from the URL (?tab=purchase|refinance|insurance) so
+  // deep links — like the Back button from the Insurance quote view — land
+  // on the right tab. Default to "purchase" when the param is missing.
+  const tabFromUrl = new URLSearchParams(search).get("tab");
+  const validTabs = ["purchase", "refinance", "insurance"] as const;
+  const activeTab = (validTabs as readonly string[]).includes(tabFromUrl ?? "")
+    ? (tabFromUrl as string)
+    : "purchase";
+  const setActiveTab = (next: string) => {
+    const sp = new URLSearchParams(search);
+    if (next === "purchase") sp.delete("tab"); else sp.set("tab", next);
+    const qs = sp.toString();
+    setLocation(qs ? `/dashboard?${qs}` : "/dashboard");
+  };
 
   if (!user) {
     setLocation("/");
@@ -1091,7 +1107,7 @@ export default function Dashboard() {
           <p className="text-muted-foreground text-sm mt-1">Your saved property scenarios, all in one place.</p>
         </div>
 
-        <Tabs defaultValue="purchase">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="mb-6">
             <TabsTrigger value="purchase" className="gap-2">
               <Home className="h-4 w-4" /> Purchase

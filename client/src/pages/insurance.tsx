@@ -247,6 +247,64 @@ export default function InsuranceDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressParam]);
 
+  // ── Hydrate full set of insurance properties as tabs ───────────────────
+  // The Insurance overview on the dashboard shows every property the user
+  // tracks (insurance + purchase + refinance addresses, deduped). When the
+  // user clicks "Get Quote" on one of them, this view should keep the same
+  // property tabs available — not collapse to just the selected one.
+  useEffect(() => {
+    const apply = () => {
+      const insuranceList = getInsuranceScenarios();
+      const purchases = getPurchaseScenarios();
+      const loans = getTrackedLoans();
+      // Dedup by normalized property key. First record wins for id/address;
+      // insurance scenarios go first so their stable ids are preferred for
+      // tab identity (used in persistence too).
+      const byKey = new Map<string, { id: string; address: string }>();
+      for (const ins of insuranceList) {
+        const k = normalizePropertyKey(ins.address) || `__ins_${ins.id}`;
+        if (!byKey.has(k)) byKey.set(k, { id: ins.id, address: ins.address });
+      }
+      for (const p of purchases) {
+        const k = normalizePropertyKey(p.address) || `__pur_${p.id}`;
+        if (!byKey.has(k)) byKey.set(k, { id: p.id, address: p.address });
+      }
+      for (const l of loans) {
+        const k = normalizePropertyKey(l.propertyAddress) || `__ref_${l.id}`;
+        if (!byKey.has(k)) byKey.set(k, { id: l.id, address: l.propertyAddress });
+      }
+      if (byKey.size === 0) return;
+      const merged: Scenario[] = Array.from(byKey.values()).map(({ id, address }) => ({
+        id, address, savedSettings: null,
+      }));
+      // Ensure addressParam is represented and active. If it matches an
+      // entry by normalized key, use that entry's stable id; otherwise
+      // prepend a fresh sc0 entry so the user's current URL still has a tab.
+      const activeKey = normalizePropertyKey(addressParam);
+      let active = merged.find(s => normalizePropertyKey(s.address) === activeKey && activeKey);
+      if (!active && addressParam) {
+        active = { id: "sc0", address: addressParam, savedSettings: null };
+        merged.unshift(active);
+      }
+      setScenarios(prev => {
+        // Preserve any in-memory occupancy/savedSettings already attached to
+        // matching scenarios (by id) so a hydration tick doesn't blow away
+        // unsaved UI state.
+        const prevById = new Map(prev.map(s => [s.id, s]));
+        return merged.map(s => {
+          const existing = prevById.get(s.id);
+          return existing ? { ...existing, address: s.address } : s;
+        });
+      });
+      if (active) setActiveScenarioId(active.id);
+    };
+    apply();
+    const unsub = subscribeAuthChange(apply);
+    return unsub;
+  // Re-run when the URL address changes so the active tab follows the URL.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressParam]);
+
   // ── Hydrate persisted Insurance occupancy from Supabase ─────────────────
   // Pulls any prior occupancy/source/linked-id values into the local
   // scenarios array by matching id first, then falling back to normalized
@@ -640,7 +698,7 @@ export default function InsuranceDashboard() {
           <div className="container mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setLocation(`/select-service${addressParam ? `?address=${encodeURIComponent(addressParam)}` : ""}`)}
+                onClick={() => setLocation("/dashboard?tab=insurance")}
                 className="text-muted-foreground hover:text-primary transition-colors"
               >
                 <ArrowLeft className="h-5 w-5" />
