@@ -1,0 +1,56 @@
+Add a Dashboard button in the top-left user header area.
+
+Current UI:
+At the top left, there is a user bubble/identity area that shows the user’s name and email address.
+
+Requested change:
+Add a button next to that user bubble/name/email area that says:
+
+“Dashboard”
+
+Expected behavior:
+- The Dashboard button should always be visible when the user is logged in.
+- It should sit next to the name/email bubble at the top left.
+- Clicking it should always take the user to the main dashboard page.
+- It should work from anywhere in the app, including:
+  - Purchase flow
+  - Property estimate
+  - Refinance flow
+  - Insurance flow
+  - Settings/profile pages
+  - Any nested scenario/property page
+
+Routing:
+- Use the existing main dashboard route.
+- If the main dashboard route is `/dashboard`, route to `/dashboard`.
+- If the app uses a different route name, use the existing main dashboard route already used elsewhere.
+
+UI requirements:
+- Keep the button small and clean.
+- Match the current app styling.
+- Do not crowd the user name/email area.
+- On mobile, make sure it still fits or wraps cleanly.
+- Do not replace the user bubble; add the button next to it.
+
+Important:
+- Do not change dashboard data loading.
+- Do not change Purchase, Refinance, or Insurance logic.
+- Do not change authentication behavior.
+- This is only a navigation/UI change.
+
+Acceptance test:
+1. Log in.
+2. Confirm the top-left area still shows the user name/email.
+3. Confirm a “Dashboard” button appears next to it.
+4. Click the Dashboard button from the Purchase flow.
+5. Confirm it takes the user to the main dashboard page.
+6. Click the Dashboard button from Refinance.
+7. Confirm it takes the user to the main dashboard page.
+8. Click the Dashboard button from Insurance.
+9. Confirm it takes the user to the main dashboard page.
+10. Confirm mobile layout still looks clean.
+
+Please make the smallest safe code change possible and tell me:
+- Which header/navigation component was changed
+- Which route the Dashboard button uses
+- Which files/functions were changed

@@ -115,6 +115,18 @@ export default function Header() {
 
           {/* Auth section */}
           {user ? (
+            <>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              data-testid="button-header-dashboard"
+            >
+              <Link href="/dashboard">
+                <LayoutDashboard className="h-4 w-4" /> Dashboard
+              </Link>
+            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-2 rounded-full focus:outline-none">
@@ -142,6 +154,7 @@ export default function Header() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </>
           ) : (
             <Button
               variant="outline"
@@ -175,13 +188,27 @@ export default function Header() {
 
             {/* Mobile user info */}
             {user && (
-              <div className="flex items-center gap-3 mb-6 pb-6 border-b">
-                <div className="h-9 w-9 rounded-full bg-primary text-white flex items-center justify-center font-bold text-sm shrink-0">
-                  {initials}
-                </div>
-                <div>
-                  <p className="font-semibold text-sm">{user.name}</p>
-                  <p className="text-xs text-muted-foreground">{user.email}</p>
+              <div className="mb-6 pb-6 border-b space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-9 w-9 rounded-full bg-primary text-white flex items-center justify-center font-bold text-sm shrink-0">
+                    {initials}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm truncate">{user.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                  </div>
+                  <Button
+                    asChild
+                    variant="outline"
+                    size="sm"
+                    className="ml-auto gap-1.5 shrink-0"
+                    onClick={() => setIsOpen(false)}
+                    data-testid="button-header-dashboard-mobile"
+                  >
+                    <Link href="/dashboard">
+                      <LayoutDashboard className="h-4 w-4" /> Dashboard
+                    </Link>
+                  </Button>
                 </div>
               </div>
             )}
