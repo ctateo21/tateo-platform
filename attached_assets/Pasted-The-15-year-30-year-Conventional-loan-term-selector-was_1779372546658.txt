@@ -1,0 +1,84 @@
+The 15-year / 30-year Conventional loan term selector was added to Page 3 of the Purchase questionnaire, but I also need it added to Page 4 where the user sees the estimate.
+
+Location:
+Purchase Flow → Page 4 → “See My Estimate”
+
+Place it inside the Mortgage section, directly below the Principal & Interest line.
+
+Current issue:
+- The loan term selector exists earlier in the questionnaire.
+- But once the user gets to the “See My Estimate” page, they cannot easily toggle between 30-year and 15-year while viewing the payment impact.
+- I need the user to be able to switch back and forth on the estimate page itself and immediately see the monthly payment update.
+
+Expected behavior:
+On Page 4 / See My Estimate:
+1. Inside the Mortgage section, find the Principal & Interest line.
+2. Directly below Principal & Interest, add a dropdown for Conventional loans only.
+3. Dropdown label:
+   “Loan Term”
+4. Dropdown options:
+   - 30-year fixed
+   - 15-year fixed
+5. Default should match whatever was selected on Page 3.
+6. If the user changes the dropdown on Page 4:
+   - update the saved loan term
+   - update the rate source
+   - update the amortization months
+   - recalculate Principal & Interest immediately
+   - recalculate total monthly payment
+   - recalculate DTI
+   - recalculate qualification status
+   - update any dashboard summary values
+7. The user should be able to toggle back and forth between 15-year and 30-year from this estimate page.
+
+Conventional-only rule:
+- Only show this dropdown if the loan type is Conventional.
+- Do not show it for FHA, VA, USDA, DSCR, Non-QM, or other loan types.
+
+Rate and amortization logic:
+If user selects 30-year fixed:
+- Use Mortgage News Daily 30-year fixed base rate.
+- Use 360 months amortization.
+
+If user selects 15-year fixed:
+- Use Mortgage News Daily 15-year fixed base rate.
+- Use 180 months amortization.
+
+Keep the same existing Conventional adjustment logic for:
+- credit score
+- LTV
+- PMI
+- any other existing Conventional pricing factors
+
+Important:
+- Do not only add this to Page 3.
+- It must also exist on Page 4 inside “See My Estimate.”
+- It should be below the Principal & Interest line inside the Mortgage section.
+- Changing it on Page 4 should update the same scenario state as Page 3.
+- Page 3 and Page 4 should stay synced.
+- If the user picks 15-year on Page 4 and goes back to Page 3, Page 3 should also show 15-year.
+- If the user picks 30-year on Page 3 and goes to Page 4, Page 4 should show 30-year.
+- Auto-save the selected value for logged-in users.
+- Persist after refresh/logout/login.
+
+Acceptance test:
+1. Go through Purchase questionnaire to Page 3.
+2. Select Conventional.
+3. Select 30-year fixed.
+4. Go to Page 4 / See My Estimate.
+5. Confirm a Loan Term dropdown appears below Principal & Interest in the Mortgage section.
+6. Confirm it shows 30-year fixed.
+7. Change it to 15-year fixed from Page 4.
+8. Confirm Principal & Interest updates immediately using 180 months and the MND 15-year fixed rate.
+9. Confirm total monthly payment and DTI update.
+10. Change it back to 30-year fixed from Page 4.
+11. Confirm Principal & Interest updates using 360 months and the MND 30-year fixed rate.
+12. Confirm FHA/VA/other loan types do not show this dropdown.
+13. Refresh/logout/login and confirm the selected term persists.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 4 / See My Estimate component was changed
+- Where the dropdown was placed
+- How Page 3 and Page 4 stay synced
+- How payment calculations update when toggled
+- Which files/functions were changed

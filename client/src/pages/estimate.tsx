@@ -3097,6 +3097,34 @@ export default function Estimate() {
                 </CardHeader>
                 <CardContent>
                   <Row label="Principal & Interest" value={fmt(calc.pi)} sub={`${inputs.interestRate.toFixed(2)}% / ${inputs.loanTermYears} yr`} />
+                  {/* Inline Loan Term selector — Conventional only.
+                      Wired to the same setLoanTermYears used on Page 3,
+                      so Page 3 ↔ Page 4 stay in sync and the auto-save
+                      effect persists the choice. Toggling here re-runs
+                      baseRateFor() (30-yr vs 15-yr MND base) and the
+                      calc useMemo (termMonths 360 → 180), which cascades
+                      into P&I, total monthly, DTI, and qualification. */}
+                  {inputs.loanType === "conventional" && (
+                    <div className="flex items-center justify-between gap-3 py-1.5 px-1 -mt-1 mb-1">
+                      <Label htmlFor="estimate-loan-term" className="text-xs text-muted-foreground">Loan Term</Label>
+                      <Select
+                        value={String(inputs.loanTermYears)}
+                        onValueChange={(v) => setLoanTermYears(v === "15" ? 15 : 30)}
+                      >
+                        <SelectTrigger
+                          id="estimate-loan-term"
+                          className="h-8 w-[150px] text-xs"
+                          data-testid="select-estimate-loan-term"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="30">30-year fixed</SelectItem>
+                          <SelectItem value="15">15-year fixed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <Row
                     label="Property Taxes"
                     value={`${fmt(calc.monthlyTax)}/mo`}
