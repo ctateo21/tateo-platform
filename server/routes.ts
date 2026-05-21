@@ -1171,8 +1171,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const agentId   = FUB_AGENT_IDS[agentName] ?? 1;
 
     const phoneDigits = normalizePhoneDigits(params.phone);
+    // Lead alert header — appears as the FUB note subject AND the first
+    // line of the email body, so the assigned agent sees who and where at
+    // a glance. Falls back per spec when name or address is missing.
+    const leadName = `${params.firstName ?? ""} ${params.lastName ?? ""}`.trim() || "New Lead";
+    const leadAddress = (params.address ?? "").trim() || "Address not provided";
+    const leadAlertLine = `Lead Alert from ${leadName} / ${leadAddress}`;
     const messageParts = [
-      params.messageHeader || `Property: ${params.address || "address not provided"}`,
+      leadAlertLine,
+      ...(params.messageHeader ? [params.messageHeader] : []),
       `Agent: ${agentName}`,
     ];
     if (params.scenarioDetails) messageParts.push(params.scenarioDetails);

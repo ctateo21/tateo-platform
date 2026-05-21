@@ -1,0 +1,52 @@
+Update the lead alert email that gets sent into Follow Up Boss (FUB).
+
+Current issue:
+The lead alert email does not clearly identify the lead and property address in the subject line/body.
+
+Expected behavior:
+When a lead alert is sent to FUB, the email subject line and email body should include:
+
+“Lead Alert from [Lead Name] / [Property Address]”
+
+Subject line format:
+Lead Alert from [Lead Name] / [Property Address]
+
+Example:
+Lead Alert from John Smith / 3102 W Nassau St, Tampa, FL 33607
+
+Email body should also include the same line near the top:
+Lead Alert from John Smith / 3102 W Nassau St, Tampa, FL 33607
+
+Implementation requirements:
+1. Find the function/template that sends lead alert emails into FUB.
+2. Update the subject line to include the lead’s name and the address they entered.
+3. Update the email body to include the same lead name/address line near the top.
+4. Pull the lead name from the user/lead profile field.
+5. Pull the address from the property/scenario address the user entered.
+6. If the lead name is missing, use:
+   Lead Alert from New Lead / [Property Address]
+7. If the address is missing, use:
+   Lead Alert from [Lead Name] / Address not provided
+8. If both are missing, use:
+   Lead Alert from New Lead / Address not provided
+9. Do not change the FUB destination email or routing logic.
+10. Do not change when the lead alert is triggered unless needed to access the correct address.
+11. Make sure the same formatting works for Purchase, Refinance, and Insurance lead alerts if they all send into FUB.
+
+Acceptance test:
+1. Submit a new lead with name and address.
+2. Confirm FUB receives an email with subject:
+   Lead Alert from [Name] / [Address]
+3. Confirm the email body contains:
+   Lead Alert from [Name] / [Address]
+4. Submit a lead with missing name.
+5. Confirm it uses “New Lead.”
+6. Submit a lead with missing address.
+7. Confirm it uses “Address not provided.”
+8. Confirm the lead still arrives in FUB correctly.
+
+Please make the smallest safe code change possible and tell me:
+- Which lead alert/email function was changed
+- Which fields are used for lead name and address
+- Whether this applies to Purchase, Refinance, and Insurance alerts
+- Which files/functions were changed
