@@ -1,0 +1,77 @@
+Make property-use/occupancy colors consistent across the app.
+
+Applies to:
+- Refinance
+- Insurance
+- Any Purchase property-use buttons/dropdowns if they exist
+- Dashboard overview rows
+- Property detail views
+- Any badges, buttons, pills, or dropdown selected states that show property use
+
+Color rules:
+- Primary home / Primary residence = Blue
+- Second home / Secondary home = Yellow
+- Investment home / Investment property = Green
+
+Expected behavior:
+If someone selects Primary on Refinance or Insurance:
+- The selected button/dropdown/pill should be blue.
+
+If someone selects Second Home / Secondary:
+- The selected button/dropdown/pill should be yellow.
+
+If someone selects Investment:
+- The selected button/dropdown/pill should be green.
+
+Consistency requirements:
+1. Use the same color mapping everywhere property use appears.
+2. Do not use different colors between Refinance and Insurance.
+3. Do not use one color in the dropdown and another color in the dashboard row.
+4. The carried-over Insurance property use from Purchase/Refinance should display using the same color rule.
+5. Manual overrides in Insurance should also display using the same color rule.
+6. Keep text readable with appropriate contrast.
+
+Suggested implementation:
+Create or reuse a single helper function/map, such as:
+
+`getOccupancyColor(occupancyType)`
+
+Stored values:
+- `primary`
+- `secondary` or `second_home`
+- `investment`
+
+Map display labels consistently:
+- Primary
+- Secondary
+- Investment
+
+Color mapping:
+- `primary` → blue
+- `secondary` / `second_home` → yellow
+- `investment` → green
+
+Important:
+- Do not change the saved values unless necessary.
+- If existing values are inconsistent, normalize only for display.
+- Do not change the underlying occupancy carryover logic.
+- Do not change dashboard persistence.
+- Do not redesign the UI; only update coloring consistency.
+
+Acceptance test:
+1. Select Primary in Refinance.
+2. Confirm the selected property-use UI is blue.
+3. Select Secondary in Refinance.
+4. Confirm it is yellow.
+5. Select Investment in Refinance.
+6. Confirm it is green.
+7. Repeat the same test in Insurance.
+8. Confirm Insurance values carried over from Purchase/Refinance use the correct colors.
+9. Confirm dashboard rows and detail views use the same colors.
+10. Confirm mobile view still looks clean.
+
+Please make the smallest safe code change possible and tell me:
+- Which shared color helper/map was added or reused
+- Which components now use it
+- How existing occupancy values are normalized for display
+- Which files/functions were changed

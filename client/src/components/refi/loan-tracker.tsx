@@ -56,7 +56,14 @@ export interface LiveRate {
 
 export const PROPERTY_TYPE_ADJUSTMENTS: Record<PropertyType, number> = { primary: 0.00, secondary: 0.25, investment: 0.75 };
 const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = { primary: "Primary Home", secondary: "2nd Home", investment: "Investment" };
-const PROPERTY_TYPE_COLORS: Record<PropertyType, string> = { primary: "bg-background text-foreground border", secondary: "bg-amber-600 text-white border-amber-600", investment: "bg-red-600 text-white border-red-600" };
+// Shared color map — see client/src/lib/occupancy-colors.ts. Keeps Refinance
+// property-type buttons visually consistent with Dashboard and Insurance.
+import { getOccupancyColor } from "@/lib/occupancy-colors";
+const PROPERTY_TYPE_COLORS: Record<PropertyType, string> = {
+  primary: getOccupancyColor("primary"),
+  secondary: getOccupancyColor("secondary"),
+  investment: getOccupancyColor("investment"),
+};
 
 export const CLOSING_COST_PERCENT = 0.60;
 export const CLOSING_COST_FIXED = 4065;

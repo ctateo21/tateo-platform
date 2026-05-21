@@ -1,4 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from "react";
+import { getOccupancyColor } from "@/lib/occupancy-colors";
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -198,9 +199,12 @@ function SliderRow({ label, value, onChange, min, max, step }: {
   );
 }
 
-function SelectRow({ label, value, onChange, options }: {
+function SelectRow({ label, value, onChange, options, selectClassName }: {
   label: string; value: number; onChange: (v: number) => void;
   options: { value: number; label: string }[];
+  // Optional extra classes for the <select> trigger (used for property-use
+  // color theming so the selected value mirrors Dashboard / Refinance).
+  selectClassName?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -208,7 +212,7 @@ function SelectRow({ label, value, onChange, options }: {
       <select
         value={value}
         onChange={e => onChange(Number(e.target.value))}
-        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+        className={`w-full text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20 ${selectClassName ?? "border-border bg-background"}`}
       >
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -794,6 +798,7 @@ export default function InsuranceDashboard() {
                         value={OPTIONS.indexOf(occ)}
                         onChange={i => setOccupancyForActive(OPTIONS[i])}
                         options={OPTIONS.map((v, i) => ({ value: i, label: OCCUPANCY_LABELS[v] }))}
+                        selectClassName={getOccupancyColor(occ)}
                       />
                       {src && src !== "unknown" && (
                         <p className="text-[11px] text-muted-foreground pl-1">

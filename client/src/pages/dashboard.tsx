@@ -49,11 +49,12 @@ const FALLBACK_TODAY_RATE = 6.65;
 const PROPERTY_TYPE_LABELS: Record<string, string> = {
   primary: "Primary Home", secondary: "2nd Home", investment: "Investment",
 };
-const PROPERTY_TYPE_COLORS: Record<string, string> = {
-  primary: "bg-background text-foreground border",
-  secondary: "bg-amber-600 text-white border-amber-600",
-  investment: "bg-red-600 text-white border-red-600",
-};
+// Shared color map — defined in lib/occupancy-colors so Dashboard, Refinance,
+// and Insurance all render the same property-use value with the same color.
+import { getOccupancyColor as _getOccupancyColor } from "@/lib/occupancy-colors";
+const PROPERTY_TYPE_COLORS: Record<string, string> = new Proxy({}, {
+  get: (_t, key: string) => _getOccupancyColor(key),
+}) as Record<string, string>;
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
