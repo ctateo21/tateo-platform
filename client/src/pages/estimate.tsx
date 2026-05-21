@@ -60,6 +60,7 @@ import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/a
 import { useAuth } from "@/context/auth-context";
 import { apiRequest } from "@/lib/queryClient";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
+import { PropertyPhotoCarousel } from "@/components/property-photo-carousel";
 import {
   Dialog,
   DialogContent,
@@ -324,6 +325,11 @@ interface Scenario {
    * the baseline — i.e., the user hasn't manually touched it.
    */
   baselineInputs?: Inputs;
+  /** Full deduped list of Zillow property photo URLs captured by the
+   *  most recent triggerZillowLookup. Transient (not persisted) — the
+   *  property_cache row holds the canonical array, and this is the
+   *  per-scenario in-memory copy that drives the step-4 carousel. */
+  propertyPhotos?: string[];
 }
 
 function makeDefaultInputs(price = 350000): Inputs {
@@ -746,6 +752,21 @@ export default function Estimate() {
     triggerZillowLookup(active.id, active.address);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Rehydrate the transient propertyPhotos[] for any scenario that
+  // lacks them — e.g. saved dashboard properties where only the
+  // primaryPhotoUrl is persisted on the row. triggerZillowLookup is
+  // idempotent via zillowFetchedKeysRef and hits property_cache first,
+  // so this never causes a re-scrape; it just unpacks the cached gallery
+  // back into in-memory state so the step-4 carousel has all photos.
+  useEffect(() => {
+    for (const s of scenarios) {
+      if (!s.address || s.address === "Unknown Address") continue;
+      if (Array.isArray(s.propertyPhotos) && s.propertyPhotos.length > 0) continue;
+      triggerZillowLookup(s.id, s.address);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenarios.length]);
   const [showAddressPrompt, setShowAddressPrompt] = useState(false);
   const [showZillowLookup, setShowZillowLookup] = useState(false);
 
@@ -881,6 +902,30 @@ export default function Estimate() {
           ?? (Array.isArray(p.photos) && typeof p.photos[0] === "string" && p.photos[0].length > 0
             ? p.photos[0]
             : null);
+        // Full photo gallery for the step-4 carousel. Prefer the
+        // normalized propertyPhotos[] objects; fall back to the
+        // back-compat photos[] string array for cached entries that
+        // pre-date the propertyPhotos field. Deduped + invalid URLs
+        // filtered so the carousel never has to defensively re-clean.
+        const zPhotosAll: string[] = (() => {
+          const out: string[] = [];
+          const seen = new Set<string>();
+          const add = (u: unknown) => {
+            if (typeof u !== "string") return;
+            const trimmed = u.trim();
+            if (!/^https?:\/\//i.test(trimmed)) return;
+            if (seen.has(trimmed)) return;
+            seen.add(trimmed);
+            out.push(trimmed);
+          };
+          if (Array.isArray(p.propertyPhotos)) {
+            for (const ph of p.propertyPhotos) add(ph?.url);
+          }
+          if (out.length === 0 && Array.isArray(p.photos)) {
+            for (const u of p.photos) add(u);
+          }
+          return out;
+        })();
         const priceSource = inferPriceSource(p, zPrice, fromCache);
         const nextStatus = fromCache ? "loaded_from_cache" : "loaded_from_zillow";
         // Resolve active-ness from the ref so a tab switch mid-flight
@@ -897,9 +942,16 @@ export default function Estimate() {
             // (typically stale) — the live `inputs` state is the source of
             // truth and is merged separately below.
             const baseSnapshot = s.savedInputs ?? s.baselineInputs ?? null;
-            if (!baseSnapshot) return { ...s, zillowStatus: nextStatus };
+            // Always attach the gallery + status; the savedInputs merge
+            // is the only step gated on having a baseSnapshot. This way
+            // a freshly opened dashboard scenario (savedInputs=null at
+            // mount time) still gets its propertyPhotos[] rehydrated
+            // from the cached lookup so the Step 4 carousel works.
+            if (!baseSnapshot) {
+              return { ...s, zillowStatus: nextStatus, propertyPhotos: zPhotosAll };
+            }
             const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa, priceSource, zPhotoUrl);
-            return { ...s, savedInputs: merged, zillowStatus: nextStatus };
+            return { ...s, savedInputs: merged, zillowStatus: nextStatus, propertyPhotos: zPhotosAll };
           })
         );
 
@@ -3427,6 +3479,25 @@ export default function Estimate() {
             {/* ── STEP 4: Estimate ─── */}
             {step === 4 && (
               <div className="space-y-4">
+
+                {/* Property photo carousel — placed directly above the
+                    Review Your Answers accordion per spec. Pulls the full
+                    photo list captured by triggerZillowLookup (transient
+                    on the active scenario) and falls back to the
+                    primaryPhotoUrl persisted on Inputs so a freshly
+                    hydrated scenario still shows the dashboard thumbnail
+                    while the background lookup completes. */}
+                {(() => {
+                  const sc = scenarios.find(s => s.id === activeScenarioId);
+                  return (
+                    <PropertyPhotoCarousel
+                      photos={sc?.propertyPhotos ?? null}
+                      primaryPhotoUrl={inputs.primaryPhotoUrl ?? null}
+                      propertyAddress={address}
+                      scenarioId={activeScenarioId}
+                    />
+                  );
+                })()}
 
                 {/* Collapsed answers accordion */}
                 <div className="border border-border rounded-xl overflow-hidden bg-white shadow-sm">
