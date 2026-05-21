@@ -1532,12 +1532,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         inFlight = fetchZillowProperty(addressOrUrl);
         inFlightZillow.set(cacheKey, inFlight);
-        inFlight.finally(() => {
-          // Clear only if the slot still points at this same promise.
-          if (inFlightZillow.get(cacheKey) === inFlight) {
-            inFlightZillow.delete(cacheKey);
-          }
-        });
+        // Note: .finally() returns a NEW promise that re-throws any
+        // rejection of `inFlight`. We swallow that here with .catch(() => {})
+        // so it doesn't surface as an unhandled rejection and crash the
+        // process. The original `inFlight` is still awaited below and its
+        // rejection is handled by the surrounding try/catch.
+        inFlight
+          .finally(() => {
+            // Clear only if the slot still points at this same promise.
+            if (inFlightZillow.get(cacheKey) === inFlight) {
+              inFlightZillow.delete(cacheKey);
+            }
+          })
+          .catch(() => {});
       }
       property = await inFlight;
     } catch (e: any) {
