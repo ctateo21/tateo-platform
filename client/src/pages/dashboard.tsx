@@ -970,30 +970,28 @@ function InsuranceRowCard({
             </div>
           </div>
 
-          {/* Occupancy + override */}
+          {/* Occupancy — single dropdown is the source of truth. The
+              redundant badge that mirrored the same value was removed; the
+              small caption underneath indicates where the auto-resolved
+              value came from (Purchase / Refinance / Manual). */}
           <div className="flex lg:flex-col items-start gap-1.5 lg:min-w-[150px]">
-            <Badge variant="outline" className={`text-xs ${occupancyBadgeClass}`}>
-              {OCCUPANCY_LABELS[row.occupancy]}
-            </Badge>
             <Select
-              value={row.occupancy}
+              value={row.occupancy === "unknown" ? undefined : row.occupancy}
               onValueChange={(v) => onOccupancyChange(v as OccupancyType)}
             >
-              <SelectTrigger className="h-7 text-xs w-[150px]" aria-label="Change occupancy">
-                <SelectValue placeholder="Change occupancy" />
+              <SelectTrigger className="h-7 text-xs w-[150px]" aria-label="Property use">
+                <SelectValue placeholder="Select property use" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="primary">Primary Residence</SelectItem>
-                <SelectItem value="secondary">Second Home</SelectItem>
+                <SelectItem value="primary">Primary</SelectItem>
+                <SelectItem value="secondary">Secondary</SelectItem>
                 <SelectItem value="investment">Investment</SelectItem>
-                <SelectItem value="unknown">Not selected (auto)</SelectItem>
               </SelectContent>
             </Select>
             <span className="text-[10px] text-muted-foreground">
               {row.occupancySource === "manual_override" && "Manual"}
               {row.occupancySource === "refinance" && "From Refinance"}
               {row.occupancySource === "purchase" && "From Purchase"}
-              {row.occupancySource === "unknown" && "Auto-match"}
             </span>
           </div>
 
