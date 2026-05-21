@@ -1323,6 +1323,7 @@ export default function Estimate() {
     row("Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`);
     row("Loan Amount", fmt(calc.loanAmount), inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}` : `LTV ${fmtPct(calc.ltv)}`);
     row("Estimated Closing Costs (~3%)", fmt(calc.closingCosts));
+    if (calc.dpaDiscountPointsAmt > 0) row("DPA Discount Points", `+ ${fmt(calc.dpaDiscountPointsAmt)}`, `${calc.dpaDiscountPointsPct.toFixed(2)} pts × loan amount`);
     if (inputs.sellerConcessions > 0) row("Seller Concessions", `− ${fmt(inputs.sellerConcessions)}`);
     row("Estimated Cash to Close", fmt(calc.cashToClose));
 
@@ -1556,6 +1557,14 @@ export default function Estimate() {
       loanTermYears: loanType === "conventional" && saved.loanTermYears === 15 ? 15 : 30,
       usesDPA: savedUsesDPA && savedDpaType !== null,
       dpaType: savedDpaType,
+      // Hydrate seller concessions from the saved scenario so the
+      // slider value survives refresh/logout/login. The runtime clamp
+      // effect (~line 1608+) re-applies the program-rule max if the
+      // saved value exceeds the new cap (e.g. after the user changes
+      // loan type or down payment).
+      sellerConcessions: typeof saved.sellerConcessions === "number"
+        ? Math.max(0, saved.sellerConcessions)
+        : base.sellerConcessions,
       annualTaxes: Math.round(price * 0.015),
       annualHOIns: Math.round(price * 0.0075),
     };
@@ -1948,6 +1957,7 @@ export default function Estimate() {
         interestRate: inputs.interestRate,
         loanType: inputs.loanType,
         occupancy: inputs.occupancy,
+        sellerConcessions: inputs.sellerConcessions,
       },
     ]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1989,6 +1999,7 @@ export default function Estimate() {
           loanTermYears: inputs.loanTermYears,
           usesDPA: !!inputs.usesDPA,
           dpaType: inputs.dpaType ?? null,
+          sellerConcessions: inputs.sellerConcessions,
         };
         if (idx >= 0) {
           // Only write if something actually changed (avoid noisy storage writes)
@@ -2005,6 +2016,7 @@ export default function Estimate() {
             && (cur.loanTermYears ?? 30) === next.loanTermYears
             && (!!cur.usesDPA) === next.usesDPA
             && (cur.dpaType ?? null) === next.dpaType
+            && (cur.sellerConcessions ?? 0) === (next.sellerConcessions ?? 0)
             && cur.address === address;
           if (!same) {
             const updated = [...existing];
@@ -2076,6 +2088,51 @@ export default function Estimate() {
   }
   function fmtPct(n: number): string {
     return (n * 100).toFixed(1) + "%";
+  }
+
+  // Shared seller-concessions slider used on Page 3 (Purchase Details)
+  // AND Page 4 (See My Estimate → Real Estate card). Both sites bind to
+  // the same `inputs.sellerConcessions` state, so editing on either page
+  // updates the other immediately, the cash-to-close calc, and the
+  // auto-save payload — no parallel state needed.
+  function SellerConcessionsBlock() {
+    const maxConcessions = getMaxSellerConcessions(inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice);
+    const pct = inputs.purchasePrice > 0 ? (inputs.sellerConcessions / inputs.purchasePrice) * 100 : 0;
+    const isLoanAllowed = !(
+      (inputs.loanType === "fha" || inputs.loanType === "usda" || inputs.loanType === "va") &&
+      inputs.occupancy !== "primary"
+    );
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between flex-wrap gap-1">
+          <span className="text-xs text-muted-foreground">Seller Concessions</span>
+          {isLoanAllowed ? (
+            <span className="text-[10px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
+              Max {(maxConcessions / inputs.purchasePrice * 100).toFixed(0)}% · {fmt(maxConcessions)}
+            </span>
+          ) : (
+            <span className="text-[10px] bg-red-50 text-red-600 rounded px-1.5 py-0.5">
+              Not allowed on {inputs.occupancy} with {inputs.loanType.toUpperCase()}
+            </span>
+          )}
+        </div>
+        <SliderInput
+          label=""
+          value={inputs.sellerConcessions}
+          onChange={(v) => set("sellerConcessions", Math.min(v, maxConcessions))}
+          min={0}
+          max={Math.round(maxConcessions)}
+          step={500}
+          prefix="$"
+          disabled={!isLoanAllowed}
+        />
+        {inputs.sellerConcessions > 0 && (
+          <p className="text-[10px] text-green-700 text-right">
+            {pct.toFixed(1)}% of purchase price · reduces cash to close
+          </p>
+        )}
+      </div>
+    );
   }
 
   function Row({ label, value, sub, status, link, onClick }: { label: string; value: string; sub?: string; status?: "green" | "yellow" | "red"; link?: { url: string; label: string }; onClick?: () => void }) {
@@ -3109,45 +3166,8 @@ export default function Estimate() {
                     </p>
                   </div>
 
-                  {(() => {
-                    const maxConcessions = getMaxSellerConcessions(inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice);
-                    const pct = inputs.purchasePrice > 0 ? (inputs.sellerConcessions / inputs.purchasePrice) * 100 : 0;
-                    const isLoanAllowed = !(
-                      (inputs.loanType === "fha" || inputs.loanType === "usda" || inputs.loanType === "va") &&
-                      inputs.occupancy !== "primary"
-                    );
-                    return (
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between flex-wrap gap-1">
-                          <span className="text-xs text-muted-foreground">Seller Concessions</span>
-                          {isLoanAllowed ? (
-                            <span className="text-[10px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
-                              Max {(maxConcessions / inputs.purchasePrice * 100).toFixed(0)}% · {fmt(maxConcessions)}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] bg-red-50 text-red-600 rounded px-1.5 py-0.5">
-                              Not allowed on {inputs.occupancy} with {inputs.loanType.toUpperCase()}
-                            </span>
-                          )}
-                        </div>
-                        <SliderInput
-                          label=""
-                          value={inputs.sellerConcessions}
-                          onChange={(v) => set("sellerConcessions", Math.min(v, maxConcessions))}
-                          min={0}
-                          max={Math.round(maxConcessions)}
-                          step={500}
-                          prefix="$"
-                          disabled={!isLoanAllowed}
-                        />
-                        {inputs.sellerConcessions > 0 && (
-                          <p className="text-[10px] text-green-700 text-right">
-                            {pct.toFixed(1)}% of purchase price · reduces cash to close
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  <SellerConcessionsBlock />
+
 
                   <div className="space-y-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -3356,7 +3376,7 @@ export default function Estimate() {
                     <Row
                       label={inputs.dpaType === "repayable" ? "DPA (Repayable 2nd lien)" : "DPA (Forgivable)"}
                       value={fmt(calc.dpaAmount)}
-                      sub={`3.5% of purchase price${calc.dpaDiscountPointsAmt > 0 ? ` · ${calc.dpaDiscountPointsPct.toFixed(2)} pts (${fmt(calc.dpaDiscountPointsAmt)}) added to cash to close` : ""}`}
+                      sub="3.5% of purchase price"
                     />
                   )}
                   <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={
@@ -3366,6 +3386,20 @@ export default function Estimate() {
                   } />
                   <Separator />
                   <Row label="Estimated Closing Costs (~3%)" value={fmt(calc.closingCosts)} />
+                  {/* Page 4 seller-concessions slider — same component &
+                      state as Page 3, so the two pages stay in sync, the
+                      auto-save effect persists the value, and changes
+                      immediately flow into cashToClose below. */}
+                  <div className="px-1 py-2">
+                    <SellerConcessionsBlock />
+                  </div>
+                  {calc.dpaDiscountPointsAmt > 0 && (
+                    <Row
+                      label="DPA Discount Points"
+                      value={`+ ${fmt(calc.dpaDiscountPointsAmt)}`}
+                      sub={`${calc.dpaDiscountPointsPct.toFixed(2)} pts × loan amount (Forgivable DPA)`}
+                    />
+                  )}
                   {inputs.sellerConcessions > 0 && (
                     <Row label="Seller Concessions" value={`− ${fmt(inputs.sellerConcessions)}`} sub={`${((inputs.sellerConcessions / inputs.purchasePrice) * 100).toFixed(1)}% of purchase price`} />
                   )}

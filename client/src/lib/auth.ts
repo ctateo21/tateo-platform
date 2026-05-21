@@ -58,6 +58,12 @@ export interface PurchaseScenario {
   //   ALTER TABLE purchase_scenarios ADD COLUMN dpa_type TEXT;
   usesDPA?: boolean;
   dpaType?: "repayable" | "forgivable" | null;
+  // Seller concessions ($) chosen on Page 3 / Page 4 of See My Estimate.
+  // Persisted as `seller_concessions` in Supabase so the slider value
+  // survives refresh/logout/login. Tolerates the column not existing
+  // yet — undefined falls back to 0 downstream. Requires migration:
+  //   ALTER TABLE purchase_scenarios ADD COLUMN seller_concessions NUMERIC;
+  sellerConcessions?: number;
 }
 
 export interface InsuranceScenario {
@@ -159,6 +165,15 @@ function rowToPurchase(row: any): PurchaseScenario {
     dpaType: row.uses_dpa === true && (row.dpa_type === "repayable" || row.dpa_type === "forgivable")
       ? row.dpa_type
       : null,
+    // Postgres NUMERIC is serialized by PostgREST as a string, so we
+    // coerce defensively. Number.isFinite() filters out NaN/Infinity
+    // and the null/undefined case (Number(null) === 0 would otherwise
+    // mask a missing column).
+    sellerConcessions: (() => {
+      if (row.seller_concessions === null || row.seller_concessions === undefined) return undefined;
+      const n = Number(row.seller_concessions);
+      return Number.isFinite(n) ? n : undefined;
+    })(),
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -190,6 +205,11 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     // Without the columns the upsert will fail; auth.ts catches and logs.
     uses_dpa: !!s.usesDPA,
     dpa_type: s.usesDPA && s.dpaType ? s.dpaType : null,
+    // Always include so dragging the slider back to 0 actually clears
+    // the saved value (same pattern as loan_term_years / DPA columns).
+    // Requires migration:
+    //   ALTER TABLE purchase_scenarios ADD COLUMN seller_concessions NUMERIC;
+    seller_concessions: typeof s.sellerConcessions === "number" ? s.sellerConcessions : 0,
   };
   return base;
 }

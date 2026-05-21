@@ -1,0 +1,132 @@
+Fix two items in the Purchase Flow FHA DPA / See My Estimate logic.
+
+Item 1 — Forgivable FHA DPA discount points must increase closing costs
+
+Current behavior:
+When I choose FHA DPA Repayable or Forgivable, the rate increase is working correctly.
+
+Issue:
+For Forgivable FHA DPA, the discount points are not increasing closing costs correctly.
+
+Expected behavior:
+If Forgivable FHA DPA has discount points, those points should increase estimated closing costs / cash to close.
+
+Calculation:
+Discount points amount = loan amount × discount points percentage
+
+Examples:
+- 1 discount point on a $300,000 loan = $3,000 added closing cost
+- 1.5 discount points on a $300,000 loan = $4,500 added closing cost
+
+Forgivable FHA DPA pricing reminder:
+- Credit score 680+:
+  - First mortgage rate = base FHA/MND rate + 1.53%
+  - Discount points = 0
+- Credit score 640–679:
+  - First mortgage rate = base FHA/MND rate + 1.53%
+  - Discount points = 1.00 point
+- Credit score 600–639:
+  - First mortgage rate = base FHA/MND rate + 1.53%
+  - Discount points = 1.50 points
+- Credit score below 600:
+  - DPA unavailable
+
+Requirements:
+1. When Forgivable FHA DPA is selected, calculate the discount points amount.
+2. Add the discount points amount to estimated closing costs.
+3. Add the discount points amount to cash to close.
+4. Display the discount points clearly on the estimate.
+5. Do not apply discount points to Repayable DPA unless already intended elsewhere.
+6. Do not apply discount points to Standard FHA.
+7. Do not change FHA monthly MIP or upfront MIP logic.
+8. Do not change the DPA rate increase logic, because that is already working.
+9. If the user toggles away from Forgivable DPA, remove the discount points from closing costs/cash to close.
+10. If the credit score changes and the discount point tier changes, update closing costs/cash to close immediately.
+
+Suggested fields:
+- `dpa_discount_points_percent`
+- `dpa_discount_points_amount`
+- `estimated_closing_costs_before_dpa_points`
+- `estimated_closing_costs`
+- `cash_to_close`
+
+Acceptance test for Item 1:
+1. Select FHA.
+2. Select 0% down FHA DPA.
+3. Select Forgivable.
+4. Use a $300,000 loan amount and credit score 640–679.
+5. Confirm 1.00 discount point is applied.
+6. Confirm closing costs increase by $3,000.
+7. Confirm cash to close increases by $3,000.
+8. Change credit score to 600–639.
+9. Confirm 1.50 discount points are applied.
+10. Confirm closing costs increase by $4,500 on a $300,000 loan.
+11. Change to Repayable.
+12. Confirm Forgivable discount points are removed from closing costs/cash to close.
+13. Change to Standard FHA 3.5% down.
+14. Confirm DPA points are removed.
+
+Item 2 — Add seller concessions slider to Page 4 / See My Estimate
+
+Current behavior:
+The seller concessions slider exists on Page 3 of Purchase Details, but not on Page 4 / See My Estimate.
+
+Expected behavior:
+On Dashboard → Purchase → See My Estimate / Page 4:
+Inside the Real Estate section, add the same seller concessions slider from Page 3.
+
+Placement:
+- Page 4 → See My Estimate
+- Real Estate section
+- Put the seller concessions slider directly under the “Estimated Closing Costs” line.
+
+Behavior:
+1. User should be able to adjust seller concessions on Page 4.
+2. Changing seller concessions should immediately update:
+   - estimated closing costs paid by buyer
+   - cash to close
+   - qualification/review status if affected
+   - dashboard summary values
+3. Page 3 and Page 4 seller concessions should stay synced.
+4. If the user changes seller concessions on Page 3, Page 4 should show the same value.
+5. If the user changes seller concessions on Page 4, Page 3 should show the same value if they go back.
+6. Auto-save the seller concessions value for logged-in users.
+7. Persist after refresh/logout/login.
+
+Important:
+- Use the existing Page 3 seller concessions slider component/logic if possible.
+- Do not duplicate inconsistent seller concessions state.
+- Do not change the maximum/minimum logic unless already wrong.
+- Seller concessions should reduce buyer cash to close, but should not reduce the purchase price or loan amount.
+- Seller concessions should not offset down payment unless your existing logic already intentionally does that.
+- Seller concessions should be capped by existing program rules if those rules are already implemented.
+- Keep the smallest safe code change.
+
+Interaction with Forgivable DPA points:
+- Forgivable DPA discount points increase closing costs.
+- Seller concessions can reduce buyer cash to close if seller concessions are available.
+- Make sure both are reflected in the final cash to close calculation.
+- Avoid double-counting either discount points or concessions.
+
+Acceptance test for Item 2:
+1. Go to Page 3 Purchase Details.
+2. Set seller concessions to a value.
+3. Go to Page 4 / See My Estimate.
+4. Confirm the seller concessions slider appears under Estimated Closing Costs in the Real Estate section.
+5. Confirm it shows the same value from Page 3.
+6. Change seller concessions on Page 4.
+7. Confirm cash to close updates immediately.
+8. Go back to Page 3.
+9. Confirm Page 3 shows the updated seller concessions value.
+10. Refresh/logout/login.
+11. Confirm seller concessions value persists.
+12. Confirm seller concessions and Forgivable DPA discount points both flow into cash to close correctly without double counting.
+
+Please make the smallest safe code change possible and tell me:
+- Which FHA DPA closing cost calculation was changed
+- How discount points are calculated and added
+- Which Page 4 / See My Estimate component was changed
+- Where the seller concessions slider was placed
+- How Page 3 and Page 4 seller concessions stay synced
+- How cash to close avoids double-counting DPA points and seller concessions
+- Which files/functions were changed
