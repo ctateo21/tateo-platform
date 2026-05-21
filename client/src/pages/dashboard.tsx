@@ -605,6 +605,22 @@ function PurchaseTab() {
       <div className="space-y-3">
         {scenarios.map(s => {
           const dtiPct = s.dti != null ? Math.round(s.dti * 100) : null;
+          // Derive the "reason" behind the Review / Qualifies status from
+          // the fields persisted on each PurchaseScenario (no math change,
+          // no schema change). 0.45 mirrors the conventional total-DTI
+          // ceiling used in estimate.tsx (see ~line 2904/2928). When a
+          // property is in Review and DTI is over the ceiling, DTI is the
+          // flagged reason; otherwise we attribute Review to Cash to Close
+          // (the only other dashboard-visible driver). When the property
+          // Qualifies, the visible metrics are highlighted green.
+          const isReview = s.qualifies === false;
+          const dtiOver = s.dti != null && s.dti > 0.45;
+          const dtiIsReason = isReview && dtiOver;
+          const cashIsReason = isReview && !dtiIsReason && s.cashToClose != null;
+          const RED_BOX = "rounded-md border border-red-300 bg-red-50 px-2 py-1 -mx-2 -my-1";
+          const GREEN_BOX = "rounded-md border border-green-300 bg-green-50 px-2 py-1 -mx-2 -my-1";
+          const cashBoxClass = cashIsReason ? RED_BOX : s.qualifies === true ? GREEN_BOX : "";
+          const dtiBoxClass = dtiIsReason ? RED_BOX : s.qualifies === true ? GREEN_BOX : "";
           return (
             <Card
               key={s.id}
@@ -658,13 +674,13 @@ function PurchaseTab() {
                         </div>
                       )}
                       {s.cashToClose != null && (
-                        <div>
+                        <div className={cashBoxClass} data-testid={`cash-to-close-${cashIsReason ? "review" : s.qualifies === true ? "qualifies" : "neutral"}`}>
                           <p className="text-xs text-muted-foreground">Cash to Close</p>
                           <p className="font-semibold">{formatCurrency(s.cashToClose)}</p>
                         </div>
                       )}
                       {dtiPct != null && (
-                        <div>
+                        <div className={dtiBoxClass} data-testid={`dti-${dtiIsReason ? "review" : s.qualifies === true ? "qualifies" : "neutral"}`}>
                           <p className="text-xs text-muted-foreground">DTI</p>
                           <p className="font-semibold">{dtiPct}%</p>
                         </div>
