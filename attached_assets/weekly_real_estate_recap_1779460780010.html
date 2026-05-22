@@ -1,0 +1,377 @@
+
+<h2 class="sr-only">Weekly real estate listing recap for three Sarasota condos: 2200 Bahia Vista St B-8, 2232 Bahia Vista St A-1, and 4045 Crockers Lake Blvd #11.</h2>
+
+<style>
+  .recap-wrap { font-family: var(--font-sans); max-width: 680px; padding: 1.5rem 0; }
+  .header-bar { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 0.5px solid var(--color-border-tertiary); padding-bottom: 1rem; margin-bottom: 1.5rem; }
+  .header-bar h1 { font-size: 18px; font-weight: 500; margin: 0; color: var(--color-text-primary); }
+  .header-bar span { font-size: 13px; color: var(--color-text-secondary); }
+  .listing-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); margin-bottom: 1.5rem; overflow: hidden; }
+  .card-header { padding: 1rem 1.25rem 0.75rem; border-bottom: 0.5px solid var(--color-border-tertiary); display: flex; justify-content: space-between; align-items: flex-start; }
+  .card-title { font-size: 15px; font-weight: 500; color: var(--color-text-primary); margin: 0 0 3px; }
+  .card-sub { font-size: 12px; color: var(--color-text-secondary); margin: 0; }
+  .badge { font-size: 11px; padding: 3px 10px; border-radius: var(--border-radius-md); font-weight: 500; white-space: nowrap; }
+  .badge-active { background: #EAF3DE; color: #3B6D11; }
+  .badge-watch { background: #FAEEDA; color: #854F0B; }
+  .metrics-row { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 0; }
+  .metric { padding: 0.75rem 1rem; border-right: 0.5px solid var(--color-border-tertiary); }
+  .metric:last-child { border-right: none; }
+  .metric-label { font-size: 11px; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+  .metric-val { font-size: 18px; font-weight: 500; color: var(--color-text-primary); }
+  .metric-note { font-size: 11px; color: var(--color-text-secondary); margin-top: 2px; }
+  .sections { padding: 0.75rem 1.25rem 1rem; display: flex; flex-direction: column; gap: 0.85rem; }
+  .section-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .section { }
+  .section-title { font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-secondary); margin-bottom: 5px; }
+  .section p { font-size: 13px; color: var(--color-text-primary); margin: 0; line-height: 1.55; }
+  .views-bar { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .bar-outer { flex: 1; height: 6px; background: var(--color-background-secondary); border-radius: 3px; }
+  .bar-inner { height: 6px; border-radius: 3px; }
+  .tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .tag { font-size: 11px; padding: 3px 8px; border-radius: var(--border-radius-md); background: var(--color-background-secondary); color: var(--color-text-secondary); border: 0.5px solid var(--color-border-tertiary); }
+  .action-box { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 0.65rem 0.85rem; margin-top: 0.5rem; }
+  .action-box p { font-size: 13px; color: var(--color-text-primary); margin: 0; line-height: 1.55; }
+  .price-row { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-top: 4px; }
+  .price-label { font-size: 11px; color: var(--color-text-secondary); }
+  .price-val { font-size: 13px; font-weight: 500; color: var(--color-text-primary); }
+  .arrow-right { color: var(--color-text-secondary); font-size: 13px; }
+  .market-footer { background: var(--color-background-secondary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; margin-top: 0.5rem; }
+  .market-footer h3 { font-size: 13px; font-weight: 500; color: var(--color-text-primary); margin: 0 0 8px; }
+  .market-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+  .mstat { }
+  .mstat-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 3px; }
+  .mstat-val { font-size: 15px; font-weight: 500; color: var(--color-text-primary); }
+  .mstat-note { font-size: 11px; color: var(--color-text-secondary); }
+  .divider { height: 0.5px; background: var(--color-border-tertiary); margin: 0.75rem 0; }
+  @media (max-width: 500px) {
+    .metrics-row { grid-template-columns: repeat(2, 1fr); }
+    .section-row { grid-template-columns: 1fr; }
+    .market-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+
+<div class="recap-wrap">
+  <div class="header-bar">
+    <h1><i class="ti ti-building" aria-hidden="true" style="font-size:16px; vertical-align:-2px; margin-right:6px;"></i>Weekly listing recap — Sarasota, FL</h1>
+    <span>Week of May 22, 2026</span>
+  </div>
+
+  <!-- LISTING 1 -->
+  <div class="listing-card">
+    <div class="card-header">
+      <div>
+        <p class="card-title">2200 Bahia Vista St #B-8</p>
+        <p class="card-sub">Cordova Gardens IV · Sarasota, FL 34239 · MLS #TB8491429</p>
+      </div>
+      <span class="badge badge-watch">Price Review Advised</span>
+    </div>
+
+    <div class="metrics-row">
+      <div class="metric">
+        <div class="metric-label">List price</div>
+        <div class="metric-val">$210K</div>
+        <div class="metric-note">$214/sq ft</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Days on market</div>
+        <div class="metric-val">~50</div>
+        <div class="metric-note">Avg comp: 28 days</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Beds / baths</div>
+        <div class="metric-val">2 / 2</div>
+        <div class="metric-note">982 sq ft · 2nd floor loft</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Last sold</div>
+        <div class="metric-val">$205K</div>
+        <div class="metric-note">May 2022</div>
+      </div>
+    </div>
+
+    <div class="sections">
+      <div class="section-row">
+        <div class="section">
+          <div class="section-title">Market comps</div>
+          <p>Same-building units last sold at $205K–$280K (2021–2022 peak). Current 34239 market is buyer-favored with homes averaging 28 days to pending. This unit is running nearly double that timeframe. Closest active comp: 2232 Bahia Vista #A-1 at $210K with identical sq ft.</p>
+        </div>
+        <div class="section">
+          <div class="section-title">Similar pending / sold</div>
+          <p>No confirmed pending units within Cordova Gardens currently. 3700 S Osprey Ave #205 (also 982 sq ft, 34239) is active at a comparable price. Building B-2 sold at $280K renovated in 2022 — a significant renovation premium buyers won't pay here without updates.</p>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section">
+        <div class="section-title">Views & saves across major platforms vs. comps</div>
+        <div class="views-bar">
+          <span style="font-size:12px; color:var(--color-text-secondary); width:60px;">This unit</span>
+          <div class="bar-outer"><div class="bar-inner" style="width:42%; background:#3B6D11;"></div></div>
+          <span style="font-size:12px; color:var(--color-text-primary);">Est. below avg</span>
+        </div>
+        <div class="views-bar">
+          <span style="font-size:12px; color:var(--color-text-secondary); width:60px;">Avg comp</span>
+          <div class="bar-outer"><div class="bar-inner" style="width:68%; background:#5F5E5A;"></div></div>
+          <span style="font-size:12px; color:var(--color-text-primary);">Baseline</span>
+        </div>
+        <p style="font-size:12px; color:var(--color-text-secondary); margin-top:6px;">Engagement signals across Zillow, Realtor.com, and Redfin for 50+ DOM units typically trend 30–40% below freshly listed comps. Fewer saves = fewer showing requests. Note: live platform save/view counts are not publicly reported — check your MLS showing data for precise figures.</p>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section-row">
+        <div class="section">
+          <div class="section-title">Price drop recommendation</div>
+          <p>Yes — a $10K–$15K reduction to $195K–$200K is advisable. The identical unit #A-1 nearby at the same price dilutes buyer urgency. A price adjustment resets MLS "days on market" visibility and re-triggers buyer alerts on all platforms.</p>
+        </div>
+        <div class="section">
+          <div class="section-title">Projected sale price</div>
+          <div class="price-row">
+            <div><div class="price-label">Current list</div><div class="price-val">$210,000</div></div>
+            <span class="arrow-right">→</span>
+            <div><div class="price-label">Likely sell range</div><div class="price-val" style="color:#3B6D11;">$193K–$203K</div></div>
+          </div>
+          <p style="font-size:12px;color:var(--color-text-secondary);margin-top:5px;">Buyers in this segment are negotiating 5–7% below list given current 8+ months condo inventory in Sarasota County.</p>
+        </div>
+      </div>
+
+      <div class="action-box">
+        <div class="section-title" style="margin-bottom:6px;">Next steps to get this sold</div>
+        <div class="tag-row">
+          <span class="tag"><i class="ti ti-currency-dollar" aria-hidden="true"></i> Reduce to $195K–$200K</span>
+          <span class="tag"><i class="ti ti-camera" aria-hidden="true"></i> Refresh listing photos</span>
+          <span class="tag"><i class="ti ti-home" aria-hidden="true"></i> Stage/declutter unit</span>
+          <span class="tag"><i class="ti ti-calendar" aria-hidden="true"></i> Schedule open house</span>
+          <span class="tag"><i class="ti ti-ad" aria-hidden="true"></i> Boost on Zillow/Realtor.com</span>
+          <span class="tag"><i class="ti ti-file-text" aria-hidden="true"></i> Highlight unique loft layout</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LISTING 2 -->
+  <div class="listing-card">
+    <div class="card-header">
+      <div>
+        <p class="card-title">2232 Bahia Vista St #A-1</p>
+        <p class="card-sub">Cordova Gardens I · Sarasota, FL 34239 · MLS #TB8491201</p>
+      </div>
+      <span class="badge badge-watch">Price Review Advised</span>
+    </div>
+
+    <div class="metrics-row">
+      <div class="metric">
+        <div class="metric-label">List price</div>
+        <div class="metric-val">$210K</div>
+        <div class="metric-note">$214/sq ft</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Days on market</div>
+        <div class="metric-val">~50</div>
+        <div class="metric-note">Avg comp: 28 days</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Beds / baths</div>
+        <div class="metric-val">2 / 2</div>
+        <div class="metric-note">982 sq ft · Ground floor</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Last sold</div>
+        <div class="metric-val">$200K</div>
+        <div class="metric-note">Feb 2022</div>
+      </div>
+    </div>
+
+    <div class="sections">
+      <div class="section-row">
+        <div class="section">
+          <div class="section-title">Market comps</div>
+          <p>Redfin estimates this unit's current value at ~$249K, suggesting the $210K list price is under-market but failing to convert — likely due to condition perception or listing fatigue. Ground floor is less desirable than upper floors in flood-aware Florida buyer pools. The 34239 zip shows homes selling ~5% below list in around 28 days for active buyers.</p>
+        </div>
+        <div class="section">
+          <div class="section-title">Similar pending / sold</div>
+          <p>Same-complex unit #A-3 and nearby H-6 are listed as comparable on Redfin. No confirmed pending units in Cordova Gardens. The simultaneous listing of #B-8 (same complex, same price) creates direct competition — buyers will compare these two side-by-side and likely negotiate one against the other.</p>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section">
+        <div class="section-title">Views & saves across major platforms vs. comps</div>
+        <div class="views-bar">
+          <span style="font-size:12px; color:var(--color-text-secondary); width:60px;">This unit</span>
+          <div class="bar-outer"><div class="bar-inner" style="width:38%; background:#3B6D11;"></div></div>
+          <span style="font-size:12px; color:var(--color-text-primary);">Est. below avg</span>
+        </div>
+        <div class="views-bar">
+          <span style="font-size:12px; color:var(--color-text-secondary); width:60px;">Avg comp</span>
+          <div class="bar-outer"><div class="bar-inner" style="width:68%; background:#5F5E5A;"></div></div>
+          <span style="font-size:12px; color:var(--color-text-primary);">Baseline</span>
+        </div>
+        <p style="font-size:12px; color:var(--color-text-secondary); margin-top:6px;">50+ DOM listings in this price band typically see declining save rates as buyers assume something is wrong. Having two near-identical units from the same seller/brokerage (Horizons By The Sea) listed simultaneously is splitting engagement between listings.</p>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section-row">
+        <div class="section">
+          <div class="section-title">Price drop recommendation</div>
+          <p>Yes — this unit has the most upside opportunity. Given the Redfin AVM of ~$249K, consider either reducing to $199K to create urgency, or investing in cosmetic updates (paint, fixtures, staging) and repricing at $225K–$235K to compete closer to the renovated comp that sold at $280K.</p>
+        </div>
+        <div class="section">
+          <div class="section-title">Projected sale price</div>
+          <div class="price-row">
+            <div><div class="price-label">Current list</div><div class="price-val">$210,000</div></div>
+            <span class="arrow-right">→</span>
+            <div><div class="price-label">Likely sell range</div><div class="price-val" style="color:#3B6D11;">$195K–$205K</div></div>
+          </div>
+          <p style="font-size:12px;color:var(--color-text-secondary);margin-top:5px;">As-is, buyer will negotiate firmly. Light staging + price at $199K could close above $200K within 2–3 weeks.</p>
+        </div>
+      </div>
+
+      <div class="action-box">
+        <div class="section-title" style="margin-bottom:6px;">Next steps to get this sold</div>
+        <div class="tag-row">
+          <span class="tag"><i class="ti ti-currency-dollar" aria-hidden="true"></i> Reprice to $199K or invest &amp; go $225K+</span>
+          <span class="tag"><i class="ti ti-sofa" aria-hidden="true"></i> Stage screened lanai &amp; patios</span>
+          <span class="tag"><i class="ti ti-building" aria-hidden="true"></i> Coordinate with #B-8 to stagger pricing</span>
+          <span class="tag"><i class="ti ti-star" aria-hidden="true"></i> Lead with 5 sliding glass doors / natural light</span>
+          <span class="tag"><i class="ti ti-walk" aria-hidden="true"></i> Promote walkability to SMH &amp; downtown</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LISTING 3 -->
+  <div class="listing-card">
+    <div class="card-header">
+      <div>
+        <p class="card-title">4045 Crockers Lake Blvd #11</p>
+        <p class="card-sub">Vintage Grand, Palmer Ranch · Sarasota, FL 34238 · MLS #A4640941</p>
+      </div>
+      <span class="badge badge-active">Competitive — Act on Price</span>
+    </div>
+
+    <div class="metrics-row">
+      <div class="metric">
+        <div class="metric-label">List price</div>
+        <div class="metric-val">$225K</div>
+        <div class="metric-note">$177/sq ft</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Days on market</div>
+        <div class="metric-val">~90+</div>
+        <div class="metric-note">Comp avg: 49 days</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Beds / baths</div>
+        <div class="metric-val">3 / 2</div>
+        <div class="metric-note">1,272 sq ft · Ground floor</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Last sold</div>
+        <div class="metric-val">$218K</div>
+        <div class="metric-note">Mar 2022</div>
+      </div>
+    </div>
+
+    <div class="sections">
+      <div class="section-row">
+        <div class="section">
+          <div class="section-title">Market comps</div>
+          <p>Vintage Grand is an active, competitive sub-market with multiple listings. 4045 Crockers Lake #23 is listed at $279K (3 bed, 1,260 sq ft) with a recent price change. 4008 Crockers Lake #11 is at $239,900 (2 bed, 1,119 sq ft). 4002 Crockers Lake #128 is at $239K (3 bed, 1,336 sq ft). The comparable 4002 Crockers Lake #11 sold in Aug 2025 at $182,950 — a sobering recent data point. Estimated sale range for similar units is $219K–$228K per eXp Realty data. At $225K this unit is positioned at the upper edge of that range without renovation standouts.</p>
+        </div>
+        <div class="section">
+          <div class="section-title">Similar pending / sold</div>
+          <p>4037 Crockers Lake #17 recently had a $225K comp price nearby. The Aug 2025 sale at $182,950 for a same-size unit is the most significant recent closed comp and represents meaningful downward pressure. The 34238 zip is described as "very competitive" by Redfin with homes historically going pending in ~5 days when priced correctly — this unit is not moving at current price, suggesting it's above the market-clearing level.</p>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section">
+        <div class="section-title">Views & saves across major platforms vs. comps</div>
+        <div class="views-bar">
+          <span style="font-size:12px; color:var(--color-text-secondary); width:60px;">This unit</span>
+          <div class="bar-outer"><div class="bar-inner" style="width:28%; background:#854F0B;"></div></div>
+          <span style="font-size:12px; color:var(--color-text-primary); color:#854F0B;">Significantly below avg</span>
+        </div>
+        <div class="views-bar">
+          <span style="font-size:12px; color:var(--color-text-secondary); width:60px;">Avg comp</span>
+          <div class="bar-outer"><div class="bar-inner" style="width:68%; background:#5F5E5A;"></div></div>
+          <span style="font-size:12px; color:var(--color-text-primary);">Baseline</span>
+        </div>
+        <p style="font-size:12px; color:var(--color-text-secondary); margin-top:6px;">At 90+ days on market this listing has cycled past most buyer searches that filter by "new listings" or "recently listed." Engagement on Zillow, Realtor.com, Trulia, and Redfin will be minimal without a price change to re-trigger algorithm alerts. Estimated views are well below Vintage Grand comps that listed within the last 30 days. Verify exact numbers through MLS showing history and Zillow listing manager.</p>
+      </div>
+
+      <div class="divider"></div>
+
+      <div class="section-row">
+        <div class="section">
+          <div class="section-title">Price drop recommendation</div>
+          <p>Yes — strongly recommended. A $15K–$25K reduction to $199K–$210K would position this unit competitively against the $239K–$279K higher-end comps while acknowledging the Aug 2025 sale reality of $182,950. Pricing at $209,900 specifically could generate renewed interest while leaving room to negotiate to ~$200K.</p>
+        </div>
+        <div class="section">
+          <div class="section-title">Projected sale price</div>
+          <div class="price-row">
+            <div><div class="price-label">Current list</div><div class="price-val">$225,000</div></div>
+            <span class="arrow-right">→</span>
+            <div><div class="price-label">Likely sell range</div><div class="price-val" style="color:#854F0B;">$195K–$210K</div></div>
+          </div>
+          <p style="font-size:12px;color:var(--color-text-secondary);margin-top:5px;">Buyers will anchor to the $182,950 Aug 2025 sale. Expect aggressive negotiation. Reduce now to reset visibility and shorten timeline significantly.</p>
+        </div>
+      </div>
+
+      <div class="action-box">
+        <div class="section-title" style="margin-bottom:6px;">Next steps to get this sold</div>
+        <div class="tag-row">
+          <span class="tag"><i class="ti ti-currency-dollar" aria-hidden="true"></i> Reduce to $209,900 immediately</span>
+          <span class="tag"><i class="ti ti-refresh" aria-hidden="true"></i> Relist to reset DOM counter</span>
+          <span class="tag"><i class="ti ti-camera" aria-hidden="true"></i> New photos highlighting largest floor plan</span>
+          <span class="tag"><i class="ti ti-map-pin" aria-hidden="true"></i> Market Palmer Ranch / Siesta Key proximity</span>
+          <span class="tag"><i class="ti ti-users" aria-hidden="true"></i> Target investor buyers (rental comp ~$2,000+/mo)</span>
+          <span class="tag"><i class="ti ti-home" aria-hidden="true"></i> Highlight Floreta plan — largest in community</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MARKET FOOTER -->
+  <div class="market-footer">
+    <h3><i class="ti ti-chart-bar" aria-hidden="true" style="font-size:14px;vertical-align:-1px;margin-right:5px;"></i>Sarasota condo market context — May 2026</h3>
+    <div class="market-grid">
+      <div class="mstat">
+        <div class="mstat-label">Condo inventory</div>
+        <div class="mstat-val">8+ months</div>
+        <div class="mstat-note">Strong buyer's market</div>
+      </div>
+      <div class="mstat">
+        <div class="mstat-label">Median condo price</div>
+        <div class="mstat-val">~$300K</div>
+        <div class="mstat-note">Down from 2022 peak</div>
+      </div>
+      <div class="mstat">
+        <div class="mstat-label">Avg days to pending (34239)</div>
+        <div class="mstat-val">28 days</div>
+        <div class="mstat-note">Well-priced units only</div>
+      </div>
+      <div class="mstat">
+        <div class="mstat-label">Sale-to-list ratio</div>
+        <div class="mstat-val">~94–95%</div>
+        <div class="mstat-note">Buyers negotiating 5–6% off</div>
+      </div>
+      <div class="mstat">
+        <div class="mstat-label">Market condition</div>
+        <div class="mstat-val">Balanced→Buyers</div>
+        <div class="mstat-note">Pricing accuracy critical</div>
+      </div>
+      <div class="mstat">
+        <div class="mstat-label">Avg DOM (Sarasota all)</div>
+        <div class="mstat-val">60 days</div>
+        <div class="mstat-note">Up from 38 days last year</div>
+      </div>
+    </div>
+  </div>
+
+</div>

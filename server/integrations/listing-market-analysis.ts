@@ -190,6 +190,13 @@ export interface StructuredAnalysis {
     available: { source: string; detail?: string | null }[];
     missing:   { source: string; reason: string }[];
   };
+
+  /**
+   * URLs the Anthropic `web_search` tool actually fetched while preparing
+   * this recap. Empty array when the model didn't call web search (e.g.
+   * very thin prompts) or when web search is disabled.
+   */
+  citations: AnthropicCitation[];
 }
 
 export interface MarketAnalysisRecord {
@@ -333,11 +340,12 @@ function buildPrompt(input: ListingInput, weekOfStr: string): string {
     "Speak directly to the seller in plain, friendly English. No jargon. No emojis.",
     "Explain why each metric matters in one short sentence.",
     "",
-    "STRICT DATA RULES — do not violate:",
-    "1. Use ONLY the listing data provided in the JSON below.",
-    "2. NEVER invent comp addresses, comp prices, days-on-market, page views, saves, showing counts, or market stats that are not present in the data.",
-    "3. If `comps`, `pendingComps`, `soldComps` are missing or empty → set `market_comps.comps` and `similar_pending_sold.items` to [] and say in the summary that comp data has not been connected yet, with a recommendation to add 3–5 comps.",
-    "4. If `platformEngagement` is missing → set `platform_engagement.zillow/realtor/redfin` to null, set `comparison_to_similar` to 'unavailable', and say platform engagement data has not been connected yet.",
+    "DATA RULES — you may use the `web_search` tool to fill gaps:",
+    "0. Use the structured listing data below as the source of truth for THIS specific property (beds, baths, sqft, list price, Zestimate, DOM, lot, year built, HOA, last sold). Do NOT override these with web data — supplement only.",
+    "1. You MAY (and should) call `web_search` to look up: nearby active listings, pending/sold homes in the same neighborhood, zip-level market stats (median price, months of supply, sale-to-list ratio, average DOM), and reputable local market reports (Redfin Data Center, Realtor.com Research, Homes.com market pages, brokerage market reports). Up to 5 searches total — use them wisely (search the zip + 'condo market', the building/community name, recent sold comps, etc.).",
+    "2. NEVER invent a comp, address, price, DOM, page view, save, showing count, or market stat. Every concrete number must come from either (a) the structured listing data below, or (b) a web search result you actually fetched. If you can't ground a number, say it is unavailable.",
+    "3. For `market_comps.comps` and `similar_pending_sold.items`: include any active/pending/sold homes you found via web search. Put a short attribution in `notes` (e.g. 'per Redfin', 'per Realtor.com'). If web search returns nothing useful, set to [] and explain.",
+    "4. For `platform_engagement.zillow/realtor/redfin`: only fill in `views`/`saves` numbers if `platformEngagement` in the input has them OR a web result explicitly lists them (very rare — those are usually private to the listing owner). Otherwise leave null and use the `summary` to give a qualitative read on engagement based on DOM, price-cut history, and how active the local market is per your web research.",
     "5. If DOM is missing → set `subject_dom`/`average_comp_dom` to null, `comparison_label` to 'unavailable', and say so plainly. If `daysOnMarket` IS provided, USE it in `subject_dom` and reference it in the listing snapshot — don't say DOM is unavailable when it isn't.",
     "5b. If `priorPriceCuts` is provided and > 0, mention it in the listing snapshot and factor it into the price-drop recommendation (further drops have diminishing returns after multiple cuts).",
     "5c. If `onlineViews` or `onlineSaves` is provided, USE the actual number in `platform_engagement.zillow` instead of null. Still mark `comparison_to_similar` as 'unavailable' unless similar-listing engagement data is also provided.",
@@ -356,27 +364,95 @@ function buildPrompt(input: ListingInput, weekOfStr: string): string {
   ].join("\n");
 }
 
-async function callAnthropic(prompt: string): Promise<{ raw: string }> {
+export interface AnthropicCitation {
+  url: string;
+  title: string;
+}
+
+/**
+ * Calls Anthropic with the built-in `web_search_20250305` tool enabled so
+ * Claude can fetch live market data (Redfin, Realtor.com, Homes.com,
+ * neighborhood reports, news) for the listing's area. We cap searches per
+ * call so the weekly recap stays cheap (~$0.05 in search fees per fresh
+ * generation; cached weeks cost $0). Returns the final JSON text PLUS a
+ * flat list of unique citation URLs so the seller can see exactly which
+ * pages fed the recap.
+ */
+async function callAnthropic(prompt: string): Promise<{ raw: string; citations: AnthropicCitation[] }> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new Error("ANTHROPIC_API_KEY is not configured");
   }
   const response = await anthropic.messages.create({
     model: "claude-opus-4-5",
-    max_tokens: 4096,
+    max_tokens: 8192,
     system:
       "You are a careful, conservative real estate analyst writing a weekly listing recap for a home seller. " +
-      "You only analyze data the user provides. You never fabricate MLS comps, addresses, days-on-market, " +
-      "page views, saves, showings, or local market stats. When data is missing, you say so plainly and " +
-      "recommend what to connect or add. You respond with a single valid JSON object and nothing else.",
+      "You analyze the structured listing data the user provides AND you may use the `web_search` tool to " +
+      "look up live, public real-estate data for the listing's zip and city — active listings on Redfin, " +
+      "Realtor.com, Homes.com, recently sold homes, neighborhood market reports, months of supply, " +
+      "sale-to-list ratios, average days on market, and similar published market context. " +
+      "When you cite a number from a web result, briefly attribute it in the `notes` or `summary` field " +
+      "(e.g. 'per Redfin', 'per Realtor.com'). If neither the structured data nor a reputable web result " +
+      "supports a comp, address, DOM, page view, save, or market stat, say it is unavailable instead of " +
+      "guessing. You respond with a single valid JSON object and nothing else.",
     messages: [{ role: "user", content: prompt }],
-  });
+    tools: [
+      {
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 5,
+      } as any,
+    ],
+  } as any);
 
-  const content = response.content[0];
-  if (!content || content.type !== "text") {
+  // Anthropic returns interleaved blocks: server_tool_use (the model's
+  // search queries), web_search_tool_result (the search hits Anthropic
+  // fetched), and finally text blocks that may carry inline citations.
+  // We concatenate every text block (the model sometimes splits the JSON
+  // across blocks when it re-enters after a search) and collect unique
+  // citation URLs from both web_search_tool_result blocks and inline
+  // text citations.
+  let combinedText = "";
+  const citationsByUrl = new Map<string, AnthropicCitation>();
+
+  for (const block of response.content as any[]) {
+    if (!block || typeof block !== "object") continue;
+
+    if (block.type === "text" && typeof block.text === "string") {
+      combinedText += block.text;
+      // Anthropic adds a `citations` array on text blocks when web_search
+      // grounds a span of text.
+      const inline = (block as any).citations;
+      if (Array.isArray(inline)) {
+        for (const c of inline) {
+          const url = typeof c?.url === "string" ? c.url : null;
+          const title = typeof c?.title === "string" ? c.title : (url ?? "");
+          if (url && !citationsByUrl.has(url)) citationsByUrl.set(url, { url, title });
+        }
+      }
+    } else if (block.type === "web_search_tool_result") {
+      // The tool result holds the actual fetched pages.
+      const list = (block as any).content;
+      if (Array.isArray(list)) {
+        for (const r of list) {
+          const url = typeof r?.url === "string" ? r.url : null;
+          const title = typeof r?.title === "string" ? r.title : (url ?? "");
+          if (url && !citationsByUrl.has(url)) citationsByUrl.set(url, { url, title });
+        }
+      }
+    }
+  }
+
+  if (!combinedText.trim()) {
     throw new Error("Empty response from Anthropic");
   }
-  const raw = content.text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  return { raw };
+  const raw = combinedText.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  const citations = Array.from(citationsByUrl.values());
+  console.log("[market-analysis] anthropic web_search", {
+    citationCount: citations.length,
+    stopReason: (response as any).stop_reason,
+  });
+  return { raw, citations };
 }
 
 // ─────────────────────── JSON parsing helpers ────────────────────────
@@ -545,6 +621,18 @@ function coerceStructured(raw: Record<string, unknown> | null, weekOfStr: string
     confidence_level: asConfidence(r.confidence_level),
     // Filled in deterministically by computeDataSources() after coercion.
     data_sources: { available: [], missing: [] },
+    // Citations are filled in from the live Anthropic response on fresh
+    // generations, or restored from the cached JSON for cache hits.
+    citations: Array.isArray((r as any).citations)
+      ? ((r as any).citations as unknown[])
+          .map((c) => {
+            if (!c || typeof c !== "object") return null;
+            const url = typeof (c as any).url === "string" ? (c as any).url : null;
+            const title = typeof (c as any).title === "string" ? (c as any).title : url;
+            return url ? { url, title: title || url } : null;
+          })
+          .filter((x): x is AnthropicCitation => !!x)
+      : [],
   };
 }
 
@@ -557,7 +645,10 @@ function coerceStructured(raw: Record<string, unknown> | null, weekOfStr: string
  * describe what we couldn't, with a friendly reason the seller will
  * understand.
  */
-function computeDataSources(input: ListingInput): StructuredAnalysis["data_sources"] {
+function computeDataSources(
+  input: ListingInput,
+  citations: AnthropicCitation[] = [],
+): StructuredAnalysis["data_sources"] {
   const available: { source: string; detail?: string | null }[] = [];
   const missing:   { source: string; reason: string }[] = [];
 
@@ -630,14 +721,41 @@ function computeDataSources(input: ListingInput): StructuredAnalysis["data_sourc
     });
   }
 
-  missing.push({
-    source: "Realtor.com / Redfin / Homes.com engagement",
-    reason: "No scrapers or partnerships for these platforms are wired into the app yet.",
-  });
-  missing.push({
-    source: "Local market stats (months supply, sale-to-list, avg DOM)",
-    reason: "No MLS aggregate or Redfin Data Center feed is connected. We can wire RentCast or an Apify actor on request.",
-  });
+  // Anthropic's built-in web_search tool — when the model used it, the
+  // citations array tells us exactly which pages fed the recap. We split
+  // the citations into rough buckets so the seller sees which third-party
+  // sources actually informed this analysis.
+  if (citations.length > 0) {
+    const bucket = (re: RegExp) => citations.filter((c) => re.test(c.url)).length;
+    const redfin   = bucket(/redfin\.com/i);
+    const realtor  = bucket(/realtor\.com/i);
+    const homes    = bucket(/homes\.com/i);
+    const zillowW  = bucket(/zillow\.com/i);
+    const other    = citations.length - redfin - realtor - homes - zillowW;
+
+    const detailParts: string[] = [];
+    if (redfin)  detailParts.push(`${redfin} Redfin`);
+    if (realtor) detailParts.push(`${realtor} Realtor.com`);
+    if (homes)   detailParts.push(`${homes} Homes.com`);
+    if (zillowW) detailParts.push(`${zillowW} Zillow`);
+    if (other)   detailParts.push(`${other} other`);
+    available.push({
+      source: "Anthropic web search (live)",
+      detail: `${citations.length} page${citations.length === 1 ? "" : "s"} fetched — ${detailParts.join(", ")}`,
+    });
+  } else {
+    missing.push({
+      source: "Anthropic web search (Redfin / Realtor.com / Homes.com / market reports)",
+      reason: "The model didn't run web search on this listing — usually because the cached recap was reused. Click Refresh to fetch live web data.",
+    });
+  }
+
+  if (!(input.marketStats)) {
+    missing.push({
+      source: "Local market stats (MLS aggregate)",
+      reason: "No MLS aggregate or Redfin Data Center API is connected. Web-search results above partly cover this, but a live MLS feed would be more precise.",
+    });
+  }
 
   return { available, missing };
 }
@@ -720,8 +838,12 @@ export async function getOrGenerateMarketAnalysis(
       : null;
     // Recompute data_sources on read so the panel reflects the CURRENT
     // listing input even when the recap text is reused from cache.
-    if (cachedStructured) cachedStructured.data_sources = computeDataSources(input);
-    console.log("[market-analysis] cache hit", { id: existing.id, weekOf: existing.analysis_week_of });
+    if (cachedStructured) cachedStructured.data_sources = computeDataSources(input, cachedStructured.citations);
+    console.log("[market-analysis] cache hit", {
+      id: existing.id,
+      weekOf: existing.analysis_week_of,
+      citations: cachedStructured?.citations.length ?? 0,
+    });
     return { ...existing, structured: cachedStructured };
   }
 
@@ -740,7 +862,11 @@ export async function getOrGenerateMarketAnalysis(
     const result = await callAnthropic(prompt);
     raw = result.raw;
     structured = coerceStructured(tryParseJsonObject(raw), cur.weekOfStr);
-    structured.data_sources = computeDataSources(input);
+    // Attach the live citations to the structured payload BEFORE computing
+    // data sources, so the Data Sources panel reflects what web_search
+    // actually fetched.
+    structured.citations = result.citations;
+    structured.data_sources = computeDataSources(input, result.citations);
     console.log("[market-analysis] response received", {
       listingId: input.listingId,
       rawChars: raw.length,
@@ -748,6 +874,7 @@ export async function getOrGenerateMarketAnalysis(
       confidence: structured.confidence_level,
       next_steps: structured.next_steps.length,
       data_limitations: structured.data_limitations.length,
+      citations: structured.citations.length,
     });
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : String(err);

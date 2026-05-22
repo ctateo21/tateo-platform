@@ -614,6 +614,7 @@ interface StructuredAnalysis {
     available: { source: string; detail?: string | null }[];
     missing:   { source: string; reason: string }[];
   };
+  citations?: { url: string; title: string }[];
 }
 
 interface MarketAnalysisRecord {
@@ -1051,6 +1052,32 @@ function RichAnalysis({ structured: s, address }: { structured: StructuredAnalys
               )}
             </div>
           </div>
+
+          {/* Web-search citations — pages Anthropic actually fetched during
+              this generation. Cached weeks reuse the citations stored in
+              the original response, so the list is stable across reads. */}
+          {s.citations && s.citations.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-medium text-muted-foreground mb-1.5">
+                Web pages cited ({s.citations.length})
+              </p>
+              <ul className="space-y-1">
+                {s.citations.map((c, i) => (
+                  <li key={i} className="text-xs">
+                    <a
+                      href={c.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-700 hover:underline break-all"
+                      title={c.url}
+                    >
+                      {c.title || c.url}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
