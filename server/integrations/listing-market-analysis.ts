@@ -12,6 +12,7 @@
 // indexing.
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "../supabase";
+import { scrapeRealtorCompsForListing, type RealtorScrapeResult } from "./realtor-apify";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -702,6 +703,7 @@ function coerceStructured(raw: Record<string, unknown> | null, weekOfStr: string
 function computeDataSources(
   input: ListingInput,
   citations: AnthropicCitation[] = [],
+  realtor?: RealtorScrapeResult | null,
 ): StructuredAnalysis["data_sources"] {
   const available: { source: string; detail?: string | null }[] = [];
   const missing:   { source: string; reason: string }[] = [];
@@ -804,6 +806,29 @@ function computeDataSources(
     });
   }
 
+  // Realtor.com scraper (memo23/realtor-search-cheerio). Run per
+  // generation against the subject ZIP; bucketed into active/pending/sold.
+  if (realtor && realtor.ok) {
+    const parts: string[] = [];
+    if (realtor.active.length)  parts.push(`${realtor.active.length} active`);
+    if (realtor.pending.length) parts.push(`${realtor.pending.length} pending`);
+    if (realtor.sold.length)    parts.push(`${realtor.sold.length} sold`);
+    available.push({
+      source: "Realtor.com scraper (memo23/realtor-search-cheerio)",
+      detail: parts.length ? parts.join(" • ") : `${realtor.total} listings`,
+    });
+  } else if (realtor && realtor.errorMessage) {
+    missing.push({
+      source: "Realtor.com scraper (memo23/realtor-search-cheerio)",
+      reason: `Scrape failed this run: ${realtor.errorMessage}`,
+    });
+  } else {
+    missing.push({
+      source: "Realtor.com scraper (memo23/realtor-search-cheerio)",
+      reason: "Scraper didn't run on this cache-served recap. Generates fresh on the next weekly cycle.",
+    });
+  }
+
   if (!(input.marketStats)) {
     missing.push({
       source: "Local market stats (MLS aggregate)",
@@ -812,6 +837,29 @@ function computeDataSources(
   }
 
   return { available, missing };
+}
+
+/**
+ * Quality gate for cache reuse. A saved analysis is "rich enough" to
+ * reuse only when it has the core sections we promise the seller:
+ * a real status label, at least one comp, a projected sale range, AND
+ * at least one external data source (Anthropic web search OR Realtor
+ * scraper) successfully fed it. Otherwise the cycle's saved row is
+ * regenerated once — even within the same Friday window — so we don't
+ * keep serving "Insufficient Data" stubs.
+ */
+function isRichEnough(s: StructuredAnalysis | null | undefined): boolean {
+  if (!s) return false;
+  if (s.status_label === "Insufficient Data") return false;
+  if (!s.market_comps?.comps?.length) return false;
+  if (s.projected_sale_price?.projected_low == null) return false;
+  if (s.projected_sale_price?.projected_high == null) return false;
+  const sources = s.data_sources?.available ?? [];
+  const hasExternal = sources.some((src) => {
+    const n = String(src.source || "").toLowerCase();
+    return n.includes("anthropic web search") || n.includes("realtor");
+  });
+  return hasExternal;
 }
 
 /**
@@ -891,23 +939,33 @@ export async function getOrGenerateMarketAnalysis(
     stale: existing ? isStale(existing) : null,
   });
 
+  // Parse the cached structured payload up front so we can quality-gate
+  // the cache hit (don't reuse generic "Insufficient Data" stubs).
+  const cachedRaw = existing && typeof existing.raw_anthropic_response === "string"
+    ? existing.raw_anthropic_response
+    : null;
+  const cachedStructured = cachedRaw
+    ? coerceStructured(tryParseJsonObject(cachedRaw), existing!.analysis_week_of || cur.weekOfStr)
+    : null;
+
+  const currentCycle = !!existing && !isStale(existing);
+  const richEnough = isRichEnough(cachedStructured);
+  console.log("[market-analysis] existing saved analysis found", { found: !!existing });
+  console.log("[market-analysis] current cycle", { currentCycle });
+  console.log("[market-analysis] rich enough", { richEnough });
+
   const cacheHit =
     existing &&
     existing.status === "published" &&
     !opts.forceRefresh &&
-    !isStale(existing);
+    currentCycle &&
+    richEnough;
 
   if (cacheHit) {
-    // Reuse cache — parse structured JSON from raw_anthropic_response so the
-    // frontend can render the rich layout even on cached rows.
-    const cachedRaw = typeof existing!.raw_anthropic_response === "string" ? existing!.raw_anthropic_response : null;
-    const cachedStructured = cachedRaw
-      ? coerceStructured(tryParseJsonObject(cachedRaw), existing!.analysis_week_of || cur.weekOfStr)
-      : null;
     // Recompute data_sources on read so the panel reflects the CURRENT
     // listing input even when the recap text is reused from cache.
     if (cachedStructured) cachedStructured.data_sources = computeDataSources(input, cachedStructured.citations);
-    console.log("[market-analysis] using saved analysis", {
+    console.log("[market-analysis] using saved rich analysis", {
       id: existing!.id,
       weekOf: existing!.analysis_week_of,
       citations: cachedStructured?.citations.length ?? 0,
@@ -916,14 +974,58 @@ export async function getOrGenerateMarketAnalysis(
     return { ...existing!, structured: cachedStructured };
   }
 
-  console.log("[market-analysis] stale or missing, generating new analysis", {
-    reason: !existing ? "no_prior_row"
-          : opts.forceRefresh ? "admin_force_refresh"
-          : existing.status !== "published" ? `prior_status_${existing.status}`
-          : "stale_cycle",
+  console.log(
+    currentCycle && existing
+      ? "[market-analysis] saved analysis insufficient, regenerating"
+      : "[market-analysis] stale or missing, generating new analysis",
+    {
+      reason: !existing ? "no_prior_row"
+            : opts.forceRefresh ? "admin_force_refresh"
+            : existing.status !== "published" ? `prior_status_${existing.status}`
+            : !currentCycle ? "stale_cycle"
+            : "not_rich_enough",
+    },
+  );
+
+  // ── Gather external market data BEFORE prompting Anthropic ──────────
+  // Best-effort Realtor.com scrape against the subject ZIP. Failure is
+  // logged but does NOT block generation — Anthropic's web_search tool
+  // is still available as a fallback comp source.
+  let realtor: RealtorScrapeResult | null = null;
+  try {
+    realtor = await scrapeRealtorCompsForListing({
+      address: input.address,
+      zip: input.zip,
+      propertyType: input.propertyType,
+    });
+  } catch (e: any) {
+    console.warn("[market-data] Realtor scrape threw:", e?.message);
+  }
+  console.log("[market-data] active comps returned count", { count: realtor?.active.length ?? 0 });
+  console.log("[market-data] pending/sold returned count", {
+    pending: realtor?.pending.length ?? 0,
+    sold: realtor?.sold.length ?? 0,
   });
 
-  const prompt = buildPrompt(input, cur.weekOfStr);
+  // Inject scraped comps into the model input when the caller didn't
+  // already provide them. We deliberately don't override caller-supplied
+  // comps — those are higher-trust (MLS/manual entry).
+  const enrichedInput: ListingInput = { ...input };
+  if (realtor) {
+    if ((!enrichedInput.comps || enrichedInput.comps.length === 0) && realtor.active.length) {
+      enrichedInput.comps = realtor.active.slice(0, 12);
+    }
+    if ((!enrichedInput.pendingComps || enrichedInput.pendingComps.length === 0) && realtor.pending.length) {
+      enrichedInput.pendingComps = realtor.pending.slice(0, 8);
+    }
+    if ((!enrichedInput.soldComps || enrichedInput.soldComps.length === 0) && realtor.sold.length) {
+      enrichedInput.soldComps = realtor.sold.slice(0, 8);
+    }
+  }
+
+  const prompt = buildPrompt(enrichedInput, cur.weekOfStr);
+
+  console.log("[market-analysis] Anthropic web search enabled", { enabled: true });
 
   console.log("[market-analysis] calling Anthropic", {
     listingId: input.listingId,
@@ -941,12 +1043,19 @@ export async function getOrGenerateMarketAnalysis(
     // data sources, so the Data Sources panel reflects what web_search
     // actually fetched.
     structured.citations = result.citations;
-    structured.data_sources = computeDataSources(input, result.citations);
+    structured.data_sources = computeDataSources(enrichedInput, result.citations, realtor);
+    console.log("[market-analysis] web pages fetched count", { count: result.citations.length });
+    console.log("[market-analysis] projected sale range returned", {
+      low: structured.projected_sale_price.projected_low,
+      high: structured.projected_sale_price.projected_high,
+    });
     console.log("[market-analysis] response received", {
       listingId: input.listingId,
       rawChars: raw.length,
       status_label: structured.status_label,
       confidence: structured.confidence_level,
+      comps: structured.market_comps.comps.length,
+      pendingSold: structured.similar_pending_sold.items.length,
       next_steps: structured.next_steps.length,
       data_limitations: structured.data_limitations.length,
       citations: structured.citations.length,
@@ -957,24 +1066,30 @@ export async function getOrGenerateMarketAnalysis(
   }
   console.log("[market-analysis] Anthropic called", { ok: !errorMessage, errorMessage });
 
-  // If generation failed AND we have a prior saved analysis (even a stale
-  // one), keep showing the prior analysis instead of overwriting it with
-  // an error row. We tag it so the UI can show a small warning banner.
-  if (errorMessage && existing && existing.status === "published") {
-    const cachedRaw = typeof existing.raw_anthropic_response === "string" ? existing.raw_anthropic_response : null;
-    const cachedStructured = cachedRaw
-      ? coerceStructured(tryParseJsonObject(cachedRaw), existing.analysis_week_of || cur.weekOfStr)
-      : null;
-    if (cachedStructured) cachedStructured.data_sources = computeDataSources(input, cachedStructured.citations);
-    console.log("[market-analysis] generation failed, using previous saved analysis", {
-      id: existing.id,
-      weekOf: existing.analysis_week_of,
-    });
+  // Don't overwrite a previously-rich saved analysis with a weaker one.
+  // If generation failed OR produced a weaker recap than what's already
+  // saved, keep showing the prior analysis (with a soft warning when the
+  // generation outright failed). This is what prevents "Insufficient
+  // Data" from clobbering a good Friday-week recap.
+  const freshIsWeaker = !errorMessage && existing?.status === "published" &&
+    isRichEnough(cachedStructured) && !isRichEnough(structured);
+  if ((errorMessage || freshIsWeaker) && existing && existing.status === "published" && cachedStructured) {
+    cachedStructured.data_sources = computeDataSources(input, cachedStructured.citations, realtor);
+    if (errorMessage) {
+      console.log("[market-analysis] generation failed, using previous saved analysis", {
+        id: existing.id, weekOf: existing.analysis_week_of,
+      });
+    } else {
+      console.log("[market-analysis] not overwriting rich analysis with weaker result", {
+        id: existing.id, weekOf: existing.analysis_week_of,
+      });
+    }
     return {
       ...existing,
       structured: cachedStructured,
-      // surfaced to the UI as a small warning above the recap
-      error_message: `Latest weekly update failed — showing previous analysis. (${errorMessage})`,
+      error_message: errorMessage
+        ? `Latest weekly update failed — showing previous analysis. (${errorMessage})`
+        : null,
     };
   }
 

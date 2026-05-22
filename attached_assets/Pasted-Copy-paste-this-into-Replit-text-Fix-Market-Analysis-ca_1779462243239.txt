@@ -1,0 +1,393 @@
+Copy/paste this into Replit:
+
+```text
+Fix Market Analysis caching/data quality and include Realtor.com scraping using Apify actor `memo23/realtor-search-cheerio`.
+
+Current issue:
+The Market Analysis previously generated a useful rich recap with:
+- active comps
+- similar pending/sold homes
+- projected sale range
+- price drop recommendation
+- market context
+- web pages cited/fetched
+- Anthropic web search results
+
+But after the latest caching change, the app is now showing the old generic saved version again:
+
+“Insufficient Data”
+“No comps connected yet”
+“No nearby pending/sold data connected yet”
+“Anthropic web search didn’t run because cached recap was reused”
+
+This is wrong.
+
+Goal:
+The app should save and reuse the full rich Market Analysis once generated, but it should not preserve/reuse an old weak “Insufficient Data” analysis if better data can be generated through Anthropic web search and real estate scrapers.
+
+Important:
+I do NOT want normal users to repeatedly call Anthropic.
+But I do need the first weekly analysis to be the full rich analysis with web search and real estate data enabled, not the old generic one.
+
+Required behavior:
+1. When Market Analysis loads, check the saved analysis.
+2. If the saved analysis is current for the week AND has rich data, load it from Supabase.
+3. If the saved analysis is current but is generic/low-quality/insufficient, regenerate it once using:
+   - Anthropic web search, if available
+   - Zillow/Apify subject property data
+   - Realtor.com scraper `memo23/realtor-search-cheerio`
+   - any other currently connected real estate data sources
+4. Save the regenerated rich analysis to Supabase.
+5. Reuse that rich saved analysis until the next Friday at 8:00 AM Eastern.
+6. Do not call Anthropic again after the rich analysis is saved for the week.
+7. Normal users should not have a Refresh button that can repeatedly call Anthropic.
+
+Define “low-quality/generic/insufficient” analysis:
+Regenerate if any of these are true:
+- status_label = “Insufficient Data”
+- active comps are empty
+- pending/sold comps are empty
+- projected sale range is unavailable
+- market context is unavailable
+- data_sources says Anthropic web search did not run
+- data_sources says Realtor.com scraper did not run
+- analysis says “No comps connected yet”
+- analysis says “No nearby pending/sold data connected yet”
+- analysis says “Local market stats have not been connected yet”
+- confidence = low AND Anthropic web search did not run
+- confidence = low AND no external comp/search source ran
+
+Anthropic web search:
+When generating the weekly Market Analysis, always enable Anthropic web search server-side if available.
+
+The Market Analysis generation should:
+1. Use saved seller scenario data.
+2. Use Zillow/Apify subject property data.
+3. Use Realtor.com scraper `memo23/realtor-search-cheerio`.
+4. Use Anthropic web search for public market/listing data.
+5. Search around the subject property/address/ZIP.
+6. Pull public data from sources such as:
+   - Zillow
+   - Realtor.com
+   - Redfin
+   - Homes.com
+   - Movoto
+   - Compass
+   - Coldwell Banker
+   - RE/MAX
+   - local market report pages
+7. Send the gathered web search result summaries and scraper results into the final Anthropic analysis prompt.
+8. Save the final structured rich analysis to Supabase.
+
+Realtor.com scraper requirement:
+Add/use the Apify actor:
+
+`memo23/realtor-search-cheerio`
+
+Use this scraper as part of the backend market-data gathering step.
+
+Suggested use:
+- Search by ZIP code and property type.
+- Search by nearby area around the subject property.
+- Pull active listings and similar properties.
+- If the actor supports sold/pending filters, also pull pending/sold comps.
+- If sold/pending is not supported, use the scraper for active comp context and mark pending/sold unavailable unless obtained elsewhere.
+
+Data to normalize from Realtor.com scraper if available:
+- address
+- city/state/ZIP
+- price
+- beds
+- baths
+- sqft
+- price per sqft
+- property type
+- listing status
+- days on market, if returned
+- list date, if returned
+- price reduction / price history, if returned
+- URL
+- source = Realtor.com
+- photos count if available
+
+Normalize Realtor.com results into:
+active_comps
+pending_comps, if available
+sold_comps, if available
+
+Comp matching rules:
+For condos:
+- prioritize same building/community first
+- then same ZIP
+- then nearby condos with similar beds/baths/sqft
+- separate condo comps from single-family comps
+
+For single-family homes:
+- prioritize same ZIP and nearby radius
+- similar beds/baths
+- similar sqft
+- similar lot size
+- similar year built
+- similar property type
+
+Backend function:
+Create or update a backend function like:
+
+`gatherSellerMarketDataForAnalysis(sellerScenario)`
+
+This function should:
+1. Start with saved seller scenario.
+2. Pull subject property data from Zillow/Apify/property cache.
+3. Run Realtor.com scraper `memo23/realtor-search-cheerio` for nearby similar listings.
+4. Search for active similar listings.
+5. Search for pending similar listings if available.
+6. Search for recently sold similar listings if available.
+7. Pull DOM/list date/price changes if available.
+8. Pull platform views/saves if available.
+9. Pull local ZIP/city market stats if available.
+10. Run Anthropic web search if available.
+11. Return a structured market data object.
+12. Send that structured data object to Anthropic.
+
+Structured market data object should include:
+
+{
+  subject_property: {
+    address,
+    city,
+    state,
+    zip,
+    property_type,
+    beds,
+    baths,
+    sqft,
+    lot_size,
+    year_built,
+    list_price,
+    estimated_sale_price,
+    zillow_value,
+    last_sold_price,
+    last_sold_date,
+    list_date,
+    days_on_market,
+    status,
+    price_cuts,
+    photos_count
+  },
+  active_comps: [
+    {
+      address,
+      price,
+      beds,
+      baths,
+      sqft,
+      price_per_sqft,
+      days_on_market,
+      status,
+      source,
+      url,
+      notes
+    }
+  ],
+  pending_comps: [],
+  sold_comps: [],
+  dom_context: {
+    subject_dom,
+    average_active_comp_dom,
+    average_sold_comp_dom,
+    zip_average_dom,
+    city_average_dom
+  },
+  platform_engagement: {
+    zillow: {
+      views,
+      saves,
+      saves_per_view,
+      compared_to_similar
+    },
+    realtor: {
+      views,
+      saves,
+      compared_to_similar
+    },
+    redfin: {
+      views,
+      saves,
+      compared_to_similar
+    },
+    homes: {
+      views,
+      saves,
+      compared_to_similar
+    }
+  },
+  local_market_context: {
+    months_supply,
+    median_sale_price,
+    sale_to_list_ratio,
+    average_dom,
+    buyer_seller_market
+  },
+  data_sources_attempted: [],
+  data_sources_successful: [],
+  data_sources_missing: []
+}
+
+Specific cache bug to fix:
+The cached recap says:
+
+“Anthropic web search did not run because cached recap was reused.”
+
+That means the cache is short-circuiting too early.
+
+Fix the logic so cached analysis is only reused if it is current AND not generic/insufficient.
+
+Suggested logic:
+
+const existing = await getSavedAnalysisForCurrentCycle(sellerScenarioId);
+
+if (existing && isCurrentCycle(existing) && isRichEnough(existing)) {
+  return existing;
+}
+
+const marketData = await gatherSellerMarketDataForAnalysis(sellerScenario);
+const fresh = await generateAnalysisWithAnthropicAndMarketData(marketData);
+await saveAnalysisToSupabase(fresh);
+return fresh;
+
+Add helper:
+
+function isRichEnough(analysis) {
+  return (
+    analysis?.status_label !== "Insufficient Data" &&
+    analysis?.market_comps?.comps?.length > 0 &&
+    analysis?.projected_sale_price?.projected_low &&
+    analysis?.projected_sale_price?.projected_high &&
+    analysis?.data_sources?.some(source =>
+      String(source.name || "").toLowerCase().includes("anthropic web search") &&
+      source.status === "connected"
+    )
+  );
+}
+
+Also count Realtor.com scraper as a richness signal:
+
+analysis?.data_sources?.some(source =>
+  String(source.name || "").toLowerCase().includes("realtor") &&
+  source.status === "connected"
+)
+
+Use the actual schema names, but the concept must be implemented.
+
+Supabase save requirements:
+When a rich analysis is generated, save the full structured result to Supabase, including:
+- listing snapshot
+- comps
+- pending/sold
+- DOM analysis
+- platform engagement/web-search notes
+- price drop recommendation
+- projected sale range
+- next steps
+- market context
+- data sources
+- data limitations
+- confidence level
+- raw Anthropic response if useful
+- Realtor.com scraper results summary if useful
+- analysis_week_of
+- generated_at
+- next_update_due_at
+
+Do not save only the generic fallback fields.
+Do not overwrite a rich analysis with a weaker generic analysis.
+
+If generation fails:
+- Keep showing the last saved rich analysis if one exists.
+- Show a small warning:
+  “Latest update failed — showing previous saved analysis.”
+- Do not replace rich saved data with “Insufficient Data.”
+
+Refresh button:
+Normal users should not have a Refresh button that calls Anthropic repeatedly.
+
+Instead show:
+- Last updated [date/time]
+- Next update Friday at 8:00 AM
+- Updates weekly on Fridays
+
+If a manual refresh is needed:
+- Make it admin/dev-only.
+- It should still save the result to Supabase.
+- It should not be visible to normal sellers/users.
+
+Market Analysis UI should show saved rich analysis sections:
+- Listing Snapshot
+- Market Comps
+- Similar Pending / Sold
+- Days on Market
+- Views & Saves Across Platforms
+- Price Drop Recommendation
+- Projected Sale Range
+- Next Steps to Get This Sold
+- Market Context
+- Data Sources
+
+Data Sources panel should include:
+- Zillow subject property
+- Zillow listing activity, if available
+- Realtor.com scraper `memo23/realtor-search-cheerio`
+- Anthropic web search
+- Redfin web search results, if available
+- Homes.com web search results, if available
+- Local market stats, if available
+- MLS/Stellar, if connected or missing
+
+Debug logs:
+Add logs:
+- `[market-analysis] existing saved analysis found`
+- `[market-analysis] current cycle true/false`
+- `[market-analysis] rich enough true/false`
+- `[market-analysis] using saved rich analysis`
+- `[market-analysis] saved analysis insufficient, regenerating`
+- `[market-data] running Realtor.com scraper memo23/realtor-search-cheerio`
+- `[market-data] Realtor.com scraper results count`
+- `[market-data] active comps returned count`
+- `[market-data] pending/sold returned count`
+- `[market-analysis] Anthropic web search enabled true/false`
+- `[market-analysis] web pages fetched count`
+- `[market-analysis] projected sale range returned`
+- `[market-analysis] saving rich analysis to Supabase`
+- `[market-analysis] save ok`
+- `[market-analysis] not overwriting rich analysis with weaker result`
+
+Acceptance test:
+1. Open Dashboard → For Sale → property detail.
+2. Confirm old generic “Insufficient Data” cached analysis does not block regeneration.
+3. Confirm backend runs Realtor.com scraper `memo23/realtor-search-cheerio`.
+4. Confirm backend runs Anthropic web search if available.
+5. Confirm rich analysis includes active comps, pending/sold if available, projected sale range, price-drop recommendation, next steps, and market context when external data finds it.
+6. Confirm the rich analysis saves to Supabase.
+7. Leave the detail view and come back.
+8. Confirm the same rich analysis loads instantly from Supabase.
+9. Confirm Anthropic is not called again after the rich analysis is saved.
+10. Refresh the browser.
+11. Confirm the rich analysis still loads.
+12. Log out and log back in.
+13. Confirm the rich analysis still loads.
+14. Confirm normal users do not see a Refresh button that can repeatedly call Anthropic.
+15. Simulate next Friday after 8:00 AM Eastern.
+16. Confirm a new rich weekly analysis is generated once and saved.
+17. Confirm a failed generation does not overwrite a previously rich saved analysis with “Insufficient Data.”
+
+Please report back:
+- Why the old generic analysis was reused
+- How `isRichEnough` or equivalent quality check was implemented
+- Whether Anthropic web search is forced during generation
+- Whether Realtor.com scraper `memo23/realtor-search-cheerio` was added
+- What Realtor.com fields are returned and normalized
+- Where the full structured rich analysis is saved in Supabase
+- How the app prevents repeated Anthropic calls
+- Whether the user-facing Refresh button was removed/admin-gated
+- Which files/functions were changed
+```
