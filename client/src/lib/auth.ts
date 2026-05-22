@@ -163,6 +163,10 @@ export interface TrackedLoan {
   propertyType: TrackedLoanPropertyType;
   addedAt: string;
   balanceAsOf?: string;
+  /** Servicer loan/account number extracted from the uploaded mortgage
+   *  statement. Stored as text to preserve leading zeros and dashes.
+   *  Optional — older saved loans may not have one. */
+  loanNumber?: string;
 }
 
 // ── In-memory caches (kept in sync with Supabase) ──────────────────
@@ -426,6 +430,8 @@ function rowToTrackedLoan(row: any): TrackedLoan {
     propertyType: (row.property_type ?? "primary") as TrackedLoanPropertyType,
     addedAt: row.added_at,
     balanceAsOf: row.balance_as_of ?? undefined,
+    loanNumber: typeof row.loan_number === "string" && row.loan_number.trim()
+      ? row.loan_number.trim() : undefined,
   };
 }
 function trackedLoanToRow(l: TrackedLoan, userId: string) {
@@ -443,6 +449,7 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     property_type: l.propertyType ?? "primary",
     added_at: l.addedAt,
     balance_as_of: l.balanceAsOf ?? null,
+    loan_number: l.loanNumber && l.loanNumber.trim() ? l.loanNumber.trim() : null,
   };
 }
 

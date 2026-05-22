@@ -76,6 +76,11 @@ create table if not exists public.tracked_loans (
 
 create index if not exists tracked_loans_user_idx on public.tracked_loans(user_id);
 
+-- Additive: servicer loan/account number extracted from uploaded
+-- mortgage statements. Text (preserves leading zeros and dashes).
+alter table public.tracked_loans
+  add column if not exists loan_number text;
+
 alter table public.tracked_loans enable row level security;
 drop policy if exists "tracked_loans_owner" on public.tracked_loans;
 create policy "tracked_loans_owner" on public.tracked_loans

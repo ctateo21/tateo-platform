@@ -23,6 +23,8 @@ export interface MortgageAnalysis {
   lender: string;
   estimatedRemainingYears: number;
   estimatedHomeValue: number;
+  /** Servicer loan/account number as printed on the statement, or null. */
+  loanNumber?: string | null;
   confidence: "high" | "medium" | "low";
   recommendation: string;
   potentialSavings: number;
@@ -44,6 +46,7 @@ export interface TrackedLoan {
   addedAt: string;
   balanceAsOf?: string;
   propertyType: PropertyType;
+  loanNumber?: string;
 }
 
 export interface LiveRate {
@@ -320,6 +323,9 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
               <Badge variant="outline" className={`text-xs shrink-0 ${PROPERTY_TYPE_COLORS[propertyType]}`}>{PROPERTY_TYPE_LABELS[propertyType]}</Badge>
             </div>
             <p className="text-sm text-muted-foreground">{loan.lender} · Added {new Date(loan.addedAt).toLocaleDateString()}</p>
+            <p className="text-xs text-muted-foreground" data-testid="text-loan-number">
+              Loan Number: <span className="font-mono">{loan.loanNumber?.trim() || "—"}</span>
+            </p>
             <RateCompare current={loan.currentRate} today={adjustedRate} />
           </div>
           <div className="flex items-center gap-3 shrink-0">

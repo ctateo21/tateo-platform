@@ -1,0 +1,111 @@
+Copy/paste this into Replit:
+
+```text
+Update the mortgage statement analysis/refinance flow to extract and save the loan number.
+
+Current behavior:
+When a user uploads a mortgage statement, the app analyzes it and creates/saves a property under the Refinance tab.
+
+New requirement:
+When the mortgage statement is analyzed, pull the loan number from the mortgage statement and store it with the refinance/tracked loan record.
+
+Then display the loan number inside the detailed view of that property address under Dashboard → Refinance.
+
+Expected behavior:
+1. User uploads a mortgage statement.
+2. The analyzer extracts the loan number from the statement.
+3. The loan number is saved to the refinance record.
+4. The loan number persists after refresh/logout/login.
+5. When the user opens Dashboard → Refinance → property detail view, show the loan number clearly.
+
+Display location:
+Inside the detailed refinance property view, show:
+
+Loan Number: [loan number]
+
+Suggested placement:
+- In the top property summary/details card, near the property address and lender/servicer name if available.
+- Or inside the loan details section if that already exists.
+
+Data extraction:
+The mortgage statement analyzer should look for common labels such as:
+- Loan Number
+- Loan No.
+- Loan #
+- Account Number
+- Account No.
+- Mortgage Account Number
+- Servicer Loan Number
+- Reference Number, only if clearly tied to the mortgage loan
+
+Normalization:
+- Store the loan number as text/string, not number.
+- Preserve leading zeros.
+- Remove extra spaces.
+- Do not strip dashes unless the existing app normalizes identifiers that way.
+- Do not confuse the loan number with phone numbers, payment amounts, zip codes, property tax IDs, escrow account numbers, or confirmation numbers.
+
+Suggested field:
+Add or reuse a field on the refinance/tracked loan record:
+
+`loan_number`
+
+or if the app uses camelCase:
+
+`loanNumber`
+
+Supabase:
+The Refinance tab appears to use the `tracked_loans` table.
+
+Please check whether `tracked_loans` already has a loan number field.
+
+If not, give me the exact SQL migration to add:
+
+alter table public.tracked_loans
+add column if not exists loan_number text;
+
+Then update the save/load mapping.
+
+Implementation requirements:
+1. Update the mortgage statement parser/analyzer to extract loan number.
+2. Add loan number to the parsed mortgage statement result.
+3. Add loan number to the refinance/tracked loan save payload.
+4. Add loan number to the Supabase row mapping:
+   - row → frontend refinance object
+   - frontend refinance object → row
+5. Display loan number in the detailed refinance property view.
+6. Do not overwrite an existing saved loan number with blank/null if a later parse does not find one.
+7. If the user uploads a new mortgage statement for the same refinance property and a loan number is found, update the saved loan number.
+8. If no loan number is found, show “Not found” or “—” in the UI.
+9. Do not break current mortgage statement parsing for:
+   - principal balance
+   - interest rate
+   - payment
+   - escrow
+   - taxes
+   - insurance
+   - servicer/lender
+   - property address
+
+Acceptance test:
+1. Upload a mortgage statement that includes a loan number.
+2. Confirm the parser extracts the loan number.
+3. Confirm the refinance/tracked loan record saves the loan number.
+4. Go to Dashboard → Refinance.
+5. Open the detailed property view.
+6. Confirm Loan Number appears.
+7. Refresh the browser.
+8. Confirm Loan Number still appears.
+9. Log out and log back in.
+10. Confirm Loan Number still appears.
+11. Upload a statement without a loan number.
+12. Confirm the app does not overwrite an existing saved loan number with blank/null.
+
+Please make the smallest safe code change possible and tell me:
+- Which mortgage statement parser/analyzer function was changed
+- Which labels are checked for loan number
+- Which Supabase field stores the loan number
+- Whether a SQL migration is needed
+- Which refinance detail component now displays the loan number
+- Which files/functions were changed
+```

@@ -19,6 +19,9 @@ const MAX_TRACKED_LOANS = 10;
 
 function analysisToTrackedLoan(analysis: MortgageAnalysis, propertyType: PropertyType): TrackedLoan {
   const now = new Date().toISOString();
+  const loanNumber = typeof analysis.loanNumber === "string" && analysis.loanNumber.trim()
+    ? analysis.loanNumber.trim()
+    : undefined;
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     propertyAddress: analysis.propertyAddress || "Unknown address",
@@ -32,6 +35,7 @@ function analysisToTrackedLoan(analysis: MortgageAnalysis, propertyType: Propert
     addedAt: now,
     balanceAsOf: now,
     propertyType,
+    loanNumber,
   };
 }
 
@@ -156,7 +160,24 @@ export default function Refinance() {
     const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
     const incoming = normalize(analysis.propertyAddress || "");
     const duplicate = trackedLoans.find(l => normalize(l.propertyAddress) === incoming);
-    if (duplicate) return;
+    if (duplicate) {
+      // Re-uploading a statement for an already-tracked property: don't
+      // create a second row, but DO refresh the saved loan number when the
+      // new statement contains one. Never overwrite an existing loan
+      // number with blank/null.
+      const incomingLn = typeof analysis.loanNumber === "string"
+        ? analysis.loanNumber.trim() : "";
+      if (incomingLn && incomingLn !== (duplicate.loanNumber ?? "")) {
+        updateLoans(prev => prev.map(l =>
+          l.id === duplicate.id ? { ...l, loanNumber: incomingLn } : l
+        ));
+        toast({
+          title: "Loan number updated",
+          description: `Updated saved loan number for ${duplicate.propertyAddress}.`,
+        });
+      }
+      return;
+    }
     // Show property type dialog before adding to tracker
     setPendingAnalysis(analysis);
     setShowPropertyTypeDialog(true);
