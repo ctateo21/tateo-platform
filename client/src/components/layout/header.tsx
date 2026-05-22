@@ -1,5 +1,7 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
+import { fetchMyListingsCount } from "@/lib/seller-dashboard";
 import {
   Menu, Home, Building2, Briefcase, HelpCircle, ChevronDown,
   LayoutDashboard, LogIn, LogOut, User, Settings as SettingsIcon,
@@ -22,6 +24,16 @@ export default function Header() {
   const [authOpen, setAuthOpen] = useState(false);
   const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
+  // Only show "My Listings" if the user actually has listings (sellers) or
+  // is an agent (who needs the link as a shortcut). RLS keeps this cheap —
+  // non-sellers see count = 0 immediately.
+  const { data: listingsCount = 0 } = useQuery({
+    queryKey: ["header", "myListingsCount", user?.id ?? "anon"],
+    queryFn: fetchMyListingsCount,
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+  const showMyListings = !!user && (listingsCount > 0 || !!user.agent);
 
   const links = [
     { href: "/", label: "HOME", icon: <Home className="mr-2 h-4 w-4" /> },
@@ -144,11 +156,13 @@ export default function Header() {
                     <LayoutDashboard className="h-4 w-4" /> My Dashboard
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/seller-dashboard" className="w-full cursor-pointer flex items-center gap-2">
-                    <Tag className="h-4 w-4" /> My Listings
-                  </Link>
-                </DropdownMenuItem>
+                {showMyListings && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/seller-dashboard" className="w-full cursor-pointer flex items-center gap-2">
+                      <Tag className="h-4 w-4" /> My Listings
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 {user.agent && (
                   <DropdownMenuItem asChild>
                     <Link href="/admin" className="w-full cursor-pointer flex items-center gap-2">
@@ -268,13 +282,15 @@ export default function Header() {
                   >
                     <LayoutDashboard className="h-5 w-5 mr-1" /> My Dashboard
                   </Link>
-                  <Link
-                    href="/seller-dashboard"
-                    className="flex items-center text-lg font-medium text-gray-700 gap-2"
-                    onClick={() => setIsOpen(false)}
-                  >
-                    <Tag className="h-5 w-5 mr-1" /> My Listings
-                  </Link>
+                  {showMyListings && (
+                    <Link
+                      href="/seller-dashboard"
+                      className="flex items-center text-lg font-medium text-gray-700 gap-2"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      <Tag className="h-5 w-5 mr-1" /> My Listings
+                    </Link>
+                  )}
                   {user.agent && (
                     <Link
                       href="/admin"

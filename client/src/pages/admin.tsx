@@ -651,6 +651,7 @@ export default function AdminPage() {
               <thead className="text-xs uppercase text-muted-foreground border-b bg-muted/40">
                 <tr>
                   <th className="text-left py-3 px-4">Address</th>
+                  <th className="text-right py-3 px-4">DOM</th>
                   <th className="text-left py-3 px-4">Seller</th>
                   <th className="text-right py-3 px-4">List Price</th>
                   <th className="text-center py-3 px-4">Status</th>
@@ -670,6 +671,9 @@ export default function AdminPage() {
                     <td className="py-3 px-4">
                       <p className="font-semibold">{l.address}{l.unit ? ` ${l.unit}` : ""}</p>
                       <p className="text-xs text-muted-foreground">{l.city}, {l.state} {l.zip}</p>
+                    </td>
+                    <td className="py-3 px-4 text-right tabular-nums">
+                      {l.last_recap_dom ?? <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="py-3 px-4">
                       <p>{l.seller_name ?? "—"}</p>

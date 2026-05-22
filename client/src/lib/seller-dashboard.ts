@@ -58,13 +58,25 @@ export interface SellerProfile {
   email: string;
 }
 
+// Seller-facing list: only active listings per spec. Sellers don't need to
+// scroll past pending or sold properties.
 export async function fetchMyListings(): Promise<Listing[]> {
   const { data, error } = await supabase
     .from("listings")
     .select("*")
+    .eq("status", "active")
     .order("last_updated", { ascending: false });
   if (error) throw error;
   return (data ?? []) as Listing[];
+}
+
+// Lightweight count used by the header to decide whether to show "My Listings".
+export async function fetchMyListingsCount(): Promise<number> {
+  const { count, error } = await supabase
+    .from("listings")
+    .select("id", { count: "exact", head: true });
+  if (error) return 0;
+  return count ?? 0;
 }
 
 export async function fetchListingRecaps(listingId: string, publishedOnly = false): Promise<WeeklyRecap[]> {
@@ -79,28 +91,38 @@ export async function fetchListingRecaps(listingId: string, publishedOnly = fals
   return (data ?? []) as WeeklyRecap[];
 }
 
-export async function fetchAllListingsWithSellers(): Promise<(Listing & { seller_name?: string; seller_email?: string; last_recap_date?: string | null })[]> {
+export async function fetchAllListingsWithSellers(): Promise<(Listing & {
+  seller_name?: string; seller_email?: string;
+  last_recap_date?: string | null; last_recap_dom?: number | null;
+})[]> {
   const [{ data: listings, error: lErr }, { data: profiles, error: pErr }, { data: recaps, error: rErr }] = await Promise.all([
     supabase.from("listings").select("*").order("last_updated", { ascending: false }),
     supabase.from("profiles").select("id, name, email"),
-    supabase.from("weekly_recaps").select("listing_id, recap_date").order("recap_date", { ascending: false }),
+    supabase.from("weekly_recaps")
+      .select("listing_id, recap_date, days_on_market")
+      .order("recap_date", { ascending: false }),
   ]);
   if (lErr) throw lErr;
   if (pErr) throw pErr;
   if (rErr) throw rErr;
   const byId = new Map((profiles ?? []).map((p: any) => [p.id, p]));
-  const lastRecapByListing = new Map<string, string>();
+  const lastRecapByListing = new Map<string, { date: string; dom: number | null }>();
   for (const r of recaps ?? []) {
-    if (!lastRecapByListing.has((r as any).listing_id)) {
-      lastRecapByListing.set((r as any).listing_id, (r as any).recap_date);
+    const lid = (r as any).listing_id;
+    if (!lastRecapByListing.has(lid)) {
+      lastRecapByListing.set(lid, { date: (r as any).recap_date, dom: (r as any).days_on_market ?? null });
     }
   }
-  return (listings ?? []).map((l: any) => ({
-    ...l,
-    seller_name: byId.get(l.seller_id)?.name,
-    seller_email: byId.get(l.seller_id)?.email,
-    last_recap_date: lastRecapByListing.get(l.id) ?? null,
-  }));
+  return (listings ?? []).map((l: any) => {
+    const recap = lastRecapByListing.get(l.id);
+    return {
+      ...l,
+      seller_name: byId.get(l.seller_id)?.name,
+      seller_email: byId.get(l.seller_id)?.email,
+      last_recap_date: recap?.date ?? null,
+      last_recap_dom: recap?.dom ?? null,
+    };
+  });
 }
 
 export async function upsertListing(listing: Partial<Listing> & { seller_id: string; address: string; city: string; state: string; zip: string; list_price: number }) {
