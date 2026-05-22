@@ -1,0 +1,90 @@
+Update the seller concessions slider on Page 3 of Purchase Details.
+
+Current issue:
+The seller concessions control only works one way. I want the user to be able to choose seller concessions as either:
+- a percentage of the purchase price, or
+- a dollar amount
+
+Default should be percentage.
+
+Location:
+Purchase Flow → Page 3 → Purchase Details → Seller Concessions
+
+Expected behavior:
+1. Add a toggle/dropdown next to the seller concessions slider/input:
+   - Percentage
+   - Dollar Amount
+2. Default selection should be Percentage.
+3. If Percentage is selected:
+   - User adjusts seller concessions as a percentage.
+   - Dollar value is calculated from purchase price.
+   - Example: $500,000 purchase price × 3% = $15,000 seller concessions.
+4. If Dollar Amount is selected:
+   - User enters/adjusts seller concessions as a dollar amount.
+   - Percentage value is calculated from purchase price.
+   - Example: $15,000 seller concessions ÷ $500,000 purchase price = 3%.
+5. Page 3 and Page 4 / See My Estimate should stay synced.
+6. If the user changes seller concessions on Page 3, Page 4 should reflect the updated seller concessions.
+7. If Page 4 already has a seller concessions slider, update it to support the same Percentage/Dollar Amount mode as Page 3.
+8. Auto-save seller concessions mode and value for logged-in users.
+
+Suggested fields:
+- `seller_concessions_mode`: `"percent" | "amount"`
+- `seller_concessions_percent`
+- `seller_concessions_amount`
+
+Default:
+- `seller_concessions_mode = "percent"`
+
+Calculation rules:
+- If mode is percent:
+  - `seller_concessions_amount = purchase_price * seller_concessions_percent / 100`
+- If mode is amount:
+  - `seller_concessions_percent = seller_concessions_amount / purchase_price * 100`
+- If purchase price changes, recalculate the linked value based on the selected mode.
+- Seller concessions should reduce buyer cash to close.
+- Seller concessions should not reduce purchase price.
+- Seller concessions should not reduce down payment unless that is already intentionally implemented elsewhere.
+- Do not double-count seller concessions.
+
+Validation:
+- Seller concessions amount should not be negative.
+- Seller concessions percent should not be negative.
+- If purchase price is missing, allow input but show the calculated counterpart as blank or “—.”
+- Keep any existing program cap logic if already implemented.
+- If no cap exists yet, do not add complex program-specific caps in this task.
+
+UI requirements:
+- Keep the existing slider feel if possible.
+- In Percentage mode, slider should show percent.
+- In Dollar Amount mode, either use a dollar input or dollar-based slider.
+- Show both values if clean:
+  - Example: `3.0% / $15,000`
+- Format money as currency.
+- Format percent clearly.
+- Keep mobile layout clean.
+
+Acceptance test:
+1. Go to Purchase Details Page 3.
+2. Confirm seller concessions defaults to Percentage mode.
+3. Enter purchase price of $500,000.
+4. Set seller concessions to 3%.
+5. Confirm dollar amount shows $15,000.
+6. Switch to Dollar Amount mode.
+7. Enter $10,000.
+8. Confirm percentage shows 2%.
+9. Go to Page 4 / See My Estimate.
+10. Confirm seller concessions value and mode are synced.
+11. Confirm cash to close updates correctly.
+12. Refresh/logout/login.
+13. Confirm saved seller concessions mode and value persist.
+14. Confirm changing purchase price recalculates the linked seller concessions value correctly.
+15. Confirm no double-counting in cash to close.
+
+Please make the smallest safe code change possible and tell me:
+- Which Purchase Details component was changed
+- Whether Page 4 seller concessions was also updated
+- Which fields store seller concessions mode/percent/amount
+- How calculations stay synced
+- How cash to close is updated
+- Which files/functions were changed

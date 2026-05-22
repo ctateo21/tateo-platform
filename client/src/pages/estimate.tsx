@@ -216,6 +216,13 @@ interface Inputs {
   purchasePriceSource?: PurchasePriceSource;
   downPaymentPct: number;
   sellerConcessions: number;
+  /** UX mode for the seller-concessions control on Page 3. Persisted so
+   *  the user's choice survives reload / login. The canonical numeric
+   *  value remains `sellerConcessions` in dollars — every downstream
+   *  calculation (cash-to-close, summaries, etc.) keeps reading dollars,
+   *  so this flag only affects how the Page 3 slider is rendered and
+   *  edited. Defaults to "percent" for new scenarios. */
+  sellerConcessionsMode?: "percent" | "amount";
   loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement";
   creditScore: number;
   interestRate: number;
@@ -297,7 +304,7 @@ interface Scenario {
 
 function makeDefaultInputs(price = 350000): Inputs {
   return {
-    occupancy: "primary", purchasePrice: price, purchasePriceSource: "default", downPaymentPct: 5, sellerConcessions: 0,
+    occupancy: "primary", purchasePrice: price, purchasePriceSource: "default", downPaymentPct: 5, sellerConcessions: 0, sellerConcessionsMode: "percent",
     loanType: "conventional", creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
@@ -2702,38 +2709,105 @@ export default function Estimate() {
 
                   {(() => {
                     const maxConcessions = getMaxSellerConcessions(inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice);
-                    const pct = inputs.purchasePrice > 0 ? (inputs.sellerConcessions / inputs.purchasePrice) * 100 : 0;
+                    const price = inputs.purchasePrice;
+                    const pct = price > 0 ? (inputs.sellerConcessions / price) * 100 : 0;
+                    const maxPct = price > 0 ? (maxConcessions / price) * 100 : 0;
                     const isLoanAllowed = !(
                       (inputs.loanType === "fha" || inputs.loanType === "usda" || inputs.loanType === "va") &&
                       inputs.occupancy !== "primary"
                     );
+                    const mode = inputs.sellerConcessionsMode ?? "percent";
+                    // Mode change keeps the existing $ amount — we only
+                    // swap which slider edits it, so cash-to-close never
+                    // jumps just from toggling the control.
+                    const setMode = (m: "percent" | "amount") => set("sellerConcessionsMode", m);
+                    // Both paths write the same canonical $ field, clamped
+                    // to the program max so no double-counting downstream.
+                    const setFromPct = (newPct: number) => {
+                      const dollars = price > 0 ? Math.round((price * newPct) / 100) : 0;
+                      set("sellerConcessions", Math.min(Math.max(0, dollars), Math.round(maxConcessions)));
+                    };
+                    const setFromAmount = (newAmt: number) => {
+                      set("sellerConcessions", Math.min(Math.max(0, newAmt), Math.round(maxConcessions)));
+                    };
                     return (
                       <div className="space-y-1">
                         <div className="flex items-center justify-between flex-wrap gap-1">
                           <span className="text-xs text-muted-foreground">Seller Concessions</span>
-                          {isLoanAllowed ? (
-                            <span className="text-[10px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
-                              Max {(maxConcessions / inputs.purchasePrice * 100).toFixed(0)}% · {fmt(maxConcessions)}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] bg-red-50 text-red-600 rounded px-1.5 py-0.5">
-                              Not allowed on {inputs.occupancy} with {inputs.loanType.toUpperCase()}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5">
+                            {/* Pct / $ mode toggle. Percentage is the
+                                default for new scenarios. */}
+                            <div className="inline-flex rounded border border-border overflow-hidden text-[10px] leading-none">
+                              <button
+                                type="button"
+                                onClick={() => setMode("percent")}
+                                disabled={!isLoanAllowed}
+                                className={`px-2 py-1 transition-colors ${
+                                  mode === "percent"
+                                    ? "bg-primary text-primary-foreground font-semibold"
+                                    : "bg-background text-muted-foreground hover:text-foreground"
+                                } ${!isLoanAllowed ? "opacity-50 cursor-not-allowed" : ""}`}
+                                aria-pressed={mode === "percent"}
+                              >
+                                %
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setMode("amount")}
+                                disabled={!isLoanAllowed}
+                                className={`px-2 py-1 border-l border-border transition-colors ${
+                                  mode === "amount"
+                                    ? "bg-primary text-primary-foreground font-semibold"
+                                    : "bg-background text-muted-foreground hover:text-foreground"
+                                } ${!isLoanAllowed ? "opacity-50 cursor-not-allowed" : ""}`}
+                                aria-pressed={mode === "amount"}
+                              >
+                                $
+                              </button>
+                            </div>
+                            {isLoanAllowed ? (
+                              <span className="text-[10px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
+                                Max {maxPct.toFixed(0)}% · {fmt(maxConcessions)}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] bg-red-50 text-red-600 rounded px-1.5 py-0.5">
+                                Not allowed on {inputs.occupancy} with {inputs.loanType.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <SliderInput
-                          label=""
-                          value={inputs.sellerConcessions}
-                          onChange={(v) => set("sellerConcessions", Math.min(v, maxConcessions))}
-                          min={0}
-                          max={Math.round(maxConcessions)}
-                          step={500}
-                          prefix="$"
-                          disabled={!isLoanAllowed}
-                        />
-                        {inputs.sellerConcessions > 0 && (
+                        {mode === "percent" ? (
+                          <SliderInput
+                            label=""
+                            value={Number(pct.toFixed(2))}
+                            onChange={setFromPct}
+                            min={0}
+                            max={Math.max(0, Number(maxPct.toFixed(2)))}
+                            step={0.25}
+                            suffix="%"
+                            decimals={2}
+                            disabled={!isLoanAllowed || price <= 0}
+                          />
+                        ) : (
+                          <SliderInput
+                            label=""
+                            value={inputs.sellerConcessions}
+                            onChange={setFromAmount}
+                            min={0}
+                            max={Math.round(maxConcessions)}
+                            step={500}
+                            prefix="$"
+                            disabled={!isLoanAllowed}
+                          />
+                        )}
+                        {inputs.sellerConcessions > 0 && price > 0 && (
                           <p className="text-[10px] text-green-700 text-right">
-                            {pct.toFixed(1)}% of purchase price · reduces cash to close
+                            {pct.toFixed(1)}% · {fmt(inputs.sellerConcessions)} · reduces cash to close
+                          </p>
+                        )}
+                        {price <= 0 && (
+                          <p className="text-[10px] text-muted-foreground text-right">
+                            Enter a purchase price to see the linked {mode === "percent" ? "dollar" : "percent"} value.
                           </p>
                         )}
                       </div>
