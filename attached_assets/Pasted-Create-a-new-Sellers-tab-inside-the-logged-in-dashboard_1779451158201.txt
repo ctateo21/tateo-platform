@@ -1,0 +1,169 @@
+Create a new “Sellers” tab inside the logged-in dashboard.
+
+Current dashboard tabs include areas like:
+- Purchase
+- Refinance
+- Insurance
+
+I want to add a new tab for sellers.
+
+New tab:
+Dashboard → Sellers
+
+Purpose:
+This tab should be for homeowners who are thinking about selling a property and want a seller-side estimate/dashboard.
+
+Expected behavior:
+1. Add a new “Sellers” tab to the main dashboard navigation.
+2. The Sellers tab should appear alongside the existing Purchase, Refinance, and Insurance tabs.
+3. Clicking Sellers should show a seller-property overview page.
+4. The Sellers tab should have its own records and should not mix with Purchase, Refinance, or Insurance records.
+5. Seller properties should persist for the logged-in user after refresh/logout/login.
+6. Seller records should only disappear if the user deletes them.
+
+Sellers overview layout:
+Use the same clean dashboard style as the existing dashboard tabs.
+
+Each seller property row/card should show:
+- Property address
+- Estimated home value / sale price
+- Estimated seller closing costs
+- Estimated mortgage payoff, if entered
+- Estimated net proceeds
+- Property status:
+  - Draft
+  - Reviewing
+  - Ready to List
+  - Listed
+  - Sold
+- Last updated date
+- Action button: View / Edit
+
+If a value is missing:
+- Show “—” or “Not entered”
+- Do not show blank empty boxes
+
+Add Seller Property flow:
+Inside the Sellers tab, add a button:
+
+“Add Seller Property”
+
+When clicked, allow the user to enter/select a property address using the same Google Maps autocomplete pattern used elsewhere.
+
+After address selection:
+1. Create a seller scenario/property record immediately.
+2. Save the full formatted address.
+3. Save the normalized property key.
+4. Save the authenticated user ID.
+5. Save flow/type/category as `seller` or `sellers`.
+6. Auto-save to Supabase.
+7. Show the new seller property in the Sellers dashboard.
+8. Start Zillow/cache lookup automatically if available.
+9. Use Zillow/cache data to populate estimated home value and property photo if available.
+
+Seller estimate fields:
+Inside the Seller property detail view, include fields for:
+- Estimated sale price / home value
+- Current mortgage payoff
+- Estimated seller closing costs
+- Realtor commission
+- Transfer taxes / doc stamps, if already supported
+- Title/settlement costs, if already supported
+- Credits/concessions to buyer
+- Repairs/renovation budget
+- Other selling costs
+- Estimated net proceeds
+
+Basic net proceeds calculation:
+Net Proceeds =
+Estimated Sale Price
+minus Mortgage Payoff
+minus Seller Closing Costs
+minus Realtor Commission
+minus Buyer Credits/Concessions
+minus Repairs
+minus Other Selling Costs
+
+If the app already has seller net sheet logic elsewhere, reuse it.
+
+Zillow/cache behavior:
+- When address is entered, check the existing property cache by normalized property key.
+- If cached data exists, use it.
+- If not, run Zillow scraper automatically.
+- Use the correct Zillow home value/listing value for estimated sale price.
+- Do not use rent Zestimate as sale price.
+- Pull primary photo and property photos if available.
+- Show loading states while Zillow/cache data loads.
+
+Persistence requirements:
+- Seller records must save to Supabase.
+- Seller records must reload after refresh/logout/login.
+- Seller records must be filtered separately from Purchase, Refinance, and Insurance.
+- Do not show Seller records in Purchase, Refinance, or Insurance tabs.
+- Do not show Purchase/Refinance/Insurance records in Sellers tab.
+- Use stable scenario/property IDs, not array indexes.
+
+Suggested fields:
+- `id`
+- `user_id`
+- `flow_type`: `"seller"`
+- `full_address`
+- `normalized_property_key`
+- `estimated_sale_price`
+- `mortgage_payoff`
+- `seller_closing_costs`
+- `realtor_commission`
+- `buyer_concessions`
+- `repair_budget`
+- `other_selling_costs`
+- `net_proceeds`
+- `status`
+- `primaryPhotoUrl`
+- `propertyPhotos`
+- `created_at`
+- `updated_at`
+
+Dashboard navigation:
+- Add Sellers to the tab navigation.
+- Make sure dashboard routing supports it, such as:
+  - `/dashboard?tab=sellers`
+  - or the app’s existing tab routing pattern.
+- If a user clicks the Dashboard button from a seller detail page, it should return to the main dashboard.
+- If a user clicks Back from a seller detail page, it should return to Dashboard → Sellers overview.
+
+Do not break:
+- Purchase dashboard
+- Refinance dashboard
+- Insurance dashboard
+- Zillow cache logic
+- Property photo carousel
+- Existing dashboard routing
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard.
+3. Confirm a new Sellers tab appears.
+4. Click Sellers.
+5. Confirm Sellers overview loads.
+6. Click Add Seller Property.
+7. Enter/select a property address.
+8. Confirm a Seller record is created and saved.
+9. Confirm Zillow/cache starts automatically if available.
+10. Confirm estimated value/photo populate if available.
+11. Enter mortgage payoff and selling cost assumptions.
+12. Confirm estimated net proceeds calculate.
+13. Refresh the page.
+14. Confirm the Seller property is still there.
+15. Log out and log back in.
+16. Confirm the Seller property is still there.
+17. Confirm Purchase, Refinance, and Insurance tabs are unchanged.
+18. Confirm Seller records do not appear in other dashboard tabs.
+19. Confirm Back from Seller detail returns to Dashboard → Sellers.
+
+Please make the smallest safe code change possible and tell me:
+- Which dashboard navigation component was changed
+- Which Seller overview/detail components were added
+- Which Supabase table/fields are used for Seller records
+- How Seller records are filtered separately from other flows
+- How Zillow/cache data is used for Seller estimates
+- Which files/functions were changed
