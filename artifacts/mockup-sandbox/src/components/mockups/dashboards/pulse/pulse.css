@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+.pulse-wrapper {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  --royal: #1E40AF;
+  --royal-light: #DBEAFE;
+}
+
+/* Ambient heartbeat gradient */
+@keyframes ambientPulse {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.ambient-bg {
+  background: radial-gradient(circle at 50% 50%, rgba(30, 64, 175, 0.05) 0%, rgba(250, 250, 249, 1) 70%);
+  background-size: 200% 200%;
+  animation: ambientPulse 15s ease-in-out infinite alternate;
+}
+
+/* Ken burns effect */
+@keyframes kenBurns {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1.05);
+  }
+}
+
+.ken-burns {
+  animation: kenBurns 12s ease-in-out infinite alternate;
+}
+
+/* Status micro-pulse */
+@keyframes microPulse {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.micro-pulse {
+  animation: microPulse 1.6s ease-in-out infinite;
+}
+
+/* Shimmer loading */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite linear;
+}
