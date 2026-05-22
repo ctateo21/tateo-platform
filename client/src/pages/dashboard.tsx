@@ -1148,7 +1148,7 @@ function DashboardTabs() {
           <Shield className="h-4 w-4" /> Insurance
         </TabsTrigger>
         <TabsTrigger value="sellers" className="gap-2">
-          <Tag className="h-4 w-4" /> Sellers
+          <Tag className="h-4 w-4" /> For Sale
         </TabsTrigger>
       </TabsList>
 
