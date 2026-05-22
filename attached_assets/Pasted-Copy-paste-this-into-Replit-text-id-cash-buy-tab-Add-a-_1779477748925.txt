@@ -1,0 +1,280 @@
+Copy/paste this into Replit:
+
+```text id="cash-buy-tab"
+Add a 5th main dashboard tab called “Cash Buy.”
+
+Current top dashboard tabs:
+- Purchase
+- Refinance
+- Insurance
+- For Sale
+
+Add:
+- Cash Buy
+
+Purpose:
+Cash Buy is for users buying a property without a mortgage.
+
+It should mimic the Purchase tab for:
+- property address entry
+- real estate details
+- purchase cost estimates
+- seller concessions, if applicable
+- taxes/HOA/insurance estimates
+- insurance section/piece
+- Zillow/Apify property data
+- property photos
+- dashboard save/load behavior
+
+But it should NOT include:
+- mortgage qualifying questions
+- mortgage qualification card
+- mortgage loan details card
+- loan amount
+- interest rate
+- principal & interest
+- PMI/MIP
+- DTI
+- FHA/VA/Conventional loan selection
+- qualification status card
+- “Review / Qualifies” mortgage qualification logic
+
+Expected dashboard behavior:
+1. Add Cash Buy as a 5th tab in the main dashboard tab navigation.
+2. Use stable tab ID:
+   `cash_buy`
+3. Cash Buy should work with the custom draggable tab ordering already built.
+4. Cash Buy should persist in the user’s saved tab order.
+5. Default tab order should now be:
+   ["purchase", "refinance", "insurance", "for_sale", "cash_buy"]
+6. If an existing user has a saved dashboard tab order that does not include Cash Buy, append Cash Buy to the end without resetting their existing order.
+7. Do not break Purchase, Refinance, Insurance, or For Sale tab order/content.
+
+Cash Buy dashboard overview:
+Create a Cash Buy dashboard overview similar to Purchase, but focused on cash purchase numbers.
+
+Each Cash Buy property row/card should show:
+- Property address
+- Estimated purchase price
+- Estimated cash to close
+- Estimated closing costs
+- Estimated property taxes
+- Estimated homeowners insurance
+- HOA, if applicable
+- Property use/occupancy if applicable: Primary / Secondary / Investment
+- Last updated date
+- View/Edit action
+
+Do not show:
+- loan type
+- loan amount
+- monthly mortgage payment
+- DTI
+- qualification status
+- Review / Qualifies
+
+Cash Buy flow/detail page:
+Mimic the Purchase tab’s real estate detail flow, but remove mortgage-specific parts.
+
+Include:
+- Address / property selection
+- Purchase price
+- Property use / occupancy
+- Estimated property taxes
+- Estimated homeowners insurance
+- HOA / condo fees, if applicable
+- Estimated closing costs
+- Seller concessions
+- Prepaids/escrows if applicable
+- Inspection/appraisal/title/recording/doc stamp fields if already part of Purchase real estate costs
+- Cash to close total
+- Property photo carousel
+- Zillow/Apify pulled data
+- Insurance estimate section/piece
+
+Exclude:
+- borrower income questions
+- assets/debts qualifying questions
+- credit score for mortgage qualification
+- employment questions
+- loan program selection
+- mortgage card
+- principal & interest
+- PMI/MIP
+- funding fee
+- DPA
+- seller concessions cap by loan type unless a cash-specific cap is already needed
+- qualification card
+
+Cash to close calculation:
+For Cash Buy:
+
+Cash to Close =
+Purchase Price
++ Buyer Closing Costs
++ Prepaids/Escrows, if included
++ Inspection/Appraisal/Title/Recording/Doc Stamp buyer costs, if included
++ Insurance premium estimate, if included
++ HOA/condo upfront costs, if included
+- Seller Concessions / Credits
+
+No mortgage loan amount.
+No down payment.
+No principal & interest.
+No monthly mortgage payment.
+No DTI.
+
+Seller concessions:
+Reuse the seller concessions control from Purchase if possible:
+- default mode: Percentage
+- allow Percentage or Dollar Amount
+- smooth slider
+- two-decimal percent display
+- nearest-dollar amount display
+- reduce buyer cash to close
+- do not double-count
+
+For Cash Buy, if there is no loan-program concession cap:
+- do not apply FHA/VA/Conventional caps
+- optionally show no cap or a practical note:
+  “Seller credits are subject to contract terms and closing cost limits.”
+
+Insurance piece:
+Mimic the Purchase tab’s insurance-related section/piece:
+- estimated homeowners insurance
+- rebuild cost/coverage if available
+- flood insurance if applicable
+- wind/hurricane considerations if already used elsewhere
+- carrier/quote fields if available later
+
+If the address matches an Insurance tab record:
+- allow insurance data to correlate by normalized property key
+- do not merge or overwrite Insurance records
+- only display/use shared property-level insurance estimate where appropriate
+
+Zillow/Apify behavior:
+When a user enters/selects a Cash Buy address:
+1. Save the Cash Buy record immediately.
+2. Run Zillow/property cache lookup automatically.
+3. If cached data exists, use it.
+4. If no cache exists, run Zillow scrape.
+5. Populate:
+   - purchase price / estimated value
+   - property details
+   - taxes if available
+   - HOA if available
+   - photos
+   - insurance/rebuild-related data if available
+6. Save results to the same Cash Buy record.
+7. Do not require manual “Pull from Zillow.”
+
+Persistence:
+Cash Buy properties must persist after refresh/logout/login.
+
+Use a dedicated Supabase table or existing app pattern:
+Suggested table:
+`cash_buy_scenarios`
+
+Required fields:
+- id
+- user_id
+- full_address
+- normalized_property_key
+- purchase_price
+- cash_to_close
+- buyer_closing_costs
+- seller_concessions_mode
+- seller_concessions_percent
+- seller_concessions_amount
+- property_taxes
+- homeowners_insurance
+- hoa_amount
+- occupancy_type
+- primary_photo_url
+- property_photos
+- zillow_cache_key / property_cache_id if applicable
+- status
+- created_at
+- updated_at
+
+If the app has a better existing scenario pattern, follow that pattern.
+
+RLS:
+If creating a new table, add RLS:
+- authenticated users can SELECT/INSERT/UPDATE/DELETE only their own rows where `user_id = auth.uid()`
+
+Dashboard loading:
+- Cash Buy tab should query only Cash Buy records.
+- Do not show Purchase records in Cash Buy.
+- Do not show Cash Buy records in Purchase.
+- Do not show Cash Buy records in Refinance/Insurance/For Sale.
+- Use stable IDs, not array indexes.
+
+Navigation:
+- Dashboard route should support:
+  `/dashboard?tab=cash_buy`
+- Clicking Cash Buy should open Cash Buy overview.
+- Clicking View/Edit should open the Cash Buy detail view.
+- Back from Cash Buy detail should return to Dashboard → Cash Buy.
+- Dashboard button should still return to main dashboard.
+
+Lead alert/FUB:
+If the app sends lead alerts for purchase/refinance/insurance:
+- Add Cash Buy as a separate flow type if applicable.
+- Subject/body should include:
+  “Lead Alert from [Name] / [Property Address]”
+- Flow should identify as Cash Buy.
+- Do not send mortgage qualification details because there are none.
+
+Implementation requirements:
+1. Add the Cash Buy tab to dashboard navigation.
+2. Update draggable tab order logic to support `cash_buy`.
+3. Add Cash Buy overview component.
+4. Add Cash Buy detail/estimate component.
+5. Reuse Purchase real estate details and insurance components where safe.
+6. Remove/hide mortgage-specific components from Cash Buy.
+7. Add Cash Buy persistence in Supabase.
+8. Add save/load functions similar to Purchase/Insurance.
+9. Add Zillow/property cache integration.
+10. Add property photo support.
+11. Add cash-to-close calculation.
+12. Keep all existing tabs unchanged.
+
+Acceptance test:
+1. Log in.
+2. Confirm Dashboard shows 5 tabs:
+   - Purchase
+   - Refinance
+   - Insurance
+   - For Sale
+   - Cash Buy
+3. Confirm Cash Buy can be dragged/reordered without breaking tab contents.
+4. Click Cash Buy.
+5. Add a property address.
+6. Confirm Cash Buy record saves immediately.
+7. Confirm Zillow/cache starts automatically.
+8. Confirm property details/photos populate if available.
+9. Confirm no mortgage qualifying questions appear.
+10. Confirm no mortgage card appears.
+11. Confirm no qualification card appears.
+12. Confirm Cash to Close calculates as cash purchase price plus costs minus concessions.
+13. Confirm insurance-related estimate fields are included.
+14. Refresh the page.
+15. Confirm Cash Buy property remains.
+16. Log out and log back in.
+17. Confirm Cash Buy property remains.
+18. Confirm Cash Buy records do not appear in Purchase/Refinance/Insurance/For Sale.
+19. Confirm Purchase/Refinance/Insurance/For Sale still work unchanged.
+20. Confirm `/dashboard?tab=cash_buy` opens Cash Buy.
+
+Please make the smallest safe code change possible and tell me:
+- Which dashboard navigation component was changed
+- How Cash Buy was added to draggable tab ordering
+- Which Cash Buy overview/detail components were added
+- Which Purchase components were reused
+- Which mortgage components were excluded
+- Which Supabase table/fields are used
+- How Cash to Close is calculated
+- How Zillow/cache and insurance data are used
+- Which files/functions were changed
+```
