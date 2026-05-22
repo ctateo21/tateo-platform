@@ -416,7 +416,9 @@ export default function SellerEstimatePage() {
               </CardContent>
             </Card>
 
-            {/* Inputs */}
+            {/* Sale & Costs (inputs) paired side-by-side with the Breakdown
+                on desktop, stacked on mobile (Sale & Costs first). */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Sale &amp; Costs</CardTitle>
@@ -496,20 +498,10 @@ export default function SellerEstimatePage() {
               </CardContent>
             </Card>
 
-            {/* Market Analysis — AI-powered weekly briefing.
-                Lazy-loads on mount; the backend decides cache-vs-regenerate
-                based on Friday rollover. The Anthropic API key never touches
-                this component. */}
-            <MarketAnalysisSection
-              scenario={scenario}
-              userId={user?.id ?? null}
-              authLoading={authLoading}
-            />
-
-            {/* Breakdown */}
+            {/* Net Proceeds Breakdown — sits next to Sale & Costs on desktop. */}
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Breakdown</CardTitle>
+                <CardTitle className="text-base">Net Proceeds Breakdown</CardTitle>
               </CardHeader>
               <CardContent>
                 <dl className="text-sm divide-y">
@@ -521,7 +513,7 @@ export default function SellerEstimatePage() {
                   <Row label="Repair Budget"          value={`− ${formatCurrency(scenario.repairBudget ?? 0)}`} />
                   <Row label="Other Selling Costs"    value={`− ${formatCurrency(scenario.otherSellingCosts ?? 0)}`} />
                   <div className="flex items-center justify-between py-2 font-semibold">
-                    <span>Net Proceeds</span>
+                    <span>Estimated Net Proceeds</span>
                     <span className={net >= 0 ? "text-green-700" : "text-destructive"}>
                       {formatCurrency(net)}
                     </span>
@@ -529,6 +521,17 @@ export default function SellerEstimatePage() {
                 </dl>
               </CardContent>
             </Card>
+            </div>
+
+            {/* Market Analysis — AI-powered weekly briefing.
+                Lazy-loads on mount; the backend decides cache-vs-regenerate
+                based on Friday rollover. The Anthropic API key never touches
+                this component. */}
+            <MarketAnalysisSection
+              scenario={scenario}
+              userId={user?.id ?? null}
+              authLoading={authLoading}
+            />
           </div>
         </div>
       </div>

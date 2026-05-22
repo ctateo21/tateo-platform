@@ -1,0 +1,87 @@
+Inside Dashboard → For Sale → expanded property view, update the layout for the seller net proceeds section.
+
+Current issue:
+The expanded For Sale property view has a “Sale & Costs” column/section, but the net proceeds breakdown is not positioned where I want it.
+
+Requested change:
+Place the full net proceeds breakdown next to the “Sale & Costs” column.
+
+Expected behavior:
+Inside the expanded view of a For Sale property:
+- Keep the existing Sale & Costs column.
+- Add or move the net proceeds breakdown so it sits next to Sale & Costs.
+- The user should be able to see the sale assumptions and the proceeds calculation side-by-side.
+
+Suggested layout:
+Use a two-column layout on desktop:
+
+Left column:
+Sale & Costs
+- Estimated sale price
+- Mortgage payoff
+- Seller closing costs
+- Realtor commission
+- Buyer concessions
+- Repair budget
+- Other selling costs
+
+Right column:
+Net Proceeds Breakdown
+- Estimated sale price
+- Less mortgage payoff
+- Less seller closing costs
+- Less realtor commission
+- Less buyer concessions
+- Less repair budget
+- Less other selling costs
+- Estimated net proceeds
+
+On mobile:
+- Stack the columns cleanly.
+- Sale & Costs first.
+- Net Proceeds Breakdown below it.
+
+Calculation behavior:
+- Do not change the net proceeds math unless it is currently wrong.
+- Net proceeds should still calculate as:
+
+Estimated Sale Price
+minus Mortgage Payoff
+minus Seller Closing Costs
+minus Realtor Commission
+minus Buyer Concessions
+minus Repair Budget
+minus Other Selling Costs
+
+Display requirements:
+- Format dollar values clearly.
+- Use negative signs or “less” labels for deductions.
+- Make the final Estimated Net Proceeds number stand out.
+- If a value is missing, show “—” or $0 depending on current app behavior.
+- Do not duplicate the same breakdown in multiple places if it already appears elsewhere.
+- If a breakdown already exists, move it next to Sale & Costs rather than creating a duplicate.
+
+Important:
+- Do not change For Sale persistence.
+- Do not change Market Analysis.
+- Do not change Zillow/photo logic.
+- Do not change Purchase, Refinance, or Insurance.
+- This is only a layout/display change inside the expanded For Sale property view.
+
+Acceptance test:
+1. Go to Dashboard → For Sale.
+2. Open a saved For Sale property expanded/detail view.
+3. Confirm Sale & Costs is visible.
+4. Confirm Net Proceeds Breakdown appears next to Sale & Costs on desktop.
+5. Confirm the net proceeds line items match the current calculation.
+6. Confirm Estimated Net Proceeds is clearly highlighted.
+7. Confirm mobile stacks the sections cleanly.
+8. Confirm no duplicate net proceeds breakdown appears elsewhere in the same view.
+9. Confirm editing Sale & Costs values updates the Net Proceeds Breakdown immediately.
+
+Please make the smallest safe code change possible and tell me:
+- Which For Sale expanded/detail component was changed
+- Where the Net Proceeds Breakdown was moved/added
+- Whether the calculation logic was reused
+- How the desktop/mobile layout works
+- Which files/functions were changed
