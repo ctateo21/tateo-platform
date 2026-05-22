@@ -4,6 +4,7 @@ import { useLocation, useSearch } from "wouter";
 import {
   ArrowLeft, MapPin, Save, AlertCircle, Loader2, ImageOff,
   Sparkles, TrendingUp, CheckCircle2, AlertTriangle, RefreshCw,
+  Home, Eye, Heart, Calendar, DollarSign, BarChart3, ArrowRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -554,6 +555,62 @@ function Row({ label, value, positive }: { label: string; value: string; positiv
 // generated Anthropic analysis. We render loading, error, and stale states
 // without ever blocking the surrounding Net Proceeds UI.
 
+// ── Structured analysis shape (mirrors the server `StructuredAnalysis`) ──
+
+type StatusLabel = "Competitive" | "Price Review Advised" | "Overpriced Risk" | "Insufficient Data";
+type ComparisonLabel = "faster" | "similar" | "slower" | "unavailable";
+type EngagementComparison = "higher" | "similar" | "lower" | "unavailable";
+
+interface ListingMetric { label: string; value: string; note?: string | null; }
+interface StructuredComp {
+  address?: string | null;
+  price?: number | null;
+  sqft?: number | null;
+  pricePerSqft?: number | null;
+  beds?: number | null;
+  baths?: number | null;
+  daysOnMarket?: number | null;
+  status?: string | null;
+  notes?: string | null;
+}
+interface PlatformStat { views?: number | null; saves?: number | null; }
+
+interface StructuredAnalysis {
+  week_of: string;
+  status_label: StatusLabel;
+  listing_snapshot: { summary: string; metrics: ListingMetric[]; };
+  market_comps: { summary: string; comps: StructuredComp[]; };
+  similar_pending_sold: { summary: string; items: StructuredComp[]; };
+  days_on_market_analysis: {
+    summary: string;
+    subject_dom: number | null;
+    average_comp_dom: number | null;
+    comparison_label: ComparisonLabel;
+  };
+  platform_engagement: {
+    summary: string;
+    zillow: PlatformStat | null;
+    realtor: PlatformStat | null;
+    redfin: PlatformStat | null;
+    comparison_to_similar: EngagementComparison;
+  };
+  price_drop_recommendation: {
+    recommended: boolean;
+    summary: string;
+    suggested_price_low: number | null;
+    suggested_price_high: number | null;
+  };
+  projected_sale_price: {
+    projected_low: number | null;
+    projected_high: number | null;
+    summary: string;
+  };
+  next_steps: string[];
+  market_context: { summary: string; stats: { label: string; value: string; note?: string | null }[]; };
+  data_limitations: string[];
+  confidence_level: "low" | "medium" | "high";
+}
+
 interface MarketAnalysisRecord {
   id: string;
   listing_id: string;
@@ -573,6 +630,9 @@ interface MarketAnalysisRecord {
   confidence_level: "low" | "medium" | "high" | null;
   data_limitations: string[] | null;
   error_message: string | null;
+  // Rich structured payload returned alongside the legacy scalar fields.
+  // Older cached rows may omit this — UI falls back to the legacy fields.
+  structured?: StructuredAnalysis | null;
 }
 
 function formatFriendlyDate(iso: string | null | undefined): string {
@@ -617,18 +677,22 @@ function MarketAnalysisSection({
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-        listingId: scenario.id,
-        address: scenario.address,
-        estimatedSalePrice: scenario.estimatedSalePrice ?? null,
-        zillowValue: scenario.estimatedSalePrice ?? null,
-        netProceeds: scenario.netProceeds ?? null,
-        mortgagePayoff: scenario.mortgagePayoff ?? null,
-        realtorCommissionPct: scenario.realtorCommissionPct ?? null,
-        sellerClosingCosts: scenario.sellerClosingCosts ?? null,
-        photoCount: scenario.propertyPhotos?.length ?? null,
-        status: scenario.status,
-        scenarioUpdatedAt: scenario.updatedAt,
-        forceRefresh,
+          listingId: scenario.id,
+          address: scenario.address,
+          normalizedPropertyKey: scenario.normalizedPropertyKey ?? null,
+          estimatedSalePrice: scenario.estimatedSalePrice ?? null,
+          // We don't have a separate list price field yet — fall back to the
+          // seller's estimated sale price as the "list price" the model uses.
+          listPrice: scenario.estimatedSalePrice ?? null,
+          netProceeds: scenario.netProceeds ?? null,
+          mortgagePayoff: scenario.mortgagePayoff ?? null,
+          realtorCommissionPct: scenario.realtorCommissionPct ?? null,
+          sellerClosingCosts: scenario.sellerClosingCosts ?? null,
+          photoCount: scenario.propertyPhotos?.length ?? null,
+          primaryPhotoUrl: scenario.primaryPhotoUrl ?? null,
+          status: scenario.status,
+          scenarioUpdatedAt: scenario.updatedAt,
+          forceRefresh,
         }),
       });
       const body = await res.json();
@@ -751,85 +815,349 @@ function MarketAnalysisSection({
           </div>
         )}
 
-        {hasContent && (
-          <>
-            {analysis!.price_review_recommended && (
-              <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
-                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-medium">Price review recommended</p>
-                  <p className="text-xs mt-1">
-                    Based on the data we have, it may be worth revisiting the asking price with your agent.
-                  </p>
-                </div>
-              </div>
-            )}
+        {hasContent && analysis!.structured && (
+          <RichAnalysis structured={analysis!.structured} address={analysis!.property_address} />
+        )}
 
-            {analysis!.market_summary && (
-              <AnalysisBlock title="Market Summary" body={analysis!.market_summary} />
-            )}
-            {analysis!.pricing_analysis && (
-              <AnalysisBlock title="Pricing Analysis" body={analysis!.pricing_analysis} />
-            )}
-            {analysis!.comps_summary && (
-              <AnalysisBlock title="Comparable Sales / Competition" body={analysis!.comps_summary} />
-            )}
-            {analysis!.online_interest_summary && (
-              <AnalysisBlock title="Online Interest / Listing Activity" body={analysis!.online_interest_summary} />
-            )}
-            {analysis!.showing_summary && (
-              <AnalysisBlock title="Showing Activity" body={analysis!.showing_summary} />
-            )}
-
-            {analysis!.recommended_next_steps && analysis!.recommended_next_steps.length > 0 && (
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1 mb-2">
-                  <TrendingUp className="h-3.5 w-3.5" /> Recommended Next Steps
-                </h4>
-                <ul className="space-y-1.5">
-                  {analysis!.recommended_next_steps.map((step, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
-                      <span>{step}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {analysis!.risk_flags && analysis!.risk_flags.length > 0 && (
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1 mb-2">
-                  <AlertTriangle className="h-3.5 w-3.5" /> Things to Watch
-                </h4>
-                <ul className="space-y-1.5">
-                  {analysis!.risk_flags.map((flag, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm">
-                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500 mt-2 shrink-0" />
-                      <span>{flag}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {analysis!.data_limitations && analysis!.data_limitations.length > 0 && (
-              <div className="text-xs text-muted-foreground border-t pt-3 mt-2">
-                <p className="font-medium mb-1">Where we had limited data:</p>
-                <ul className="list-disc ml-4 space-y-0.5">
-                  {analysis!.data_limitations.map((d, i) => <li key={i}>{d}</li>)}
-                </ul>
-                {analysis!.confidence_level && (
-                  <p className="mt-2">
-                    Confidence: <span className="font-medium capitalize">{analysis!.confidence_level}</span>
-                  </p>
-                )}
-              </div>
-            )}
-          </>
+        {/* Fallback for older cached rows that don't have a structured payload. */}
+        {hasContent && !analysis!.structured && (
+          <LegacyAnalysis a={analysis!} />
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ── Rich structured renderer (new) ──────────────────────────────────
+
+function formatMoney(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "Unavailable";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency", currency: "USD", maximumFractionDigits: 0,
+  }).format(n);
+}
+function formatRange(low: number | null, high: number | null): string {
+  if (low == null && high == null) return "Unavailable";
+  if (low != null && high != null) return `${formatMoney(low)} – ${formatMoney(high)}`;
+  return formatMoney(low ?? high);
+}
+
+function statusBadgeClass(label: StatusLabel): string {
+  switch (label) {
+    case "Competitive":          return "bg-green-100 text-green-800 border-green-200";
+    case "Price Review Advised": return "bg-amber-100 text-amber-800 border-amber-200";
+    case "Overpriced Risk":      return "bg-red-100 text-red-800 border-red-200";
+    default:                     return "bg-slate-100 text-slate-700 border-slate-200";
+  }
+}
+
+function compStatusBadgeClass(s?: string | null): string {
+  const v = (s ?? "").toLowerCase();
+  if (v === "active")  return "bg-blue-50 text-blue-700 border-blue-200";
+  if (v === "pending") return "bg-amber-50 text-amber-800 border-amber-200";
+  if (v === "sold")    return "bg-slate-100 text-slate-700 border-slate-200";
+  return "bg-muted text-muted-foreground border-border";
+}
+
+function RichAnalysis({ structured: s, address }: { structured: StructuredAnalysis; address: string }) {
+  return (
+    <div className="space-y-5">
+      {/* Status banner */}
+      <div className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-md border bg-muted/30">
+        <div className="flex items-center gap-2">
+          <Home className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium truncate">{address}</span>
+        </div>
+        <span className={`text-xs font-semibold uppercase tracking-wide px-2.5 py-1 rounded-full border ${statusBadgeClass(s.status_label)}`}>
+          {s.status_label}
+        </span>
+      </div>
+
+      {/* Listing Snapshot */}
+      <Section title="Listing Snapshot" icon={<BarChart3 className="h-3.5 w-3.5" />}>
+        {s.listing_snapshot.summary && (
+          <p className="text-sm leading-relaxed text-muted-foreground mb-3">{s.listing_snapshot.summary}</p>
+        )}
+        {s.listing_snapshot.metrics.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {s.listing_snapshot.metrics.map((m, i) => (
+              <div key={i} className="rounded-md border p-2.5 bg-background">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{m.label}</div>
+                <div className="text-sm font-semibold mt-0.5 truncate">{m.value || "Unavailable"}</div>
+                {m.note && <div className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">{m.note}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* Market Comps */}
+      <Section title="Market Comps" icon={<Home className="h-3.5 w-3.5" />}>
+        <p className="text-sm leading-relaxed text-muted-foreground mb-2">{s.market_comps.summary || "No comps connected yet."}</p>
+        {s.market_comps.comps.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {s.market_comps.comps.slice(0, 6).map((c, i) => <CompCard key={i} c={c} />)}
+          </div>
+        ) : (
+          <UnavailableNote text="Comparable sales have not been connected yet. Add 3–5 comps to improve the pricing analysis." />
+        )}
+      </Section>
+
+      {/* Similar Pending / Sold */}
+      <Section title="Similar Pending / Sold" icon={<TrendingUp className="h-3.5 w-3.5" />}>
+        <p className="text-sm leading-relaxed text-muted-foreground mb-2">{s.similar_pending_sold.summary || "No nearby pending/sold data connected yet."}</p>
+        {s.similar_pending_sold.items.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {s.similar_pending_sold.items.slice(0, 6).map((c, i) => <CompCard key={i} c={c} />)}
+          </div>
+        ) : (
+          <UnavailableNote text="Nearby pending and recently sold homes are not connected yet." />
+        )}
+      </Section>
+
+      {/* DOM analysis */}
+      <Section title="Days on Market" icon={<Calendar className="h-3.5 w-3.5" />}>
+        <div className="grid grid-cols-3 gap-2 mb-3">
+          <DomTile label="This listing"   value={s.days_on_market_analysis.subject_dom} />
+          <DomTile label="Similar (avg)"  value={s.days_on_market_analysis.average_comp_dom} />
+          <DomTile label="Vs similar" valueText={domComparisonText(s.days_on_market_analysis.comparison_label)} tone={domComparisonTone(s.days_on_market_analysis.comparison_label)} />
+        </div>
+        <p className="text-sm leading-relaxed">{s.days_on_market_analysis.summary || "Days-on-market cannot be evaluated yet — connect listing/MLS data to enable this section."}</p>
+      </Section>
+
+      {/* Platform engagement */}
+      <Section title="Views &amp; Saves Across Platforms" icon={<Eye className="h-3.5 w-3.5" />}>
+        <p className="text-sm leading-relaxed text-muted-foreground mb-3">{s.platform_engagement.summary || "Platform engagement data has not been connected yet."}</p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <PlatformCard name="Zillow"     stat={s.platform_engagement.zillow} />
+          <PlatformCard name="Realtor.com" stat={s.platform_engagement.realtor} />
+          <PlatformCard name="Redfin"     stat={s.platform_engagement.redfin} />
+        </div>
+        {!s.platform_engagement.zillow && !s.platform_engagement.realtor && !s.platform_engagement.redfin && (
+          <UnavailableNote className="mt-3" text="Connect Zillow / Realtor / Redfin / MLS to compare your views and saves vs similar homes." />
+        )}
+      </Section>
+
+      {/* Price Drop Recommendation */}
+      <div className={`rounded-md border p-4 ${s.price_drop_recommendation.recommended ? "bg-amber-50 border-amber-200" : "bg-muted/30"}`}>
+        <div className="flex items-center gap-2 mb-1">
+          <DollarSign className={`h-4 w-4 ${s.price_drop_recommendation.recommended ? "text-amber-700" : "text-muted-foreground"}`} />
+          <h4 className="text-sm font-semibold">
+            {s.price_drop_recommendation.recommended ? "Price drop recommended" : "No price drop recommended right now"}
+          </h4>
+        </div>
+        {s.price_drop_recommendation.summary && (
+          <p className="text-sm leading-relaxed text-muted-foreground">{s.price_drop_recommendation.summary}</p>
+        )}
+        {(s.price_drop_recommendation.suggested_price_low != null || s.price_drop_recommendation.suggested_price_high != null) && (
+          <div className="mt-2 text-sm">
+            <span className="text-muted-foreground">Suggested range: </span>
+            <span className="font-semibold">{formatRange(s.price_drop_recommendation.suggested_price_low, s.price_drop_recommendation.suggested_price_high)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Projected Sale Price */}
+      <Section title="Projected Sale Range" icon={<TrendingUp className="h-3.5 w-3.5" />}>
+        <div className="rounded-md border bg-background p-3 mb-2">
+          <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Likely sale range</div>
+          <div className="text-lg font-bold mt-0.5">
+            {formatRange(s.projected_sale_price.projected_low, s.projected_sale_price.projected_high)}
+          </div>
+        </div>
+        {s.projected_sale_price.summary && (
+          <p className="text-sm leading-relaxed text-muted-foreground">{s.projected_sale_price.summary}</p>
+        )}
+      </Section>
+
+      {/* Next Steps */}
+      {s.next_steps.length > 0 && (
+        <Section title="Next Steps to Get This Sold" icon={<ArrowRight className="h-3.5 w-3.5" />}>
+          <ul className="space-y-1.5">
+            {s.next_steps.map((step, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                <span>{step}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {/* Market Context Footer */}
+      <div className="border-t pt-3">
+        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Market Context</h4>
+        <p className="text-sm leading-relaxed text-muted-foreground mb-2">{s.market_context.summary || "Local market stats have not been connected yet."}</p>
+        {s.market_context.stats.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {s.market_context.stats.map((m, i) => (
+              <div key={i} className="rounded-md border p-2 bg-background">
+                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{m.label}</div>
+                <div className="text-sm font-medium mt-0.5 truncate">{m.value || "Unavailable"}</div>
+                {m.note && <div className="text-[11px] text-muted-foreground mt-0.5">{m.note}</div>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Limitations + confidence */}
+      {(s.data_limitations.length > 0 || s.confidence_level) && (
+        <div className="text-xs text-muted-foreground border-t pt-3">
+          {s.data_limitations.length > 0 && (
+            <>
+              <p className="font-medium mb-1">Where we had limited data:</p>
+              <ul className="list-disc ml-4 space-y-0.5">
+                {s.data_limitations.map((d, i) => <li key={i}>{d}</li>)}
+              </ul>
+            </>
+          )}
+          {s.confidence_level && (
+            <p className="mt-2">
+              Confidence: <span className="font-medium capitalize">{s.confidence_level}</span>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Section({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5 mb-2">
+        {icon}{title}
+      </h4>
+      {children}
+    </div>
+  );
+}
+
+function UnavailableNote({ text, className }: { text: string; className?: string }) {
+  return (
+    <div className={`text-xs text-muted-foreground italic rounded-md border border-dashed p-2.5 ${className ?? ""}`}>
+      {text}
+    </div>
+  );
+}
+
+function CompCard({ c }: { c: StructuredComp }) {
+  const ppsf = c.pricePerSqft ?? (c.price && c.sqft ? Math.round(c.price / c.sqft) : null);
+  return (
+    <div className="rounded-md border p-2.5 bg-background">
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="text-sm font-medium truncate" title={c.address ?? undefined}>
+          {c.address || "Address unavailable"}
+        </div>
+        {c.status && (
+          <span className={`text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded border ${compStatusBadgeClass(c.status)}`}>
+            {c.status}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-xs">
+        {c.price != null && <div><span className="text-muted-foreground">Price:</span> <span className="font-semibold">{formatMoney(c.price)}</span></div>}
+        {c.sqft != null && <div><span className="text-muted-foreground">Sqft:</span> <span className="font-medium">{c.sqft.toLocaleString()}</span></div>}
+        {ppsf != null && <div><span className="text-muted-foreground">$/sqft:</span> <span className="font-medium">${ppsf.toLocaleString()}</span></div>}
+        {c.daysOnMarket != null && <div><span className="text-muted-foreground">DOM:</span> <span className="font-medium">{c.daysOnMarket}</span></div>}
+        {c.beds != null && <div><span className="text-muted-foreground">Bd:</span> <span className="font-medium">{c.beds}</span></div>}
+        {c.baths != null && <div><span className="text-muted-foreground">Ba:</span> <span className="font-medium">{c.baths}</span></div>}
+      </div>
+      {c.notes && <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">{c.notes}</p>}
+    </div>
+  );
+}
+
+function DomTile({ label, value, valueText, tone }: { label: string; value?: number | null; valueText?: string; tone?: string }) {
+  const display = valueText ?? (value != null ? `${value} days` : "Unavailable");
+  return (
+    <div className="rounded-md border p-2 bg-background text-center">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={`text-sm font-semibold mt-0.5 ${tone ?? ""}`}>{display}</div>
+    </div>
+  );
+}
+function domComparisonText(l: ComparisonLabel): string {
+  switch (l) {
+    case "faster":  return "Faster";
+    case "similar": return "In line";
+    case "slower":  return "Slower";
+    default:        return "Unavailable";
+  }
+}
+function domComparisonTone(l: ComparisonLabel): string {
+  switch (l) {
+    case "faster":  return "text-green-700";
+    case "slower":  return "text-amber-700";
+    default:        return "";
+  }
+}
+
+function PlatformCard({ name, stat }: { name: string; stat: PlatformStat | null }) {
+  return (
+    <div className="rounded-md border p-2.5 bg-background">
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-1">{name}</div>
+      {stat ? (
+        <div className="flex items-center gap-3 text-sm">
+          <div className="flex items-center gap-1"><Eye className="h-3.5 w-3.5 text-muted-foreground" /><span className="font-medium">{stat.views?.toLocaleString() ?? "—"}</span> <span className="text-xs text-muted-foreground">views</span></div>
+          <div className="flex items-center gap-1"><Heart className="h-3.5 w-3.5 text-muted-foreground" /><span className="font-medium">{stat.saves?.toLocaleString() ?? "—"}</span> <span className="text-xs text-muted-foreground">saves</span></div>
+        </div>
+      ) : (
+        <div className="text-xs text-muted-foreground italic">Not connected</div>
+      )}
+    </div>
+  );
+}
+
+// ── Legacy renderer (used only for old cached rows without `structured`) ──
+
+function LegacyAnalysis({ a }: { a: MarketAnalysisRecord }) {
+  return (
+    <div className="space-y-4">
+      {a.price_review_recommended && (
+        <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+          <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+          <div>
+            <p className="font-medium">Price review recommended</p>
+            <p className="text-xs mt-1">Based on the data we have, it may be worth revisiting the asking price with your agent.</p>
+          </div>
+        </div>
+      )}
+      {a.market_summary && <AnalysisBlock title="Market Summary" body={a.market_summary} />}
+      {a.pricing_analysis && <AnalysisBlock title="Pricing Analysis" body={a.pricing_analysis} />}
+      {a.comps_summary && <AnalysisBlock title="Comparable Sales / Competition" body={a.comps_summary} />}
+      {a.online_interest_summary && <AnalysisBlock title="Online Interest" body={a.online_interest_summary} />}
+      {a.showing_summary && <AnalysisBlock title="Showing Activity" body={a.showing_summary} />}
+      {a.recommended_next_steps && a.recommended_next_steps.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1 mb-2">
+            <TrendingUp className="h-3.5 w-3.5" /> Recommended Next Steps
+          </h4>
+          <ul className="space-y-1.5">
+            {a.recommended_next_steps.map((step, i) => (
+              <li key={i} className="flex items-start gap-2 text-sm">
+                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                <span>{step}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {a.data_limitations && a.data_limitations.length > 0 && (
+        <div className="text-xs text-muted-foreground border-t pt-3 mt-2">
+          <p className="font-medium mb-1">Where we had limited data:</p>
+          <ul className="list-disc ml-4 space-y-0.5">
+            {a.data_limitations.map((d, i) => <li key={i}>{d}</li>)}
+          </ul>
+          {a.confidence_level && (
+            <p className="mt-2">
+              Confidence: <span className="font-medium capitalize">{a.confidence_level}</span>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

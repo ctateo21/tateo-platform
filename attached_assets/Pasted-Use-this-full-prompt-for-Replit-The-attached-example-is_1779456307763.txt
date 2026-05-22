@@ -1,0 +1,327 @@
+Use this full prompt for Replit. The attached example is the target layout and content depth: listing-card style with list price, DOM vs comps, market comps, similar pending/sold, views/saves comparison, price-drop recommendation, projected sale range, action steps, and market context footer. 
+
+```text
+Fix the Dashboard → For Sale → Market Analysis output.
+
+Current issue:
+The Market Analysis is technically generating, but it is too generic and only analyzes the limited saved seller scenario fields. It is not pulling or producing the type of listing recap I want.
+
+Current generated example:
+- It says the listing is in draft status.
+- It says there are no comps, no online engagement, no showings, no DOM, and no market data.
+- It gives a low-confidence generic recap.
+
+That is not the intended product.
+
+Goal:
+The Market Analysis should generate a seller-facing weekly real estate listing recap similar to the attached weekly_real_estate_recap.html example.
+
+The analysis should include:
+- market comps
+- how long the property has been on market vs similar homes/condos
+- any pending homes/condos that are similar
+- next steps to get the property sold
+- whether price drops would be beneficial
+- where the property is likely to sell
+- saves and views across major real estate platforms versus similar homes/condos
+- a plain-English recap of whether engagement is stronger or weaker than similar nearby listings
+
+Important:
+Use my Anthropic API key server-side to generate the analysis, but Anthropic alone cannot magically access MLS/Zillow/Realtor/Redfin data unless the backend provides it.
+
+So the backend must gather or accept the data needed for the analysis before sending the prompt to Anthropic.
+
+Do not let Anthropic fabricate exact comps, exact platform views/saves, exact DOM, or exact pending listings unless that data is actually available from:
+- saved listing data
+- Zillow/Apify scrape result
+- property cache
+- MLS/Stellar data if connected
+- manually entered listing/market data
+- dashboard fields
+- future integrations
+
+If exact data is not available, the analysis should say the data is unavailable and recommend what to add next. But the UI and prompt should be built to support these fields when available.
+
+What the Market Analysis page should show:
+
+1. Weekly Listing Recap Header
+- Property address
+- Week of [date]
+- Last updated [date]
+- Updates every Friday
+
+2. Listing Snapshot
+- Current list price or estimated sale price
+- Price per square foot if sqft exists
+- Days on market
+- Average DOM for similar homes/condos
+- Beds/baths/sqft
+- Last sold price/date if available
+- Status badge:
+  - Competitive
+  - Price Review Advised
+  - Overpriced Risk
+  - Insufficient Data
+
+3. Market Comps
+Show or summarize:
+- 3 similar active/pending/sold comps if available
+- Address
+- Price
+- Sqft
+- $/sqft
+- DOM
+- Status
+- Notes
+
+If no comp data exists, show:
+“Comparable sales have not been connected yet. Add 3–5 comps to improve the pricing analysis.”
+
+Do not invent comps.
+
+4. Similar Pending / Sold
+Include:
+- similar pending homes/condos nearby
+- similar recently sold homes/condos nearby
+- whether those listings suggest the current property is priced high, low, or competitively
+
+If unavailable, show a clean unavailable state.
+
+5. Days on Market Analysis
+Compare:
+- this property’s DOM
+- average DOM for similar homes/condos
+- zip/city DOM if available
+
+Required language:
+- Explain if the property is moving slower or faster than similar homes.
+- Explain what that usually signals.
+- If DOM is unknown, say it cannot be evaluated yet.
+
+6. Views & Saves Across Major Platforms vs Similar Homes
+Include:
+- Zillow views/saves if available
+- Realtor.com views/saves if available
+- Redfin views/saves if available
+- any other major listing platform data if available
+- compare this listing to similar homes/condos if comp engagement data exists
+
+Required seller-facing explanation:
+- Is this listing getting more or less engagement than similar homes/condos?
+- Are views strong but saves weak?
+- Are saves strong relative to views?
+- Is low engagement suggesting price/presentation issues?
+- Is high engagement suggesting the property is close to converting?
+
+If exact views/saves are not available:
+- Do not make up exact numbers.
+- Show:
+  “Platform engagement data has not been connected yet.”
+- Add a recommendation to connect/import Zillow/Realtor/Redfin/MLS showing data.
+
+7. Price Drop Recommendation
+Include:
+- Whether a price drop would be beneficial
+- Suggested price reduction range if supported by data
+- Why the price drop is or is not recommended
+- What the price drop would accomplish:
+  - reset buyer alerts
+  - improve visibility
+  - move closer to comp range
+  - create urgency
+
+If data is insufficient, say:
+“Price review may be useful, but more comp data is needed before recommending a specific price drop.”
+
+8. Projected Sale Price
+Include:
+- likely sale range
+- projected low/high
+- explanation of how that range was determined
+- confidence level
+
+Do not invent a precise range if no comps or value data exists.
+If only Zillow value exists, say the range is preliminary and needs comp validation.
+
+9. Next Steps to Get This Sold
+Show 3–6 clear action items, such as:
+- review pricing after X days on market
+- add or refresh listing photos
+- add a video walkthrough
+- review showing feedback
+- improve listing description around strongest features
+- compare against new active/pending comps
+- consider price adjustment if engagement is below similar listings
+
+10. Market Context Footer
+Include:
+- inventory/months supply if available
+- median price if available
+- sale-to-list ratio if available
+- average DOM if available
+- buyer/seller market context
+
+If unavailable, show:
+“Local market stats have not been connected yet.”
+
+UI style:
+Make the output feel like the attached weekly_real_estate_recap.html:
+- compact listing cards
+- clear metric rows
+- concise analysis sections
+- price recommendation box
+- projected sale range
+- next-step tags or checklist
+- market context footer
+- mobile-friendly
+- professional and seller-facing
+
+Backend/Anthropic behavior:
+1. The frontend should call a backend route for Market Analysis.
+2. The backend should gather all available property/listing/market data.
+3. The backend should call Anthropic using ANTHROPIC_API_KEY.
+4. The backend should request structured JSON.
+5. Save the generated JSON to Supabase.
+6. Render the structured JSON in the Market Analysis UI.
+7. Do not expose ANTHROPIC_API_KEY to the frontend.
+
+Data to send Anthropic:
+Send every available field:
+- seller scenario ID
+- address
+- normalized property key
+- estimated sale price
+- Zillow value
+- current list price
+- beds
+- baths
+- sqft
+- lot size
+- year built
+- property type
+- status
+- DOM
+- list date
+- last sold price/date
+- primary photo/photo count
+- seller net proceeds fields
+- comps array if available
+- pending comps if available
+- sold comps if available
+- platform engagement if available
+- showing data if available
+- local market stats if available
+- prior weekly analysis if available
+
+Anthropic JSON response format:
+Return this structured JSON:
+
+{
+  "week_of": "",
+  "status_label": "Competitive | Price Review Advised | Overpriced Risk | Insufficient Data",
+  "listing_snapshot": {
+    "summary": "",
+    "metrics": [
+      { "label": "List price", "value": "", "note": "" },
+      { "label": "Days on market", "value": "", "note": "" },
+      { "label": "Beds / baths", "value": "", "note": "" },
+      { "label": "Last sold", "value": "", "note": "" }
+    ]
+  },
+  "market_comps": {
+    "summary": "",
+    "comps": []
+  },
+  "similar_pending_sold": {
+    "summary": "",
+    "items": []
+  },
+  "days_on_market_analysis": {
+    "summary": "",
+    "subject_dom": null,
+    "average_comp_dom": null,
+    "comparison_label": "faster | similar | slower | unavailable"
+  },
+  "platform_engagement": {
+    "summary": "",
+    "zillow": null,
+    "realtor": null,
+    "redfin": null,
+    "comparison_to_similar": "higher | similar | lower | unavailable"
+  },
+  "price_drop_recommendation": {
+    "recommended": false,
+    "summary": "",
+    "suggested_price_low": null,
+    "suggested_price_high": null
+  },
+  "projected_sale_price": {
+    "projected_low": null,
+    "projected_high": null,
+    "summary": ""
+  },
+  "next_steps": [],
+  "market_context": {
+    "summary": "",
+    "stats": []
+  },
+  "data_limitations": [],
+  "confidence_level": "low | medium | high"
+}
+
+Prompt rules:
+- Do not fabricate exact MLS data.
+- Do not fabricate comps.
+- Do not fabricate platform views/saves.
+- Do not fabricate showing counts.
+- If data is missing, say it is missing.
+- Provide practical seller next steps even if data is limited.
+- Use cautious wording when confidence is low.
+- Use the attached recap style as inspiration.
+
+Weekly update:
+- Market Analysis updates weekly on Fridays.
+- Use saved analysis if current for the week.
+- Generate a new one only if missing or stale.
+- Do not call Anthropic on every page load.
+
+Debug:
+Add temporary logs:
+- [market-analysis] seller scenario ID
+- [market-analysis] data sent to Anthropic
+- [market-analysis] Anthropic called
+- [market-analysis] Anthropic response received
+- [market-analysis] analysis saved
+- [market-analysis] rendered sections
+- [market-analysis] unavailable reason, if failed
+
+Acceptance test:
+1. Open Dashboard → For Sale → property detail.
+2. Confirm Market Analysis uses the saved For Sale property.
+3. Confirm backend calls Anthropic server-side if no current analysis exists.
+4. Confirm the UI shows seller-style recap sections:
+   - Market comps
+   - DOM vs similar homes
+   - Similar pending/sold
+   - Views/saves vs similar homes
+   - Price drop recommendation
+   - Projected sale range
+   - Next steps
+   - Market context
+5. Confirm missing data is labeled unavailable, not invented.
+6. Confirm generated analysis is saved.
+7. Refresh page.
+8. Confirm saved analysis loads instead of regenerating.
+9. Confirm it refreshes again only when Friday update cycle is due.
+10. Confirm Estimated Net Proceeds still works.
+
+Please report back:
+- Why the prior analysis was generic/unavailable
+- Whether Anthropic API was being called
+- What data is currently available to send Anthropic
+- What data is still missing for comps/platform engagement
+- Which backend/API route was changed
+- Which frontend Market Analysis component was changed
+- Which Supabase fields/table store the structured analysis
+- Which files/functions were changed
+```

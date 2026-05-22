@@ -1606,12 +1606,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!body.listingId || !body.address) {
         return res.status(400).json({ error: "listingId and address are required" });
       }
+
+      // Enrich the listing input with cached Zillow property data when we
+      // have it. This is what gives Anthropic enough context to produce a
+      // real listing recap (beds/baths/sqft/yearBuilt/lotSize/last sold/
+      // photo count/property type) instead of a generic "no data" stub.
+      //
+      // The cache key is keyed off the NORMALIZED property key (street +
+      // ZIP5) — the same scheme used by /api/zillow-property-lookup, so any
+      // listing we've previously hydrated in the seller UI has a cache row
+      // available here.
+      const enriched: Partial<ListingInput> = { ...body };
+      try {
+        const cacheKey = buildNormalizedPropertyKey(body.address);
+        if (cacheKey && supabaseAdmin) {
+          const { data: cached } = await supabaseAdmin
+            .from("property_cache")
+            .select("normalized")
+            .eq("cache_key", cacheKey)
+            .maybeSingle();
+          const norm = cached?.normalized as Record<string, any> | null | undefined;
+          if (norm) {
+            enriched.beds        = enriched.beds        ?? (typeof norm.bedrooms   === "number" ? norm.bedrooms   : null);
+            enriched.baths       = enriched.baths       ?? (typeof norm.bathrooms  === "number" ? norm.bathrooms  : null);
+            enriched.sqft        = enriched.sqft        ?? (typeof norm.squareFeet === "number" ? norm.squareFeet : null);
+            enriched.lotSize     = enriched.lotSize     ?? (typeof norm.lotSize    === "number" ? norm.lotSize    : null);
+            enriched.yearBuilt   = enriched.yearBuilt   ?? (typeof norm.yearBuilt  === "number" ? norm.yearBuilt  : null);
+            enriched.hoa         = enriched.hoa         ?? (typeof norm.hoaMonthly === "number" ? norm.hoaMonthly : null);
+            enriched.propertyType = enriched.propertyType ?? (typeof norm.propertyType === "string" ? norm.propertyType : null);
+            enriched.zillowValue = enriched.zillowValue ?? (typeof norm.zestimate === "number" ? norm.zestimate
+                                                          : typeof norm.estimatedHomeValue === "number" ? norm.estimatedHomeValue
+                                                          : null);
+            enriched.listPrice   = enriched.listPrice   ?? (typeof norm.listingPrice === "number" ? norm.listingPrice : null);
+            enriched.lastSoldPrice = enriched.lastSoldPrice ?? (typeof norm.soldPrice === "number" ? norm.soldPrice : null);
+            enriched.lastSoldDate  = enriched.lastSoldDate  ?? (typeof norm.soldDate === "string"  ? norm.soldDate : null);
+            enriched.photoCount  = enriched.photoCount  ?? (Array.isArray(norm.photos) ? norm.photos.length : null);
+            enriched.primaryPhotoUrl = enriched.primaryPhotoUrl ?? (Array.isArray(norm.photos) && typeof norm.photos[0] === "string" ? norm.photos[0] : null);
+            enriched.city  = enriched.city  ?? (typeof norm.displayCity === "string" ? norm.displayCity
+                                              : typeof norm.googleCity === "string" ? norm.googleCity : null);
+          }
+          console.log("[market-analysis] cache lookup", {
+            cacheKey,
+            hit: !!norm,
+            enrichedFields: {
+              beds: enriched.beds, baths: enriched.baths, sqft: enriched.sqft,
+              yearBuilt: enriched.yearBuilt, zillowValue: enriched.zillowValue,
+              photoCount: enriched.photoCount,
+            },
+          });
+        }
+      } catch (e: any) {
+        console.warn("[market-analysis] property_cache enrichment failed:", e?.message);
+      }
+
       const record = await getOrGenerateMarketAnalysis(
-        { ...(body as ListingInput), userId: verifiedUserId },
+        { ...(enriched as ListingInput), userId: verifiedUserId },
         { forceRefresh: !!body.forceRefresh }
       );
       // Strip raw_prompt / raw_anthropic_response from the response to keep
-      // the payload small — those are debug-only fields stored in Supabase.
+      // the payload small. The rich structured JSON is exposed via
+      // `record.structured` (parsed in the integration), so we don't need
+      // the raw text on the wire.
       const { raw_prompt: _rp, raw_anthropic_response: _ra, ...safe } = record as any;
       return res.json({ analysis: safe });
     } catch (err) {
