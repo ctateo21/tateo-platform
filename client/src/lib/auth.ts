@@ -288,7 +288,7 @@ async function loadScenarios(userId: string) {
   const [pRes, iRes, sRes, lRes] = await Promise.all([
     supabase.from("purchase_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("insurance_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
-    supabase.from("seller_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
+    supabase.from("seller_scenarios").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
   _purchaseScenarios = (pRes.data ?? []).map(rowToPurchase);
