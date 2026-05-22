@@ -1,0 +1,156 @@
+Copy/paste this into Replit:
+
+```text
+Add the seller concessions slider to Page 4 → See My Estimate → Real Estate card for all loan options.
+
+Location:
+Purchase Flow → Page 4 → See My Estimate → Real Estate card
+
+Placement:
+Put the seller concessions slider directly below the “Estimated Closing Costs” line.
+
+Current issue:
+The seller concessions control is not consistently available for all loan options on Page 4. I want users to be able to adjust seller concessions from the estimate screen and immediately see the impact on cash to close.
+
+Expected behavior:
+On Page 4, under the Real Estate card:
+- Show Estimated Closing Costs
+- Directly below it, show Seller Concessions slider/control
+- Show this for all loan options:
+  - Conventional
+  - FHA
+  - VA
+  - USDA, if supported
+  - any other purchase loan type already in the app
+
+Seller concessions control:
+Use the same seller concessions control logic from Page 3:
+- Default mode: Percentage
+- Allow user to choose:
+  - Percentage
+  - Dollar Amount
+- Percentage should display with two decimals:
+  - 2.00%
+  - 2.50%
+- Dollar amount should round to nearest whole dollar:
+  - $10,235
+- Show both values if clean:
+  - 2.00% / $10,000
+
+Page 3 and Page 4 sync:
+- If user changes seller concessions on Page 3, Page 4 should reflect it.
+- If user changes seller concessions on Page 4, Page 3 should reflect it if they go back.
+- Auto-save the seller concessions mode, percent, and amount.
+- Persist after refresh/logout/login.
+
+Seller concession max caps:
+Seller concessions must respect the max allowed for each loan type.
+
+Use existing app logic if already built. If no cap logic exists, add this basic cap logic:
+
+Conventional:
+- Primary residence / second home:
+  - Less than 10% down: max 3%
+  - 10% down to less than 25% down: max 6%
+  - 25% down or more: max 9%
+- Investment property: max 2%
+
+FHA:
+- Max 6%
+
+VA:
+- Max 4% for seller concessions
+
+USDA:
+- Max 6%
+
+If the app does not have enough data to determine the exact cap:
+- Use the safest cap available for the loan type.
+- Show a small helper note:
+  “Seller concession limit may vary based on program and transaction details.”
+
+Cap behavior:
+1. The slider/input should not allow values above the applicable cap.
+2. If the user changes loan type and the existing seller concessions exceed the new cap:
+   - reduce seller concessions to the new max
+   - show a small note:
+     “Seller concessions adjusted to the maximum allowed for this loan type.”
+3. If the user changes down payment, occupancy, or loan type:
+   - recalculate the max seller concession cap
+   - update the slider max
+   - keep the value if still valid
+   - cap it if no longer valid
+4. Do not allow negative concessions.
+5. Do not double-count concessions.
+
+Cash to close behavior:
+- Seller concessions should reduce buyer cash to close.
+- Seller concessions should not reduce purchase price.
+- Seller concessions should not reduce down payment unless existing app logic intentionally does this.
+- Seller concessions should reduce eligible closing costs/prepaids only.
+- If seller concessions exceed eligible costs, cap the credit applied to cash-to-close at the eligible cost amount while still showing the concession amount selected if needed.
+- Avoid showing artificially negative cash to close.
+
+UI requirements:
+- Keep the Real Estate card clean.
+- Put Seller Concessions directly under Estimated Closing Costs.
+- Show the current cap clearly:
+  - Example: “Max seller concessions: 6.00% / $30,000”
+- If user reaches the cap, show:
+  - “Maximum allowed for this loan type.”
+- Keep mobile layout clean.
+- Do not move or break the rest of the estimate page.
+
+Suggested fields:
+- seller_concessions_mode: "percent" | "amount"
+- seller_concessions_percent
+- seller_concessions_amount
+- seller_concessions_max_percent
+- seller_concessions_max_amount
+- seller_concessions_applied_amount
+
+Calculation rules:
+If mode is percent:
+- seller_concessions_percent = rounded percent to 2 decimals
+- seller_concessions_amount = round(purchase_price × percent / 100)
+
+If mode is amount:
+- seller_concessions_amount = round(amount)
+- seller_concessions_percent = round((amount / purchase_price) × 100, 2)
+
+Max cap:
+- max_amount = purchase_price × max_percent / 100
+
+Use rounded seller_concessions_applied_amount in:
+- cash to close
+- dashboard summaries
+- qualification/review status if affected
+
+Acceptance test:
+1. Go to Purchase Flow → Page 4 → See My Estimate.
+2. Confirm Seller Concessions appears directly below Estimated Closing Costs in the Real Estate card.
+3. Confirm it appears for Conventional.
+4. Confirm it appears for FHA.
+5. Confirm it appears for VA.
+6. Confirm it appears for USDA if USDA is supported.
+7. Confirm default mode is Percentage.
+8. Enter purchase price of $500,000.
+9. For FHA, confirm max is 6.00% / $30,000.
+10. For VA, confirm max is 4.00% / $20,000.
+11. For Conventional primary with less than 10% down, confirm max is 3.00% / $15,000.
+12. For Conventional primary with 10–24.99% down, confirm max is 6.00%.
+13. For Conventional primary with 25%+ down, confirm max is 9.00%.
+14. For Conventional investment, confirm max is 2.00%.
+15. Change seller concessions on Page 4 and confirm cash to close updates immediately.
+16. Go back to Page 3 and confirm the value stayed synced.
+17. Refresh/logout/login and confirm the seller concessions value, mode, and cap persist.
+18. Confirm no double-counting in cash to close.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 4 Real Estate card component was changed
+- Whether the Page 3 seller concessions component was reused
+- How seller concession caps are calculated by loan type
+- How Page 3 and Page 4 stay synced
+- How seller concessions reduce cash to close
+- Which files/functions were changed
+```
