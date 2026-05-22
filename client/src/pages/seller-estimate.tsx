@@ -661,6 +661,7 @@ function MarketAnalysisSection({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestedRef = useRef<string | null>(null);
+  const retriedRef = useRef<boolean>(false);
 
   async function fetchAnalysis(forceRefresh = false) {
     if (!userId) return;
@@ -714,6 +715,17 @@ function MarketAnalysisSection({
       }
     } catch (err) {
       console.warn("[market-analysis] fetch failed:", err);
+      // First-time fetch failures are often the request being aborted
+      // mid-generation (Anthropic web search can take 30-60s). The server
+      // still completes and saves the row, so a quick second attempt
+      // usually returns the cached result instantly. Retry once silently
+      // before surfacing an error banner to the seller.
+      if (!retriedRef.current) {
+        retriedRef.current = true;
+        setLoading(false);
+        setTimeout(() => { void fetchAnalysis(false); }, 1500);
+        return;
+      }
       setError(err instanceof Error ? err.message : "Could not load market analysis");
     } finally {
       setLoading(false);
@@ -770,7 +782,20 @@ function MarketAnalysisSection({
   }
 
   const showSkeleton = loading && !analysis;
-  const hasContent = analysis && analysis.status !== "error";
+  // Render the analysis whenever we have ANY usable saved content — either
+  // a structured payload or any of the legacy text fields. Even rows with
+  // status === "error" can carry a previous good `structured` payload that
+  // the server returned as a soft fallback, and we want to show that
+  // instead of the full "unavailable" state. The big unavailable banner
+  // is reserved for the true zero-data case (no saved row at all).
+  const hasContent = !!(analysis && (
+    analysis.structured ||
+    analysis.market_summary ||
+    analysis.pricing_analysis ||
+    analysis.comps_summary ||
+    analysis.online_interest_summary ||
+    analysis.showing_summary
+  ));
 
   return (
     <Card>

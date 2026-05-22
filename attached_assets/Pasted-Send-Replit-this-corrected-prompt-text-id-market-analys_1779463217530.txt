@@ -1,0 +1,159 @@
+Send Replit this corrected prompt:
+
+```text id="market-analysis-hide-only-fix"
+Fix the Dashboard → For Sale → Market Analysis display. The last change accidentally made the entire Market Analysis unavailable.
+
+Current issue:
+After asking to remove certain extra sections, the UI now shows:
+
+“Market analysis unavailable right now.
+
+Your net proceeds and saved data are unaffected. The next weekly update runs Friday at 8:00 AM Eastern.”
+
+That is wrong.
+
+I still want the Market Analysis to display. I only wanted specific sections hidden from the seller-facing screen.
+
+Goal:
+Keep the Market Analysis working exactly as before, including:
+- saved weekly analysis loading from Supabase
+- Anthropic/web-search/Realtor.com scraper generated analysis
+- Friday 8:00 AM weekly caching
+- rich structured analysis data
+
+But hide certain sections from the normal user-facing UI.
+
+Do not remove, block, delete, or invalidate the full analysis object.
+
+Do not mark the analysis unavailable just because some sections are hidden.
+
+Required visible sections:
+The Market Analysis should still show these sections:
+
+1. Listing Snapshot
+2. Market Comps
+3. Similar Pending / Sold
+4. Days on Market
+5. Views & Saves Across Platforms
+6. Price Drop Recommendation
+7. Projected Sale Range
+
+Required hidden sections:
+Hide these from the normal seller-facing UI only:
+
+1. Next Steps to Get This Sold
+2. Market Context
+3. Connected / Not Connected / Data Sources panel
+4. Web pages cited / hyperlinks list
+5. Where we had limited data
+
+Important distinction:
+The hidden sections can still exist in the saved JSON/backend for debugging. They should simply not render on the seller-facing screen.
+
+Do not treat missing/hidden sections as an error.
+
+Likely bug:
+The UI or validation logic may now require sections like:
+- next_steps
+- market_context
+- data_sources
+- data_limitations
+- web_pages
+
+Because those were hidden/removed, the component may be deciding the whole analysis is invalid/unavailable.
+
+Fix requirements:
+1. Restore Market Analysis rendering.
+2. Only filter/hide the unwanted sections in the render layer.
+3. Do not change the backend generation/caching logic unless needed to fix this bug.
+4. Do not require hidden sections for the analysis to be considered valid.
+5. A valid analysis should render as long as at least one of the required visible sections exists.
+6. If a visible section is missing, show a small placeholder for that section, not the full unavailable state.
+7. Do not call Anthropic again just because of this UI cleanup.
+8. Load the saved current-week analysis from Supabase and render the allowed sections.
+9. If the saved rich analysis exists, use it.
+10. Do not overwrite a rich saved analysis with a weaker “unavailable” or “insufficient data” object.
+
+Rendering rule:
+Instead of this:
+- if any hidden/debug section is missing, show “Market analysis unavailable”
+
+Use this:
+- render only the allowed visible sections
+- skip hidden sections
+- show “Unavailable” only inside an individual visible section if that specific section lacks data
+
+Example:
+If `market_context` is hidden, do nothing.
+Do not fail the whole component.
+
+If `data_sources` is hidden, do nothing.
+Do not fail the whole component.
+
+If `next_steps` is hidden, do nothing.
+Do not fail the whole component.
+
+UI should show:
+- Market Analysis header
+- Last updated
+- Next update Friday at 8:00 AM Eastern
+- Listing Snapshot
+- Market Comps
+- Similar Pending / Sold
+- Days on Market
+- Views & Saves Across Platforms
+- Price Drop Recommendation
+- Projected Sale Range
+
+UI should not show:
+- Next Steps to Get This Sold
+- Market Context
+- Connected / Not Connected
+- Data Sources
+- Web pages cited
+- Raw hyperlinks
+- Where we had limited data
+
+Backend/data preservation:
+Keep these fields saved if they already exist:
+- next_steps
+- market_context
+- data_sources
+- data_limitations
+- web_pages_cited
+- raw_anthropic_response
+
+They can be useful for admin/debugging, but not seller-facing.
+
+Acceptance test:
+1. Go to Dashboard → For Sale → property detail.
+2. Confirm Market Analysis no longer shows “Market analysis unavailable right now” if a saved analysis exists.
+3. Confirm the saved current-week analysis loads from Supabase.
+4. Confirm these sections display:
+   - Listing Snapshot
+   - Market Comps
+   - Similar Pending / Sold
+   - Days on Market
+   - Views & Saves Across Platforms
+   - Price Drop Recommendation
+   - Projected Sale Range
+5. Confirm these sections do not display:
+   - Next Steps to Get This Sold
+   - Market Context
+   - Connected / Not Connected
+   - Data Sources
+   - Web pages cited / hyperlinks
+   - Where we had limited data
+6. Confirm hiding those sections does not cause the full analysis to become unavailable.
+7. Confirm Anthropic is not called again if a current saved rich analysis already exists.
+8. Confirm Friday 8:00 AM caching still works.
+9. Confirm Estimated Net Proceeds is unchanged.
+
+Please make the smallest safe code change possible and tell me:
+- Why the analysis became unavailable after the cleanup
+- Which validation/rendering condition was too strict
+- Which sections are now hidden only at the UI layer
+- Which visible sections still render
+- Whether saved backend/debug data is preserved
+- Which files/functions were changed
+```
