@@ -1,0 +1,193 @@
+Copy/paste this into Replit:
+
+```text
+Fix Refinance rate calculation so it uses the same rate/pricing logic as Purchase, and add a credit score input at the top of the Refinance tab.
+
+Current issue:
+The Refinance tab is not pulling/using the same rate logic that already exists in the Purchase tab for different mortgage types.
+
+Purchase already has rate/pricing logic for:
+- Conventional
+- FHA
+- VA
+- DSCR
+- Bank Statement / Non-QM, if supported
+
+The Refinance tab should reuse that same rate engine instead of having separate weaker or disconnected refinance rate logic.
+
+Goal:
+Make Refinance rates use the same shared mortgage pricing/rate calculation system as Purchase.
+
+Also, ask for the user’s credit score at the top of the Refinance tab so the app can use that credit score for all refinance mortgage rate calculations.
+
+Location:
+Dashboard → Refinance
+
+Add credit score input:
+At the top of the Refinance tab/detail view, add a credit score field.
+
+Label:
+“Credit Score”
+
+Expected behavior:
+1. User enters credit score once in Refinance.
+2. That credit score is used for all Refinance rate calculations.
+3. Credit score should apply to:
+   - Conventional
+   - FHA
+   - VA
+   - DSCR
+   - Bank Statement
+4. If multiple refinance properties exist, use the saved credit score for the relevant refinance scenario.
+5. If there is already a global borrower profile credit score, use that as the default.
+6. If the user edits the credit score inside Refinance, save it to the refinance/tracked loan record.
+7. Persist after refresh/logout/login.
+
+Suggested fields:
+- `credit_score`
+- or existing equivalent field if already used in Purchase
+
+If the `tracked_loans` table does not have a credit score field, give me the SQL migration:
+
+alter table public.tracked_loans
+add column if not exists credit_score integer;
+
+Rate calculation requirements:
+1. Find the Purchase rate/pricing calculation functions.
+2. Refactor or reuse those functions so Refinance calls the same logic.
+3. Do not duplicate separate refinance pricing formulas if Purchase already has them.
+4. Refinance should pass the correct inputs into the shared rate engine:
+   - loan type
+   - credit score
+   - occupancy type
+   - estimated property value
+   - current loan balance / new loan amount
+   - LTV
+   - refinance type if available: rate/term or cash-out
+   - loan term if available: 30-year or 15-year
+   - property type if available
+5. Rate should update immediately when:
+   - credit score changes
+   - loan type changes
+   - occupancy/property use changes
+   - property value changes
+   - loan amount/current balance changes
+   - LTV changes
+   - loan term changes
+
+Loan type support:
+Refinance loan type selector should support:
+- VA
+- FHA
+- Conventional
+- DSCR
+- Bank Statement
+
+Occupancy rule:
+- VA and FHA only allowed if Property Use = Primary Residence.
+- If Property Use changes away from Primary while VA/FHA is selected, switch to Conventional or another valid default.
+- DSCR should generally be used for investment scenarios if supported.
+- Bank Statement should use the existing Non-QM/Bank Statement pricing logic if supported.
+
+Shared rate logic:
+Use the same Purchase pricing parameters for Refinance where applicable:
+- base rates from Mortgage News Daily or existing rate source
+- credit score adjustments
+- LTV adjustments
+- occupancy/property use adjustments
+- PMI/MIP/funding fee logic where applicable
+- 15-year vs 30-year logic where applicable
+- DSCR / Bank Statement pricing rules if already implemented
+
+Important:
+- Do not create a brand-new disconnected Refinance pricing engine.
+- Refinance should call the same helper/function that Purchase uses, or a shared wrapper around it.
+- If Purchase logic is currently embedded in a Purchase-only component, move it to a shared utility so both Purchase and Refinance can use it.
+- Keep Purchase behavior unchanged.
+
+Display requirements:
+Inside Refinance detail view, show:
+- Credit Score input near the top
+- Loan Type selector
+- Property Use selector
+- Estimated rate
+- Monthly payment estimate
+- any loan-type-specific items:
+  - Conventional PMI if applicable
+  - FHA MIP if applicable
+  - VA funding fee if applicable
+  - DSCR / Bank Statement pricing note if applicable
+
+Save/load:
+Update Refinance save/load mapping:
+- frontend refinance object → Supabase row
+- Supabase row → frontend refinance object
+
+Persist:
+- credit score
+- loan type
+- occupancy type
+- calculated rate
+- payment estimate
+- LTV if stored
+- loan term if stored
+
+Do not overwrite credit score with blank/null:
+- If the user has a saved credit score and a later flow does not provide one, keep the saved value.
+- If mortgage statement parsing does not include credit score, do not clear it.
+
+Dashboard summary:
+Update Refinance dashboard row/card to use the recalculated rate/payment from the shared rate engine.
+
+Do not break:
+- mortgage statement upload
+- loan number extraction
+- tracked loan saving
+- Refinance dashboard rows
+- Purchase tab pricing
+- Cash Buy / For Sale / Insurance
+
+Debug logs:
+Add temporary logs:
+- `[refi-rate] credit score`
+- `[refi-rate] loan type`
+- `[refi-rate] occupancy`
+- `[refi-rate] property value`
+- `[refi-rate] loan amount/current balance`
+- `[refi-rate] LTV`
+- `[refi-rate] shared rate engine input`
+- `[refi-rate] shared rate engine output`
+- `[refi-rate] saved to tracked_loans`
+
+Acceptance test:
+1. Go to Dashboard → Refinance.
+2. Open a refinance property detail view.
+3. Confirm Credit Score input appears at the top.
+4. Enter credit score 740.
+5. Select Conventional.
+6. Confirm Refinance rate pulls from the same Conventional pricing logic as Purchase.
+7. Change credit score to 660.
+8. Confirm rate recalculates.
+9. Select FHA with Primary Residence.
+10. Confirm FHA rate/pricing pulls from Purchase FHA logic.
+11. Select VA with Primary Residence.
+12. Confirm VA rate/pricing pulls from Purchase VA logic.
+13. Change Property Use to Investment.
+14. Confirm VA/FHA are disabled or automatically switched to a valid loan type.
+15. Select DSCR.
+16. Confirm DSCR uses existing Purchase DSCR pricing if available.
+17. Select Bank Statement.
+18. Confirm Bank Statement uses existing Purchase Bank Statement/Non-QM pricing if available.
+19. Refresh/logout/login.
+20. Confirm credit score, loan type, occupancy, and calculated rate persist.
+21. Confirm Purchase rate behavior is unchanged.
+
+Please make the smallest safe code change possible and tell me:
+- Which Purchase rate/pricing functions were reused or moved to shared utilities
+- Which Refinance component now has the credit score input
+- Which Supabase field stores credit score
+- Whether a SQL migration is needed
+- How Refinance passes inputs into the shared rate engine
+- How VA/FHA are blocked for non-primary occupancy
+- Which files/functions were changed
+```

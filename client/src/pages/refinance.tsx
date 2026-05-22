@@ -14,10 +14,17 @@ import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { getTrackedLoans, saveTrackedLoans, subscribeAuthChange, type TrackedLoan } from "@/lib/auth";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const MAX_TRACKED_LOANS = 10;
+const DEFAULT_CREDIT_SCORE = 740;
 
-function analysisToTrackedLoan(analysis: MortgageAnalysis, propertyType: PropertyType): TrackedLoan {
+function analysisToTrackedLoan(
+  analysis: MortgageAnalysis,
+  propertyType: PropertyType,
+  creditScore: number,
+): TrackedLoan {
   const now = new Date().toISOString();
   const loanNumber = typeof analysis.loanNumber === "string" && analysis.loanNumber.trim()
     ? analysis.loanNumber.trim()
@@ -37,6 +44,7 @@ function analysisToTrackedLoan(analysis: MortgageAnalysis, propertyType: Propert
     propertyType,
     loanType: "conventional",
     loanNumber,
+    creditScore,
   };
 }
 
@@ -147,6 +155,38 @@ export default function Refinance() {
   const [pendingAnalysis, setPendingAnalysis] = useState<MortgageAnalysis | null>(null);
   const [showPropertyTypeDialog, setShowPropertyTypeDialog] = useState(false);
 
+  // Single Refinance-wide credit score input. Seeded from the first
+  // tracked loan that already has one (so refresh/logout/login restores
+  // the value the user previously typed). Falls back to 740.
+  // Editing it writes to EVERY tracked loan's creditScore — per spec
+  // "use the saved credit score for the relevant refinance scenario".
+  // We never overwrite a saved value with blank/null.
+  const initialCreditScore =
+    trackedLoans.find(l => typeof l.creditScore === "number" && l.creditScore > 0)?.creditScore
+    ?? DEFAULT_CREDIT_SCORE;
+  const [creditScore, setCreditScore] = useState<number>(initialCreditScore);
+  // Keep local input in sync if loans hydrate AFTER first render
+  // (e.g. login finishes, Supabase scenarios load).
+  useEffect(() => {
+    const fromLoans = trackedLoans.find(l => typeof l.creditScore === "number" && l.creditScore > 0)?.creditScore;
+    if (fromLoans && fromLoans !== creditScore) setCreditScore(fromLoans);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackedLoans.length]);
+
+  function handleCreditScoreChange(raw: string) {
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n) || n <= 0) {
+      // Empty/invalid input — clear UI value but DO NOT wipe saved
+      // values on tracked_loans. Per spec: "Do not overwrite credit
+      // score with blank/null."
+      setCreditScore(0);
+      return;
+    }
+    const clamped = Math.max(300, Math.min(850, n));
+    setCreditScore(clamped);
+    updateLoans(prev => prev.map(l => ({ ...l, creditScore: clamped })));
+  }
+
   const { data: ratesData } = useQuery<LiveRatesResponse>({
     queryKey: ["/api/rates"],
     staleTime: 15 * 60 * 1000,
@@ -186,7 +226,7 @@ export default function Refinance() {
 
   const handlePropertyTypeSelect = (propertyType: PropertyType) => {
     if (!pendingAnalysis) return;
-    const newLoan = analysisToTrackedLoan(pendingAnalysis, propertyType);
+    const newLoan = analysisToTrackedLoan(pendingAnalysis, propertyType, creditScore || DEFAULT_CREDIT_SCORE);
     updateLoans(prev => [newLoan, ...prev]);
     setPendingAnalysis(null);
     setShowPropertyTypeDialog(false);
@@ -274,9 +314,29 @@ export default function Refinance() {
       </header>
 
       <main className="container mx-auto px-4 py-6 max-w-7xl">
-        <div className="mb-6">
-          <h2 className="text-2xl font-bold mb-2">Calculate Your Mortgage Refinance</h2>
-          <p className="text-muted-foreground">Upload your mortgage statement to analyze your loan and track refinance opportunities.</p>
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold mb-2">Calculate Your Mortgage Refinance</h2>
+            <p className="text-muted-foreground">Upload your mortgage statement to analyze your loan and track refinance opportunities.</p>
+          </div>
+          {/* Refinance-wide Credit Score input — used by the shared
+              rate engine for every loan type on every tracked loan. */}
+          <div className="flex items-center gap-2" data-testid="input-credit-score-wrap">
+            <Label htmlFor="refi-credit-score" className="text-sm whitespace-nowrap">Credit Score</Label>
+            <Input
+              id="refi-credit-score"
+              data-testid="input-credit-score"
+              type="number"
+              inputMode="numeric"
+              min={300}
+              max={850}
+              step={10}
+              value={creditScore > 0 ? creditScore : ""}
+              onChange={e => handleCreditScoreChange(e.target.value)}
+              className="w-24 h-9"
+              aria-label="Credit score used for refinance rate estimates"
+            />
+          </div>
         </div>
 
         {/* Top row: Analyzer + Rates */}

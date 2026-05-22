@@ -82,8 +82,9 @@ create index if not exists tracked_loans_user_idx on public.tracked_loans(user_i
 --   (va | fha | conventional | dscr | bank_statement). VA/FHA are
 --   restricted client-side to primary residences.
 alter table public.tracked_loans
-  add column if not exists loan_number text,
-  add column if not exists loan_type   text default 'conventional';
+  add column if not exists loan_number  text,
+  add column if not exists loan_type    text default 'conventional',
+  add column if not exists credit_score integer;
 
 alter table public.tracked_loans enable row level security;
 drop policy if exists "tracked_loans_owner" on public.tracked_loans;

@@ -172,6 +172,9 @@ export interface TrackedLoan {
    *  statement. Stored as text to preserve leading zeros and dashes.
    *  Optional — older saved loans may not have one. */
   loanNumber?: string;
+  /** FICO score used by the shared mortgage pricing engine. Stored on
+   *  the tracked_loans row so refresh/logout/login preserve it. */
+  creditScore?: number;
 }
 
 export type TrackedLoanType = "va" | "fha" | "conventional" | "dscr" | "bank_statement";
@@ -444,6 +447,12 @@ function rowToTrackedLoan(row: any): TrackedLoan {
     balanceAsOf: row.balance_as_of ?? undefined,
     loanNumber: typeof row.loan_number === "string" && row.loan_number.trim()
       ? row.loan_number.trim() : undefined,
+    creditScore: ((): number | undefined => {
+      const v = row.credit_score;
+      if (v === null || v === undefined) return undefined;
+      const n = typeof v === "number" ? v : parseInt(String(v), 10);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    })(),
   };
 }
 function trackedLoanToRow(l: TrackedLoan, userId: string) {
@@ -463,6 +472,7 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     added_at: l.addedAt,
     balance_as_of: l.balanceAsOf ?? null,
     loan_number: l.loanNumber && l.loanNumber.trim() ? l.loanNumber.trim() : null,
+    credit_score: typeof l.creditScore === "number" && l.creditScore > 0 ? l.creditScore : null,
   };
 }
 

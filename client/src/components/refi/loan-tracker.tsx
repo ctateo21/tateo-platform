@@ -12,6 +12,7 @@ import {
   Banknote, Pencil, Check, X, Info, Landmark, Home, Building2,
 } from "lucide-react";
 import { calculateRefinance, calculateMonthlyPayment, formatCurrency, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
+import { priceLoan } from "@/lib/mortgage-pricing";
 
 export interface MortgageAnalysis {
   loanBalance: number;
@@ -50,6 +51,10 @@ export interface TrackedLoan {
   propertyType: PropertyType;
   loanType?: LoanType;
   loanNumber?: string;
+  /** FICO score used by the shared rate engine. Stored once per
+   *  tracked loan; defaults to 740 when missing. The refinance page's
+   *  top-level credit-score input writes this on every tracked loan. */
+  creditScore?: number;
 }
 
 export interface LiveRate {
@@ -326,10 +331,31 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
     onUpdate({ loanType: lt });
   }
 
-  const bestRate = getBestConventionalRate(liveRates);
-  const rateAdj = PROPERTY_TYPE_ADJUSTMENTS[propertyType];
-  const adjustedRate = bestRate ? bestRate.rate + rateAdj : 6.65 + rateAdj;
+  // Pricing now goes through the shared engine in lib/mortgage-pricing.ts
+  // so Purchase and Refinance use the same tier formula. Credit score,
+  // loan type, and occupancy are the live inputs; property value /
+  // balance / LTV / term are passed downstream into calculateRefinance
+  // unchanged.
+  const pricing = priceLoan({
+    loanType,
+    creditScore: loan.creditScore,
+    propertyType,
+    liveRates,
+  });
+  const adjustedRate = pricing.rate;
+  const rateAdj = pricing.occupancyAdj;
   const heRate = adjustedRate + HE_RATE_MARGIN;
+  // Cash-out tab still wants a LiveRate-shaped object for its display
+  // (it shows the source row from the live feed). Fall back to a
+  // synthesized row built from the shared engine output so the section
+  // renders even when the feed has nothing matching.
+  const bestRate: LiveRate = getBestConventionalRate(liveRates) ?? {
+    name: "Estimated",
+    rate: adjustedRate,
+    change: 0,
+    type: "Conventional",
+    lastUpdated: new Date().toISOString(),
+  };
 
   const liveMonths = monthsBetween(loan.balanceAsOf ?? loan.addedAt);
   const currentBalance = liveMonths > 0 && loan.currentPI > 0 ? amortizeBalance(loan.loanBalance, loan.currentRate, loan.currentPI, liveMonths) : loan.loanBalance;
@@ -444,9 +470,26 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
                 VA and FHA are only available for primary residences.
               </p>
             )}
-            {LOAN_TYPE_NOT_PRICED.includes(loanType) && (
+            {LOAN_TYPE_NOT_PRICED.includes(loanType) && !pricing.pricingConnected && (
               <p className="text-xs text-amber-600">
-                {LOAN_TYPE_LABELS[loanType]} pricing not fully connected yet — calculations use conventional rates.
+                {LOAN_TYPE_LABELS[loanType]} pricing not fully connected yet — calculations use a conventional-based estimate.
+              </p>
+            )}
+            {/* Loan-type-specific cost notes (display only — calculations
+                still use the shared rate engine). */}
+            {loanType === "conventional" && homeValue > 0 && (currentBalance / homeValue) > 0.80 && (
+              <p className="text-xs text-muted-foreground">
+                PMI applies until LTV reaches 80%.
+              </p>
+            )}
+            {loanType === "fha" && (
+              <p className="text-xs text-muted-foreground">
+                FHA MIP applies (upfront 1.75% + annual ~0.55%).
+              </p>
+            )}
+            {loanType === "va" && (
+              <p className="text-xs text-muted-foreground">
+                VA funding fee applies (~2.15% first use, 3.3% subsequent).
               </p>
             )}
           </div>
@@ -519,7 +562,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
           )}
 
           {/* Cash-Out */}
-          {activeTab === "cash_out" && bestRate && (
+          {activeTab === "cash_out" && (
             <div className="space-y-4">
               <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} />
               <FeeToggles
