@@ -132,10 +132,20 @@ export interface CashBuyScenario {
   cashToClose?: number;
   primaryPhotoUrl?: string;
   propertyPhotos?: string[];
-  /** Last-known Zillow lookup status — surfaced as a small badge. */
+  /** Last-known Zillow lookup status — surfaced as a small badge.
+   *  Held in-memory only (no `zillow_status` column in cash_buy_scenarios). */
   zillowStatus?: CashBuyZillowStatus;
+  /** Insurance simulator state (in-memory only — not in the canonical
+   *  table). Lost on refresh; sim re-derives defaults from the address. */
   insuranceFactors?: CashBuyInsuranceFactors;
   insurancePremiumAnnual?: number;
+  /** Persisted lifecycle marker (e.g. "active", "archived"). Defaults to
+   *  "active" on first write. */
+  status?: string;
+  /** Pointer back to the property_cache row that seeded this scenario,
+   *  if available. Persisted but not currently consumed by the UI. */
+  zillowCacheKey?: string;
+  propertyCacheId?: string;
 }
 
 export type TrackedLoanPropertyType = "primary" | "secondary" | "investment";
@@ -315,6 +325,9 @@ function sellerToRow(s: SellerScenario, userId: string) {
     property_photos: s.propertyPhotos ?? null,
   };
 }
+// Maps a Supabase `cash_buy_scenarios` row to the in-memory shape used
+// by the UI. Column names follow the canonical schema (buyer_closing_costs,
+// hoa_amount + hoa_frequency, status, zillow_cache_key, property_cache_id).
 function rowToCashBuy(row: any): CashBuyScenario {
   const photos = Array.isArray(row.property_photos)
     ? row.property_photos.filter((p: any) => typeof p === "string")
@@ -331,26 +344,15 @@ function rowToCashBuy(row: any): CashBuyScenario {
   const hs = row.hoa_source;
   const hoaSource: CashBuyHoaSource | undefined =
     hs === "zillow" || hs === "manual" || hs === "unknown" ? hs : undefined;
-  const pps = row.purchase_price_source;
-  const purchasePriceSource: CashBuyPurchasePriceSource | undefined =
-    pps === "default" || pps === "user" || pps === "zillow_cache" ||
-    pps === "zillow_listing" || pps === "zillow_sold" || pps === "zillow_zestimate"
-      ? pps : undefined;
-  const zs = row.zillow_status;
-  const zillowStatus: CashBuyZillowStatus | undefined =
-    zs === "loading" || zs === "loaded_from_cache" ||
-    zs === "loaded_from_zillow" || zs === "error" ? zs : undefined;
-  const factors = row.insurance_factors;
-  const insuranceFactors: CashBuyInsuranceFactors | undefined =
-    factors && typeof factors === "object" ? {
-      regionKey: String(factors.regionKey ?? "tampa"),
-      roofIdx:   Number(factors.roofIdx   ?? 1),
-      windIdx:   Number(factors.windIdx   ?? 1),
-      hurrIdx:   Number(factors.hurrIdx   ?? 0),
-      constIdx:  Number(factors.constIdx  ?? 0),
-      yearIdx:   Number(factors.yearIdx   ?? 1),
-      claimsIdx: Number(factors.claimsIdx ?? 0),
-    } : undefined;
+
+  // HOA is stored as (amount, frequency). Normalize to a monthly number
+  // for the UI — divide by 12 when the row recorded an annual figure.
+  let hoaMonthly: number | undefined;
+  if (row.hoa_amount != null) {
+    const raw = Number(row.hoa_amount);
+    hoaMonthly = row.hoa_frequency === "annual" ? Math.round(raw / 12) : raw;
+  }
+
   return {
     id: row.id,
     address: row.full_address,
@@ -358,13 +360,12 @@ function rowToCashBuy(row: any): CashBuyScenario {
     savedAt: row.created_at,
     updatedAt: row.updated_at ?? row.created_at,
     purchasePrice: row.purchase_price != null ? Number(row.purchase_price) : undefined,
-    purchasePriceSource,
     occupancyType,
     propertyTaxes: row.property_taxes != null ? Number(row.property_taxes) : undefined,
     homeownersInsurance: row.homeowners_insurance != null ? Number(row.homeowners_insurance) : undefined,
-    hoaMonthly: row.hoa_monthly != null ? Number(row.hoa_monthly) : undefined,
+    hoaMonthly,
     hoaSource,
-    closingCosts: row.closing_costs != null ? Number(row.closing_costs) : undefined,
+    closingCosts: row.buyer_closing_costs != null ? Number(row.buyer_closing_costs) : undefined,
     closingCostsPercent: row.closing_costs_percent != null ? Number(row.closing_costs_percent) : undefined,
     closingCostsSource,
     sellerConcessionsMode,
@@ -373,11 +374,12 @@ function rowToCashBuy(row: any): CashBuyScenario {
     cashToClose: row.cash_to_close != null ? Number(row.cash_to_close) : undefined,
     primaryPhotoUrl: row.primary_photo_url ?? undefined,
     propertyPhotos: photos,
-    zillowStatus,
-    insuranceFactors,
-    insurancePremiumAnnual: row.insurance_premium_annual != null ? Number(row.insurance_premium_annual) : undefined,
+    status: typeof row.status === "string" ? row.status : undefined,
+    zillowCacheKey: row.zillow_cache_key ?? undefined,
+    propertyCacheId: row.property_cache_id ?? undefined,
   };
 }
+
 function cashBuyToRow(s: CashBuyScenario, userId: string) {
   return {
     id: s.id,
@@ -387,13 +389,16 @@ function cashBuyToRow(s: CashBuyScenario, userId: string) {
     created_at: s.savedAt,
     updated_at: s.updatedAt,
     purchase_price: s.purchasePrice ?? null,
-    purchase_price_source: s.purchasePriceSource ?? null,
     occupancy_type: s.occupancyType ?? null,
     property_taxes: s.propertyTaxes ?? null,
     homeowners_insurance: s.homeownersInsurance ?? null,
-    hoa_monthly: s.hoaMonthly ?? null,
+    // Canonical column pair — we always persist the monthly value with
+    // an explicit frequency tag so a future per-frequency reader can
+    // round-trip without losing information.
+    hoa_amount: s.hoaMonthly ?? null,
+    hoa_frequency: s.hoaMonthly != null ? "monthly" : null,
     hoa_source: s.hoaSource ?? null,
-    closing_costs: s.closingCosts ?? null,
+    buyer_closing_costs: s.closingCosts ?? null,
     closing_costs_percent: s.closingCostsPercent ?? null,
     closing_costs_source: s.closingCostsSource ?? null,
     seller_concessions_mode: s.sellerConcessionsMode ?? null,
@@ -402,9 +407,9 @@ function cashBuyToRow(s: CashBuyScenario, userId: string) {
     cash_to_close: s.cashToClose ?? null,
     primary_photo_url: s.primaryPhotoUrl ?? null,
     property_photos: s.propertyPhotos ?? null,
-    zillow_status: s.zillowStatus ?? null,
-    insurance_factors: s.insuranceFactors ?? null,
-    insurance_premium_annual: s.insurancePremiumAnnual ?? null,
+    status: s.status ?? "active",
+    zillow_cache_key: s.zillowCacheKey ?? null,
+    property_cache_id: s.propertyCacheId ?? null,
   };
 }
 function rowToTrackedLoan(row: any): TrackedLoan {

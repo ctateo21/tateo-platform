@@ -172,20 +172,27 @@ create table if not exists public.cash_buy_scenarios (
   user_id                     uuid not null references auth.users(id) on delete cascade,
   full_address                text not null,
   normalized_property_key     text,
-  created_at                  timestamptz not null default now(),
-  updated_at                  timestamptz not null default now(),
   purchase_price              numeric,
-  occupancy_type              text,
-  property_taxes              numeric,
-  homeowners_insurance        numeric,
-  hoa_monthly                 numeric,
-  closing_costs               numeric,
+  cash_to_close               numeric,
+  buyer_closing_costs         numeric,
+  closing_costs_percent       numeric,
+  closing_costs_source        text,
   seller_concessions_mode     text,
   seller_concessions_percent  numeric,
   seller_concessions_amount   numeric,
-  cash_to_close               numeric,
+  property_taxes              numeric,
+  homeowners_insurance        numeric,
+  hoa_amount                  numeric,
+  hoa_frequency               text,
+  hoa_source                  text,
+  occupancy_type              text,
+  status                      text,
   primary_photo_url           text,
-  property_photos             jsonb
+  property_photos             jsonb,
+  zillow_cache_key            text,
+  property_cache_id           text,
+  created_at                  timestamptz not null default now(),
+  updated_at                  timestamptz not null default now()
 );
 
 create index if not exists cash_buy_scenarios_user_idx on public.cash_buy_scenarios(user_id);
@@ -194,17 +201,6 @@ alter table public.cash_buy_scenarios enable row level security;
 drop policy if exists "cash_buy_scenarios_owner" on public.cash_buy_scenarios;
 create policy "cash_buy_scenarios_owner" on public.cash_buy_scenarios
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
--- Phase-2 additive columns (Zillow auto-pull, 2% default closing costs,
--- HOA provenance, insurance simulator persistence). Idempotent.
-alter table public.cash_buy_scenarios
-  add column if not exists purchase_price_source     text,
-  add column if not exists closing_costs_percent     numeric,
-  add column if not exists closing_costs_source      text,
-  add column if not exists hoa_source                text,
-  add column if not exists zillow_status             text,
-  add column if not exists insurance_factors         jsonb,
-  add column if not exists insurance_premium_annual  numeric;
 
 -- ----------------------------------------------------------------------------
 -- 4c. listing_market_analyses  (AI-generated weekly seller listing analysis)

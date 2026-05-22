@@ -331,6 +331,14 @@ export default function CashBuyPage() {
       zillowFiredRef.current.add(key);
       return;
     }
+    // After reload from Supabase, `purchasePriceSource` is gone (not in
+    // the canonical table). Use a non-zero price as a proxy for "already
+    // populated" so a reload doesn't clobber the saved value with a
+    // fresh Zillow scrape.
+    if ((scenario.purchasePrice ?? 0) > 0) {
+      zillowFiredRef.current.add(key);
+      return;
+    }
     zillowFiredRef.current.add(key);
     setZillowStatus("loading");
     setScenario(prev => ({ ...prev, zillowStatus: "loading" }));
