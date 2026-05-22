@@ -1,0 +1,254 @@
+# Replit Build Prompt — Seller Listing Dashboard
+
+## Project Overview
+
+Build a **real estate seller dashboard** web app for a real estate agent's platform. Sellers log in and see a live, personalized dashboard for each of their active listings. The dashboard surfaces everything a seller needs to understand how their property is performing — market comps, days on market, online platform engagement estimates, price recommendations, and next steps — all updated weekly by the agent.
+
+---
+
+## Tech Stack
+
+- **Frontend:** React (with Tailwind CSS for styling)
+- **Backend:** Node.js + Express
+- **Database:** Supabase (PostgreSQL) for listing data, agent notes, and weekly recap entries
+- **Auth:** Supabase Auth (email/password for sellers; separate agent admin login)
+- **Charting:** Recharts
+- **Hosting:** Deploy on Replit with a custom domain hook
+
+---
+
+## User Roles
+
+### 1. Agent (Admin)
+- Logs in via `/admin`
+- Can create, edit, and update listings
+- Inputs weekly recap data manually (views estimates, comps, recommendations, price drop suggestions)
+- Can publish/unpublish recaps visible to sellers
+
+### 2. Seller (Client)
+- Logs in via `/dashboard`
+- Sees only their own listings (linked via `seller_id`)
+- Read-only view of all dashboard data
+- Can see historical weekly recaps in a timeline
+
+---
+
+## Database Schema (Supabase)
+
+### `listings` table
+```
+id               uuid (primary key)
+seller_id        uuid (foreign key → users)
+address          text
+unit             text
+city             text
+state            text
+zip              text
+mls_number       text
+list_price       integer
+beds             integer
+baths            numeric
+sqft             integer
+community        text
+status           text  -- 'active', 'pending', 'sold'
+list_date        date
+last_updated     timestamp
+```
+
+### `weekly_recaps` table
+```
+id                    uuid (primary key)
+listing_id            uuid (foreign key → listings)
+recap_date            date
+days_on_market        integer
+avg_market_dom        integer        -- avg DOM for similar comps
+list_price            integer
+recommended_price_low integer
+recommended_price_high integer
+projected_sale_low    integer
+projected_sale_high   integer
+
+-- Platform engagement (agent-entered estimates)
+zillow_daily_views_est     integer
+zillow_daily_saves_est     numeric
+zillow_heat_index_est      numeric    -- saves/views %
+realtor_weekly_views_est   integer
+realtor_weekly_saves_est   integer
+redfin_weekly_views_est    integer
+redfin_hot_home            boolean
+
+-- Comp data
+comp_1_address        text
+comp_1_price          integer
+comp_1_dom            integer
+comp_1_status         text    -- 'active', 'pending', 'sold'
+comp_2_address        text
+comp_2_price          integer
+comp_2_dom            integer
+comp_2_status         text
+comp_3_address        text
+comp_3_price          integer
+comp_3_dom            integer
+comp_3_status         text
+
+-- Market context
+market_inventory_months    numeric
+market_median_price        integer
+market_sale_to_list_pct    numeric
+
+-- Agent narrative fields
+market_summary        text
+engagement_summary    text
+price_drop_rationale  text
+next_steps            text[]   -- array of action items
+agent_notes           text     -- private note visible to seller
+
+-- Status
+published             boolean  -- agent toggles to show to seller
+```
+
+---
+
+## Pages & Features
+
+### Seller Dashboard — `/dashboard`
+
+**Header**
+- Seller's name + brokerage logo
+- "Last updated: [date]" badge
+- Active listing count
+
+**Listing Selector**
+- If seller has multiple listings, show a tab or dropdown to switch between them
+
+**Per-Listing Dashboard View**
+
+Each listing shows the following sections:
+
+#### 1. Listing Overview Card
+- Address, MLS#, list price, bed/bath/sqft
+- Status badge (Active / Pending / Sold)
+- Days on market vs. market average (shown as a number + color-coded indicator: green <28 days, amber 29–60, red 60+)
+
+#### 2. Price Analysis Panel
+- Current list price
+- Agent's recommended price range
+- Agent's projected sale range
+- A simple horizontal range bar showing: [projected low] ←——→ [projected high] with current list price marked
+- Price drop recommendation card (amber highlight if recommended)
+
+#### 3. Market Comps Table
+- Show up to 3 comps: address, price, DOM, status (active/pending/sold)
+- Color-code sold comps in green, active in blue, pending in amber
+- Market context stats: inventory months, median price, avg sale-to-list %
+
+#### 4. Online Platform Engagement Section
+This is the key differentiator section. Show all three platforms side by side.
+
+**For each platform (Zillow, Realtor.com, Redfin):**
+- Estimated current views (weekly or daily depending on platform)
+- Estimated saves/hearts
+- A bar comparing this listing's engagement to a freshly listed comp (use the agent-entered estimate as % of baseline)
+- Heat index (for Zillow only): saves ÷ views shown as a %
+- Color-code: green ≥5%, amber 2–5%, red <2%
+
+**Below the platform cards:**
+Show a plain-language explanation written by the agent (pulled from `engagement_summary` field) explaining what the numbers mean and what action is recommended.
+
+**Benchmark reference strip** (always visible):
+- 250+ daily views → pending in ~1 week
+- 5+ daily saves → under contract in a week
+- <1 save/day → 30+ days on market expected
+- <25 views/day → critical — pricing or presentation issue
+
+#### 5. Next Steps Panel
+- Render `next_steps[]` as a checklist-style list
+- Each item has a checkbox (decorative — not interactive for sellers, but agent can mark as complete in admin)
+- Color each item: uncomplete = amber bullet, complete = green checkmark
+
+#### 6. Weekly Recap History Timeline
+- Show past recaps in a collapsible accordion list, sorted newest first
+- Each entry shows: date, DOM at time, list price at time, key agent note
+- Lets the seller see their listing's full history over time
+
+---
+
+### Agent Admin — `/admin`
+
+**Listings Manager**
+- Table of all active listings with seller name, address, DOM, last recap date
+- "Add Listing" button → form to create new listing and link to seller account
+- Click any listing → opens the Recap Editor
+
+**Recap Editor**
+- Form with all fields from `weekly_recaps` table
+- Rich text area for narrative fields (market_summary, engagement_summary, next_steps)
+- "Save Draft" and "Publish to Seller" buttons
+- Preview mode shows exactly what the seller will see before publishing
+
+**Seller Management**
+- Create seller accounts (name, email, linked listings)
+- Send invite email via Supabase Auth
+
+---
+
+## Design Guidelines
+
+- Clean, professional real estate aesthetic
+- Color palette: white backgrounds, dark navy text (#0F172A), accent color teal (#0D9488) for positive signals, amber (#D97706) for warnings, red (#DC2626) for critical flags
+- Mobile responsive — sellers will often view on phone
+- No jargon — write all UI labels in plain seller-friendly language (e.g. "Online Interest Score" not "Heat Index")
+- Every metric should have a plain-English tooltip explaining what it means
+
+---
+
+## Sample Data to Pre-Populate on Launch
+
+Use these three listings as seed data so the app launches with a working demo:
+
+**Listing 1**
+- Address: 2200 Bahia Vista St #B-8, Sarasota, FL 34239
+- MLS: TB8491429 | List Price: $210,000 | Beds: 2 | Baths: 2 | Sqft: 982
+- Community: Cordova Gardens IV | List Date: ~March 30, 2025
+- DOM: 50 | Market avg DOM: 28
+- Zillow daily views est: 20 | Daily saves est: 0.5 | Heat index: 2.5%
+- Realtor weekly views: 105 | Redfin weekly views: 80
+- Recommended price: $195,000–$200,000 | Projected sale: $193,000–$203,000
+- Price drop recommended: YES
+- Next steps: Reduce to $195K–$200K, refresh listing photos, schedule open house, boost on Zillow/Realtor.com, highlight unique loft layout
+
+**Listing 2**
+- Address: 2232 Bahia Vista St #A-1, Sarasota, FL 34239
+- MLS: TB8491201 | List Price: $210,000 | Beds: 2 | Baths: 2 | Sqft: 982
+- Community: Cordova Gardens I | List Date: ~March 30, 2025
+- DOM: 50 | Market avg DOM: 28
+- Zillow daily views est: 18 | Daily saves est: 0.4 | Heat index: 2.2%
+- Redfin AVM: $249,000 (notable — list is $39K below AVM)
+- Realtor weekly views: 105 | Redfin weekly views: 75
+- Recommended price: $199,000 | Projected sale: $195,000–$205,000
+- Price drop recommended: YES
+- Next steps: Reprice to $199K or invest in updates for $225K+, stagger pricing vs B-8, stage outdoor spaces, promote walkability
+
+**Listing 3**
+- Address: 4045 Crockers Lake Blvd #11, Sarasota, FL 34238
+- MLS: A4640941 | List Price: $225,000 | Beds: 3 | Baths: 2 | Sqft: 1,272
+- Community: Vintage Grand, Palmer Ranch | List Date: ~Feb 18, 2025
+- DOM: 93 | Market avg DOM: 49
+- Zillow daily views est: 10 | Daily saves est: 0.2 | Heat index: 2%
+- Realtor weekly views: 45 | Redfin weekly views: 35
+- Key comp: 4002 Crockers Lake #11 sold Aug 2025 at $182,950
+- Active competing units in complex: 5+
+- Recommended price: $209,900 | Projected sale: $195,000–$210,000
+- Price drop recommended: YES — full relist recommended
+- Next steps: Full relist at $209,900, add video walkthrough, target investor buyers, lead with Floreta floor plan (largest in community)
+
+---
+
+## Nice-to-Have Features (Phase 2)
+
+- Email notification to seller when agent publishes a new recap
+- PDF export of weekly recap for seller to download
+- Seller can leave a comment/question on a recap (agent responds in admin)
+- Showing request counter (agent manually enters # of showings per week)
+- Price history chart showing list price changes over time with DOM overlay
+- Market trend chart: median condo price in seller's zip code over 6 months (pull from public data or manual entry)
