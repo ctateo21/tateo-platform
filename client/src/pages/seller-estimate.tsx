@@ -206,11 +206,14 @@ export default function SellerEstimatePage() {
         const p = body?.property;
         if (!isMountedRef.current) return;
         if (!p) { setZillowStatus("error"); return; }
+        // Sale-side price priority: home-value Zestimate first (per task spec
+        // — never the rent Zestimate), then the cached estimatedHomeValue,
+        // then any explicit listing/purchase price on the cache row.
         const zPrice =
-          (typeof p.purchasePrice === "number" && p.purchasePrice) ||
-          (typeof p.listingPrice === "number" && p.listingPrice) ||
           (typeof p.zestimate === "number" && p.zestimate) ||
           (typeof p.estimatedHomeValue === "number" && p.estimatedHomeValue) ||
+          (typeof p.listingPrice === "number" && p.listingPrice) ||
+          (typeof p.purchasePrice === "number" && p.purchasePrice) ||
           null;
         const photos = Array.isArray(p.photos) ? p.photos.filter((x: any) => typeof x === "string") : [];
 

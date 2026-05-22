@@ -136,9 +136,9 @@ create policy "insurance_scenarios_owner" on public.insurance_scenarios
 create table if not exists public.seller_scenarios (
   id                       text primary key,
   user_id                  uuid not null references auth.users(id) on delete cascade,
-  address                  text not null,
+  full_address             text not null,
   normalized_property_key  text,
-  saved_at                 timestamptz not null default now(),
+  created_at               timestamptz not null default now(),
   updated_at               timestamptz not null default now(),
   estimated_sale_price     numeric,
   mortgage_payoff          numeric,

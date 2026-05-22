@@ -189,10 +189,12 @@ function rowToSeller(row: any): SellerScenario {
       : "draft";
   return {
     id: row.id,
-    address: row.address,
+    // Schema column is `full_address`; fall back to legacy `address` so any
+    // pre-rename rows still hydrate cleanly.
+    address: row.full_address ?? row.address,
     normalizedPropertyKey: row.normalized_property_key ?? undefined,
-    savedAt: row.saved_at,
-    updatedAt: row.updated_at ?? row.saved_at,
+    savedAt: row.created_at ?? row.saved_at,
+    updatedAt: row.updated_at ?? row.created_at ?? row.saved_at,
     estimatedSalePrice: row.estimated_sale_price != null ? Number(row.estimated_sale_price) : undefined,
     mortgagePayoff: row.mortgage_payoff != null ? Number(row.mortgage_payoff) : undefined,
     sellerClosingCosts: row.seller_closing_costs != null ? Number(row.seller_closing_costs) : undefined,
@@ -210,9 +212,9 @@ function sellerToRow(s: SellerScenario, userId: string) {
   return {
     id: s.id,
     user_id: userId,
-    address: s.address,
+    full_address: s.address,
     normalized_property_key: s.normalizedPropertyKey ?? null,
-    saved_at: s.savedAt,
+    created_at: s.savedAt,
     updated_at: s.updatedAt,
     estimated_sale_price: s.estimatedSalePrice ?? null,
     mortgage_payoff: s.mortgagePayoff ?? null,

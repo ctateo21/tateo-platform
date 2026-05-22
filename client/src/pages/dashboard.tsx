@@ -1205,6 +1205,20 @@ function computeSellerNetProceeds(s: SellerScenario): number | null {
   return Math.round(total);
 }
 
+// "—" fallback for unset numeric/date row fields — matches the dashboard
+// convention for partially-populated scenarios.
+const EMDASH = "—";
+function fmtMoneyOrDash(n: number | null | undefined): string {
+  return n == null ? EMDASH : formatCurrency(n);
+}
+
+function makeSellerId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `seller_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
 function SellersTab() {
   const [, setLocation] = useLocation();
   const [scenarios, setScenarios] = useState<SellerScenario[]>([]);
@@ -1216,11 +1230,45 @@ function SellersTab() {
     return unsub;
   }, []);
 
-  function navigate(addr: string, id?: string) {
-    const q = id
-      ? `?address=${encodeURIComponent(addr)}&id=${encodeURIComponent(id)}`
-      : `?address=${encodeURIComponent(addr)}`;
-    setLocation(`/seller${q}`);
+  // Create a seller record immediately on address selection (per task spec)
+  // so it shows up in the dashboard even if the user never opens the detail
+  // page. If a record already exists for the same address, reuse it instead
+  // of creating a duplicate.
+  function openOrCreate(addr: string) {
+    const existing = scenarios.find(
+      s => s.address.toLowerCase().trim() === addr.toLowerCase().trim()
+    );
+    if (existing) {
+      setLocation(
+        `/seller?address=${encodeURIComponent(existing.address)}&id=${encodeURIComponent(existing.id)}`
+      );
+      return;
+    }
+    const now = new Date().toISOString();
+    const id = makeSellerId();
+    const norm = normalizePropertyKey(addr).key || undefined;
+    const fresh: SellerScenario = {
+      id,
+      address: addr,
+      normalizedPropertyKey: norm,
+      savedAt: now,
+      updatedAt: now,
+      realtorCommissionPct: 6,
+      sellerClosingCosts: 0,
+      buyerConcessions: 0,
+      repairBudget: 0,
+      otherSellingCosts: 0,
+      mortgagePayoff: 0,
+      status: "draft",
+    };
+    const next = [fresh, ...scenarios];
+    setScenarios(next);
+    saveSellerScenarios(next);
+    setLocation(`/seller?address=${encodeURIComponent(addr)}&id=${encodeURIComponent(id)}`);
+  }
+
+  function openExisting(s: SellerScenario) {
+    setLocation(`/seller?address=${encodeURIComponent(s.address)}&id=${encodeURIComponent(s.id)}`);
   }
 
   function remove(id: string, e?: React.MouseEvent) {
@@ -1233,12 +1281,18 @@ function SellersTab() {
   if (scenarios.length === 0 && !showAddSearch) {
     return (
       <div className="flex flex-col items-center justify-center py-12 px-4">
-        <div className="w-full max-w-2xl text-center">
-          <h2 className="text-2xl font-bold mb-2">Thinking about selling?</h2>
-          <p className="text-muted-foreground mb-8">
-            Enter your property address to see your estimated sale price and net proceeds after payoff, commission, and closing costs.
+        <div className="w-full max-w-xl text-center space-y-4">
+          <Tag className="h-10 w-10 mx-auto text-primary" />
+          <h2 className="text-2xl font-bold">Thinking about selling?</h2>
+          <p className="text-muted-foreground">
+            Add your property address to see your estimated sale price and net proceeds after payoff, commission, and closing costs.
           </p>
-          <AddressSearchBar onNavigate={addr => navigate(addr)} />
+          <div className="pt-2">
+            <AddressSearchBar onNavigate={openOrCreate} compact />
+            <p className="text-xs text-muted-foreground mt-2">
+              We'll save it to your dashboard so you can come back any time.
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -1250,7 +1304,7 @@ function SellersTab() {
         {scenarios.map(s => (
           <button
             key={s.id}
-            onClick={() => navigate(s.address, s.id)}
+            onClick={() => openExisting(s)}
             className="group flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-background hover:border-primary hover:bg-accent transition-colors text-sm font-medium max-w-[220px]"
           >
             <MapPin className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0" />
@@ -1268,13 +1322,16 @@ function SellersTab() {
           onClick={() => setShowAddSearch(v => !v)}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
         >
-          <Search className="h-3.5 w-3.5" /> Add Property
+          <Search className="h-3.5 w-3.5" /> Add Seller Property
         </button>
       </div>
 
       {showAddSearch && (
         <div className="flex items-center gap-2">
-          <AddressSearchBar onNavigate={addr => { setShowAddSearch(false); navigate(addr); }} compact />
+          <AddressSearchBar
+            onNavigate={addr => { setShowAddSearch(false); openOrCreate(addr); }}
+            compact
+          />
           <Button variant="ghost" size="sm" className="h-10" onClick={() => setShowAddSearch(false)}>Cancel</Button>
         </div>
       )}
@@ -1286,7 +1343,7 @@ function SellersTab() {
             <Card
               key={s.id}
               className="hover:shadow-md transition-shadow cursor-pointer group relative"
-              onClick={() => navigate(s.address, s.id)}
+              onClick={() => openExisting(s)}
             >
               <CardContent className="py-4">
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
@@ -1305,7 +1362,7 @@ function SellersTab() {
                       <div className="min-w-0">
                         <p className="font-semibold text-sm leading-snug line-clamp-2">{s.address}</p>
                         <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-                          <Calendar className="h-3 w-3" /> Saved {formatDate(s.savedAt)}
+                          <Calendar className="h-3 w-3" /> Updated {formatDate(s.updatedAt ?? s.savedAt)}
                         </p>
                       </div>
                     </div>
@@ -1317,36 +1374,36 @@ function SellersTab() {
                     </Badge>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-sm flex-1">
-                    {s.estimatedSalePrice != null && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">Est. Sale Price</p>
-                        <p className="font-semibold">{formatCurrency(s.estimatedSalePrice)}</p>
-                      </div>
-                    )}
-                    {s.mortgagePayoff != null && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">Payoff</p>
-                        <p className="font-semibold">{formatCurrency(s.mortgagePayoff)}</p>
-                      </div>
-                    )}
-                    {net != null && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">Net Proceeds</p>
-                        <p className={`font-semibold ${net >= 0 ? "text-green-700" : "text-destructive"}`}>
-                          {formatCurrency(net)}
-                        </p>
-                      </div>
-                    )}
+                  {/* Required row stats — always rendered with "—" when unset,
+                      per task spec ("never empty boxes"). */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm flex-1">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Est. Sale Price</p>
+                      <p className="font-semibold">{fmtMoneyOrDash(s.estimatedSalePrice)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Closing Costs</p>
+                      <p className="font-semibold">{fmtMoneyOrDash(s.sellerClosingCosts)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Payoff</p>
+                      <p className="font-semibold">{fmtMoneyOrDash(s.mortgagePayoff)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Net Proceeds</p>
+                      <p className={`font-semibold ${net == null ? "" : net >= 0 ? "text-green-700" : "text-destructive"}`}>
+                        {fmtMoneyOrDash(net)}
+                      </p>
+                    </div>
                   </div>
 
                   <div className="flex gap-2 lg:shrink-0">
                     <Button
                       size="sm"
                       className="gap-2"
-                      onClick={e => { e.stopPropagation(); navigate(s.address, s.id); }}
+                      onClick={e => { e.stopPropagation(); openExisting(s); }}
                     >
-                      Open <ExternalLink className="h-3.5 w-3.5" />
+                      View / Edit <ExternalLink className="h-3.5 w-3.5" />
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
