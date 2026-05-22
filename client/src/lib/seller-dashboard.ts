@@ -58,14 +58,17 @@ export interface SellerProfile {
   email: string;
 }
 
-// Seller-facing list: only active listings per spec. Sellers don't need to
-// scroll past pending or sold properties.
-export async function fetchMyListings(): Promise<Listing[]> {
-  const { data, error } = await supabase
+export type ListingStatusFilter = "active" | "pending" | "sold" | "all";
+
+// Seller-facing list. Defaults to active so the dashboard stays focused on
+// live properties, but sellers can switch to see pending or sold listings too.
+export async function fetchMyListings(status: ListingStatusFilter = "active"): Promise<Listing[]> {
+  let q = supabase
     .from("listings")
     .select("*")
-    .eq("status", "active")
     .order("last_updated", { ascending: false });
+  if (status !== "all") q = q.eq("status", status);
+  const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as Listing[];
 }

@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { ListingStatusFilter } from "@/lib/seller-dashboard";
 import {
   Accordion, AccordionContent, AccordionItem, AccordionTrigger,
 } from "@/components/ui/accordion";
@@ -467,18 +468,31 @@ export function ListingView({ listing, recaps }: { listing: Listing; recaps: Wee
   );
 }
 
+const STATUS_FILTERS: { value: ListingStatusFilter; label: string }[] = [
+  { value: "active", label: "Active" },
+  { value: "pending", label: "Pending" },
+  { value: "sold", label: "Sold" },
+  { value: "all", label: "All" },
+];
+
 export default function SellerDashboardPage() {
   const { user } = useAuth();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<ListingStatusFilter>("active");
 
   const { data: listings, isLoading, error } = useQuery<Listing[]>({
-    queryKey: ["seller-dashboard", "listings", user?.id],
-    queryFn: fetchMyListings,
+    queryKey: ["seller-dashboard", "listings", user?.id, statusFilter],
+    queryFn: () => fetchMyListings(statusFilter),
     enabled: !!user,
   });
 
   useEffect(() => {
-    if (listings && listings.length > 0 && !selectedId) {
+    if (!listings) return;
+    if (listings.length === 0) {
+      if (selectedId) setSelectedId(null);
+      return;
+    }
+    if (!selectedId || !listings.some(l => l.id === selectedId)) {
       setSelectedId(listings[0].id);
     }
   }, [listings, selectedId]);
@@ -515,7 +529,9 @@ export default function SellerDashboardPage() {
         <div>
           <h1 className="text-3xl font-bold text-primary">My Listings</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Welcome back, {user.name.split(" ")[0]} · {listings?.length ?? 0} active listing{(listings?.length ?? 0) === 1 ? "" : "s"}
+            Welcome back, {user.name.split(" ")[0]} · {listings?.length ?? 0}
+            {statusFilter === "all" ? " " : ` ${statusFilter} `}
+            listing{(listings?.length ?? 0) === 1 ? "" : "s"}
           </p>
         </div>
         {lastUpdated && (
@@ -524,6 +540,20 @@ export default function SellerDashboardPage() {
           </Badge>
         )}
       </div>
+
+      <Tabs
+        value={statusFilter}
+        onValueChange={(v) => setStatusFilter(v as ListingStatusFilter)}
+        className="mb-4"
+      >
+        <TabsList className="flex-wrap h-auto">
+          {STATUS_FILTERS.map(f => (
+            <TabsTrigger key={f.value} value={f.value} data-testid={`filter-${f.value}`}>
+              {f.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {isLoading && (
         <div className="py-16 text-center text-muted-foreground">Loading your listings…</div>
@@ -543,8 +573,17 @@ export default function SellerDashboardPage() {
         <Card>
           <CardContent className="p-12 text-center">
             <Home className="h-10 w-10 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="font-semibold mb-1">No active listings yet</p>
-            <p className="text-sm text-muted-foreground">Your agent will add your listing here once it goes live.</p>
+            <p className="font-semibold mb-1">
+              {statusFilter === "active" && "No active listings yet"}
+              {statusFilter === "pending" && "No pending listings"}
+              {statusFilter === "sold" && "No sold listings yet"}
+              {statusFilter === "all" && "No listings yet"}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {statusFilter === "active"
+                ? "Your agent will add your listing here once it goes live."
+                : "Try a different status filter to see other listings."}
+            </p>
           </CardContent>
         </Card>
       )}
