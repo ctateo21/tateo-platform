@@ -1,0 +1,312 @@
+The attached recap is a good target format: compact listing cards with list price, DOM, comps, views/saves context, price-drop recommendation, projected sale range, next steps, and a market footer.  Use this full prompt:
+
+```text
+Fix Dashboard → For Sale → Market Analysis.
+
+Current issue:
+Inside Dashboard → For Sale → property detail, the Market Analysis section says:
+
+“Market analysis unavailable right now.
+
+Your net proceeds and saved data are unaffected. Try Refresh in a moment.”
+
+But I want the app to automatically generate the Market Analysis using my Anthropic API key and display a weekly seller-facing listing recap similar to the attached weekly_real_estate_recap.html example.
+
+Important:
+The For Sale property now saves correctly. Do not change For Sale persistence unless needed for Market Analysis to read the saved seller scenario.
+
+Goal:
+When a logged-in user opens a saved For Sale property detail page, the Market Analysis section should:
+1. Check whether a current weekly analysis already exists.
+2. If current analysis exists, display it.
+3. If no current analysis exists, call Anthropic server-side using my Anthropic API key.
+4. Save the generated analysis to Supabase.
+5. Display the saved/generated analysis.
+6. Refresh automatically once per week on Fridays.
+
+Do not show “Market analysis unavailable right now” unless the API call actually fails or required data is missing and cannot be handled.
+
+Use my Anthropic API key:
+- Store the key as a Replit Secret / environment variable:
+  ANTHROPIC_API_KEY
+- Call Anthropic from the backend/server/API route only.
+- Never expose the Anthropic key to the frontend.
+- Do not call Anthropic directly from React.
+
+Critical clarification:
+Anthropic should analyze the data the app provides. Do not hallucinate MLS data, comp data, Zillow views, Realtor.com views, Redfin data, showings, DOM, or platform engagement if the app does not have that data.
+
+If live/public market data is not available inside the app yet:
+- Use saved seller scenario data.
+- Use Zillow/Apify/property cache data if available.
+- Use any listing data already saved.
+- Use any manually entered seller/listing data.
+- Clearly state data limitations.
+- Recommend what data should be added next.
+- Do not invent exact comps, exact views, exact saves, or exact DOM.
+
+The output should follow the structure/style of the attached weekly recap:
+- Listing overview
+- List price / estimated sale price
+- Days on market if available
+- Beds / baths / sqft if available
+- Last sold or prior value if available
+- Market comps section
+- Similar pending/sold section
+- Views & saves / online interest section
+- Price drop recommendation
+- Projected sale price range
+- Next steps to get this sold
+- Local market context footer
+
+Market Analysis UI:
+Inside Dashboard → For Sale → property detail, keep the existing Estimated Net Proceeds section.
+
+Add Market Analysis below or near Estimated Net Proceeds.
+
+Display sections:
+1. Weekly Market Analysis header
+   - Week of [date]
+   - Last updated [date/time]
+   - “Updates every Friday”
+
+2. Listing Snapshot
+   - Address
+   - Estimated sale price/list price
+   - Beds/baths/sqft if available
+   - Property type if available
+   - Property photo if available
+
+3. Price Analysis
+   - Current list/estimated price
+   - Recommended price range
+   - Projected sale range
+   - Price review recommendation:
+     - “Competitive”
+     - “Price Review Advised”
+     - “Overpriced Risk”
+   - Plain-English explanation
+
+4. Market Comps
+   - Up to 3 comps if available
+   - If comps are not available, show:
+     “Comparable sales data has not been added yet.”
+   - Do not invent comps
+
+5. Online Interest / Listing Activity
+   - Zillow/Realtor/Redfin views/saves if available
+   - If not available, say:
+     “Online engagement data has not been connected yet.”
+   - Explain what the seller should watch for
+
+6. Showings
+   - Showings this week if available
+   - Total showings if available
+   - If unavailable, show a clean placeholder
+
+7. Price Drop / Pricing Strategy
+   - Whether a price review is recommended
+   - Why or why not
+   - Use cautious language if data is incomplete
+
+8. Recommended Next Steps
+   - 3–6 clear action items
+   - Examples:
+     - Review pricing after X days on market
+     - Add/refresh photos
+     - Add video walkthrough
+     - Highlight strongest property features
+     - Review showing feedback
+     - Compare against new active listings
+
+9. Market Context Footer
+   - Inventory/months supply if available
+   - Median price if available
+   - Sale-to-list ratio if available
+   - Average DOM if available
+   - If unavailable, show “Not connected yet”
+
+Anthropic response format:
+Create a backend prompt that asks Anthropic to return structured JSON like this:
+
+{
+  "week_of": "",
+  "market_status_label": "Competitive | Price Review Advised | Overpriced Risk | Insufficient Data",
+  "listing_snapshot": {
+    "summary": "",
+    "key_metrics": []
+  },
+  "price_analysis": {
+    "current_price": null,
+    "recommended_price_low": null,
+    "recommended_price_high": null,
+    "projected_sale_low": null,
+    "projected_sale_high": null,
+    "price_review_recommended": false,
+    "summary": ""
+  },
+  "market_comps": {
+    "summary": "",
+    "comps": []
+  },
+  "online_interest": {
+    "summary": "",
+    "zillow": null,
+    "realtor": null,
+    "redfin": null
+  },
+  "showings": {
+    "summary": "",
+    "showings_this_week": null,
+    "showings_total": null
+  },
+  "next_steps": [],
+  "market_context": {
+    "summary": "",
+    "stats": []
+  },
+  "data_limitations": [],
+  "confidence_level": "low | medium | high"
+}
+
+Prompt rules for Anthropic:
+- Do not fabricate specific comps.
+- Do not fabricate MLS stats.
+- Do not fabricate platform views/saves.
+- Do not fabricate showing counts.
+- If data is missing, state that it is missing.
+- Use plain seller-friendly language.
+- Be direct and practical.
+- Focus on helping the seller understand pricing, engagement, and next steps.
+- Use the attached weekly recap style as the formatting/content inspiration.
+
+Data to send to Anthropic:
+Send all available data from the saved seller scenario and property cache:
+- seller scenario ID
+- user ID
+- full address
+- normalized property key
+- estimated sale price
+- Zillow value / Zestimate if available
+- current list price if available
+- beds
+- baths
+- sqft
+- lot size
+- year built
+- property type
+- property photos count
+- mortgage payoff
+- net proceeds
+- seller closing costs
+- realtor commission
+- buyer concessions
+- repair budget
+- other selling costs
+- status
+- DOM if available
+- comps if available
+- showing data if available
+- online engagement data if available
+- prior analysis if available
+
+Supabase storage:
+Use the existing `listing_market_analyses` table if it exists. If the current table schema does not match, adjust minimally or tell me the SQL needed.
+
+Each analysis record should store:
+- id
+- seller_scenario_id or listing_id
+- user_id
+- property_address
+- analysis_week_of
+- generated_at
+- next_update_due_at
+- status
+- market_summary / JSON analysis
+- raw_prompt
+- raw_anthropic_response
+- error_message if failed
+- created_at
+- updated_at
+
+Weekly Friday update logic:
+Use lazy Friday refresh for MVP unless a true cron already exists.
+
+Logic:
+1. On For Sale detail load, check current saved analysis.
+2. Determine the current Friday cycle.
+3. If no analysis exists for the current cycle, generate one.
+4. If analysis exists and is current, display saved analysis.
+5. If today is Friday and existing analysis is from a prior cycle, regenerate.
+6. Do not call Anthropic every page load.
+7. Save and reuse the generated analysis until the next Friday cycle.
+
+Loading state:
+While generating, show:
+“Updating market analysis…”
+
+Do not block:
+- Estimated Net Proceeds
+- Seller numbers
+- Property details
+
+Failure state:
+Only show “Market analysis unavailable right now” if the backend Anthropic call or Supabase save truly fails.
+
+If it fails, log:
+- whether ANTHROPIC_API_KEY exists server-side
+- backend route called
+- request payload
+- Anthropic error
+- Supabase save error
+- analysis lookup error
+
+Debug required:
+Add temporary logs:
+- `[market-analysis] seller scenario id`
+- `[market-analysis] user id`
+- `[market-analysis] existing analysis lookup`
+- `[market-analysis] current week/stale check`
+- `[market-analysis] calling Anthropic`
+- `[market-analysis] Anthropic response received`
+- `[market-analysis] saving to Supabase`
+- `[market-analysis] save ok`
+- `[market-analysis] failed` with full error
+
+Possible issues to inspect:
+- ANTHROPIC_API_KEY is not set in Replit Secrets
+- backend route is not being called
+- frontend incorrectly thinks user is signed out
+- market analysis table is missing columns or RLS policy
+- seller_scenario_id/listing_id mismatch
+- Supabase insert is failing silently
+- Anthropic response is not valid JSON and parser fails
+- frontend only displays unavailable state instead of raw/error state
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → For Sale.
+3. Open a saved For Sale property detail page.
+4. Confirm Market Analysis does not say sign in.
+5. Confirm it checks for existing saved analysis.
+6. If no current analysis exists, confirm it calls Anthropic server-side.
+7. Confirm ANTHROPIC_API_KEY is not exposed to frontend.
+8. Confirm generated analysis saves to Supabase.
+9. Confirm Market Analysis displays in the UI.
+10. Refresh the page.
+11. Confirm saved analysis loads without calling Anthropic again.
+12. Simulate next Friday/stale cycle.
+13. Confirm a new analysis is generated.
+14. Confirm missing comp/views/showing data is shown as unavailable, not invented.
+15. Confirm Estimated Net Proceeds remains unchanged and working.
+
+Please make the smallest safe code change possible and tell me:
+- Why Market Analysis was unavailable
+- Whether ANTHROPIC_API_KEY was found server-side
+- Which backend/API route calls Anthropic
+- Which data is sent to Anthropic
+- Which Supabase table stores the analysis
+- How Friday freshness is determined
+- How the response is rendered
+- Which files/functions were changed
+```
