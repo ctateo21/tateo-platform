@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation, useSearch } from "wouter";
 import {
   Home, RefreshCw, Shield, Search, LogOut, Trash2, ExternalLink,
-  MapPin, Calendar, Plus, X, Pencil, Check, Tag,
+  MapPin, Calendar, Plus, X, Pencil, Check, Tag, Banknote,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -22,6 +22,8 @@ import {
   getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
   getInsuranceScenarios,
   getSellerScenarios, saveSellerScenarios, subscribePersistenceError,
+  getCashBuyScenarios, saveCashBuyScenarios,
+  type CashBuyScenario,
   type InsuranceScenario, type PurchaseScenario,
   type SellerScenario, type SellerScenarioStatus,
 } from "@/lib/auth";
@@ -1100,6 +1102,254 @@ export default function Dashboard() {
   );
 }
 
+// ── Cash Buy Tab — saved cash-purchase scenarios ─────────────────────
+// Mirrors PurchaseTab's row/empty-state structure, but:
+//   • Pulls from cash_buy_scenarios (own table, RLS by user_id).
+//   • Renders cash-specific stats only — no DTI, no monthly payment,
+//     no Qualifies/Review badge, no loan type.
+//   • Routes to /cash-buy (own editor page) — never /estimate.
+function cashBuyCashToCloseSnapshot(s: CashBuyScenario): number | null {
+  if (s.cashToClose != null) return s.cashToClose;
+  if (s.purchasePrice == null) return null;
+  const concession = (() => {
+    const mode = s.sellerConcessionsMode ?? "percent";
+    const raw = mode === "amount"
+      ? (s.sellerConcessionsAmount ?? 0)
+      : (s.purchasePrice * ((s.sellerConcessionsPercent ?? 0) / 100));
+    return Math.min(raw, s.closingCosts ?? 0);
+  })();
+  return Math.max(0, Math.round(s.purchasePrice + (s.closingCosts ?? 0) - concession));
+}
+
+const CASH_OCCUPANCY_LABEL: Record<NonNullable<CashBuyScenario["occupancyType"]>, string> = {
+  primary: "Primary",
+  secondary: "Secondary",
+  investment: "Investment",
+};
+
+function CashBuyTab() {
+  const [, setLocation] = useLocation();
+  const [scenarios, setScenarios] = useState<CashBuyScenario[]>([]);
+  const [showAddSearch, setShowAddSearch] = useState(false);
+
+  useEffect(() => {
+    setScenarios(getCashBuyScenarios());
+    const unsub = subscribeAuthChange(() => setScenarios(getCashBuyScenarios()));
+    return unsub;
+  }, []);
+
+  // Persist a draft cash-buy row immediately on address selection so an
+  // address-only scenario survives navigation/refresh/logout even if the
+  // user never edits a field (mirrors seller `openOrCreate`).
+  function navigate(addr: string, id?: string) {
+    let targetId = id;
+    if (!targetId) {
+      const existing = scenarios.find(
+        s => s.address.toLowerCase().trim() === addr.toLowerCase().trim()
+      );
+      if (existing) {
+        targetId = existing.id;
+      } else {
+        const now = new Date().toISOString();
+        const draft: CashBuyScenario = {
+          id: (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+            ? crypto.randomUUID()
+            : `cashbuy_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          address: addr,
+          normalizedPropertyKey: normalizePropertyKey(addr).key || undefined,
+          savedAt: now,
+          updatedAt: now,
+          occupancyType: "primary",
+          sellerConcessionsMode: "percent",
+        };
+        const next = [draft, ...scenarios];
+        setScenarios(next);
+        saveCashBuyScenarios(next);
+        targetId = draft.id;
+      }
+    }
+    const qs = new URLSearchParams({ address: addr, from: "dashboard" });
+    qs.set("id", targetId);
+    setLocation(`/cash-buy?${qs.toString()}`);
+  }
+
+  function remove(id: string, e?: React.MouseEvent) {
+    e?.stopPropagation();
+    const updated = scenarios.filter(s => s.id !== id);
+    setScenarios(updated);
+    saveCashBuyScenarios(updated);
+  }
+
+  if (scenarios.length === 0 && !showAddSearch) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-3 flex items-start gap-3">
+          <Banknote className="h-5 w-5 text-muted-foreground shrink-0 mt-0.5" />
+          <div className="text-sm text-muted-foreground">
+            Track a cash purchase — no mortgage, no qualifying. Just price, closing
+            costs, taxes, and insurance.
+          </div>
+        </div>
+        <AddressSearchBar onNavigate={(addr) => navigate(addr)} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Address quick-tabs row */}
+      <div className="flex flex-wrap items-center gap-2">
+        {scenarios.map(s => (
+          <button
+            key={s.id}
+            onClick={() => navigate(s.address, s.id)}
+            className="group flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-background hover:border-primary hover:bg-accent transition-colors text-sm font-medium max-w-[220px]"
+          >
+            <MapPin className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0" />
+            <span className="truncate">{s.address.split(",")[0]}</span>
+            <span
+              role="button"
+              onClick={e => remove(s.id, e)}
+              className="ml-0.5 text-muted-foreground hover:text-destructive transition-colors shrink-0 cursor-pointer"
+            >
+              <X className="h-3 w-3" />
+            </span>
+          </button>
+        ))}
+        <button
+          onClick={() => setShowAddSearch(v => !v)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+        >
+          <Search className="h-3.5 w-3.5" /> Add Property
+        </button>
+      </div>
+
+      {showAddSearch && (
+        <div className="flex items-center gap-2">
+          <AddressSearchBar
+            onNavigate={addr => { setShowAddSearch(false); navigate(addr); }}
+            compact
+          />
+          <Button variant="ghost" size="sm" className="h-10" onClick={() => setShowAddSearch(false)}>
+            Cancel
+          </Button>
+        </div>
+      )}
+
+      {/* Property rows — cash-specific stats only */}
+      <div className="space-y-3">
+        {scenarios.map(s => {
+          const ctc = cashBuyCashToCloseSnapshot(s);
+          const occLabel = s.occupancyType ? CASH_OCCUPANCY_LABEL[s.occupancyType] : null;
+          return (
+            <Card
+              key={s.id}
+              className="hover:shadow-md transition-shadow cursor-pointer group relative"
+              onClick={() => navigate(s.address, s.id)}
+            >
+              <CardContent className="py-4">
+                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                  <div className="flex-1 min-w-0 lg:max-w-xs">
+                    <div className="flex items-start gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm leading-snug line-clamp-2">{s.address}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                          <Calendar className="h-3 w-3" /> Updated {formatDate(s.updatedAt)}
+                          {occLabel && <span className="ml-2">· {occLabel}</span>}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm flex-1">
+                    {s.purchasePrice != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Price</p>
+                        <p className="font-semibold">{formatCurrency(s.purchasePrice)}</p>
+                      </div>
+                    )}
+                    {ctc != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Cash to Close</p>
+                        <p className="font-semibold">{formatCurrency(ctc)}</p>
+                      </div>
+                    )}
+                    {s.closingCosts != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Closing Costs</p>
+                        <p className="font-semibold">{formatCurrency(s.closingCosts)}</p>
+                      </div>
+                    )}
+                    {s.propertyTaxes != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Annual Taxes</p>
+                        <p className="font-semibold">{formatCurrency(s.propertyTaxes)}</p>
+                      </div>
+                    )}
+                    {s.homeownersInsurance != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Annual Insurance</p>
+                        <p className="font-semibold">{formatCurrency(s.homeownersInsurance)}</p>
+                      </div>
+                    )}
+                    {s.hoaMonthly != null && s.hoaMonthly > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">HOA / mo</p>
+                        <p className="font-semibold">{formatCurrency(s.hoaMonthly)}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 lg:shrink-0">
+                    <Button
+                      size="sm"
+                      className="gap-2"
+                      onClick={e => { e.stopPropagation(); navigate(s.address, s.id); }}
+                    >
+                      View / Edit <ExternalLink className="h-3.5 w-3.5" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive px-2"
+                          onClick={e => e.stopPropagation()}
+                          aria-label="Delete cash buy scenario"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent onClick={e => e.stopPropagation()}>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete this cash buy?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will remove {s.address.split(",")[0]} from your Cash Buy dashboard.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => remove(s.id)}
+                            className="bg-destructive hover:bg-destructive/90"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Top-level Tabs wrapper — keeps the active tab in the URL (?tab=) ──
 // Lets sibling pages (e.g. the new seller detail page) deep-link back to
 // the dashboard on a specific tab via /dashboard?tab=sellers without
@@ -1109,7 +1359,11 @@ export default function Dashboard() {
 // visual order is a per-user preference (drag-and-drop reorder, persisted
 // to localStorage) and is decoupled from content selection — the active
 // tab is always tracked by ID, never by array index.
-const VALID_TABS = ["purchase", "refinance", "insurance", "sellers"] as const;
+// Stable IDs: kept in legacy order for backwards-compat with deep links.
+// `cash_buy` is appended on read for users with a pre-existing saved order
+// (see readSavedTabOrder), so the visual default for new users is the
+// spec's order: purchase → refinance → insurance → for_sale → cash_buy.
+const VALID_TABS = ["purchase", "refinance", "insurance", "sellers", "cash_buy"] as const;
 type DashboardTabValue = typeof VALID_TABS[number];
 
 const TAB_META: Record<DashboardTabValue, { label: string; icon: typeof Home }> = {
@@ -1117,6 +1371,7 @@ const TAB_META: Record<DashboardTabValue, { label: string; icon: typeof Home }> 
   refinance: { label: "Refinance", icon: RefreshCw },
   insurance: { label: "Insurance", icon: Shield },
   sellers:   { label: "For Sale",  icon: Tag },
+  cash_buy:  { label: "Cash Buy",  icon: Banknote },
 };
 
 const TAB_CONTENT: Record<DashboardTabValue, () => JSX.Element> = {
@@ -1124,6 +1379,7 @@ const TAB_CONTENT: Record<DashboardTabValue, () => JSX.Element> = {
   refinance: () => <RefiTab />,
   insurance: () => <InsuranceTab />,
   sellers:   () => <SellersTab />,
+  cash_buy:  () => <CashBuyTab />,
 };
 
 function readTabFromSearch(search: string): DashboardTabValue {

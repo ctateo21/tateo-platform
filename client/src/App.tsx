@@ -32,6 +32,7 @@ import Review from "./pages/review-new";
 import Estimate from "./pages/estimate";
 import Refinance from "./pages/refinance";
 import SellerEstimate from "./pages/seller-estimate";
+import CashBuy from "./pages/cash-buy";
 import SelectService from "./pages/select-service";
 import NotFound from "./pages/not-found";
 
@@ -61,6 +62,7 @@ function App() {
                   <Route path="/estimate" component={Estimate} />
                   <Route path="/refinance" component={Refinance} />
                   <Route path="/seller" component={SellerEstimate} />
+                  <Route path="/cash-buy" component={CashBuy} />
                   <Route path="/select-service" component={SelectService} />
                   <Route component={NotFound} />
                 </Switch>

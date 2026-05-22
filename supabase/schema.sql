@@ -161,6 +161,41 @@ create policy "seller_scenarios_owner" on public.seller_scenarios
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- ----------------------------------------------------------------------------
+-- 4b-cash. cash_buy_scenarios  (Cash Buy dashboard tab)
+-- ----------------------------------------------------------------------------
+-- Saved cash-purchase scenarios: no mortgage, no DTI, no qualification. Mirrors
+-- purchase_scenarios/seller_scenarios shape (text PK chosen client-side, owner
+-- RLS, idempotent create). Cash-to-close is recomputed in the UI from the
+-- stored inputs — we persist a single derived snapshot for dashboard cards.
+create table if not exists public.cash_buy_scenarios (
+  id                          text primary key,
+  user_id                     uuid not null references auth.users(id) on delete cascade,
+  full_address                text not null,
+  normalized_property_key     text,
+  created_at                  timestamptz not null default now(),
+  updated_at                  timestamptz not null default now(),
+  purchase_price              numeric,
+  occupancy_type              text,
+  property_taxes              numeric,
+  homeowners_insurance        numeric,
+  hoa_monthly                 numeric,
+  closing_costs               numeric,
+  seller_concessions_mode     text,
+  seller_concessions_percent  numeric,
+  seller_concessions_amount   numeric,
+  cash_to_close               numeric,
+  primary_photo_url           text,
+  property_photos             jsonb
+);
+
+create index if not exists cash_buy_scenarios_user_idx on public.cash_buy_scenarios(user_id);
+
+alter table public.cash_buy_scenarios enable row level security;
+drop policy if exists "cash_buy_scenarios_owner" on public.cash_buy_scenarios;
+create policy "cash_buy_scenarios_owner" on public.cash_buy_scenarios
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ----------------------------------------------------------------------------
 -- 4c. listing_market_analyses  (AI-generated weekly seller listing analysis)
 -- ----------------------------------------------------------------------------
 -- One row per (listing_id, analysis_week_of). Generated server-side via

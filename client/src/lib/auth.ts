@@ -82,6 +82,30 @@ export interface SellerScenario {
   propertyPhotos?: string[];
 }
 
+export type CashBuyOccupancyType = "primary" | "secondary" | "investment";
+export type SellerConcessionsMode = "percent" | "amount";
+
+export interface CashBuyScenario {
+  id: string;
+  address: string;
+  normalizedPropertyKey?: string;
+  savedAt: string;
+  updatedAt: string;
+  purchasePrice?: number;
+  occupancyType?: CashBuyOccupancyType;
+  propertyTaxes?: number;        // annual
+  homeownersInsurance?: number;  // annual
+  hoaMonthly?: number;           // monthly HOA / condo fees
+  closingCosts?: number;         // buyer-side closing costs (title, recording, doc stamps, inspection, etc.)
+  sellerConcessionsMode?: SellerConcessionsMode;
+  sellerConcessionsPercent?: number; // 0–9
+  sellerConcessionsAmount?: number;  // absolute $
+  /** Latest computed cash-to-close snapshot. UI always recomputes from inputs. */
+  cashToClose?: number;
+  primaryPhotoUrl?: string;
+  propertyPhotos?: string[];
+}
+
 export type TrackedLoanPropertyType = "primary" | "secondary" | "investment";
 
 export interface TrackedLoan {
@@ -108,6 +132,7 @@ let _authHydrated = false;
 let _purchaseScenarios: PurchaseScenario[] = [];
 let _insuranceScenarios: InsuranceScenario[] = [];
 let _sellerScenarios: SellerScenario[] = [];
+let _cashBuyScenarios: CashBuyScenario[] = [];
 let _trackedLoans: TrackedLoan[] = [];
 const _listeners = new Set<() => void>();
 
@@ -258,6 +283,58 @@ function sellerToRow(s: SellerScenario, userId: string) {
     property_photos: s.propertyPhotos ?? null,
   };
 }
+function rowToCashBuy(row: any): CashBuyScenario {
+  const photos = Array.isArray(row.property_photos)
+    ? row.property_photos.filter((p: any) => typeof p === "string")
+    : undefined;
+  const occ = row.occupancy_type;
+  const occupancyType: CashBuyOccupancyType | undefined =
+    occ === "primary" || occ === "secondary" || occ === "investment" ? occ : undefined;
+  const mode = row.seller_concessions_mode;
+  const sellerConcessionsMode: SellerConcessionsMode | undefined =
+    mode === "percent" || mode === "amount" ? mode : undefined;
+  return {
+    id: row.id,
+    address: row.full_address,
+    normalizedPropertyKey: row.normalized_property_key ?? undefined,
+    savedAt: row.created_at,
+    updatedAt: row.updated_at ?? row.created_at,
+    purchasePrice: row.purchase_price != null ? Number(row.purchase_price) : undefined,
+    occupancyType,
+    propertyTaxes: row.property_taxes != null ? Number(row.property_taxes) : undefined,
+    homeownersInsurance: row.homeowners_insurance != null ? Number(row.homeowners_insurance) : undefined,
+    hoaMonthly: row.hoa_monthly != null ? Number(row.hoa_monthly) : undefined,
+    closingCosts: row.closing_costs != null ? Number(row.closing_costs) : undefined,
+    sellerConcessionsMode,
+    sellerConcessionsPercent: row.seller_concessions_percent != null ? Number(row.seller_concessions_percent) : undefined,
+    sellerConcessionsAmount: row.seller_concessions_amount != null ? Number(row.seller_concessions_amount) : undefined,
+    cashToClose: row.cash_to_close != null ? Number(row.cash_to_close) : undefined,
+    primaryPhotoUrl: row.primary_photo_url ?? undefined,
+    propertyPhotos: photos,
+  };
+}
+function cashBuyToRow(s: CashBuyScenario, userId: string) {
+  return {
+    id: s.id,
+    user_id: userId,
+    full_address: s.address,
+    normalized_property_key: s.normalizedPropertyKey ?? null,
+    created_at: s.savedAt,
+    updated_at: s.updatedAt,
+    purchase_price: s.purchasePrice ?? null,
+    occupancy_type: s.occupancyType ?? null,
+    property_taxes: s.propertyTaxes ?? null,
+    homeowners_insurance: s.homeownersInsurance ?? null,
+    hoa_monthly: s.hoaMonthly ?? null,
+    closing_costs: s.closingCosts ?? null,
+    seller_concessions_mode: s.sellerConcessionsMode ?? null,
+    seller_concessions_percent: s.sellerConcessionsPercent ?? null,
+    seller_concessions_amount: s.sellerConcessionsAmount ?? null,
+    cash_to_close: s.cashToClose ?? null,
+    primary_photo_url: s.primaryPhotoUrl ?? null,
+    property_photos: s.propertyPhotos ?? null,
+  };
+}
 function rowToTrackedLoan(row: any): TrackedLoan {
   return {
     id: row.id,
@@ -314,14 +391,26 @@ async function loadProfile(userId: string): Promise<AuthUser | null> {
 }
 
 async function loadScenarios(userId: string) {
-  const [pRes, iRes, sRes, lRes] = await Promise.all([
+  const [pRes, iRes, sRes, cRes, lRes] = await Promise.all([
     supabase.from("purchase_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("insurance_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("seller_scenarios").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
+    supabase.from("cash_buy_scenarios").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
   _purchaseScenarios = (pRes.data ?? []).map(rowToPurchase);
   _insuranceScenarios = (iRes.data ?? []).map(rowToInsurance);
+  // Tolerate missing cash_buy_scenarios table on environments where the
+  // latest schema.sql hasn't been re-run yet. Other tabs continue to work.
+  if (cRes.error) {
+    console.warn("[cash-buy-load] table missing or RLS blocked", {
+      table: "cash_buy_scenarios", userId, error: cRes.error.message,
+    });
+    notifyError({ table: "cash_buy_scenarios", message: cRes.error.message });
+    _cashBuyScenarios = [];
+  } else {
+    _cashBuyScenarios = (cRes.data ?? []).map(rowToCashBuy);
+  }
   // Tolerate missing seller_scenarios table on environments where the latest
   // schema.sql has not yet been re-run. Other tabs continue to work.
   if (sRes.error) {
@@ -409,6 +498,7 @@ async function hydrateFromSupabase() {
     _purchaseScenarios = [];
     _insuranceScenarios = [];
     _sellerScenarios = [];
+    _cashBuyScenarios = [];
     _trackedLoans = [];
     try { localStorage.removeItem("tateo_auth"); } catch {}
     _authHydrated = true;
@@ -512,6 +602,7 @@ export async function logout(): Promise<void> {
   _purchaseScenarios = [];
   _insuranceScenarios = [];
   _sellerScenarios = [];
+  _cashBuyScenarios = [];
   _trackedLoans = [];
   notify();
 }
@@ -731,6 +822,46 @@ function persistSellerScenarios(s: SellerScenario[]) {
       } else {
         console.log("[seller-save] upsert ok", { saved: upData?.length ?? 0 });
       }
+    }
+  });
+}
+
+// ── Cash Buy scenarios ────────────────────────────────────────────
+export function getCashBuyScenarios(): CashBuyScenario[] {
+  return _cashBuyScenarios;
+}
+
+export function saveCashBuyScenarios(s: CashBuyScenario[]) {
+  _cashBuyScenarios = s;
+  notify();
+  void persistCashBuyScenarios(s);
+}
+
+function persistCashBuyScenarios(s: CashBuyScenario[]) {
+  const userId = _session?.id;
+  if (!userId) return Promise.resolve();
+  return enqueueWrite("cash_buy_scenarios", async () => {
+    if (_session?.id !== userId) return;
+    const keep = new Set(s.map(x => x.id));
+    const { data: existing, error: selErr } = await supabase
+      .from("cash_buy_scenarios")
+      .select("id")
+      .eq("user_id", userId);
+    if (selErr) {
+      notifyError({ table: "cash_buy_scenarios", message: selErr.message });
+      return;
+    }
+    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+    if (toDelete.length > 0) {
+      const { error: delErr } = await supabase
+        .from("cash_buy_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+      if (delErr) notifyError({ table: "cash_buy_scenarios", message: delErr.message });
+    }
+    if (s.length > 0) {
+      const { error: upErr } = await supabase
+        .from("cash_buy_scenarios")
+        .upsert(s.map(x => cashBuyToRow(x, userId)), { onConflict: "id" });
+      if (upErr) notifyError({ table: "cash_buy_scenarios", message: upErr.message });
     }
   });
 }
