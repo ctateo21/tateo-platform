@@ -1606,6 +1606,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!body.listingId || !body.address) {
         return res.status(400).json({ error: "listingId and address are required" });
       }
+      console.log("[market-analysis] seller scenario id", { listingId: body.listingId, userId: verifiedUserId });
+
+      // Server-side guardrail: the frontend cannot trigger Anthropic on
+      // demand. `forceRefresh` is only honored for admin emails listed in
+      // MARKET_ANALYSIS_ADMIN_EMAILS (comma-separated). Everyone else is
+      // silently demoted to the normal cached/weekly path.
+      const adminEmails = (process.env.MARKET_ANALYSIS_ADMIN_EMAILS || "")
+        .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+      const callerEmail = (userData.user.email || "").toLowerCase();
+      const isAdmin = adminEmails.length > 0 && adminEmails.includes(callerEmail);
+      const honorForceRefresh = !!body.forceRefresh && isAdmin;
+      if (body.forceRefresh && !isAdmin) {
+        console.log("[market-analysis] forceRefresh ignored (non-admin caller)", { callerEmail });
+      }
 
       // Enrich the listing input with cached Zillow property data when we
       // have it. This is what gives Anthropic enough context to produce a
@@ -1689,7 +1703,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const record = await getOrGenerateMarketAnalysis(
         { ...(enriched as ListingInput), userId: verifiedUserId },
-        { forceRefresh: !!body.forceRefresh }
+        { forceRefresh: honorForceRefresh }
       );
       // Strip raw_prompt / raw_anthropic_response from the response to keep
       // the payload small. The rich structured JSON is exposed via

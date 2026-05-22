@@ -1,0 +1,167 @@
+Fix Market Analysis caching/saving so Anthropic is not called every time the user opens or refreshes the listing detail view.
+
+Current issue:
+The Market Analysis now successfully pulls useful data from Anthropic/API/web search, but the generated analysis is not being saved and reused.
+
+What happens now:
+1. I open Dashboard → For Sale → detailed listing view.
+2. I click Refresh.
+3. The Market Analysis loads for 15–30 seconds.
+4. The full analysis appears.
+5. If I leave the detail view and come back, the analysis is gone.
+6. I have to click Refresh again and wait another 15–30 seconds.
+7. This calls Anthropic again unnecessarily.
+
+This is too expensive and not the intended behavior.
+
+Expected behavior:
+Once the Market Analysis is generated for a listing, it should save to Supabase and reload instantly the next time the user opens that listing.
+
+The analysis should only regenerate automatically once per week:
+
+Friday morning at 8:00 AM.
+
+Do not allow normal users to manually refresh and call Anthropic repeatedly.
+
+Required behavior:
+1. When Market Analysis is generated successfully, save the complete generated analysis to Supabase.
+2. When the user opens the listing detail view again, load the saved Market Analysis from Supabase.
+3. Do not call Anthropic again if the saved analysis is still current.
+4. The analysis should remain current until the next Friday at 8:00 AM.
+5. On or after Friday 8:00 AM, generate a new analysis once, save it, and use that saved version for the rest of the week.
+6. Remove or disable the user-facing Refresh button that calls Anthropic.
+7. If a refresh button is needed for development/admin use, hide it behind an admin/dev-only flag.
+8. Normal sellers/users should not be able to repeatedly trigger Anthropic calls.
+
+Supabase storage:
+Use the existing `listing_market_analyses` table if available.
+
+If the existing table does not store the full analysis, update it minimally so it stores:
+- `id`
+- `seller_scenario_id` or `listing_id`
+- `user_id`
+- `property_address`
+- `analysis_week_of`
+- `generated_at`
+- `next_update_due_at`
+- `status`
+- `structured_analysis` JSONB or equivalent
+- `raw_anthropic_response` JSONB/text if useful
+- `data_sources` JSONB if useful
+- `created_at`
+- `updated_at`
+
+Important:
+The saved analysis must include all sections currently shown in the UI:
+- listing snapshot
+- market comps
+- similar pending/sold
+- days on market
+- views/saves across platforms
+- price drop recommendation
+- projected sale range
+- next steps
+- market context
+- data sources
+- data limitations
+- confidence level
+
+Weekly refresh logic:
+Use Friday 8:00 AM as the cutoff.
+
+Timezone:
+Use America/New_York unless the app already has a timezone setting.
+
+Logic:
+1. Calculate the current market-analysis cycle.
+2. Each cycle starts Friday at 8:00 AM Eastern.
+3. If the listing already has an analysis generated for the current cycle, load it from Supabase.
+4. If no current-cycle analysis exists, generate a new one.
+5. Save the new one to Supabase.
+6. Display the saved version.
+7. Do not regenerate until the next Friday 8:00 AM cycle.
+
+Example:
+- Analysis generated Friday at 8:05 AM → use it until next Friday at 7:59 AM.
+- User opens page Saturday, Sunday, Monday, etc. → load saved analysis, no Anthropic call.
+- User opens page next Friday after 8:00 AM → generate new weekly analysis once, save it, then reuse.
+
+UI changes:
+- Replace the user-facing Refresh button with status text:
+  “Updates Fridays at 8:00 AM”
+- Show:
+  “Last updated [date/time]”
+- Optional:
+  “Next update [date/time]”
+- Do not show a button that lets users repeatedly call Anthropic.
+- While a new weekly analysis is being generated, show:
+  “Updating this week’s market analysis…”
+- If saved data is loading, show:
+  “Loading saved market analysis…”
+
+Important:
+- Do not block Estimated Net Proceeds while analysis loads.
+- Do not erase the current saved analysis while a new one is generating.
+- If a new generation fails, keep showing the last saved analysis and show a small warning:
+  “Latest weekly update failed — showing previous analysis.”
+
+Backend requirements:
+1. Add or update a function like:
+   `getCurrentMarketAnalysisCycle(now, timezone)`
+2. Add or update a function like:
+   `getOrGenerateMarketAnalysis(sellerScenarioId)`
+3. This function should:
+   - query Supabase for the latest saved analysis for the current cycle
+   - return saved analysis if found
+   - call Anthropic only if missing/stale
+   - save the generated result
+   - return saved/generated analysis
+4. Add server-side guardrails so the frontend cannot force unlimited Anthropic calls.
+5. If an admin/dev refresh exists, require an admin flag or backend check.
+
+Remove/disable repeated Refresh:
+- The current Refresh button is dangerous because users can call Anthropic repeatedly.
+- Remove it from normal seller/user UI.
+- Do not let frontend query param or button bypass weekly cache unless admin.
+
+Debug logs:
+Add temporary logs:
+- `[market-analysis] seller scenario id`
+- `[market-analysis] current cycle start`
+- `[market-analysis] current cycle end/next update`
+- `[market-analysis] saved analysis lookup result`
+- `[market-analysis] using saved analysis`
+- `[market-analysis] stale or missing, generating new analysis`
+- `[market-analysis] Anthropic called`
+- `[market-analysis] saving analysis to Supabase`
+- `[market-analysis] save ok`
+- `[market-analysis] returning analysis to frontend`
+- `[market-analysis] generation failed, using previous saved analysis`
+
+Acceptance test:
+1. Open Dashboard → For Sale → listing detail view.
+2. If no saved current-week analysis exists, confirm Anthropic is called once.
+3. Confirm the full Market Analysis appears.
+4. Confirm the generated analysis is saved to Supabase.
+5. Leave the detail view.
+6. Come back to the same listing.
+7. Confirm the Market Analysis loads instantly from Supabase.
+8. Confirm Anthropic is not called again.
+9. Refresh the browser.
+10. Confirm saved Market Analysis still loads.
+11. Log out and log back in.
+12. Confirm saved Market Analysis still loads.
+13. Confirm normal users do not see a Refresh button that calls Anthropic.
+14. Simulate next Friday after 8:00 AM Eastern.
+15. Confirm the app generates a new analysis once.
+16. Confirm the new analysis is saved and reused for the week.
+17. If generation fails, confirm the app keeps showing the prior saved analysis.
+
+Please make the smallest safe code change possible and tell me:
+- Which Supabase table stores the Market Analysis
+- Which column stores the full structured analysis
+- How Friday 8:00 AM freshness is calculated
+- Whether the Refresh button was removed or admin-gated
+- How the backend prevents repeated Anthropic calls
+- Why the prior generated analysis was not being reused
+- Which files/functions were changed

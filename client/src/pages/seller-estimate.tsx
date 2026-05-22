@@ -3,7 +3,7 @@ import { Helmet } from "react-helmet";
 import { useLocation, useSearch } from "wouter";
 import {
   ArrowLeft, MapPin, Save, AlertCircle, Loader2, ImageOff,
-  Sparkles, TrendingUp, CheckCircle2, AlertTriangle, RefreshCw,
+  Sparkles, TrendingUp, CheckCircle2, AlertTriangle,
   Home, Eye, Heart, Calendar, DollarSign, BarChart3, ArrowRight,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -660,14 +660,16 @@ function MarketAnalysisSection({
   const [analysis, setAnalysis] = useState<MarketAnalysisRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const requestedRef = useRef<string | null>(null);
 
   async function fetchAnalysis(forceRefresh = false) {
     if (!userId) return;
     if (!scenario.address || scenario.address === "Unknown Address") return;
-    if (forceRefresh) setRefreshing(true); else setLoading(true);
-    setError(null);
+    setLoading(true);
+    // Don't clear the prior error/warning — we want the failure banner to
+    // remain visible above the previous saved analysis until a successful
+    // generation replaces it.
+    if (!analysis) setError(null);
     try {
       // Pull the current Supabase access token so the server can verify the
       // caller. The server derives user_id from this token — we never trust
@@ -715,7 +717,6 @@ function MarketAnalysisSection({
       setError(err instanceof Error ? err.message : "Could not load market analysis");
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }
 
@@ -774,30 +775,22 @@ function MarketAnalysisSection({
   return (
     <Card>
       <CardHeader className="pb-2">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <CardTitle className="text-base flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" /> Market Analysis
-            </CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">
-              {analysis?.generated_at
-                ? <>Last updated {formatFriendlyDate(analysis.generated_at)} · Refreshes weekly on Fridays</>
-                : <>Updates every Friday</>}
-            </p>
-          </div>
-          {analysis && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 gap-1.5 text-xs"
-              onClick={() => fetchAnalysis(true)}
-              disabled={refreshing || loading}
-              aria-label="Refresh market analysis"
-            >
-              {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              Refresh
-            </Button>
-          )}
+        <div>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" /> Market Analysis
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            {analysis?.generated_at ? (
+              <>
+                Last updated {formatFriendlyDate(analysis.generated_at)}
+                {analysis.next_update_due_at && (
+                  <> · Next update {formatFriendlyDate(analysis.next_update_due_at)}</>
+                )}
+              </>
+            ) : (
+              <>Updates Fridays at 8:00 AM</>
+            )}
+          </p>
         </div>
       </CardHeader>
 
@@ -805,7 +798,16 @@ function MarketAnalysisSection({
         {showSkeleton && (
           <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Updating market analysis…
+            {analysis ? "Updating this week's market analysis…" : "Loading saved market analysis…"}
+          </div>
+        )}
+
+        {/* Warning shown when generation failed but we still have a prior
+            saved analysis to show below. */}
+        {hasContent && analysis!.error_message && (
+          <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <p className="text-xs">{analysis!.error_message}</p>
           </div>
         )}
 
@@ -815,7 +817,7 @@ function MarketAnalysisSection({
             <div>
               <p className="font-medium">Market analysis unavailable right now.</p>
               <p className="text-xs mt-1">
-                Your net proceeds and saved data are unaffected. Try Refresh in a moment.
+                Your net proceeds and saved data are unaffected. The next weekly update runs Friday at 8:00 AM Eastern.
               </p>
             </div>
           </div>

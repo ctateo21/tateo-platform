@@ -226,41 +226,95 @@ export interface MarketAnalysisRecord {
   structured?: StructuredAnalysis | null;
 }
 
-// ─────────────────────── Friday-week scheduling ──────────────────────
+// ──────────────────── Friday 8 AM ET cycle scheduling ────────────────
 //
-// "Week of" = the Friday on or before today (UTC). Next refresh is the
-// following Friday at 00:00 UTC. Lazy refresh treats a row as stale when
-// `now >= next_update_due_at` OR `analysis_week_of < currentFriday`.
+// One cycle per week. Each cycle starts Friday 08:00 AM America/New_York
+// and ends the following Friday 07:59:59.999 AM ET. A saved analysis is
+// considered current as long as `now < next_update_due_at` AND its
+// `analysis_week_of` (the ET date of the cycle start) matches the
+// current cycle. We use ET (not UTC) so a Thursday-night generation in
+// the US doesn't expire at midnight UTC the same day.
 
-function fridayOnOrBefore(d: Date): Date {
-  // JS getUTCDay(): Sun=0..Sat=6, Fri=5.
-  const dow = d.getUTCDay();
-  const daysSinceFriday = (dow - 5 + 7) % 7;
-  const friday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-  friday.setUTCDate(friday.getUTCDate() - daysSinceFriday);
-  return friday;
-}
+const TZ = "America/New_York";
 
-function nextFridayAfter(friday: Date): Date {
-  const next = new Date(friday);
-  next.setUTCDate(next.getUTCDate() + 7);
-  return next;
+// How many ms to ADD to a UTC timestamp to get the ET wall-clock time
+// as if it were UTC. Used to bridge JS's UTC-only Date API into an
+// "ET wall clock" we can do day-of-week math on. DST-aware.
+function etOffsetMs(at: Date): number {
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: TZ,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(at);
+  const m: Record<string, string> = {};
+  for (const p of parts) m[p.type] = p.value;
+  const wallAsUtc = Date.UTC(+m.year, +m.month - 1, +m.day, +m.hour === 24 ? 0 : +m.hour, +m.minute, +m.second);
+  return wallAsUtc - at.getTime();
 }
 
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Returns the most recent Friday 08:00 AM America/New_York that is
+ * <= `now`, as a real UTC Date. DST-aware (recomputes offset at the
+ * candidate moment in case DST changed between now and the candidate).
+ */
+function fridayEightAmETOnOrBefore(now: Date): Date {
+  const offset = etOffsetMs(now);
+  // ET wall clock for `now`, expressed as a Date whose UTC parts match
+  // the ET wall clock. Day-of-week math on this Date is ET-correct.
+  const etWall = new Date(now.getTime() + offset);
+  const dow = etWall.getUTCDay();           // 0=Sun..6=Sat
+  let daysBack = (dow - 5 + 7) % 7;          // distance back to a Friday
+  // If today IS Friday but before 08:00 ET, the active cycle is still
+  // last Friday's.
+  if (dow === 5 && (etWall.getUTCHours() < 8)) {
+    daysBack = 7;
+  }
+  const candidate = new Date(Date.UTC(
+    etWall.getUTCFullYear(), etWall.getUTCMonth(), etWall.getUTCDate() - daysBack,
+    8, 0, 0, 0,
+  ));
+  // `candidate` currently holds an ET wall clock pretending to be UTC.
+  // Convert to a true UTC instant by subtracting the offset at THAT
+  // moment (DST may differ from `now`'s offset, e.g. across DST changes).
+  let utc = candidate.getTime() - offset;
+  const offsetThen = etOffsetMs(new Date(utc));
+  if (offsetThen !== offset) utc = candidate.getTime() - offsetThen;
+  return new Date(utc);
+}
+
+/**
+ * Returns the ET date (YYYY-MM-DD) that the cycle started on. We use
+ * the ET calendar date — not UTC — because some Fridays at 08:00 ET
+ * fall on a different UTC calendar date.
+ */
+function etDateString(d: Date): string {
+  const offset = etOffsetMs(d);
+  const wall = new Date(d.getTime() + offset);
+  return wall.toISOString().slice(0, 10);
+}
+
 export function currentWeekWindow(now: Date = new Date()) {
-  const weekOf = fridayOnOrBefore(now);
-  const dueAt = nextFridayAfter(weekOf);
-  return { weekOf, weekOfStr: ymd(weekOf), nextUpdateDueAt: dueAt };
+  const cycleStart = fridayEightAmETOnOrBefore(now);
+  // Next cycle: cycleStart + 7 days (recompute the next Friday 8 AM ET
+  // properly so DST transitions are handled).
+  const next = fridayEightAmETOnOrBefore(new Date(cycleStart.getTime() + 7 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000));
+  return {
+    weekOf: cycleStart,
+    weekOfStr: etDateString(cycleStart),
+    nextUpdateDueAt: next,
+  };
 }
 
 export function isStale(record: { analysis_week_of: string; next_update_due_at: string }, now: Date = new Date()): boolean {
   const cur = currentWeekWindow(now);
   if (new Date(record.next_update_due_at).getTime() <= now.getTime()) return true;
-  // Compare YYYY-MM-DD lexically (both are zero-padded ISO dates).
+  // analysis_week_of is the ET date of the cycle start; compare lexically.
   if (record.analysis_week_of < cur.weekOfStr) return true;
   return false;
 }
@@ -823,31 +877,52 @@ export async function getOrGenerateMarketAnalysis(
 
   const existing = existingRows?.[0] as (MarketAnalysisRecord & { raw_anthropic_response?: string | null }) | undefined;
 
-  if (
+  const cur = currentWeekWindow();
+  console.log("[market-analysis] cycle", {
+    weekOf: cur.weekOfStr,
+    cycleStart: cur.weekOf.toISOString(),
+    nextUpdateDueAt: cur.nextUpdateDueAt.toISOString(),
+  });
+  console.log("[market-analysis] saved analysis lookup result", {
+    found: !!existing,
+    id: existing?.id ?? null,
+    weekOf: existing?.analysis_week_of ?? null,
+    status: existing?.status ?? null,
+    stale: existing ? isStale(existing) : null,
+  });
+
+  const cacheHit =
     existing &&
     existing.status === "published" &&
     !opts.forceRefresh &&
-    !isStale(existing)
-  ) {
+    !isStale(existing);
+
+  if (cacheHit) {
     // Reuse cache — parse structured JSON from raw_anthropic_response so the
     // frontend can render the rich layout even on cached rows.
-    const cur = currentWeekWindow();
-    const cachedRaw = typeof existing.raw_anthropic_response === "string" ? existing.raw_anthropic_response : null;
+    const cachedRaw = typeof existing!.raw_anthropic_response === "string" ? existing!.raw_anthropic_response : null;
     const cachedStructured = cachedRaw
-      ? coerceStructured(tryParseJsonObject(cachedRaw), existing.analysis_week_of || cur.weekOfStr)
+      ? coerceStructured(tryParseJsonObject(cachedRaw), existing!.analysis_week_of || cur.weekOfStr)
       : null;
     // Recompute data_sources on read so the panel reflects the CURRENT
     // listing input even when the recap text is reused from cache.
     if (cachedStructured) cachedStructured.data_sources = computeDataSources(input, cachedStructured.citations);
-    console.log("[market-analysis] cache hit", {
-      id: existing.id,
-      weekOf: existing.analysis_week_of,
+    console.log("[market-analysis] using saved analysis", {
+      id: existing!.id,
+      weekOf: existing!.analysis_week_of,
       citations: cachedStructured?.citations.length ?? 0,
     });
-    return { ...existing, structured: cachedStructured };
+    console.log("[market-analysis] returning analysis to frontend", { source: "cache" });
+    return { ...existing!, structured: cachedStructured };
   }
 
-  const cur = currentWeekWindow();
+  console.log("[market-analysis] stale or missing, generating new analysis", {
+    reason: !existing ? "no_prior_row"
+          : opts.forceRefresh ? "admin_force_refresh"
+          : existing.status !== "published" ? `prior_status_${existing.status}`
+          : "stale_cycle",
+  });
+
   const prompt = buildPrompt(input, cur.weekOfStr);
 
   console.log("[market-analysis] calling Anthropic", {
@@ -879,6 +954,28 @@ export async function getOrGenerateMarketAnalysis(
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : String(err);
     console.warn("[market-analysis] Anthropic call failed:", errorMessage);
+  }
+  console.log("[market-analysis] Anthropic called", { ok: !errorMessage, errorMessage });
+
+  // If generation failed AND we have a prior saved analysis (even a stale
+  // one), keep showing the prior analysis instead of overwriting it with
+  // an error row. We tag it so the UI can show a small warning banner.
+  if (errorMessage && existing && existing.status === "published") {
+    const cachedRaw = typeof existing.raw_anthropic_response === "string" ? existing.raw_anthropic_response : null;
+    const cachedStructured = cachedRaw
+      ? coerceStructured(tryParseJsonObject(cachedRaw), existing.analysis_week_of || cur.weekOfStr)
+      : null;
+    if (cachedStructured) cachedStructured.data_sources = computeDataSources(input, cachedStructured.citations);
+    console.log("[market-analysis] generation failed, using previous saved analysis", {
+      id: existing.id,
+      weekOf: existing.analysis_week_of,
+    });
+    return {
+      ...existing,
+      structured: cachedStructured,
+      // surfaced to the UI as a small warning above the recap
+      error_message: `Latest weekly update failed — showing previous analysis. (${errorMessage})`,
+    };
   }
 
   const legacy = structured ? mirrorLegacyFields(structured) : {
@@ -912,6 +1009,11 @@ export async function getOrGenerateMarketAnalysis(
     updated_at: new Date().toISOString(),
   };
 
+  console.log("[market-analysis] saving analysis to Supabase", {
+    listingId: input.listingId,
+    weekOf: cur.weekOfStr,
+    status: row.status,
+  });
   const { data: inserted, error: insertErr } = await supabaseAdmin
     .from("listing_market_analyses")
     .insert(row)
@@ -922,6 +1024,7 @@ export async function getOrGenerateMarketAnalysis(
     console.warn("[market-analysis] failed to persist row:", insertErr.message);
     return { ...(row as unknown as MarketAnalysisRecord), structured };
   }
-  console.log("[market-analysis] saved", { id: (inserted as any)?.id });
+  console.log("[market-analysis] save ok", { id: (inserted as any)?.id });
+  console.log("[market-analysis] returning analysis to frontend", { source: "fresh" });
   return { ...(inserted as MarketAnalysisRecord), structured };
 }
