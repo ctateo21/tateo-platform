@@ -921,7 +921,30 @@ function compStatusBadgeClass(s?: string | null): string {
   return "bg-muted text-muted-foreground border-border";
 }
 
-function RichAnalysis({ structured: s, address }: { structured: StructuredAnalysis; address: string }) {
+function RichAnalysis({ structured: raw, address }: { structured: StructuredAnalysis; address: string }) {
+  // Defensive normalization: older cached rows or partially-populated
+  // payloads may be missing whole sections. Use empty-shaped defaults so
+  // the renderer never crashes on `.summary` / `.metrics` of undefined.
+  const s: StructuredAnalysis = {
+    ...raw,
+    listing_snapshot: raw?.listing_snapshot ?? ({ summary: "", metrics: [] } as any),
+    market_comps: raw?.market_comps ?? ({ summary: "", comps: [] } as any),
+    similar_pending_sold: raw?.similar_pending_sold ?? ({ summary: "", items: [] } as any),
+    days_on_market_analysis: raw?.days_on_market_analysis ?? ({ summary: "", subject_dom: null, average_comp_dom: null, comparison_label: "" } as any),
+    platform_engagement: raw?.platform_engagement ?? ({ summary: "", zillow: null, realtor: null, redfin: null } as any),
+    price_drop_recommendation: raw?.price_drop_recommendation ?? ({ recommended: false, summary: "", suggested_price_low: null, suggested_price_high: null } as any),
+    projected_sale_price: raw?.projected_sale_price ?? ({ summary: "", projected_low: null, projected_high: null } as any),
+  };
+  const ls = s.listing_snapshot;
+  const mc = s.market_comps;
+  const sps = s.similar_pending_sold;
+  const dom = s.days_on_market_analysis;
+  const pe = s.platform_engagement;
+  const pdr = s.price_drop_recommendation;
+  const psp = s.projected_sale_price;
+  const lsMetrics = Array.isArray(ls?.metrics) ? ls.metrics : [];
+  const mcComps = Array.isArray(mc?.comps) ? mc.comps : [];
+  const spsItems = Array.isArray(sps?.items) ? sps.items : [];
   return (
     <div className="space-y-5">
       {/* Status banner */}
@@ -937,12 +960,12 @@ function RichAnalysis({ structured: s, address }: { structured: StructuredAnalys
 
       {/* Listing Snapshot */}
       <Section title="Listing Snapshot" icon={<BarChart3 className="h-3.5 w-3.5" />}>
-        {s.listing_snapshot.summary && (
-          <p className="text-sm leading-relaxed text-muted-foreground mb-3">{s.listing_snapshot.summary}</p>
+        {ls?.summary && (
+          <p className="text-sm leading-relaxed text-muted-foreground mb-3">{ls.summary}</p>
         )}
-        {s.listing_snapshot.metrics.length > 0 && (
+        {lsMetrics.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            {s.listing_snapshot.metrics.map((m, i) => (
+            {lsMetrics.map((m, i) => (
               <div key={i} className="rounded-md border p-2.5 bg-background">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{m.label}</div>
                 <div className="text-sm font-semibold mt-0.5 truncate">{m.value || "Unavailable"}</div>
@@ -955,10 +978,10 @@ function RichAnalysis({ structured: s, address }: { structured: StructuredAnalys
 
       {/* Market Comps */}
       <Section title="Market Comps" icon={<Home className="h-3.5 w-3.5" />}>
-        <p className="text-sm leading-relaxed text-muted-foreground mb-2">{s.market_comps.summary || "No comps connected yet."}</p>
-        {s.market_comps.comps.length > 0 ? (
+        <p className="text-sm leading-relaxed text-muted-foreground mb-2">{mc?.summary || "No comps connected yet."}</p>
+        {mcComps.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-            {s.market_comps.comps.slice(0, 6).map((c, i) => <CompCard key={i} c={c} />)}
+            {mcComps.slice(0, 6).map((c, i) => <CompCard key={i} c={c} />)}
           </div>
         ) : (
           <UnavailableNote text="Comparable sales have not been connected yet. Add 3–5 comps to improve the pricing analysis." />
@@ -967,10 +990,10 @@ function RichAnalysis({ structured: s, address }: { structured: StructuredAnalys
 
       {/* Similar Pending / Sold */}
       <Section title="Similar Pending / Sold" icon={<TrendingUp className="h-3.5 w-3.5" />}>
-        <p className="text-sm leading-relaxed text-muted-foreground mb-2">{s.similar_pending_sold.summary || "No nearby pending/sold data connected yet."}</p>
-        {s.similar_pending_sold.items.length > 0 ? (
+        <p className="text-sm leading-relaxed text-muted-foreground mb-2">{sps?.summary || "No nearby pending/sold data connected yet."}</p>
+        {spsItems.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {s.similar_pending_sold.items.slice(0, 6).map((c, i) => <CompCard key={i} c={c} />)}
+            {spsItems.slice(0, 6).map((c, i) => <CompCard key={i} c={c} />)}
           </div>
         ) : (
           <UnavailableNote text="Nearby pending and recently sold homes are not connected yet." />
@@ -980,41 +1003,41 @@ function RichAnalysis({ structured: s, address }: { structured: StructuredAnalys
       {/* DOM analysis */}
       <Section title="Days on Market" icon={<Calendar className="h-3.5 w-3.5" />}>
         <div className="grid grid-cols-3 gap-2 mb-3">
-          <DomTile label="This listing"   value={s.days_on_market_analysis.subject_dom} />
-          <DomTile label="Similar (avg)"  value={s.days_on_market_analysis.average_comp_dom} />
-          <DomTile label="Vs similar" valueText={domComparisonText(s.days_on_market_analysis.comparison_label)} tone={domComparisonTone(s.days_on_market_analysis.comparison_label)} />
+          <DomTile label="This listing"   value={dom?.subject_dom} />
+          <DomTile label="Similar (avg)"  value={dom?.average_comp_dom} />
+          <DomTile label="Vs similar" valueText={domComparisonText(dom?.comparison_label)} tone={domComparisonTone(dom?.comparison_label)} />
         </div>
-        <p className="text-sm leading-relaxed">{s.days_on_market_analysis.summary || "Days-on-market cannot be evaluated yet — connect listing/MLS data to enable this section."}</p>
+        <p className="text-sm leading-relaxed">{dom?.summary || "Days-on-market cannot be evaluated yet — connect listing/MLS data to enable this section."}</p>
       </Section>
 
       {/* Platform engagement */}
       <Section title="Views &amp; Saves Across Platforms" icon={<Eye className="h-3.5 w-3.5" />}>
-        <p className="text-sm leading-relaxed text-muted-foreground mb-3">{s.platform_engagement.summary || "Platform engagement data has not been connected yet."}</p>
+        <p className="text-sm leading-relaxed text-muted-foreground mb-3">{pe?.summary || "Platform engagement data has not been connected yet."}</p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-          <PlatformCard name="Zillow"     stat={s.platform_engagement.zillow} />
-          <PlatformCard name="Realtor.com" stat={s.platform_engagement.realtor} />
-          <PlatformCard name="Redfin"     stat={s.platform_engagement.redfin} />
+          <PlatformCard name="Zillow"     stat={pe?.zillow} />
+          <PlatformCard name="Realtor.com" stat={pe?.realtor} />
+          <PlatformCard name="Redfin"     stat={pe?.redfin} />
         </div>
-        {!s.platform_engagement.zillow && !s.platform_engagement.realtor && !s.platform_engagement.redfin && (
+        {!pe?.zillow && !pe?.realtor && !pe?.redfin && (
           <UnavailableNote className="mt-3" text="Connect Zillow / Realtor / Redfin / MLS to compare your views and saves vs similar homes." />
         )}
       </Section>
 
       {/* Price Drop Recommendation */}
-      <div className={`rounded-md border p-4 ${s.price_drop_recommendation.recommended ? "bg-amber-50 border-amber-200" : "bg-muted/30"}`}>
+      <div className={`rounded-md border p-4 ${pdr?.recommended ? "bg-amber-50 border-amber-200" : "bg-muted/30"}`}>
         <div className="flex items-center gap-2 mb-1">
-          <DollarSign className={`h-4 w-4 ${s.price_drop_recommendation.recommended ? "text-amber-700" : "text-muted-foreground"}`} />
+          <DollarSign className={`h-4 w-4 ${pdr?.recommended ? "text-amber-700" : "text-muted-foreground"}`} />
           <h4 className="text-sm font-semibold">
-            {s.price_drop_recommendation.recommended ? "Price drop recommended" : "No price drop recommended right now"}
+            {pdr?.recommended ? "Price drop recommended" : "No price drop recommended right now"}
           </h4>
         </div>
-        {s.price_drop_recommendation.summary && (
-          <p className="text-sm leading-relaxed text-muted-foreground">{s.price_drop_recommendation.summary}</p>
+        {pdr?.summary && (
+          <p className="text-sm leading-relaxed text-muted-foreground">{pdr.summary}</p>
         )}
-        {(s.price_drop_recommendation.suggested_price_low != null || s.price_drop_recommendation.suggested_price_high != null) && (
+        {(pdr?.suggested_price_low != null || pdr?.suggested_price_high != null) && (
           <div className="mt-2 text-sm">
             <span className="text-muted-foreground">Suggested range: </span>
-            <span className="font-semibold">{formatRange(s.price_drop_recommendation.suggested_price_low, s.price_drop_recommendation.suggested_price_high)}</span>
+            <span className="font-semibold">{formatRange(pdr?.suggested_price_low, pdr?.suggested_price_high)}</span>
           </div>
         )}
       </div>
@@ -1024,11 +1047,11 @@ function RichAnalysis({ structured: s, address }: { structured: StructuredAnalys
         <div className="rounded-md border bg-background p-3 mb-2">
           <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Likely sale range</div>
           <div className="text-lg font-bold mt-0.5">
-            {formatRange(s.projected_sale_price.projected_low, s.projected_sale_price.projected_high)}
+            {formatRange(psp?.projected_low, psp?.projected_high)}
           </div>
         </div>
-        {s.projected_sale_price.summary && (
-          <p className="text-sm leading-relaxed text-muted-foreground">{s.projected_sale_price.summary}</p>
+        {psp?.summary && (
+          <p className="text-sm leading-relaxed text-muted-foreground">{psp.summary}</p>
         )}
       </Section>
 
