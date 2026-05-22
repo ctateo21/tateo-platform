@@ -110,11 +110,28 @@ let _sellerScenarios: SellerScenario[] = [];
 let _trackedLoans: TrackedLoan[] = [];
 const _listeners = new Set<() => void>();
 
+// Persistence-error listeners — UI subscribes to surface a visible toast
+// instead of silently logging to the console. Payload includes the table
+// name (so consumers can scope which tab to warn about) and the raw
+// Supabase error message.
+export type PersistenceError = { table: string; message: string };
+const _errorListeners = new Set<(e: PersistenceError) => void>();
+
 function notify() { _listeners.forEach(fn => { try { fn(); } catch {} }); }
+function notifyError(e: PersistenceError) {
+  _errorListeners.forEach(fn => { try { fn(e); } catch {} });
+}
 
 export function subscribeAuthChange(fn: () => void): () => void {
   _listeners.add(fn);
   return () => { _listeners.delete(fn); };
+}
+
+export function subscribePersistenceError(
+  fn: (e: PersistenceError) => void,
+): () => void {
+  _errorListeners.add(fn);
+  return () => { _errorListeners.delete(fn); };
 }
 
 export function getSession(): AuthUser | null { return _session; }
@@ -306,10 +323,20 @@ async function loadScenarios(userId: string) {
   // Tolerate missing seller_scenarios table on environments where the latest
   // schema.sql has not yet been re-run. Other tabs continue to work.
   if (sRes.error) {
-    console.warn("[auth] seller_scenarios load skipped:", sRes.error.message);
+    console.error("[seller-load] FAILED — table missing or RLS blocked", {
+      table: "seller_scenarios", userId, error: sRes.error,
+    });
+    notifyError({ table: "seller_scenarios", message: sRes.error.message });
     _sellerScenarios = [];
   } else {
     _sellerScenarios = (sRes.data ?? []).map(rowToSeller);
+    console.log("[seller-load] ok", {
+      table: "seller_scenarios",
+      userId,
+      count: _sellerScenarios.length,
+      ids: _sellerScenarios.map(s => s.id),
+      addresses: _sellerScenarios.map(s => s.address),
+    });
   }
   _trackedLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
 }
@@ -655,22 +682,52 @@ export function saveSellerScenarios(s: SellerScenario[]) {
 
 function persistSellerScenarios(s: SellerScenario[]) {
   const userId = _session?.id;
-  if (!userId) return Promise.resolve();
+  if (!userId) {
+    console.warn("[seller-save] skipped — no authenticated user", { count: s.length });
+    return Promise.resolve();
+  }
   return enqueueWrite("seller_scenarios", async () => {
     if (_session?.id !== userId) return;
     const keep = new Set(s.map(x => x.id));
-    const { data: existing } = await supabase
+    const { data: existing, error: selErr } = await supabase
       .from("seller_scenarios")
       .select("id")
       .eq("user_id", userId);
+    if (selErr) {
+      console.error("[seller-save] select-existing failed", {
+        table: "seller_scenarios", userId, error: selErr,
+      });
+      notifyError({ table: "seller_scenarios", message: selErr.message });
+      return;
+    }
     const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
     if (toDelete.length > 0) {
-      await supabase.from("seller_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+      const { error: delErr } = await supabase
+        .from("seller_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+      if (delErr) {
+        console.error("[seller-save] delete failed", { ids: toDelete, error: delErr });
+        notifyError({ table: "seller_scenarios", message: delErr.message });
+      }
     }
     if (s.length > 0) {
-      await supabase
+      const payload = s.map(x => sellerToRow(x, userId));
+      console.log("[seller-save] upsert", {
+        table: "seller_scenarios",
+        userId,
+        count: payload.length,
+        ids: payload.map((r: any) => r.id),
+        addresses: payload.map((r: any) => r.full_address),
+      });
+      const { error: upErr, data: upData } = await supabase
         .from("seller_scenarios")
-        .upsert(s.map(x => sellerToRow(x, userId)), { onConflict: "id" });
+        .upsert(payload, { onConflict: "id" })
+        .select("id");
+      if (upErr) {
+        console.error("[seller-save] upsert failed", { error: upErr, payload });
+        notifyError({ table: "seller_scenarios", message: upErr.message });
+      } else {
+        console.log("[seller-save] upsert ok", { saved: upData?.length ?? 0 });
+      }
     }
   });
 }

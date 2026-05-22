@@ -21,7 +21,7 @@ import {
   getPurchaseScenarios, savePurchaseScenarios,
   getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
   getInsuranceScenarios,
-  getSellerScenarios, saveSellerScenarios,
+  getSellerScenarios, saveSellerScenarios, subscribePersistenceError,
   type InsuranceScenario, type PurchaseScenario,
   type SellerScenario, type SellerScenarioStatus,
 } from "@/lib/auth";
@@ -35,6 +35,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
+import { useToast } from "@/hooks/use-toast";
 import {
   getBestOption, getBestConventionalRate, PROPERTY_TYPE_ADJUSTMENTS,
   HE_MAX_CLTV, HE_RATE_MARGIN, NEW_TERM_YEARS,
@@ -1221,14 +1222,27 @@ function makeSellerId(): string {
 
 function SellersTab() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
   const [scenarios, setScenarios] = useState<SellerScenario[]>([]);
   const [showAddSearch, setShowAddSearch] = useState(false);
+  const [persistError, setPersistError] = useState<string | null>(null);
 
   useEffect(() => {
     setScenarios(getSellerScenarios());
     const unsub = subscribeAuthChange(() => setScenarios(getSellerScenarios()));
-    return unsub;
-  }, []);
+    const unsubErr = subscribePersistenceError(e => {
+      if (e.table !== "seller_scenarios") return;
+      setPersistError(e.message);
+      toast({
+        title: "For Sale property didn't save",
+        description:
+          e.message +
+          " — apply supabase/migrations/2026_05_22_seller_and_market_analysis.sql in the Supabase SQL editor.",
+        variant: "destructive",
+      });
+    });
+    return () => { unsub(); unsubErr(); };
+  }, [toast]);
 
   // Create a seller record immediately on address selection (per task spec)
   // so it shows up in the dashboard even if the user never opens the detail
@@ -1261,6 +1275,13 @@ function SellersTab() {
       mortgagePayoff: 0,
       status: "draft",
     };
+    console.log("[seller-create] address selected", {
+      address: addr,
+      id,
+      normalizedPropertyKey: norm,
+      flow: "for_sale",
+      record: fresh,
+    });
     const next = [fresh, ...scenarios];
     setScenarios(next);
     saveSellerScenarios(next);
@@ -1300,6 +1321,14 @@ function SellersTab() {
 
   return (
     <div className="space-y-5">
+      {persistError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 text-destructive text-sm px-3 py-2">
+          <strong>Saving to Supabase failed.</strong> {persistError}
+          <div className="text-xs mt-1 opacity-90">
+            Apply <code>supabase/migrations/2026_05_22_seller_and_market_analysis.sql</code> in your Supabase SQL editor, then refresh.
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {scenarios.map(s => (
           <button

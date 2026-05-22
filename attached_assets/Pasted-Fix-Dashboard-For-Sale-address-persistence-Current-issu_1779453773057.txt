@@ -1,0 +1,111 @@
+Fix Dashboard → For Sale address persistence.
+
+Current issue:
+When I enter a property address in the For Sale tab, it appears during the current session. But after I log out and log back in, the property is gone.
+
+That means the For Sale property is not being durably saved or not being loaded back correctly.
+
+Expected behavior:
+When a logged-in user enters/selects a property address in Dashboard → For Sale:
+- The property should auto-save immediately.
+- The address should save to Supabase.
+- The saved For Sale property should remain after refresh.
+- The saved For Sale property should remain after logout/login.
+- It should only disappear if the user deletes it.
+
+Do not focus on Market Analysis yet.
+First make the For Sale property address save and reload reliably.
+
+Required behavior:
+1. On valid Google Maps address selection, immediately create/upsert a For Sale record in Supabase.
+2. Save the record even if only the address exists.
+3. Save the record before Zillow/cache finishes loading.
+4. Save the record before market analysis is generated.
+5. The saved record must include:
+   - stable property/listing/scenario ID
+   - authenticated user ID
+   - full formatted address
+   - normalized property key
+   - flow/type/category = `for_sale` or `seller`
+   - created_at
+   - updated_at
+6. When Zillow/cache data returns, update the same For Sale record by stable ID.
+7. When the user changes seller numbers, update the same For Sale record by stable ID.
+8. Do not create duplicate records when Zillow/cache returns.
+9. Do not rely on local state/session state as the source of truth.
+10. Empty local state should never overwrite or hide saved Supabase records.
+
+Dashboard load requirements:
+1. Dashboard → For Sale should query Supabase after auth/session is ready.
+2. It should load all For Sale records for the authenticated user.
+3. It should not require:
+   - Zillow data
+   - Market Analysis
+   - estimated net proceeds
+   - completed seller form
+   - uploaded documents
+4. A record with only an address should still appear in the For Sale tab.
+5. For Sale records should not be mixed with Purchase, Refinance, or Insurance records.
+
+Likely issues to inspect:
+- For Sale address is only being saved in React/local state.
+- Save/upsert is not being called after address selection.
+- Save/upsert is called before authenticated user is ready, so `user_id` is null.
+- Supabase insert/upsert is failing silently.
+- The For Sale dashboard query is filtering by the wrong `flow_type`.
+- The For Sale dashboard is querying a different table than the save function writes to.
+- RLS is blocking insert/select.
+- The For Sale record is saved under the wrong user ID.
+- The dashboard loads before auth is ready and never refetches.
+- Local empty state overwrites the loaded Supabase records.
+- The saved record requires fields that are not available yet, causing insert failure.
+
+Add temporary debug logs:
+When address is selected:
+- selected Google formatted address
+- generated stable listing/property ID
+- authenticated user ID
+- normalized property key
+- flow/type value
+- full object being saved
+
+When saving:
+- exact Supabase table name
+- exact insert/upsert payload
+- Supabase response
+- Supabase error, if any
+
+When loading Dashboard → For Sale:
+- auth/session loading state
+- authenticated user ID
+- exact table queried
+- query filters used
+- raw records returned
+- count of For Sale records returned
+- final records rendered
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → For Sale.
+3. Enter/select a property address.
+4. Confirm Supabase insert/upsert succeeds immediately.
+5. Confirm the For Sale property appears in the tab.
+6. Refresh the page.
+7. Confirm the property is still there.
+8. Log out.
+9. Log back in.
+10. Confirm the property is still there.
+11. Add a second For Sale property.
+12. Refresh/logout/login again.
+13. Confirm both For Sale properties remain.
+14. Confirm Zillow/cache updates update the same saved record.
+15. Confirm Market Analysis is not required for the property to appear.
+16. Confirm the property only disappears after delete.
+
+Please make the smallest safe code change possible and report:
+- Whether the bug was save, load, filter, auth timing, RLS, or local state overwrite
+- Which Supabase table stores For Sale records
+- Which fields are required for a For Sale record to appear
+- Which save/upsert function was changed
+- Which dashboard load/query function was changed
+- Which files/functions were changed
