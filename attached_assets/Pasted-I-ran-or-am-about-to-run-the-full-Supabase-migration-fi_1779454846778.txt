@@ -1,0 +1,54 @@
+I ran or am about to run the full Supabase migration file:
+
+supabase/migrations/2026_05_22_seller_and_market_analysis.sql
+
+Please verify the For Sale save/load flow after this migration.
+
+Goal:
+Dashboard → For Sale properties must save permanently after a user enters an address and must reload after refresh, logout, and login.
+
+Expected result:
+- `seller_scenarios` exists
+- `listing_market_analyses` exists
+- `seller_scenarios` has the required columns
+- `seller_scenarios` has RLS enabled
+- authenticated users can SELECT, INSERT, UPDATE, and DELETE their own rows where `user_id = auth.uid()`
+- Dashboard → For Sale saves new properties into `seller_scenarios`
+- For Sale properties persist after refresh and logout/login
+- Market Analysis can use the saved seller scenario record
+
+Please check:
+1. Dashboard → For Sale address selection creates/upserts a row in `seller_scenarios`.
+2. The row has the correct authenticated `user_id`.
+3. The row has `full_address`, `normalized_property_key`, `created_at`, and `updated_at`.
+4. The app loads saved For Sale records from `seller_scenarios` after auth/session is ready.
+5. The For Sale tab renders saved rows after refresh and logout/login.
+6. The app does not require Zillow data, Market Analysis, photos, net proceeds, or completed seller details for the For Sale property to appear.
+7. `listing_market_analyses` exists so the Market Analysis section can save/load.
+
+Please check browser console for:
+- `[seller-load] ok`
+- `[seller-save] upsert`
+- `[seller-save] upsert ok`
+
+If there are still errors, tell me the exact issue:
+- missing table
+- missing column
+- RLS policy issue
+- wrong `user_id`
+- schema cache issue
+- query/filter issue
+- save/upsert issue
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → For Sale.
+3. Enter/select a property address.
+4. Confirm a row is inserted/upserted into `seller_scenarios`.
+5. Refresh the page.
+6. Confirm the property is still there.
+7. Log out.
+8. Log back in.
+9. Confirm the property is still there.
+10. Open the For Sale property detail view.
+11. Confirm Market Analysis can use the saved seller scenario record.
