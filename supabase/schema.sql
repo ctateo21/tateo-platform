@@ -195,6 +195,17 @@ drop policy if exists "cash_buy_scenarios_owner" on public.cash_buy_scenarios;
 create policy "cash_buy_scenarios_owner" on public.cash_buy_scenarios
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+-- Phase-2 additive columns (Zillow auto-pull, 2% default closing costs,
+-- HOA provenance, insurance simulator persistence). Idempotent.
+alter table public.cash_buy_scenarios
+  add column if not exists purchase_price_source     text,
+  add column if not exists closing_costs_percent     numeric,
+  add column if not exists closing_costs_source      text,
+  add column if not exists hoa_source                text,
+  add column if not exists zillow_status             text,
+  add column if not exists insurance_factors         jsonb,
+  add column if not exists insurance_premium_annual  numeric;
+
 -- ----------------------------------------------------------------------------
 -- 4c. listing_market_analyses  (AI-generated weekly seller listing analysis)
 -- ----------------------------------------------------------------------------

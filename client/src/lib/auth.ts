@@ -84,6 +84,26 @@ export interface SellerScenario {
 
 export type CashBuyOccupancyType = "primary" | "secondary" | "investment";
 export type SellerConcessionsMode = "percent" | "amount";
+export type CashBuyPurchasePriceSource =
+  | "default" | "user"
+  | "zillow_cache" | "zillow_listing" | "zillow_sold" | "zillow_zestimate";
+export type CashBuyClosingCostsSource = "default_percent" | "manual";
+export type CashBuyHoaSource = "zillow" | "manual" | "unknown";
+export type CashBuyZillowStatus =
+  | "loading" | "loaded_from_cache" | "loaded_from_zillow" | "error";
+
+/** Persisted insurance-simulator factors. Mirrors the field shape used by
+ *  `PropertyInsuranceSimulator`. Stored as jsonb so the simulator can add
+ *  knobs without further migrations. */
+export interface CashBuyInsuranceFactors {
+  regionKey: string;
+  roofIdx: number;
+  windIdx: number;
+  hurrIdx: number;
+  constIdx: number;
+  yearIdx: number;
+  claimsIdx: number;
+}
 
 export interface CashBuyScenario {
   id: string;
@@ -92,11 +112,19 @@ export interface CashBuyScenario {
   savedAt: string;
   updatedAt: string;
   purchasePrice?: number;
+  /** Provenance of `purchasePrice` — used to gate Zillow overwrites. */
+  purchasePriceSource?: CashBuyPurchasePriceSource;
   occupancyType?: CashBuyOccupancyType;
   propertyTaxes?: number;        // annual
-  homeownersInsurance?: number;  // annual
+  homeownersInsurance?: number;  // annual (synced from simulator midpoint)
   hoaMonthly?: number;           // monthly HOA / condo fees
+  /** Source of the HOA value. `"manual"` blocks Zillow overwrites. */
+  hoaSource?: CashBuyHoaSource;
   closingCosts?: number;         // buyer-side closing costs (title, recording, doc stamps, inspection, etc.)
+  /** Default % applied when `closingCostsSource === "default_percent"`. */
+  closingCostsPercent?: number;
+  /** Tracks whether the user has manually overridden closing costs. */
+  closingCostsSource?: CashBuyClosingCostsSource;
   sellerConcessionsMode?: SellerConcessionsMode;
   sellerConcessionsPercent?: number; // 0–9
   sellerConcessionsAmount?: number;  // absolute $
@@ -104,6 +132,10 @@ export interface CashBuyScenario {
   cashToClose?: number;
   primaryPhotoUrl?: string;
   propertyPhotos?: string[];
+  /** Last-known Zillow lookup status — surfaced as a small badge. */
+  zillowStatus?: CashBuyZillowStatus;
+  insuranceFactors?: CashBuyInsuranceFactors;
+  insurancePremiumAnnual?: number;
 }
 
 export type TrackedLoanPropertyType = "primary" | "secondary" | "investment";
@@ -293,6 +325,32 @@ function rowToCashBuy(row: any): CashBuyScenario {
   const mode = row.seller_concessions_mode;
   const sellerConcessionsMode: SellerConcessionsMode | undefined =
     mode === "percent" || mode === "amount" ? mode : undefined;
+  const ccs = row.closing_costs_source;
+  const closingCostsSource: CashBuyClosingCostsSource | undefined =
+    ccs === "default_percent" || ccs === "manual" ? ccs : undefined;
+  const hs = row.hoa_source;
+  const hoaSource: CashBuyHoaSource | undefined =
+    hs === "zillow" || hs === "manual" || hs === "unknown" ? hs : undefined;
+  const pps = row.purchase_price_source;
+  const purchasePriceSource: CashBuyPurchasePriceSource | undefined =
+    pps === "default" || pps === "user" || pps === "zillow_cache" ||
+    pps === "zillow_listing" || pps === "zillow_sold" || pps === "zillow_zestimate"
+      ? pps : undefined;
+  const zs = row.zillow_status;
+  const zillowStatus: CashBuyZillowStatus | undefined =
+    zs === "loading" || zs === "loaded_from_cache" ||
+    zs === "loaded_from_zillow" || zs === "error" ? zs : undefined;
+  const factors = row.insurance_factors;
+  const insuranceFactors: CashBuyInsuranceFactors | undefined =
+    factors && typeof factors === "object" ? {
+      regionKey: String(factors.regionKey ?? "tampa"),
+      roofIdx:   Number(factors.roofIdx   ?? 1),
+      windIdx:   Number(factors.windIdx   ?? 1),
+      hurrIdx:   Number(factors.hurrIdx   ?? 0),
+      constIdx:  Number(factors.constIdx  ?? 0),
+      yearIdx:   Number(factors.yearIdx   ?? 1),
+      claimsIdx: Number(factors.claimsIdx ?? 0),
+    } : undefined;
   return {
     id: row.id,
     address: row.full_address,
@@ -300,17 +358,24 @@ function rowToCashBuy(row: any): CashBuyScenario {
     savedAt: row.created_at,
     updatedAt: row.updated_at ?? row.created_at,
     purchasePrice: row.purchase_price != null ? Number(row.purchase_price) : undefined,
+    purchasePriceSource,
     occupancyType,
     propertyTaxes: row.property_taxes != null ? Number(row.property_taxes) : undefined,
     homeownersInsurance: row.homeowners_insurance != null ? Number(row.homeowners_insurance) : undefined,
     hoaMonthly: row.hoa_monthly != null ? Number(row.hoa_monthly) : undefined,
+    hoaSource,
     closingCosts: row.closing_costs != null ? Number(row.closing_costs) : undefined,
+    closingCostsPercent: row.closing_costs_percent != null ? Number(row.closing_costs_percent) : undefined,
+    closingCostsSource,
     sellerConcessionsMode,
     sellerConcessionsPercent: row.seller_concessions_percent != null ? Number(row.seller_concessions_percent) : undefined,
     sellerConcessionsAmount: row.seller_concessions_amount != null ? Number(row.seller_concessions_amount) : undefined,
     cashToClose: row.cash_to_close != null ? Number(row.cash_to_close) : undefined,
     primaryPhotoUrl: row.primary_photo_url ?? undefined,
     propertyPhotos: photos,
+    zillowStatus,
+    insuranceFactors,
+    insurancePremiumAnnual: row.insurance_premium_annual != null ? Number(row.insurance_premium_annual) : undefined,
   };
 }
 function cashBuyToRow(s: CashBuyScenario, userId: string) {
@@ -322,17 +387,24 @@ function cashBuyToRow(s: CashBuyScenario, userId: string) {
     created_at: s.savedAt,
     updated_at: s.updatedAt,
     purchase_price: s.purchasePrice ?? null,
+    purchase_price_source: s.purchasePriceSource ?? null,
     occupancy_type: s.occupancyType ?? null,
     property_taxes: s.propertyTaxes ?? null,
     homeowners_insurance: s.homeownersInsurance ?? null,
     hoa_monthly: s.hoaMonthly ?? null,
+    hoa_source: s.hoaSource ?? null,
     closing_costs: s.closingCosts ?? null,
+    closing_costs_percent: s.closingCostsPercent ?? null,
+    closing_costs_source: s.closingCostsSource ?? null,
     seller_concessions_mode: s.sellerConcessionsMode ?? null,
     seller_concessions_percent: s.sellerConcessionsPercent ?? null,
     seller_concessions_amount: s.sellerConcessionsAmount ?? null,
     cash_to_close: s.cashToClose ?? null,
     primary_photo_url: s.primaryPhotoUrl ?? null,
     property_photos: s.propertyPhotos ?? null,
+    zillow_status: s.zillowStatus ?? null,
+    insurance_factors: s.insuranceFactors ?? null,
+    insurance_premium_annual: s.insurancePremiumAnnual ?? null,
   };
 }
 function rowToTrackedLoan(row: any): TrackedLoan {

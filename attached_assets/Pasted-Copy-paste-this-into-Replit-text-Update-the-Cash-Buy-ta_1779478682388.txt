@@ -1,0 +1,178 @@
+Copy/paste this into Replit:
+
+```text
+Update the Cash Buy tab/detail view.
+
+Current issue:
+The Cash Buy property detail view is showing sections in two side-by-side columns. I want this Cash Buy view to be simpler and stacked in one column.
+
+Also, several Purchase-tab behaviors need to be copied into Cash Buy.
+
+Requested changes:
+
+1. Layout: one-column view
+Inside Dashboard → Cash Buy → property detail view:
+- Change the layout from two columns to one column.
+- Stack sections vertically in this order:
+  1. Zillow/property photos at the top
+  2. Property/address summary
+  3. Estimated Cash to Close
+  4. Real Estate
+  5. Ongoing Costs
+  6. Insurance simulator
+- Do not use the current two-column side-by-side layout on desktop.
+- Keep mobile clean and stacked.
+
+2. Property taxes should pull like Purchase tab
+Annual property taxes in Cash Buy should use the same property tax logic as the Purchase tab.
+
+Requirements:
+- Taxes should be based on:
+  - purchase price / property value
+  - property location
+  - property use: Primary / Secondary / Investment
+  - homestead logic if applicable
+- If Primary Residence is selected, use the same tax estimate behavior as Purchase.
+- If Secondary or Investment is selected, use the same non-homestead logic as Purchase.
+- Changing Property Use should immediately update annual property taxes.
+- Save the selected property use and calculated taxes to the Cash Buy record.
+- Do not use a separate weaker Cash Buy tax estimate if the Purchase tab already has better logic.
+
+3. Add the same insurance simulator from Purchase
+At the bottom of the Cash Buy detail view, add the same insurance simulator that appears at the bottom of the Purchase tab.
+
+Requirements:
+- Reuse the existing Purchase insurance simulator component if possible.
+- It should appear below the Ongoing Costs section.
+- It should use the Cash Buy property address and property details.
+- It should pull/use:
+  - estimated homeowners insurance
+  - flood estimate if available
+  - rebuild cost if available
+  - wind/hurricane assumptions if already part of Purchase
+  - property use if relevant
+- Values should auto-save to the Cash Buy scenario.
+- Do not create duplicate insurance logic if an existing reusable component can be used.
+
+4. Estimated closing costs default to 2%
+In Cash Buy → Real Estate:
+- Estimated Closing Costs should default to 2% of purchase price.
+- If purchase price is $500,000, estimated closing costs should default to $10,000.
+- If purchase price changes, and the user has not manually overridden closing costs, recalculate default closing costs as 2%.
+- If the user manually changes closing costs, preserve the manual override.
+- Save closing costs and manual/default status to the Cash Buy record.
+
+Suggested fields:
+- `closing_costs_percent`: default `2.00`
+- `buyer_closing_costs`
+- `closing_costs_source`: `"default_percent" | "manual"`
+
+5. Purchase price should auto-populate from Zillow/cache
+When a user enters/selects a Cash Buy property address:
+- Check the existing property cache first.
+- If cached Zillow/property data exists, use it.
+- If no cache exists, run the Zillow scrape automatically.
+- Auto-populate Purchase Price from the correct Zillow value/sale estimate.
+- Do not use rent estimate as purchase price.
+- Save purchase price to the Cash Buy scenario.
+- Update Estimated Cash to Close after purchase price populates.
+- Update closing costs default to 2% after purchase price populates.
+- Show a loading state while Zillow/cache data is loading.
+
+6. Zillow photos should populate at the top
+The Zillow photos should populate in Cash Buy the same way they do in the Purchase tab.
+
+Requirements:
+- Use `primaryPhotoUrl` and `propertyPhotos` from Zillow/cache.
+- Put the photo carousel at the top of the Cash Buy detail view.
+- If photos are still loading, show:
+  “Loading property photos…”
+- If photos exist, show the carousel.
+- If no photos exist after loading completes, show the placeholder.
+- Save photos to Cash Buy scenario or reuse cached property photos.
+- Do not show broken image boxes.
+
+7. HOA / Condo Fees should pull from Zillow if available
+Check whether the Zillow/Apify scrape returns HOA data.
+
+Possible fields to inspect:
+- `hoaFee`
+- `monthlyHoaFee`
+- `hoa`
+- `hoaAmount`
+- `hoaDues`
+- `associationFee`
+- `monthlyHoa`
+- `fees`
+- any nested HOA/association fields
+
+Requirements:
+- If Zillow returns HOA data, normalize it.
+- Store HOA data in Supabase/property cache like the other Zillow data.
+- Pull HOA/Condo Fees into the Cash Buy Ongoing Costs section.
+- If HOA is monthly, show it as monthly.
+- If HOA is annual, convert to monthly if needed and label correctly.
+- Save HOA/Condo Fees to the Cash Buy scenario.
+- If no HOA data is found, leave the field editable/default blank or $0.
+- Do not overwrite a user manual HOA value with blank Zillow data.
+- If the user manually changes HOA, preserve the manual override.
+
+Suggested fields:
+- `hoa_amount`
+- `hoa_frequency`: `"monthly" | "annual" | "unknown"`
+- `hoa_source`: `"zillow" | "manual" | "unknown"`
+
+Cash to Close calculation:
+Update Cash Buy cash to close using:
+Purchase Price
++ Estimated Closing Costs
+- Seller Concessions
+
+Include additional buyer costs only if the Cash Buy logic already includes them.
+
+Do not include:
+- mortgage down payment
+- loan amount
+- principal and interest
+- PMI/MIP
+- DTI
+- mortgage qualification logic
+
+Important:
+- Do not change Purchase, Refinance, Insurance, or For Sale behavior.
+- Do not break the Cash Buy save/load logic.
+- Cash Buy records must still persist after refresh/logout/login.
+- Use stable scenario IDs.
+- Do not use array indexes.
+- Reuse existing Purchase components where safe.
+
+Acceptance test:
+1. Go to Dashboard → Cash Buy.
+2. Open a Cash Buy property detail view.
+3. Confirm the page is one column, not two side-by-side columns.
+4. Confirm Zillow/property photos appear at the top.
+5. Enter/select a new Cash Buy address.
+6. Confirm Zillow/cache runs automatically.
+7. Confirm purchase price auto-populates from Zillow/cache.
+8. Confirm estimated closing costs default to 2% of purchase price.
+9. Confirm changing purchase price updates 2% closing costs unless manually overridden.
+10. Confirm annual property taxes populate using the same Purchase tax logic.
+11. Change property use from Primary to Secondary/Investment and confirm tax estimate updates.
+12. Confirm the Purchase insurance simulator appears at the bottom of Cash Buy.
+13. Confirm HOA/Condo Fees populate from Zillow if available.
+14. Confirm manual HOA edits are preserved.
+15. Refresh/logout/login and confirm Cash Buy values persist.
+16. Confirm Purchase tab behavior is unchanged.
+
+Please make the smallest safe code change possible and tell me:
+- Which Cash Buy detail component was changed
+- How the one-column layout was implemented
+- Which Purchase tax logic was reused
+- Which Purchase insurance simulator component was reused
+- How closing costs default to 2%
+- How Zillow purchase price is selected
+- Which Zillow HOA fields were found and normalized
+- Where HOA data is saved in Supabase/cache
+- How photo carousel was added to the top
+- Which files/functions were changed
+```

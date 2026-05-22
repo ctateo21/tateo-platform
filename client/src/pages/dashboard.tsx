@@ -1161,6 +1161,12 @@ function CashBuyTab() {
           updatedAt: now,
           occupancyType: "primary",
           sellerConcessionsMode: "percent",
+          // Phase-2 defaults: 2% auto closing costs, unknown HOA, Zillow
+          // will auto-populate price+photos+HOA on the detail page mount.
+          purchasePriceSource: "default",
+          closingCostsPercent: 2.0,
+          closingCostsSource: "default_percent",
+          hoaSource: "unknown",
         };
         const next = [draft, ...scenarios];
         setScenarios(next);
