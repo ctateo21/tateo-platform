@@ -82,6 +82,26 @@ export async function fetchMyListingsCount(): Promise<number> {
   return count ?? 0;
 }
 
+export interface ListingStatusCounts {
+  active: number;
+  pending: number;
+  sold: number;
+  all: number;
+}
+
+// Per-status counts for the seller's own listings. RLS limits this to the
+// current seller's rows automatically.
+export async function fetchMyListingStatusCounts(): Promise<ListingStatusCounts> {
+  const { data, error } = await supabase.from("listings").select("status");
+  if (error) throw error;
+  const counts: ListingStatusCounts = { active: 0, pending: 0, sold: 0, all: 0 };
+  for (const row of (data ?? []) as { status: keyof ListingStatusCounts }[]) {
+    if (row.status in counts) counts[row.status]++;
+    counts.all++;
+  }
+  return counts;
+}
+
 export async function fetchListingRecaps(listingId: string, publishedOnly = false): Promise<WeeklyRecap[]> {
   let q = supabase
     .from("weekly_recaps")

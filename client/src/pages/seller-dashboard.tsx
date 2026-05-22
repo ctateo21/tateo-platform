@@ -18,9 +18,9 @@ import {
 } from "@/components/ui/tooltip";
 import { useAuth } from "@/context/auth-context";
 import {
-  fetchMyListings, fetchListingRecaps,
+  fetchMyListings, fetchListingRecaps, fetchMyListingStatusCounts,
   fmtMoney, fmtDate, domColor, heatColor, statusColor,
-  type Listing, type WeeklyRecap,
+  type Listing, type WeeklyRecap, type ListingStatusCounts,
 } from "@/lib/seller-dashboard";
 
 function HelpTip({ text }: { text: string }) {
@@ -486,6 +486,12 @@ export default function SellerDashboardPage() {
     enabled: !!user,
   });
 
+  const { data: statusCounts } = useQuery<ListingStatusCounts>({
+    queryKey: ["seller-dashboard", "status-counts", user?.id],
+    queryFn: fetchMyListingStatusCounts,
+    enabled: !!user,
+  });
+
   useEffect(() => {
     if (!listings) return;
     if (listings.length === 0) {
@@ -547,11 +553,23 @@ export default function SellerDashboardPage() {
         className="mb-4"
       >
         <TabsList className="flex-wrap h-auto">
-          {STATUS_FILTERS.map(f => (
-            <TabsTrigger key={f.value} value={f.value} data-testid={`filter-${f.value}`}>
-              {f.label}
-            </TabsTrigger>
-          ))}
+          {STATUS_FILTERS.map(f => {
+            const count = statusCounts?.[f.value];
+            return (
+              <TabsTrigger key={f.value} value={f.value} data-testid={`filter-${f.value}`} className="gap-1.5">
+                {f.label}
+                {count != null && (
+                  <Badge
+                    variant="secondary"
+                    className="h-5 min-w-5 px-1.5 text-[11px] tabular-nums rounded-full"
+                    data-testid={`filter-count-${f.value}`}
+                  >
+                    {count}
+                  </Badge>
+                )}
+              </TabsTrigger>
+            );
+          })}
         </TabsList>
       </Tabs>
 
