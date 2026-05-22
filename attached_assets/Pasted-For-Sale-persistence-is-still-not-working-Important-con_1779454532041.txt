@@ -1,0 +1,151 @@
+For Sale persistence is still not working.
+
+Important context:
+When I log out and log back in, Purchase, Refinance, and Insurance all have my saved properties.
+
+But Dashboard → For Sale has nothing saved.
+
+That means Supabase/auth persistence works in the app overall. The bug is specific to the For Sale tab save/load implementation.
+
+Do not touch Purchase, Refinance, or Insurance.
+Do not change Market Analysis.
+Do not change Zillow photos.
+Do not redesign the For Sale UI.
+
+Only fix For Sale persistence.
+
+Current issue:
+I enter a property in Dashboard → For Sale.
+It appears temporarily.
+I log out and log back in.
+The For Sale tab is empty.
+Purchase, Refinance, and Insurance still show their saved records.
+
+Expected behavior:
+For Sale properties should save and reload exactly like Purchase, Refinance, and Insurance.
+
+Hard requirement:
+When a user enters/selects a For Sale property address, it must be saved into the same durable dashboard property/scenario system that is already working for Purchase, Refinance, and Insurance, with a For Sale/Seller flow type.
+
+Likely issue:
+For Sale is probably using its own local state, its own table, the wrong flow type, or a dashboard query that does not match the save path.
+
+Required fix:
+Use the working saved-property pattern from Purchase/Refinance/Insurance.
+
+Please inspect:
+1. Where Purchase properties are saved and loaded.
+2. Where Refinance properties are saved and loaded.
+3. Where Insurance properties are saved and loaded.
+4. Which Supabase table(s) are used.
+5. Which required fields are used.
+6. Which flow/type/category values are used.
+7. How dashboard tabs query those records after login.
+8. Why For Sale is not using that same pattern.
+
+Implementation direction:
+If Purchase/Refinance/Insurance use a shared table like:
+- scenarios
+- property_scenarios
+- dashboard_properties
+- saved_properties
+- user_properties
+or similar,
+
+then For Sale should use that same table and same save/load pipeline, with:
+- flow_type = "for_sale" or "seller"
+- scenario_type = "for_sale" or "seller"
+- category = "for_sale" or "seller"
+
+Use whichever field naming convention the working tabs already use.
+
+Do not create a separate For Sale-only persistence path unless the existing architecture already requires it.
+
+When a For Sale address is selected:
+Immediately insert/upsert a saved dashboard record with:
+- stable id
+- authenticated user_id
+- full formatted address
+- normalized_property_key
+- flow/type/category value that dashboard can filter as For Sale
+- created_at
+- updated_at
+- estimated sale price if available
+- net proceeds fields if available
+- primaryPhotoUrl/propertyPhotos if available
+
+This record must save even if only the address exists.
+
+Dashboard → For Sale load:
+When the user logs in and Dashboard → For Sale loads:
+- query the same saved-property/scenario table that works for Purchase/Refinance/Insurance
+- filter only For Sale/Seller records
+- do not require Zillow data
+- do not require Market Analysis
+- do not require photos
+- do not require net proceeds
+- do not require completed seller details
+- a record with just an address should show
+
+Critical debugging:
+Add temporary logs showing the difference between working tabs and For Sale.
+
+Log for Purchase/Refinance/Insurance:
+- table queried
+- filter field
+- filter value
+- records returned
+
+Log for For Sale:
+- table being written to
+- save payload
+- Supabase save response/error
+- table being queried
+- filter field
+- filter value
+- records returned
+- final records rendered
+
+Compare the working tabs to For Sale.
+
+Specific failure I want identified:
+Tell me exactly which of these is true:
+1. For Sale is not writing to Supabase at all.
+2. For Sale is writing to a different table than the dashboard reads.
+3. For Sale is writing with the wrong user_id.
+4. For Sale is writing with the wrong flow/type/category value.
+5. For Sale is writing correctly but the dashboard query filters it out.
+6. For Sale loads before auth is ready and never refetches.
+7. RLS blocks For Sale records.
+8. Local empty state overwrites the loaded For Sale records.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → For Sale.
+3. Enter/select a property address.
+4. Confirm a Supabase record is created in the same persistence system used by the other dashboard tabs.
+5. Confirm the saved record has the correct authenticated user_id.
+6. Confirm the saved record has a For Sale/Seller flow/type/category value.
+7. Confirm Dashboard → For Sale displays it.
+8. Refresh.
+9. Confirm it is still there.
+10. Log out.
+11. Log back in.
+12. Confirm Dashboard → For Sale loads the saved record.
+13. Add a second For Sale property.
+14. Refresh/logout/login.
+15. Confirm both For Sale properties remain.
+16. Confirm Purchase, Refinance, and Insurance still work.
+17. Confirm For Sale records do not show in Purchase, Refinance, or Insurance.
+18. Confirm Purchase, Refinance, and Insurance records do not show in For Sale.
+
+Do not mark this fixed unless logout/login works.
+
+Please report back:
+- Which table Purchase/Refinance/Insurance use successfully
+- Which table For Sale was using before
+- Which field/value was missing or mismatched
+- What exact change made For Sale use the working persistence pattern
+- Which save/upsert function was changed
+- Which dashboard load/query function was changed
+- Which files/functions were changed
