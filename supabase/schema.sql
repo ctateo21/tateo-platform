@@ -37,13 +37,15 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.profiles (id, name, email, phone, agent)
+  -- NOTE: `agent` is intentionally NOT copied from raw_user_meta_data.
+  -- The agent role must only be granted by a service-role/admin process
+  -- (e.g. an UPDATE run from the Supabase SQL editor or via the service key).
+  insert into public.profiles (id, name, email, phone)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'name', split_part(new.email, '@', 1)),
     new.email,
-    new.raw_user_meta_data->>'phone',
-    new.raw_user_meta_data->>'agent'
+    new.raw_user_meta_data->>'phone'
   )
   on conflict (id) do nothing;
   return new;
@@ -199,6 +201,158 @@ drop policy if exists "property_cache_read" on public.property_cache;
 create policy "property_cache_read" on public.property_cache
   for select
   using (auth.uid() is not null);
+
+-- ----------------------------------------------------------------------------
+-- 8. listings + weekly_recaps  (Seller Listing Dashboard)
+-- ----------------------------------------------------------------------------
+-- Agents = any profile row whose `agent` text field is non-null (matches the
+-- existing AGENTS list in client/src/lib/auth.ts: christian / omar / kyle / team).
+-- Sellers = regular users who own listings via `seller_id`.
+--
+-- Protect the `agent` column on profiles from being changed by anyone other
+-- than the service role. Without this, the existing `profiles_update_own`
+-- policy lets any user UPDATE their own row including `agent`, which would
+-- allow self-elevation to full agent privileges. This trigger lets normal
+-- users edit name/email/phone but silently preserves the old `agent` value.
+create or replace function public.prevent_agent_self_elevation()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.role() = 'service_role' then
+    return new;
+  end if;
+  if new.agent is distinct from old.agent then
+    new.agent := old.agent;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_protect_agent on public.profiles;
+create trigger profiles_protect_agent
+  before update on public.profiles
+  for each row execute function public.prevent_agent_self_elevation();
+
+-- Clear any agent values that may have been set via raw_user_meta_data on
+-- signup before the trigger above was installed. Service role bypasses RLS.
+-- Comment-out the next line if you have legitimate agents seeded via signup.
+-- update public.profiles set agent = null where agent is not null and id not in (select id from public.profiles where ...);
+
+-- Helper to identify agents without recursive RLS lookups.
+create or replace function public.is_agent()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and agent is not null
+  );
+$$;
+
+create table if not exists public.listings (
+  id              uuid primary key default gen_random_uuid(),
+  seller_id       uuid not null references auth.users(id) on delete cascade,
+  address         text not null,
+  unit            text,
+  city            text not null,
+  state           text not null,
+  zip             text not null,
+  mls_number      text,
+  list_price      integer not null,
+  beds            integer,
+  baths           numeric,
+  sqft            integer,
+  community       text,
+  status          text not null default 'active', -- active|pending|sold
+  list_date       date,
+  last_updated    timestamptz not null default now()
+);
+
+create index if not exists listings_seller_idx on public.listings(seller_id);
+-- Idempotency for the demo seeder and to prevent duplicate MLS records per seller.
+create unique index if not exists listings_seller_mls_uidx
+  on public.listings(seller_id, mls_number)
+  where mls_number is not null;
+
+alter table public.listings enable row level security;
+drop policy if exists "listings_seller_read" on public.listings;
+drop policy if exists "listings_agent_all"   on public.listings;
+-- Sellers read their own listings.
+create policy "listings_seller_read" on public.listings
+  for select using (auth.uid() = seller_id);
+-- Agents have full access to all listings.
+create policy "listings_agent_all" on public.listings
+  for all using (public.is_agent()) with check (public.is_agent());
+
+create table if not exists public.weekly_recaps (
+  id                       uuid primary key default gen_random_uuid(),
+  listing_id               uuid not null references public.listings(id) on delete cascade,
+  recap_date               date not null default current_date,
+  days_on_market           integer,
+  avg_market_dom           integer,
+  list_price               integer,
+  recommended_price_low    integer,
+  recommended_price_high   integer,
+  projected_sale_low       integer,
+  projected_sale_high      integer,
+
+  zillow_daily_views_est   integer,
+  zillow_daily_saves_est   numeric,
+  zillow_heat_index_est    numeric,
+  realtor_weekly_views_est integer,
+  realtor_weekly_saves_est integer,
+  redfin_weekly_views_est  integer,
+  redfin_hot_home          boolean,
+
+  comp_1_address text, comp_1_price integer, comp_1_dom integer, comp_1_status text,
+  comp_2_address text, comp_2_price integer, comp_2_dom integer, comp_2_status text,
+  comp_3_address text, comp_3_price integer, comp_3_dom integer, comp_3_status text,
+
+  market_inventory_months numeric,
+  market_median_price     integer,
+  market_sale_to_list_pct numeric,
+
+  market_summary       text,
+  engagement_summary   text,
+  price_drop_rationale text,
+  next_steps           text[],
+  agent_notes          text,
+
+  published   boolean not null default false,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists weekly_recaps_listing_idx on public.weekly_recaps(listing_id, recap_date desc);
+-- One recap per listing per day; makes the demo seeder race-safe and prevents
+-- accidental duplicates from agents clicking save twice in the editor.
+create unique index if not exists weekly_recaps_listing_date_uidx
+  on public.weekly_recaps(listing_id, recap_date);
+
+alter table public.weekly_recaps enable row level security;
+drop policy if exists "weekly_recaps_seller_read" on public.weekly_recaps;
+drop policy if exists "weekly_recaps_agent_all"   on public.weekly_recaps;
+-- Sellers see only PUBLISHED recaps for listings they own.
+create policy "weekly_recaps_seller_read" on public.weekly_recaps
+  for select using (
+    published = true and exists (
+      select 1 from public.listings l
+      where l.id = weekly_recaps.listing_id and l.seller_id = auth.uid()
+    )
+  );
+-- Agents have full access.
+create policy "weekly_recaps_agent_all" on public.weekly_recaps
+  for all using (public.is_agent()) with check (public.is_agent());
+
+-- Agents need to read all profiles (to display seller names in admin).
+drop policy if exists "profiles_agent_read_all" on public.profiles;
+create policy "profiles_agent_read_all" on public.profiles
+  for select using (public.is_agent());
 
 -- Tell PostgREST to reload its schema cache so new tables are visible to the
 -- REST API immediately (avoids "Could not find the table" errors).

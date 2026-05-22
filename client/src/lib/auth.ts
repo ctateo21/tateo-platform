@@ -582,7 +582,10 @@ export async function updateProfile(
   if (updates.name !== undefined) patch.name = updates.name.trim();
   if (targetEmail) patch.email = targetEmail;
   if (phone !== undefined) patch.phone = phone;
-  if (updates.agent !== undefined) patch.agent = updates.agent.trim() || null;
+  // NOTE: `agent` is intentionally not written here. The `agent` column on
+  // profiles is protected by a DB trigger (prevent_agent_self_elevation) and
+  // can only be set by the service role. Any attempt to set it client-side
+  // is silently dropped server-side.
 
   if (Object.keys(patch).length > 0) {
     const { error: pErr } = await supabase.from("profiles").update(patch).eq("id", user.id);

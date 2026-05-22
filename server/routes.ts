@@ -30,6 +30,177 @@ import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type
 import { supabaseAdmin } from "./supabase";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // ── Seller Dashboard demo seed ────────────────────────────────────
+  // Idempotent: creates a demo seller account + 3 sample listings + one
+  // published recap per listing. Safe to re-run. Requires the caller to
+  // be authenticated as an agent (Bearer token in Authorization header).
+  app.post("/api/seller-dashboard/seed", async (req, res) => {
+    if (!supabaseAdmin) {
+      return res.status(503).json({ message: "Supabase admin not configured" });
+    }
+    try {
+      // Verify caller is an agent via bearer token from the client session.
+      const auth = req.headers.authorization?.replace(/^Bearer\s+/i, "");
+      if (!auth) return res.status(401).json({ message: "Sign in as an agent first." });
+      const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(auth);
+      if (userErr || !userRes?.user?.id) return res.status(401).json({ message: "Invalid session." });
+      const { data: prof } = await supabaseAdmin
+        .from("profiles").select("agent").eq("id", userRes.user.id).maybeSingle();
+      if (!prof?.agent) return res.status(403).json({ message: "Agents only" });
+
+      const DEMO_EMAIL = "demo.seller@tateoco.com";
+      const DEMO_PASSWORD = "DemoSeller2025!";
+
+      // Find or create the demo seller in auth.users. Paginate listUsers so
+      // we don't miss the demo account in larger user bases.
+      let sellerId: string | undefined;
+      let page = 1;
+      while (page <= 50) {
+        const { data: pageRes } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
+        const found = pageRes?.users?.find((u: any) => u.email === DEMO_EMAIL);
+        if (found) { sellerId = found.id; break; }
+        if (!pageRes?.users?.length || pageRes.users.length < 1000) break;
+        page++;
+      }
+      if (!sellerId) {
+        const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+          email: DEMO_EMAIL,
+          password: DEMO_PASSWORD,
+          email_confirm: true,
+          user_metadata: { name: "Demo Seller" },
+        });
+        if (createErr) throw createErr;
+        sellerId = created.user!.id;
+      }
+      if (!sellerId) throw new Error("Failed to resolve demo seller id");
+
+      // Ensure profile row exists with the correct name (trigger handles
+      // first-insert, but the name may not be set if trigger isn't installed).
+      await supabaseAdmin.from("profiles").upsert({
+        id: sellerId, name: "Demo Seller", email: DEMO_EMAIL, agent: null,
+      });
+
+      // Sample listings (use deterministic addresses for idempotency).
+      const sampleListings = [
+        {
+          address: "2200 Bahia Vista St", unit: "B-8", city: "Sarasota", state: "FL", zip: "34239",
+          mls_number: "TB8491429", list_price: 210000, beds: 2, baths: 2, sqft: 982,
+          community: "Cordova Gardens IV", status: "active", list_date: "2025-03-30",
+          recap: {
+            days_on_market: 50, avg_market_dom: 28, list_price: 210000,
+            recommended_price_low: 195000, recommended_price_high: 200000,
+            projected_sale_low: 193000, projected_sale_high: 203000,
+            zillow_daily_views_est: 20, zillow_daily_saves_est: 0.5, zillow_heat_index_est: 2.5,
+            realtor_weekly_views_est: 105, realtor_weekly_saves_est: 8,
+            redfin_weekly_views_est: 80, redfin_hot_home: false,
+            comp_1_address: "2210 Bahia Vista St #A-3", comp_1_price: 198000, comp_1_dom: 35, comp_1_status: "sold",
+            comp_2_address: "2245 Bahia Vista St #C-2", comp_2_price: 205000, comp_2_dom: 42, comp_2_status: "active",
+            comp_3_address: "2225 Bahia Vista St #D-1", comp_3_price: 192500, comp_3_dom: 28, comp_3_status: "sold",
+            market_inventory_months: 4.2, market_median_price: 215000, market_sale_to_list_pct: 96.5,
+            market_summary: "Sarasota condo market is balanced with rising inventory. Comparable units sold $5K–$15K below list.",
+            engagement_summary: "Views are below the 25/day threshold and saves are minimal — typical signs that pricing needs adjustment. A reduction should pull this listing back into buyers' search alerts.",
+            price_drop_rationale: "DOM is nearly double the market average and engagement has plateaued. Reducing to $195K–$200K aligns with recent comp closings and should re-trigger Zillow search alerts.",
+            next_steps: [
+              "Reduce price to $195K–$200K",
+              "Refresh listing photos (twilight + wider angles)",
+              "Schedule open house this Saturday",
+              "Boost listing on Zillow and Realtor.com",
+              "Highlight unique loft layout in description",
+            ],
+            agent_notes: "Owner agreed to consider a $10K reduction if no offers by end of week.",
+          },
+        },
+        {
+          address: "2232 Bahia Vista St", unit: "A-1", city: "Sarasota", state: "FL", zip: "34239",
+          mls_number: "TB8491201", list_price: 210000, beds: 2, baths: 2, sqft: 982,
+          community: "Cordova Gardens I", status: "active", list_date: "2025-03-30",
+          recap: {
+            days_on_market: 50, avg_market_dom: 28, list_price: 210000,
+            recommended_price_low: 195000, recommended_price_high: 199000,
+            projected_sale_low: 195000, projected_sale_high: 205000,
+            zillow_daily_views_est: 18, zillow_daily_saves_est: 0.4, zillow_heat_index_est: 2.2,
+            realtor_weekly_views_est: 105, realtor_weekly_saves_est: 6,
+            redfin_weekly_views_est: 75, redfin_hot_home: false,
+            comp_1_address: "2200 Bahia Vista St #B-8", comp_1_price: 210000, comp_1_dom: 50, comp_1_status: "active",
+            comp_2_address: "2245 Bahia Vista St #C-2", comp_2_price: 205000, comp_2_dom: 42, comp_2_status: "active",
+            comp_3_address: "2210 Bahia Vista St #A-3", comp_3_price: 198000, comp_3_dom: 35, comp_3_status: "sold",
+            market_inventory_months: 4.2, market_median_price: 215000, market_sale_to_list_pct: 96.5,
+            market_summary: "Redfin's AVM puts this unit at $249K, $39K above list — a strong value signal we should lean into.",
+            engagement_summary: "Engagement is tracking below B-8 despite being a stronger value vs. the Redfin AVM. We need to either price aggressively or refresh the presentation.",
+            price_drop_rationale: "Reprice to $199K to stagger against B-8 (same community) and avoid direct competition, or invest in updates to reposition at $225K+.",
+            next_steps: [
+              "Reprice to $199K or invest in light updates",
+              "Stagger pricing strategy vs B-8 in same community",
+              "Stage outdoor patio and entryway",
+              "Promote walkability + Redfin AVM in description",
+            ],
+            agent_notes: "Lean on Redfin AVM premium in next promotional push.",
+          },
+        },
+        {
+          address: "4045 Crockers Lake Blvd", unit: "11", city: "Sarasota", state: "FL", zip: "34238",
+          mls_number: "A4640941", list_price: 225000, beds: 3, baths: 2, sqft: 1272,
+          community: "Vintage Grand, Palmer Ranch", status: "active", list_date: "2025-02-18",
+          recap: {
+            days_on_market: 93, avg_market_dom: 49, list_price: 225000,
+            recommended_price_low: 205000, recommended_price_high: 209900,
+            projected_sale_low: 195000, projected_sale_high: 210000,
+            zillow_daily_views_est: 10, zillow_daily_saves_est: 0.2, zillow_heat_index_est: 2.0,
+            realtor_weekly_views_est: 45, realtor_weekly_saves_est: 3,
+            redfin_weekly_views_est: 35, redfin_hot_home: false,
+            comp_1_address: "4002 Crockers Lake Blvd #11", comp_1_price: 182950, comp_1_dom: 60, comp_1_status: "sold",
+            comp_2_address: "4060 Crockers Lake Blvd #14", comp_2_price: 215000, comp_2_dom: 41, comp_2_status: "active",
+            comp_3_address: "4020 Crockers Lake Blvd #6", comp_3_price: 199000, comp_3_dom: 75, comp_3_status: "pending",
+            market_inventory_months: 6.8, market_median_price: 208000, market_sale_to_list_pct: 94.0,
+            market_summary: "Vintage Grand has 5+ active competing units. The most recent comp closed at $182,950 — well below current list.",
+            engagement_summary: "Engagement is critically low. Daily views are less than half the threshold for a healthy listing. A full relist with a fresh price and new media is needed to reset the algorithm and reach a new buyer pool.",
+            price_drop_rationale: "Full relist recommended at $209,900 to break the stale-listing pattern. Competing units below $215K are pulling buyer attention away.",
+            next_steps: [
+              "Full relist at $209,900",
+              "Add professional video walkthrough",
+              "Target investor-buyer segment",
+              "Lead marketing with Floreta floor plan (largest in community)",
+            ],
+            agent_notes: "Recommend cancel-and-relist strategy to reset DOM clock.",
+          },
+        },
+      ];
+
+      let listingsCreated = 0;
+      let recapsCreated = 0;
+      for (const sample of sampleListings) {
+        const { recap, ...listingData } = sample as any;
+        // Race-safe upsert keyed on the unique index (seller_id, mls_number).
+        const { data: upserted, error: upErr } = await supabaseAdmin
+          .from("listings")
+          .upsert({ ...listingData, seller_id: sellerId }, { onConflict: "seller_id,mls_number" })
+          .select("id, last_updated").single();
+        if (upErr) throw upErr;
+        const listingId = upserted!.id;
+        listingsCreated++;
+        // Race-safe upsert keyed on (listing_id, recap_date) unique index.
+        const today = new Date().toISOString().slice(0, 10);
+        const { error: rErr } = await supabaseAdmin
+          .from("weekly_recaps")
+          .upsert(
+            { ...recap, listing_id: listingId, recap_date: today, published: true },
+            { onConflict: "listing_id,recap_date" }
+          );
+        if (rErr) throw rErr;
+        recapsCreated++;
+      }
+
+      res.json({
+        ok: true,
+        message: `Seeded ${listingsCreated} new listings and ${recapsCreated} new recaps. Demo seller: ${DEMO_EMAIL} / ${DEMO_PASSWORD}`,
+        seller: { email: DEMO_EMAIL, password: DEMO_PASSWORD, id: sellerId },
+      });
+    } catch (e: any) {
+      console.error("[seed] failed:", e);
+      res.status(500).json({ message: e.message ?? "Seed failed" });
+    }
+  });
+
   // API routes
   
   // Get service categories

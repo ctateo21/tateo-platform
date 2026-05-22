@@ -75,6 +75,28 @@ The application is designed for deployment on platforms that support Node.js app
 - **Database**: Configured for Neon PostgreSQL with connection pooling
 - **Static Assets**: Frontend build output served by Express in production
 
+## Seller Listing Dashboard
+
+A second product surface lives alongside the buyer/refi flows:
+
+- **`/seller-dashboard`** — Seller view. Logged-in sellers see their own active listings with the latest published weekly recap: price analysis, comps, online platform engagement (Zillow/Realtor/Redfin), next steps, and a history accordion of past recaps.
+- **`/admin`** — Agent-only admin. Lists all listings across all sellers, lets agents add/edit listings and create/publish weekly recaps via a long-form editor. Agents are identified by `profiles.agent` being non-null (same `AGENTS` list used elsewhere: christian/omar/kyle/team).
+
+Database (added to `supabase/schema.sql`):
+- `listings` — one row per property, linked to a seller via `seller_id`. RLS: sellers read their own; agents have full access.
+- `weekly_recaps` — agent-authored per-listing snapshots (DOM, pricing recommendation, comps, engagement estimates, narrative fields, `next_steps[]`). Sellers see only `published = true` recaps. Agents have full access.
+- Helper SQL function `public.is_agent()` powers the RLS policies.
+
+Run `supabase/schema.sql` in the Supabase SQL editor to apply.
+
+**Demo seeding** — On `/admin`, click **Seed Demo Data**. The endpoint (`POST /api/seller-dashboard/seed`, agent-only) creates a demo seller account and seeds the 3 sample Sarasota listings from the spec, each with one published recap. Idempotent.
+
+Demo seller credentials:
+- Email: `demo.seller@tateoco.com`
+- Password: `DemoSeller2025!`
+
+Log in as the demo seller to see the seller view; log in as an agent (any account with `profiles.agent` set) to see admin.
+
 ## Changelog
 
 ```

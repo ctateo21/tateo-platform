@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Menu, Home, Building2, Briefcase, HelpCircle, ChevronDown,
   LayoutDashboard, LogIn, LogOut, User, Settings as SettingsIcon,
+  FileText, Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -144,6 +145,18 @@ export default function Header() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
+                  <Link href="/seller-dashboard" className="w-full cursor-pointer flex items-center gap-2">
+                    <Tag className="h-4 w-4" /> My Listings
+                  </Link>
+                </DropdownMenuItem>
+                {user.agent && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin" className="w-full cursor-pointer flex items-center gap-2">
+                      <FileText className="h-4 w-4" /> Listings Admin
+                    </Link>
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem asChild>
                   <Link href="/settings" className="w-full cursor-pointer flex items-center gap-2">
                     <SettingsIcon className="h-4 w-4" /> Settings
                   </Link>
@@ -255,6 +268,22 @@ export default function Header() {
                   >
                     <LayoutDashboard className="h-5 w-5 mr-1" /> My Dashboard
                   </Link>
+                  <Link
+                    href="/seller-dashboard"
+                    className="flex items-center text-lg font-medium text-gray-700 gap-2"
+                    onClick={() => setIsOpen(false)}
+                  >
+                    <Tag className="h-5 w-5 mr-1" /> My Listings
+                  </Link>
+                  {user.agent && (
+                    <Link
+                      href="/admin"
+                      className="flex items-center text-lg font-medium text-gray-700 gap-2"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      <FileText className="h-5 w-5 mr-1" /> Listings Admin
+                    </Link>
+                  )}
                   <Link
                     href="/settings"
                     className="flex items-center text-lg font-medium text-gray-700 gap-2"
