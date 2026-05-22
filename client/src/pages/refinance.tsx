@@ -35,6 +35,7 @@ function analysisToTrackedLoan(analysis: MortgageAnalysis, propertyType: Propert
     addedAt: now,
     balanceAsOf: now,
     propertyType,
+    loanType: "conventional",
     loanNumber,
   };
 }

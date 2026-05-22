@@ -1,0 +1,151 @@
+Copy/paste this into Replit:
+
+```text id="refinance-occupancy-loan-type-controls"
+Update the Refinance flow/detail view so users can change both property use and loan type.
+
+Current issue:
+Inside the Refinance section, users need more flexibility to change the property use and the refinance loan type.
+
+Requested behavior:
+In the Refinance flow/detail view, allow users to switch between:
+
+Property Use / Occupancy:
+- Primary Residence
+- Secondary Home
+- Investment Property
+
+Loan Type:
+- VA
+- FHA
+- Conventional
+- DSCR
+- Bank Statement
+
+Important restriction:
+Only allow VA and FHA if the property use is Primary Residence.
+
+Rules:
+1. If Property Use = Primary Residence:
+   - Allow VA
+   - Allow FHA
+   - Allow Conventional
+   - Allow DSCR
+   - Allow Bank Statement
+
+2. If Property Use = Secondary Home:
+   - Do NOT allow VA
+   - Do NOT allow FHA
+   - Allow Conventional
+   - Allow DSCR, only if the app already supports DSCR for second homes; otherwise disable it
+   - Allow Bank Statement, only if the app already supports it for second homes; otherwise disable it
+
+3. If Property Use = Investment Property:
+   - Do NOT allow VA
+   - Do NOT allow FHA
+   - Allow Conventional
+   - Allow DSCR
+   - Allow Bank Statement
+
+UI requirements:
+1. Add or update a Property Use selector in the Refinance detail view.
+2. Add or update a Loan Type selector in the Refinance detail view.
+3. Use clear labels:
+   - Primary
+   - Secondary
+   - Investment
+   - VA
+   - FHA
+   - Conventional
+   - DSCR
+   - Bank Statement
+4. If the user changes Property Use away from Primary while VA or FHA is selected:
+   - automatically change the loan type to Conventional unless another valid default is already selected
+   - show a small note:
+     “VA and FHA are only available for primary residences.”
+5. If user tries to select VA or FHA while Property Use is Secondary or Investment:
+   - prevent selection or show those options disabled
+   - show helper text:
+     “VA and FHA require primary residence occupancy.”
+6. Keep the color logic consistent:
+   - Primary = blue
+   - Secondary = yellow
+   - Investment = green
+
+Calculation requirements:
+When property use or loan type changes:
+1. Recalculate refinance payment.
+2. Recalculate estimated rate/pricing.
+3. Recalculate mortgage insurance if applicable.
+4. Recalculate taxes/insurance assumptions if those depend on property use.
+5. Recalculate cash to close / savings / refinance benefit metrics if applicable.
+6. Update dashboard summary values.
+7. Auto-save changes to the refinance/tracked loan record.
+
+Loan-type behavior:
+- VA should use existing VA refinance/pricing/funding-fee logic if available.
+- FHA should use existing FHA refinance/pricing/MIP logic if available.
+- Conventional should use existing conventional refinance logic.
+- DSCR should use existing DSCR logic if available.
+- Bank Statement should use existing bank statement/non-QM logic if available.
+- Do not invent new pricing rules if the app does not yet have them.
+- If DSCR or Bank Statement are not fully implemented, allow the selection but show “Pricing not fully connected yet” or disable until supported.
+
+Persistence:
+Save these fields to the refinance/tracked loan record:
+- `occupancy_type`
+- `property_use`
+- `loan_type`
+- any existing equivalent fields already used by the app
+
+If the `tracked_loans` table does not have the necessary fields, give me the SQL migration to add them, such as:
+
+alter table public.tracked_loans
+add column if not exists occupancy_type text default 'primary',
+add column if not exists loan_type text default 'conventional';
+
+Save/load mapping:
+Update:
+- frontend refinance object → Supabase row
+- Supabase row → frontend refinance object
+
+Do not lose these fields on refresh/logout/login.
+
+Important:
+- Do not break mortgage statement upload.
+- Do not break tracked loan saving.
+- Do not break loan number extraction.
+- Do not break existing refinance dashboard rows.
+- Do not allow VA/FHA on Secondary or Investment.
+- Use stable loan/scenario IDs.
+- Do not use array indexes.
+
+Acceptance test:
+1. Go to Dashboard → Refinance.
+2. Open a refinance property detail view.
+3. Confirm Property Use selector appears.
+4. Confirm Loan Type selector appears.
+5. Select Primary Residence.
+6. Confirm VA, FHA, Conventional, DSCR, and Bank Statement are available.
+7. Select VA.
+8. Change Property Use to Investment.
+9. Confirm VA is no longer allowed and loan type automatically changes to Conventional or another valid non-FHA/VA option.
+10. Select Secondary.
+11. Confirm VA and FHA are disabled or hidden.
+12. Select Investment.
+13. Confirm VA and FHA are disabled or hidden.
+14. Select Conventional, DSCR, and Bank Statement where allowed.
+15. Confirm calculations update when property use or loan type changes.
+16. Refresh/logout/login.
+17. Confirm selected property use and loan type persist.
+18. Confirm Refinance dashboard summary updates correctly.
+19. Confirm Purchase, Insurance, For Sale, and Cash Buy are unchanged.
+
+Please make the smallest safe code change possible and tell me:
+- Which Refinance detail component was changed
+- Which Property Use field is used/stored
+- Which Loan Type field is used/stored
+- Whether a Supabase migration is needed
+- How VA/FHA are blocked for non-primary occupancy
+- Which calculations update after property use/loan type changes
+- Which files/functions were changed
+```

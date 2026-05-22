@@ -33,6 +33,8 @@ export interface MortgageAnalysis {
 
 export type PropertyType = "primary" | "secondary" | "investment";
 
+export type LoanType = "va" | "fha" | "conventional" | "dscr" | "bank_statement";
+
 export interface TrackedLoan {
   id: string;
   propertyAddress: string;
@@ -46,6 +48,7 @@ export interface TrackedLoan {
   addedAt: string;
   balanceAsOf?: string;
   propertyType: PropertyType;
+  loanType?: LoanType;
   loanNumber?: string;
 }
 
@@ -58,8 +61,35 @@ export interface LiveRate {
 }
 
 export const PROPERTY_TYPE_ADJUSTMENTS: Record<PropertyType, number> = { primary: 0.00, secondary: 0.25, investment: 0.75 };
-const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = { primary: "Primary Home", secondary: "2nd Home", investment: "Investment" };
-const PROPERTY_TYPE_COLORS: Record<PropertyType, string> = { primary: "bg-background text-foreground border", secondary: "bg-amber-600 text-white border-amber-600", investment: "bg-red-600 text-white border-red-600" };
+const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = { primary: "Primary", secondary: "Secondary", investment: "Investment" };
+// Color logic per product spec: Primary = blue, Secondary = yellow,
+// Investment = green. Used for both the summary badge and the selected
+// state of the property-type toggle buttons.
+const PROPERTY_TYPE_COLORS: Record<PropertyType, string> = {
+  primary:    "bg-blue-600 text-white border-blue-600",
+  secondary:  "bg-amber-500 text-white border-amber-500",
+  investment: "bg-green-600 text-white border-green-600",
+};
+
+// Loan-type options surfaced in the refinance detail. VA + FHA are
+// restricted to primary residences (see VA_FHA_PRIMARY_ONLY below).
+// DSCR + Bank Statement are selectable but no specialized pricing is
+// connected yet — we show a small "Pricing not fully connected yet"
+// note when one of those is selected.
+const LOAN_TYPE_LABELS: Record<LoanType, string> = {
+  va: "VA",
+  fha: "FHA",
+  conventional: "Conventional",
+  dscr: "DSCR",
+  bank_statement: "Bank Statement",
+};
+const LOAN_TYPE_OPTIONS: LoanType[] = ["va", "fha", "conventional", "dscr", "bank_statement"];
+const VA_FHA_PRIMARY_ONLY: LoanType[] = ["va", "fha"];
+const LOAN_TYPE_NOT_PRICED: LoanType[] = ["va", "fha", "dscr", "bank_statement"];
+function isLoanTypeAllowed(lt: LoanType, pt: PropertyType): boolean {
+  if (VA_FHA_PRIMARY_ONLY.includes(lt)) return pt === "primary";
+  return true;
+}
 
 export const CLOSING_COST_PERCENT = 0.60;
 export const CLOSING_COST_FIXED = 4065;
@@ -273,8 +303,28 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   const [activeTab, setActiveTab] = useState<"rate_term" | "cash_out" | "home_equity">("rate_term");
   const [homeValue, setHomeValue] = useState(loan.estimatedHomeValue);
   const [propertyType, setPropertyType] = useState<PropertyType>(loan.propertyType);
+  const [loanType, setLoanType] = useState<LoanType>(loan.loanType ?? "conventional");
   const [financeFees, setFinanceFees] = useState(true);
   const [includeEscrows, setIncludeEscrows] = useState(false);
+
+  // When the user switches property use away from primary, VA / FHA are
+  // no longer allowed — fall back to conventional and toast the rule.
+  // The persisted update flows through onUpdate so refresh/logout/login
+  // round-trips the corrected loan type.
+  function handlePropertyTypeChange(pt: PropertyType) {
+    setPropertyType(pt);
+    const updates: Partial<TrackedLoan> = { propertyType: pt };
+    if (pt !== "primary" && VA_FHA_PRIMARY_ONLY.includes(loanType)) {
+      setLoanType("conventional");
+      updates.loanType = "conventional";
+    }
+    onUpdate(updates);
+  }
+  function handleLoanTypeChange(lt: LoanType) {
+    if (!isLoanTypeAllowed(lt, propertyType)) return;
+    setLoanType(lt);
+    onUpdate({ loanType: lt });
+  }
 
   const bestRate = getBestConventionalRate(liveRates);
   const rateAdj = PROPERTY_TYPE_ADJUSTMENTS[propertyType];
@@ -348,14 +398,57 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
       {expanded && (
         <div className="border-t p-4 space-y-4">
           {/* Property type selector */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-sm font-medium text-muted-foreground">Property Type:</span>
+          <div className="flex items-center gap-3 flex-wrap" data-testid="selector-property-type">
+            <span className="text-sm font-medium text-muted-foreground">Property Use:</span>
             {(["primary", "secondary", "investment"] as PropertyType[]).map(pt => (
-              <button key={pt} onClick={() => { setPropertyType(pt); onUpdate({ propertyType: pt }); }} className={`px-3 py-1 rounded-md text-xs font-semibold border transition-colors ${propertyType === pt ? PROPERTY_TYPE_COLORS[pt] : "border-border text-muted-foreground hover:border-primary"}`}>
+              <button
+                key={pt}
+                onClick={() => handlePropertyTypeChange(pt)}
+                data-testid={`btn-property-type-${pt}`}
+                className={`px-3 py-1 rounded-md text-xs font-semibold border transition-colors ${propertyType === pt ? PROPERTY_TYPE_COLORS[pt] : "border-border text-muted-foreground hover:border-primary"}`}
+              >
                 {PROPERTY_TYPE_LABELS[pt]}
               </button>
             ))}
             {rateAdj > 0 && <span className="text-xs text-amber-600">+{rateAdj.toFixed(2)}% LLPA for {PROPERTY_TYPE_LABELS[propertyType].toLowerCase()}</span>}
+          </div>
+
+          {/* Loan type selector — VA/FHA disabled when not primary */}
+          <div className="space-y-1" data-testid="selector-loan-type">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-sm font-medium text-muted-foreground">Loan Type:</span>
+              {LOAN_TYPE_OPTIONS.map(lt => {
+                const allowed = isLoanTypeAllowed(lt, propertyType);
+                const selected = loanType === lt;
+                return (
+                  <button
+                    key={lt}
+                    type="button"
+                    disabled={!allowed}
+                    onClick={() => handleLoanTypeChange(lt)}
+                    data-testid={`btn-loan-type-${lt}`}
+                    title={!allowed ? "VA and FHA require primary residence occupancy." : undefined}
+                    className={`px-3 py-1 rounded-md text-xs font-semibold border transition-colors ${
+                      selected
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border text-muted-foreground hover:border-primary"
+                    } ${!allowed ? "opacity-40 cursor-not-allowed hover:border-border" : ""}`}
+                  >
+                    {LOAN_TYPE_LABELS[lt]}
+                  </button>
+                );
+              })}
+            </div>
+            {propertyType !== "primary" && (
+              <p className="text-xs text-muted-foreground">
+                VA and FHA are only available for primary residences.
+              </p>
+            )}
+            {LOAN_TYPE_NOT_PRICED.includes(loanType) && (
+              <p className="text-xs text-amber-600">
+                {LOAN_TYPE_LABELS[loanType]} pricing not fully connected yet — calculations use conventional rates.
+              </p>
+            )}
           </div>
 
           {/* Best option banner */}

@@ -161,6 +161,11 @@ export interface TrackedLoan {
   estimatedHomeValue: number;
   estimatedRemainingYears: number;
   propertyType: TrackedLoanPropertyType;
+  /** Refinance loan program. Persisted on tracked_loans.loan_type.
+   *  VA/FHA are only valid when propertyType === "primary"; the UI
+   *  enforces this and auto-falls-back to "conventional" if the user
+   *  switches occupancy. */
+  loanType?: TrackedLoanType;
   addedAt: string;
   balanceAsOf?: string;
   /** Servicer loan/account number extracted from the uploaded mortgage
@@ -168,6 +173,8 @@ export interface TrackedLoan {
    *  Optional — older saved loans may not have one. */
   loanNumber?: string;
 }
+
+export type TrackedLoanType = "va" | "fha" | "conventional" | "dscr" | "bank_statement";
 
 // ── In-memory caches (kept in sync with Supabase) ──────────────────
 let _session: AuthUser | null = null;
@@ -428,6 +435,11 @@ function rowToTrackedLoan(row: any): TrackedLoan {
     estimatedHomeValue: Number(row.estimated_home_value),
     estimatedRemainingYears: Number(row.estimated_remaining_years),
     propertyType: (row.property_type ?? "primary") as TrackedLoanPropertyType,
+    loanType: ((): TrackedLoanType | undefined => {
+      const v = row.loan_type;
+      return v === "va" || v === "fha" || v === "conventional" ||
+             v === "dscr" || v === "bank_statement" ? v : undefined;
+    })(),
     addedAt: row.added_at,
     balanceAsOf: row.balance_as_of ?? undefined,
     loanNumber: typeof row.loan_number === "string" && row.loan_number.trim()
@@ -447,6 +459,7 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     estimated_home_value: l.estimatedHomeValue,
     estimated_remaining_years: l.estimatedRemainingYears,
     property_type: l.propertyType ?? "primary",
+    loan_type: l.loanType ?? "conventional",
     added_at: l.addedAt,
     balance_as_of: l.balanceAsOf ?? null,
     loan_number: l.loanNumber && l.loanNumber.trim() ? l.loanNumber.trim() : null,
