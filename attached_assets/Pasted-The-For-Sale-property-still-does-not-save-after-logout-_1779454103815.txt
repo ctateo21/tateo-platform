@@ -1,0 +1,117 @@
+The For Sale property still does not save after logout/login.
+
+I entered a property in Dashboard → For Sale, logged out, logged back in, and the property was gone again.
+
+At this point, do not keep making surface-level fixes. I need you to trace and prove the full save/load chain.
+
+Do not work on Market Analysis yet.
+Do not work on Zillow photos.
+Do not redesign the For Sale tab.
+Only fix For Sale property persistence.
+
+The bug is one of these:
+1. The For Sale record is not being inserted into Supabase.
+2. The record is inserted but without the correct user_id.
+3. The record is inserted with the wrong flow/type value.
+4. The record is inserted into one table but the dashboard reads from another.
+5. The dashboard query filters it out.
+6. Auth is not ready when the save/load runs.
+7. RLS is blocking insert/select.
+8. Local empty state is overwriting the loaded records.
+
+Required debugging:
+Before changing anything, inspect and report:
+
+1. What table is the For Sale address being saved to?
+2. Is the insert/upsert actually running when the address is selected?
+3. What exact payload is being sent to Supabase?
+4. What exact response/error does Supabase return?
+5. What user_id is being saved?
+6. What flow/type/category is being saved?
+7. What table does Dashboard → For Sale query on load?
+8. What exact filters does Dashboard → For Sale use?
+9. What records come back after logout/login?
+10. Is RLS blocking reads or writes?
+
+Add temporary debug logs for For Sale only.
+
+On address selection, log:
+- selected address
+- generated listing/property/scenario ID
+- authenticated user ID
+- normalized property key
+- flow/type/category value
+- full object being saved
+
+On Supabase save, log:
+- table name
+- insert/upsert payload
+- Supabase response
+- Supabase error
+
+On dashboard load, log:
+- auth/session loading state
+- authenticated user ID
+- table queried
+- query filters
+- raw records returned
+- For Sale record count
+- final records rendered
+
+Hard fix requirement:
+When a logged-in user selects a valid address in Dashboard → For Sale, immediately create a durable Supabase record even if only the address exists.
+
+The saved record must include:
+- stable ID
+- authenticated user_id
+- full formatted address
+- normalized property key
+- flow/type/category = for_sale or seller, whichever the app uses consistently
+- created_at
+- updated_at
+
+The record must not require:
+- Zillow data
+- market analysis
+- net proceeds
+- photos
+- seller form completion
+- uploaded documents
+
+If the current For Sale feature is trying to save into the wrong table or using local state only, fix it by copying the working persistence pattern from Refinance.
+
+Use the same pattern Refinance uses:
+- same auth-ready timing
+- same Supabase insert/upsert pattern
+- same dashboard reload pattern
+- same stable ID pattern
+- same “load after auth ready” behavior
+
+But filter For Sale separately by flow/type so it does not mix with Purchase, Refinance, or Insurance.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → For Sale.
+3. Enter/select a property address.
+4. Confirm console shows Supabase insert/upsert success.
+5. Confirm the record exists in Supabase with the correct user_id.
+6. Confirm the record has flow/type/category = for_sale or seller.
+7. Refresh the page.
+8. Confirm the property is still in Dashboard → For Sale.
+9. Log out.
+10. Log back in.
+11. Confirm Dashboard → For Sale queries Supabase and returns the saved record.
+12. Confirm the property renders in the For Sale tab.
+13. Add a second For Sale property.
+14. Refresh/logout/login again.
+15. Confirm both properties remain.
+16. Confirm records disappear only after delete.
+
+Do not say it is fixed unless the logout/login acceptance test passes.
+
+Please report back:
+- The exact table used for For Sale records
+- The exact fields saved
+- Whether the old bug was save, load, filter, auth timing, RLS, or local state overwrite
+- What changed to make For Sale records persist after logout/login
+- Which files/functions were changed

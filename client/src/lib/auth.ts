@@ -22,6 +22,7 @@ export interface InvitedUser {
 }
 
 export interface AuthUser {
+  id: string;
   name: string;
   email: string;
   phone?: string;
@@ -139,6 +140,7 @@ export function isAuthHydrated(): boolean { return _authHydrated; }
 
 function rowToProfile(row: any): AuthUser {
   return {
+    id: row.id,
     name: row.name,
     email: row.email,
     phone: row.phone ?? undefined,
@@ -420,6 +422,7 @@ async function hydrateFromSupabase() {
   // not yet applied, transient network error, or profile row missing).
   const meta = session.user.user_metadata || {};
   const fallback: AuthUser = {
+    id: session.user.id,
     name: meta.name || session.user.email?.split("@")[0] || "User",
     email: session.user.email || "",
     phone: meta.phone ?? undefined,
