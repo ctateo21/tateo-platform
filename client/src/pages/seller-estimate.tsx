@@ -3,8 +3,8 @@ import { Helmet } from "react-helmet";
 import { useLocation, useSearch } from "wouter";
 import {
   ArrowLeft, MapPin, Save, AlertCircle, Loader2, ImageOff,
-  Sparkles, TrendingUp, CheckCircle2, AlertTriangle,
-  Home, Eye, Heart, Calendar, DollarSign, BarChart3, ArrowRight,
+  Sparkles, TrendingUp, AlertTriangle,
+  Home, Eye, Heart, Calendar, DollarSign, BarChart3,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -978,128 +978,15 @@ function RichAnalysis({ structured: s, address }: { structured: StructuredAnalys
         )}
       </Section>
 
-      {/* Next Steps */}
-      {s.next_steps.length > 0 && (
-        <Section title="Next Steps to Get This Sold" icon={<ArrowRight className="h-3.5 w-3.5" />}>
-          <ul className="space-y-1.5">
-            {s.next_steps.map((step, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm">
-                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
-                <span>{step}</span>
-              </li>
-            ))}
-          </ul>
-        </Section>
-      )}
-
-      {/* Market Context Footer */}
-      <div className="border-t pt-3">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">Market Context</h4>
-        <p className="text-sm leading-relaxed text-muted-foreground mb-2">{s.market_context.summary || "Local market stats have not been connected yet."}</p>
-        {s.market_context.stats.length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            {s.market_context.stats.map((m, i) => (
-              <div key={i} className="rounded-md border p-2 bg-background">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{m.label}</div>
-                <div className="text-sm font-medium mt-0.5 truncate">{m.value || "Unavailable"}</div>
-                {m.note && <div className="text-[11px] text-muted-foreground mt-0.5">{m.note}</div>}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Data Sources — honest inventory of what fed this analysis vs what's
-          missing. Server-computed (not Claude-guessed) so it's always
-          accurate. Helps the seller understand why a section says "not
-          connected yet" and what would unlock it. */}
-      {s.data_sources && (s.data_sources.available.length > 0 || s.data_sources.missing.length > 0) && (
-        <div className="border-t pt-3">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Data Sources</h4>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <p className="text-xs font-medium text-green-700 mb-1.5">Connected ({s.data_sources.available.length})</p>
-              {s.data_sources.available.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic">No data sources connected yet.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {s.data_sources.available.map((src, i) => (
-                    <li key={i} className="text-xs flex items-start gap-1.5">
-                      <span className="text-green-700 mt-0.5">✓</span>
-                      <span>
-                        <span className="font-medium">{src.source}</span>
-                        {src.detail && <span className="text-muted-foreground"> — {src.detail}</span>}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div>
-              <p className="text-xs font-medium text-amber-700 mb-1.5">Not connected ({s.data_sources.missing.length})</p>
-              {s.data_sources.missing.length === 0 ? (
-                <p className="text-xs text-muted-foreground italic">All data sources are connected.</p>
-              ) : (
-                <ul className="space-y-1.5">
-                  {s.data_sources.missing.map((src, i) => (
-                    <li key={i} className="text-xs flex items-start gap-1.5">
-                      <span className="text-amber-700 mt-0.5">○</span>
-                      <span>
-                        <span className="font-medium">{src.source}</span>
-                        <span className="text-muted-foreground"> — {src.reason}</span>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-
-          {/* Web-search citations — pages Anthropic actually fetched during
-              this generation. Cached weeks reuse the citations stored in
-              the original response, so the list is stable across reads. */}
-          {s.citations && s.citations.length > 0 && (
-            <div className="mt-4">
-              <p className="text-xs font-medium text-muted-foreground mb-1.5">
-                Web pages cited ({s.citations.length})
-              </p>
-              <ul className="space-y-1">
-                {s.citations.map((c, i) => (
-                  <li key={i} className="text-xs">
-                    <a
-                      href={c.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-700 hover:underline break-all"
-                      title={c.url}
-                    >
-                      {c.title || c.url}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Limitations + confidence */}
-      {(s.data_limitations.length > 0 || s.confidence_level) && (
-        <div className="text-xs text-muted-foreground border-t pt-3">
-          {s.data_limitations.length > 0 && (
-            <>
-              <p className="font-medium mb-1">Where we had limited data:</p>
-              <ul className="list-disc ml-4 space-y-0.5">
-                {s.data_limitations.map((d, i) => <li key={i}>{d}</li>)}
-              </ul>
-            </>
-          )}
-          {s.confidence_level && (
-            <p className="mt-2">
-              Confidence: <span className="font-medium capitalize">{s.confidence_level}</span>
-            </p>
-          )}
-        </div>
+      {/* Seller-facing recap intentionally ends here. Backend still
+          tracks next_steps, market_context, data_sources, citations,
+          and data_limitations on the structured payload for admin/
+          debugging — they're just hidden from the seller view. Low
+          confidence is shown as a small inline note below. */}
+      {s.confidence_level && s.confidence_level !== "high" && (
+        <p className="text-xs text-muted-foreground border-t pt-3">
+          Confidence: <span className="font-medium capitalize">{s.confidence_level}</span>
+        </p>
       )}
     </div>
   );
@@ -1211,33 +1098,13 @@ function LegacyAnalysis({ a }: { a: MarketAnalysisRecord }) {
       {a.comps_summary && <AnalysisBlock title="Comparable Sales / Competition" body={a.comps_summary} />}
       {a.online_interest_summary && <AnalysisBlock title="Online Interest" body={a.online_interest_summary} />}
       {a.showing_summary && <AnalysisBlock title="Showing Activity" body={a.showing_summary} />}
-      {a.recommended_next_steps && a.recommended_next_steps.length > 0 && (
-        <div>
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1 mb-2">
-            <TrendingUp className="h-3.5 w-3.5" /> Recommended Next Steps
-          </h4>
-          <ul className="space-y-1.5">
-            {a.recommended_next_steps.map((step, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm">
-                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
-                <span>{step}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {a.data_limitations && a.data_limitations.length > 0 && (
-        <div className="text-xs text-muted-foreground border-t pt-3 mt-2">
-          <p className="font-medium mb-1">Where we had limited data:</p>
-          <ul className="list-disc ml-4 space-y-0.5">
-            {a.data_limitations.map((d, i) => <li key={i}>{d}</li>)}
-          </ul>
-          {a.confidence_level && (
-            <p className="mt-2">
-              Confidence: <span className="font-medium capitalize">{a.confidence_level}</span>
-            </p>
-          )}
-        </div>
+      {/* Legacy fallback view: Recommended Next Steps and "Where we had
+          limited data" are hidden from the seller-facing recap. Backend
+          still carries them on the record for admin/debugging. */}
+      {a.confidence_level && a.confidence_level.toLowerCase() !== "high" && (
+        <p className="text-xs text-muted-foreground border-t pt-3 mt-2">
+          Confidence: <span className="font-medium capitalize">{a.confidence_level}</span>
+        </p>
       )}
     </div>
   );

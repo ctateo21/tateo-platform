@@ -1,0 +1,89 @@
+Send Replit this prompt:
+
+```text id="market-analysis-cleanup"
+Clean up the Dashboard → For Sale → Market Analysis UI.
+
+Current issue:
+The Market Analysis section has too many extra/debug-style subtabs and sections. I want the seller-facing view to be cleaner and more focused.
+
+Inside Market Analysis, remove/hide these sections from the normal user-facing UI:
+
+1. Remove:
+“Next Steps to Get This Sold”
+
+2. Remove:
+“Market Context”
+
+3. Remove:
+Connected vs Not Connected / Data Sources panel
+
+This includes:
+- Connected
+- Not connected
+- source status lists
+- scraper/source availability lists
+
+4. Remove:
+Web pages cited / hyperlinks list
+
+Do not show the raw list of pages or URLs used for web search.
+
+5. Remove:
+“Where we had limited data”
+
+Do not show this as a separate subtab/section in the normal seller view.
+
+Expected seller-facing Market Analysis sections should be limited to:
+- Listing Snapshot
+- Market Comps
+- Similar Pending / Sold
+- Days on Market
+- Views & Saves Across Platforms
+- Price Drop Recommendation
+- Projected Sale Range
+
+Important:
+- Do not remove the backend logic that gathers data.
+- Do not remove Anthropic web search.
+- Do not remove Realtor.com scraper logic.
+- Do not remove data source tracking from the backend if it is needed for debugging.
+- Only remove/hide these sections from the normal user-facing UI.
+- If needed, keep data sources, web citations, and limitations available in console logs or admin/dev-only debug view.
+- Do not change the saved analysis structure unless required.
+- Do not break weekly Friday caching.
+- Do not cause Anthropic to regenerate because of this UI change.
+- Do not change Estimated Net Proceeds.
+
+UI behavior:
+- The Market Analysis should feel like a clean seller-facing recap, not a debug report.
+- Keep the analysis concise.
+- Do not show source hyperlinks or technical data source status to the seller.
+- Do not show “limited data” disclaimers as a full section.
+- If confidence is low, it can be shown quietly as a small note, but not as its own large section.
+
+Acceptance test:
+1. Go to Dashboard → For Sale → property detail.
+2. Confirm Market Analysis still loads.
+3. Confirm the following are no longer visible:
+   - Next Steps to Get This Sold
+   - Market Context
+   - Connected / Not connected subtabs
+   - Web pages cited hyperlinks
+   - Where we had limited data
+4. Confirm these sections remain:
+   - Listing Snapshot
+   - Market Comps
+   - Similar Pending / Sold
+   - Days on Market
+   - Views & Saves Across Platforms
+   - Price Drop Recommendation
+   - Projected Sale Range
+5. Confirm saved/cached Market Analysis still loads without calling Anthropic again.
+6. Confirm the backend still logs/keeps data source details for debugging if needed.
+
+Please make the smallest safe code change possible and tell me:
+- Which Market Analysis UI component was changed
+- Which sections were hidden/removed from user view
+- Whether debug/source data is still preserved backend-side
+- Which files/functions were changed
+```
