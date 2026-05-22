@@ -79,25 +79,28 @@ function calcPI(loanAmount: number, annualRate: number, termMonths = 360): numbe
   return loanAmount * (r * Math.pow(1 + r, termMonths)) / (Math.pow(1 + r, termMonths) - 1);
 }
 
+/** Minimum FICO required for a Conventional loan. Below this, the loan
+ *  type is not offered (Fannie/Freddie won't price it). */
+const CONVENTIONAL_MIN_FICO = 620;
+
+/** Conventional PMI — credit-keyed annual factor, applied uniformly
+ *  across LTV bands (per current pricing matrix). Returns monthly PMI
+ *  dollars; $0 when LTV ≤ 80% or when the score is below the program
+ *  minimum (in which case Conventional shouldn't be selectable anyway). */
 function calcConventionalPMI(loanAmount: number, purchasePrice: number, creditScore: number): number {
   const ltv = loanAmount / purchasePrice;
   if (ltv <= 0.8) return 0;
-  // Base PMI at 780+ credit (midpoint of MGIC/Fannie range by LTV band)
-  let basePMI: number;
-  if (ltv > 0.95)      basePMI = 0.00575; // ~97% LTV: 0.45–0.70% mid
-  else if (ltv > 0.90) basePMI = 0.00450; // ~95% LTV: 0.35–0.55% mid
-  else if (ltv > 0.85) basePMI = 0.00315; // ~90% LTV: 0.25–0.38% mid
-  else                 basePMI = 0.00215; // ~85% LTV: 0.18–0.25% mid
-  // Credit score multiplier
-  let mult: number;
-  if      (creditScore >= 780) mult = 1.00;
-  else if (creditScore >= 760) mult = 1.05;
-  else if (creditScore >= 740) mult = 1.12;
-  else if (creditScore >= 720) mult = 1.25;
-  else if (creditScore >= 700) mult = 1.50;
-  else if (creditScore >= 680) mult = 1.85;
-  else                         mult = 2.20;
-  return (loanAmount * basePMI * mult) / 12;
+  if (creditScore < CONVENTIONAL_MIN_FICO) return 0;
+  let annualFactor: number;
+  if      (creditScore >= 760) annualFactor = 0.0019;
+  else if (creditScore >= 740) annualFactor = 0.0029;
+  else if (creditScore >= 720) annualFactor = 0.0036;
+  else if (creditScore >= 700) annualFactor = 0.0045;
+  else if (creditScore >= 680) annualFactor = 0.0061;
+  else if (creditScore >= 660) annualFactor = 0.0098;
+  else if (creditScore >= 640) annualFactor = 0.0104;
+  else                         annualFactor = 0.0117; // 620–639
+  return (loanAmount * annualFactor) / 12;
 }
 
 function calcFHAMIP(loanAmount: number): number {
@@ -1594,8 +1597,16 @@ export default function Estimate() {
   function setCreditScore(score: number) {
     setInputs((p) => {
       const isAltLoan = p.loanType === "dscr" || p.loanType === "bank_statement";
+      // Below Conventional's program floor (620), Conventional isn't a
+      // valid option — auto-switch to FHA on primary residences so the
+      // user lands on something pricable. On non-primary, leave whatever
+      // alt-investment loan they have selected; pure Conventional on
+      // non-primary with sub-620 credit is gated in the loan-type
+      // selector with a warning instead of silently switching.
+      const belowConvMin = score < CONVENTIONAL_MIN_FICO;
       const autoLoanType =
         isAltLoan ? p.loanType :
+        belowConvMin && p.loanType === "conventional" && p.occupancy === "primary" ? "fha" :
         p.occupancy !== "primary" ? "conventional" :
         score < 720 && p.loanType === "conventional" ? "fha" :
         score >= 720 && p.loanType === "fha" ? "conventional" :
@@ -2635,7 +2646,12 @@ export default function Estimate() {
                     >
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="conventional">Conventional</SelectItem>
+                        {/* Conventional requires a 620+ FICO — Fannie/
+                            Freddie don't price below that, so hide the
+                            option entirely. */}
+                        {inputs.creditScore >= CONVENTIONAL_MIN_FICO && (
+                          <SelectItem value="conventional">Conventional</SelectItem>
+                        )}
                         {inputs.occupancy === "primary" && <SelectItem value="fha">FHA</SelectItem>}
                         {inputs.occupancy === "primary" && <SelectItem value="va">VA</SelectItem>}
                         {inputs.occupancy === "primary" && <SelectItem value="usda">USDA</SelectItem>}
@@ -2643,6 +2659,16 @@ export default function Estimate() {
                         {inputs.occupancy === "investment" && <SelectItem value="bank_statement">Bank Statement</SelectItem>}
                       </SelectContent>
                     </Select>
+                    {inputs.creditScore < CONVENTIONAL_MIN_FICO && inputs.occupancy !== "primary" && (
+                      <p className="text-[11px] mt-1.5 leading-tight text-red-600 font-medium">
+                        Conventional is not available below a 620 credit score. {inputs.occupancy === "investment" ? "Consider DSCR or Bank Statement, which don't have the same FICO floor." : "Improve credit to 620+ to qualify for a secondary-home loan."}
+                      </p>
+                    )}
+                    {inputs.creditScore < CONVENTIONAL_MIN_FICO && inputs.occupancy === "primary" && (
+                      <p className="text-[11px] mt-1.5 leading-tight text-amber-600 font-medium">
+                        Conventional hidden — minimum 620 FICO required.
+                      </p>
+                    )}
                     {inputs.occupancy !== "primary" ? (
                       <p className="text-[11px] mt-1.5 leading-tight text-muted-foreground">
                         <span className="text-amber-600 font-medium">Only Conventional available for {inputs.occupancy} properties</span>
