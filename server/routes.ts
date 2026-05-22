@@ -29,6 +29,11 @@ import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
 import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
 import { supabaseAdmin } from "./supabase";
 import { getOrGenerateMarketAnalysis, type ListingInput } from "./integrations/listing-market-analysis";
+import { enrichListingFromPropertyCache } from "./integrations/listing-enrichment";
+import {
+  getMarketAnalysisForDisplay,
+  precomputeWeeklyMarketAnalysesForAllSellerScenarios,
+} from "./integrations/market-analysis-scheduler";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API routes
@@ -1622,99 +1627,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Enrich the listing input with cached Zillow property data when we
-      // have it. This is what gives Anthropic enough context to produce a
-      // real listing recap (beds/baths/sqft/yearBuilt/lotSize/last sold/
-      // photo count/property type) instead of a generic "no data" stub.
-      //
-      // The cache key is keyed off the NORMALIZED property key (street +
-      // ZIP5) — the same scheme used by /api/zillow-property-lookup, so any
-      // listing we've previously hydrated in the seller UI has a cache row
-      // available here.
-      const enriched: Partial<ListingInput> = { ...body };
-      try {
-        const cacheKey = buildNormalizedPropertyKey(body.address);
-        if (cacheKey && supabaseAdmin) {
-          const { data: cached } = await supabaseAdmin
-            .from("property_cache")
-            .select("normalized")
-            .eq("cache_key", cacheKey)
-            .maybeSingle();
-          const norm = cached?.normalized as Record<string, any> | null | undefined;
-          if (norm) {
-            enriched.beds        = enriched.beds        ?? (typeof norm.bedrooms   === "number" ? norm.bedrooms   : null);
-            enriched.baths       = enriched.baths       ?? (typeof norm.bathrooms  === "number" ? norm.bathrooms  : null);
-            enriched.sqft        = enriched.sqft        ?? (typeof norm.squareFeet === "number" ? norm.squareFeet : null);
-            enriched.lotSize     = enriched.lotSize     ?? (typeof norm.lotSize    === "number" ? norm.lotSize    : null);
-            enriched.yearBuilt   = enriched.yearBuilt   ?? (typeof norm.yearBuilt  === "number" ? norm.yearBuilt  : null);
-            enriched.hoa         = enriched.hoa         ?? (typeof norm.hoaMonthly === "number" ? norm.hoaMonthly : null);
-            enriched.propertyType = enriched.propertyType ?? (typeof norm.propertyType === "string" ? norm.propertyType : null);
-            enriched.zillowValue = enriched.zillowValue ?? (typeof norm.zestimate === "number" ? norm.zestimate
-                                                          : typeof norm.estimatedHomeValue === "number" ? norm.estimatedHomeValue
-                                                          : null);
-            enriched.listPrice   = enriched.listPrice   ?? (typeof norm.listingPrice === "number" ? norm.listingPrice : null);
-            enriched.lastSoldPrice = enriched.lastSoldPrice ?? (typeof norm.soldPrice === "number" ? norm.soldPrice : null);
-            enriched.lastSoldDate  = enriched.lastSoldDate  ?? (typeof norm.soldDate === "string"  ? norm.soldDate : null);
-            enriched.photoCount  = enriched.photoCount  ?? (Array.isArray(norm.photos) ? norm.photos.length : null);
-            enriched.primaryPhotoUrl = enriched.primaryPhotoUrl ?? (Array.isArray(norm.photos) && typeof norm.photos[0] === "string" ? norm.photos[0] : null);
-            enriched.city  = enriched.city  ?? (typeof norm.displayCity === "string" ? norm.displayCity
-                                              : typeof norm.googleCity === "string" ? norm.googleCity : null);
-            // Listing-activity fields squeezed from the Apify priceHistory.
-            // Often null — Zillow returns these inconsistently — and we
-            // deliberately do NOT fabricate when missing.
-            enriched.daysOnMarket   = enriched.daysOnMarket   ?? (typeof norm.daysOnZillow   === "number" ? norm.daysOnZillow   : null);
-            enriched.listDate       = enriched.listDate       ?? (typeof norm.listDate       === "string" ? norm.listDate       : null);
-            enriched.priorPriceCuts = enriched.priorPriceCuts ?? (typeof norm.priorPriceCuts === "number" ? norm.priorPriceCuts : null);
-            enriched.onlineViews    = enriched.onlineViews    ?? (typeof norm.pageViewCount  === "number" ? norm.pageViewCount  : null);
-            enriched.onlineSaves    = enriched.onlineSaves    ?? (typeof norm.favoriteCount  === "number" ? norm.favoriteCount  : null);
-          }
-          console.log("[market-data] subject property", {
-            address: body.address,
-            cacheKey,
-            cacheHit: !!norm,
-          });
-          console.log("[market-data] sources attempted", {
-            zillowApify: !!norm,
-            mls: false,
-            realtorDotCom: false,
-            redfin: false,
-            homesDotCom: false,
-          });
-          console.log("[market-data] Zillow data", norm ? "found" : "missing", {
-            beds: enriched.beds, baths: enriched.baths, sqft: enriched.sqft,
-            yearBuilt: enriched.yearBuilt, zillowValue: enriched.zillowValue,
-            photoCount: enriched.photoCount,
-          });
-          console.log("[market-data] active comps", "found:", 0, "(no comps source connected)");
-          console.log("[market-data] pending comps", "found:", 0, "(requires MLS)");
-          console.log("[market-data] sold comps", "found:", 0, "(requires MLS or sold-comps provider)");
-          console.log("[market-data] platform engagement",
-            (enriched.onlineViews != null || enriched.onlineSaves != null) ? "found" : "missing",
-            { zillowViews: enriched.onlineViews, zillowSaves: enriched.onlineSaves });
-          console.log("[market-data] local market stats", "missing", "(no MLS aggregate / Redfin Data Center connected)");
-          console.log("[market-data] listing activity", {
-            daysOnMarket:   enriched.daysOnMarket,
-            listDate:       enriched.listDate,
-            priorPriceCuts: enriched.priorPriceCuts,
-          });
-        }
-      } catch (e: any) {
-        console.warn("[market-analysis] property_cache enrichment failed:", e?.message);
-      }
+      // have it (beds/baths/sqft/yearBuilt/lotSize/last sold/photo count/
+      // property type). Same logic as the weekly precompute job uses.
+      const enriched = await enrichListingFromPropertyCache({
+        ...(body as ListingInput),
+        userId: verifiedUserId,
+      });
 
-      const record = await getOrGenerateMarketAnalysis(
-        { ...(enriched as ListingInput), userId: verifiedUserId },
-        { forceRefresh: honorForceRefresh }
-      );
-      // Strip raw_prompt / raw_anthropic_response from the response to keep
-      // the payload small. The rich structured JSON is exposed via
-      // `record.structured` (parsed in the integration), so we don't need
-      // the raw text on the wire.
+      // Two paths:
+      //  - Admin force-refresh: synchronous generate (blocks until done).
+      //  - Everyone else: fast read from Supabase. If the current-cycle
+      //    saved analysis is missing/stale/insufficient, queue background
+      //    generation and return the prior saved row (or a "generating"
+      //    stub) immediately — NEVER blocks on Anthropic.
+      let record;
+      let generating = false;
+      if (honorForceRefresh) {
+        // Route through the single-flight lock so an admin refresh won't
+        // duplicate an in-flight scheduler/display generation for the
+        // same listing/week.
+        const { ensureMarketAnalysis } = await import("./integrations/market-analysis-scheduler");
+        record = await ensureMarketAnalysis(enriched, { forceRefresh: true });
+      } else {
+        const display = await getMarketAnalysisForDisplay(enriched);
+        record = display.analysis;
+        generating = display.generating;
+      }
+      if (!record) {
+        return res.status(503).json({ error: "Market analysis unavailable" });
+      }
       const { raw_prompt: _rp, raw_anthropic_response: _ra, ...safe } = record as any;
-      return res.json({ analysis: safe });
+      return res.json({ analysis: safe, generating });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error";
       console.error("[market-analysis] route error:", message);
       return res.status(500).json({ error: message });
+    }
+  });
+
+  // ── POST /api/admin/market-analysis-weekly/run ─────────────────────
+  // Manual trigger for the weekly precompute job. Gated by
+  // MARKET_ANALYSIS_ADMIN_EMAILS. Useful for QA / first-run after deploy
+  // before Friday rolls around.
+  app.post("/api/admin/market-analysis-weekly/run", async (req, res) => {
+    try {
+      if (!supabaseAdmin) return res.status(503).json({ error: "Auth backend not configured" });
+      const authHeader = req.headers.authorization || "";
+      const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+      if (!match) return res.status(401).json({ error: "Missing bearer token" });
+      const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(match[1]);
+      if (userErr || !userData?.user?.id) return res.status(401).json({ error: "Invalid or expired session" });
+      const adminEmails = (process.env.MARKET_ANALYSIS_ADMIN_EMAILS || "")
+        .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+      const callerEmail = (userData.user.email || "").toLowerCase();
+      const isAdmin = adminEmails.length > 0 && adminEmails.includes(callerEmail);
+      if (!isAdmin) return res.status(403).json({ error: "Admin only" });
+      // Run in background; respond immediately so the request doesn't time out.
+      void precomputeWeeklyMarketAnalysesForAllSellerScenarios()
+        .catch((e) => console.warn("[market-analysis-weekly] manual run failed:", e?.message));
+      return res.json({ ok: true, queued: true });
+    } catch (err) {
+      return res.status(500).json({ error: err instanceof Error ? err.message : "Unknown error" });
     }
   });
 

@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { startMarketAnalysisScheduler } from "./integrations/market-analysis-scheduler";
 
 const app = express();
 app.use(express.json());
@@ -66,5 +67,7 @@ app.use((req, res, next) => {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    // Boot the weekly Market Analysis precompute scheduler (Friday 8 AM ET).
+    startMarketAnalysisScheduler();
   });
 })();

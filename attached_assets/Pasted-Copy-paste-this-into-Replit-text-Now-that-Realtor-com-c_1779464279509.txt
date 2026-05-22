@@ -1,0 +1,221 @@
+Copy/paste this into Replit:
+
+```text
+Now that Realtor.com caching is working, build the same weekly cache behavior for the full Market Analysis itself.
+
+Current issue:
+The Market Analysis takes too long to load because it may call Anthropic/web search when the user opens the For Sale property detail page.
+
+I want the Market Analysis to be pre-generated/cached every Friday at 8:00 AM Eastern, saved in Supabase, and then loaded quickly from Supabase when the user opens the property page.
+
+Goal:
+Market Analysis should work like this:
+
+1. Every Friday at 8:00 AM Eastern, generate/update Market Analysis for saved For Sale properties.
+2. Save the full structured Market Analysis into Supabase.
+3. When a user opens Dashboard → For Sale → property detail, load the saved Market Analysis from Supabase instantly.
+4. Do not make the user wait 30–60 seconds on page load.
+5. Do not call Anthropic every time the detail page opens.
+6. Do not expose a user-facing Refresh button that can trigger repeated Anthropic calls.
+
+Current good behavior to preserve:
+- Realtor.com cache now works.
+- Zillow/Apify cache works.
+- Anthropic web search works.
+- Market Analysis can generate rich results.
+- Normal users cannot manually trigger repeated scrapes.
+- Friday 8:00 AM Eastern cycle logic already exists.
+
+Required behavior:
+1. Add a scheduled weekly job or backend cron-style process to generate Market Analysis every Friday at 8:00 AM Eastern.
+2. The job should loop through saved For Sale records in `seller_scenarios`.
+3. For each saved seller scenario:
+   - check whether a current-cycle Market Analysis already exists
+   - if current rich analysis exists, skip
+   - if missing/stale/insufficient, generate a new one
+   - gather cached Zillow/Realtor/public data first
+   - call Anthropic only when needed
+   - save the full structured analysis to Supabase
+4. When the user opens the property detail page, the UI should query Supabase first and render saved Market Analysis quickly.
+5. If no saved analysis exists yet, show a lightweight loading state and generate once in the background.
+6. If generation is still running, show:
+   “This week’s market analysis is being prepared.”
+7. If a prior saved analysis exists but the new weekly generation fails, show the prior saved analysis with:
+   “Latest weekly update failed — showing previous saved analysis.”
+
+Supabase storage:
+Use the existing Market Analysis table if already created, likely `listing_market_analyses`.
+
+Make sure it stores:
+- id
+- seller_scenario_id or listing_id
+- user_id
+- property_address
+- analysis_week_of
+- generated_at
+- next_update_due_at
+- status
+- structured_analysis JSONB
+- raw_anthropic_response JSONB/text if useful
+- data_sources JSONB if useful
+- error_message
+- created_at
+- updated_at
+
+The saved structured analysis must include:
+- Listing Snapshot
+- Market Comps
+- Similar Pending / Sold
+- Days on Market
+- Views & Saves Across Platforms
+- Price Drop Recommendation
+- Projected Sale Range
+- hidden/debug fields if needed backend-side:
+  - next_steps
+  - market_context
+  - data_sources
+  - data_limitations
+  - citations/web pages
+
+UI rendering:
+The normal seller-facing UI should still only show:
+- Listing Snapshot
+- Market Comps
+- Similar Pending / Sold
+- Days on Market
+- Views & Saves Across Platforms
+- Price Drop Recommendation
+- Projected Sale Range
+
+Keep hidden from normal seller-facing UI:
+- Next Steps to Get This Sold
+- Market Context
+- Connected / Not Connected / Data Sources panel
+- Web pages cited / hyperlinks
+- Where we had limited data
+
+But preserve those fields in Supabase/backend if they help debugging.
+
+Friday 8 AM Eastern schedule:
+Use America/New_York.
+
+Cycle logic:
+- Current weekly cycle starts Friday at 8:00 AM Eastern.
+- `analysis_week_of` should be the date of that Friday cycle start.
+- `next_update_due_at` should be the next Friday at 8:00 AM Eastern.
+- If an analysis exists for the current cycle and passes `isRichEnough`, do not regenerate.
+- If missing/stale/insufficient, regenerate.
+- Do not regenerate every page load.
+
+Important:
+Use the same Friday cycle as Realtor.com cache so the Realtor cache and Market Analysis cache are aligned.
+
+Scheduled job options:
+Use whichever is safest for the existing Replit app:
+
+Option A — true scheduled job:
+- Use Replit scheduled deployments/cron if available.
+- Create a backend endpoint or script that runs every Friday at 8 AM Eastern.
+- It updates all saved seller scenarios.
+
+Option B — server-side scheduled interval:
+- If the backend is always running, add a safe cron job using a Node cron package.
+- Ensure it runs once per weekly cycle, not repeatedly.
+
+Option C — lazy background precompute fallback:
+If true cron is not available yet:
+- When the app/server starts or the first user opens Dashboard → For Sale after Friday 8 AM, trigger a background job.
+- The UI should not wait for the full generation before rendering.
+- The UI should show existing saved analysis or “This week’s market analysis is being prepared.”
+- Once generation completes, save it.
+- Next page load should render instantly from Supabase.
+
+Preferred:
+Implement a true scheduled Friday 8 AM job if Replit supports it. If not, implement lazy background precompute as the MVP and clearly tell me how to configure Replit Scheduler later.
+
+Backend guardrails:
+1. Normal users cannot trigger repeated Anthropic calls.
+2. Frontend cannot bypass cache.
+3. Admin/dev force refresh can exist only if gated by `MARKET_ANALYSIS_ADMIN_EMAILS`.
+4. If force refresh is used, it should still save the result to Supabase.
+5. If a generation is already in progress for a seller scenario/current cycle, do not start a duplicate.
+6. Add an in-progress lock/status:
+   - `status = "generating"`
+   - or a separate lock field/table
+7. Avoid duplicate Anthropic calls for the same property/week.
+
+Suggested function structure:
+- `getCurrentMarketAnalysisCycle(now, "America/New_York")`
+- `getSavedMarketAnalysis(sellerScenarioId, cycleStart)`
+- `isRichEnough(analysis)`
+- `generateAndSaveMarketAnalysis(sellerScenarioId, { forceRefresh: false })`
+- `precomputeWeeklyMarketAnalysesForAllSellerScenarios()`
+- `getMarketAnalysisForDisplay(sellerScenarioId)`
+
+Display behavior:
+When user opens property detail:
+1. Query saved current-cycle analysis.
+2. If current rich analysis exists:
+   - render immediately
+3. Else if prior rich analysis exists:
+   - render prior saved analysis and show:
+     “This week’s update is being prepared.”
+4. Else:
+   - show:
+     “This week’s market analysis is being prepared.”
+5. Trigger background generation only if missing/stale and no generation is already running.
+6. Do not block the page for 30–60 seconds.
+
+Do not erase existing rich analysis:
+- Never overwrite a rich saved analysis with a weaker “Insufficient Data” analysis.
+- If generation returns low-quality/insufficient, keep the previous rich version if one exists.
+- Save the failed/insufficient result as debug/error if useful, but do not replace the seller-facing rich analysis.
+
+Debug logs:
+Add logs:
+- `[market-analysis-weekly] job started`
+- `[market-analysis-weekly] seller scenarios count`
+- `[market-analysis-weekly] processing sellerScenarioId`
+- `[market-analysis-weekly] current cycle`
+- `[market-analysis-weekly] existing analysis found`
+- `[market-analysis-weekly] rich enough true/false`
+- `[market-analysis-weekly] generating`
+- `[market-analysis-weekly] already generating, skip`
+- `[market-analysis-weekly] Anthropic called`
+- `[market-analysis-weekly] saved ok`
+- `[market-analysis-display] loaded saved current analysis`
+- `[market-analysis-display] loaded previous analysis`
+- `[market-analysis-display] background generation queued`
+- `[market-analysis-display] no frontend Anthropic call`
+
+Acceptance test:
+1. Have at least one saved For Sale property in `seller_scenarios`.
+2. Run the weekly Market Analysis job manually once from backend/admin/dev.
+3. Confirm the job generates Market Analysis.
+4. Confirm the full structured analysis saves to Supabase.
+5. Open Dashboard → For Sale → property detail.
+6. Confirm Market Analysis loads quickly from Supabase.
+7. Confirm Anthropic is not called on page open when current saved analysis exists.
+8. Leave and return to the detail page.
+9. Confirm analysis still loads instantly.
+10. Refresh browser.
+11. Confirm analysis still loads instantly.
+12. Log out and log back in.
+13. Confirm analysis still loads instantly.
+14. Simulate next Friday at 8 AM Eastern.
+15. Confirm a new weekly analysis is generated once.
+16. Confirm duplicate Anthropic calls are prevented for the same property/week.
+17. Confirm normal users have no Refresh button.
+18. Confirm if generation fails, prior saved analysis remains visible.
+
+Please make the smallest safe code change possible and tell me:
+- Whether you implemented true scheduled Friday job, Replit Scheduler endpoint/script, or lazy background precompute
+- Which Supabase table stores the saved Market Analysis
+- Which column stores the full structured analysis
+- How current Friday 8 AM cycle is calculated
+- How duplicate Anthropic calls are prevented
+- How the UI loads saved analysis quickly
+- How old rich analysis is protected from being overwritten by weak data
+- How to manually run/test the weekly job
+- Which files/functions were changed
+```

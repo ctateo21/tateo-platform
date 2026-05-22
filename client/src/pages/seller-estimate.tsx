@@ -662,6 +662,7 @@ function MarketAnalysisSection({
   const [error, setError] = useState<string | null>(null);
   const requestedRef = useRef<string | null>(null);
   const retriedRef = useRef<boolean>(false);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function fetchAnalysis(forceRefresh = false) {
     if (!userId) return;
@@ -706,9 +707,23 @@ function MarketAnalysisSection({
       });
       const body = await res.json();
       if (body?.analysis) {
-        setAnalysis(body.analysis as MarketAnalysisRecord);
-        if (body.analysis.status === "error" && body.analysis.error_message) {
-          setError(body.analysis.error_message);
+        const next = body.analysis as MarketAnalysisRecord;
+        setAnalysis(next);
+        if (next.status === "error" && next.error_message) {
+          setError(next.error_message);
+        }
+        // Poll every 15s whenever the server signals a background
+        // generation is still in flight — this covers BOTH the
+        // "generating" stub (no prior) and the "previous-cycle row shown
+        // while this week's update cooks" case (prior row exists, server
+        // sets `generating: true`).
+        const isPending =
+          body.generating === true ||
+          next.status === "generating" ||
+          (typeof (next as any).id === "string" && (next as any).id.startsWith("pending_"));
+        if (pollTimerRef.current) { clearTimeout(pollTimerRef.current); pollTimerRef.current = null; }
+        if (isPending) {
+          pollTimerRef.current = setTimeout(() => { void fetchAnalysis(false); }, 15_000);
         }
       } else if (body?.error) {
         setError(body.error);
@@ -740,6 +755,9 @@ function MarketAnalysisSection({
     if (requestedRef.current === key) return;
     requestedRef.current = key;
     fetchAnalysis(false);
+    return () => {
+      if (pollTimerRef.current) { clearTimeout(pollTimerRef.current); pollTimerRef.current = null; }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenario.id, userId]);
 
@@ -796,6 +814,10 @@ function MarketAnalysisSection({
     analysis.online_interest_summary ||
     analysis.showing_summary
   ));
+  const isPreparing = !!(analysis && (
+    analysis.status === "generating" ||
+    (typeof (analysis as any).id === "string" && (analysis as any).id.startsWith("pending_"))
+  ));
 
   return (
     <Card>
@@ -836,7 +858,14 @@ function MarketAnalysisSection({
           </div>
         )}
 
-        {!showSkeleton && error && !hasContent && (
+        {!showSkeleton && isPreparing && !hasContent && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            This week's market analysis is being prepared.
+          </div>
+        )}
+
+        {!showSkeleton && !isPreparing && error && !hasContent && (
           <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
             <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <div>
