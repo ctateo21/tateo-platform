@@ -1,0 +1,264 @@
+Fix the For Sale → Market Analysis so it gathers real listing/market data before sending the prompt to Anthropic.
+
+Current issue:
+The Anthropic API appears to be working, but the Market Analysis is only analyzing the limited data already saved in Replit/Supabase.
+
+The output keeps saying:
+- no comps connected
+- no DOM connected
+- no platform engagement connected
+- no pending/sold comps connected
+- no local market stats connected
+
+That means Anthropic is not being given the right real estate market data.
+
+Important:
+Anthropic does not automatically browse Zillow, Realtor.com, Redfin, Homes.com, MLS, or county/property data unless the backend first gathers that data and sends it into the Anthropic prompt.
+
+Goal:
+Before calling Anthropic, the backend should gather the best available real estate data for the property from connected/scraped/API sources, then send that data to Anthropic for analysis.
+
+The Market Analysis should include:
+- market comps
+- similar active homes/condos
+- similar pending homes/condos
+- similar recently sold homes/condos
+- how long this property has been on market vs similar homes
+- whether a price drop would be beneficial
+- where the property is likely to sell
+- how many saves/views it has across major real estate platforms
+- whether its saves/views are better or worse than similar homes/condos
+- next steps to get the home or condo sold
+
+Data sources to inspect/use:
+1. Zillow/Apify property scrape
+2. Zillow listing URL/ZPID data
+3. Zillow photos and listing details already stored
+4. Zillow views/saves if available from the scraper
+5. Realtor.com listing data if available
+6. Redfin listing/market data if available
+7. Homes.com listing data if available
+8. Stellar MLS / MLS feed if connected
+9. Property cache table
+10. Seller scenario data
+11. County property appraiser/public record data if available
+12. Any saved manual comps/market data fields
+13. Any listing engagement data already stored in Supabase
+
+Do not rely only on Anthropic to know the market.
+The app must gather the data first, then Anthropic should interpret it.
+
+Implementation requirement:
+Create a backend data-gathering step before the Anthropic call.
+
+Suggested flow:
+
+1. User opens Dashboard → For Sale → property detail.
+2. App loads seller scenario from `seller_scenarios`.
+3. Backend checks if a current weekly analysis already exists.
+4. If not current, backend gathers market data:
+   - subject property data
+   - Zillow scrape/cache data
+   - active comps
+   - pending comps
+   - sold comps
+   - DOM data
+   - platform views/saves if available
+   - local market stats
+5. Backend sends the gathered data to Anthropic.
+6. Anthropic returns structured market analysis.
+7. App saves the analysis to Supabase.
+8. App renders the full seller-facing recap.
+
+Add a function like:
+
+`gatherSellerMarketData(sellerScenario)`
+
+This function should return:
+
+{
+  subject_property: {
+    address,
+    city,
+    state,
+    zip,
+    property_type,
+    beds,
+    baths,
+    sqft,
+    lot_size,
+    year_built,
+    list_price,
+    estimated_sale_price,
+    zillow_value,
+    last_sold_price,
+    last_sold_date,
+    list_date,
+    days_on_market,
+    status,
+    photos_count
+  },
+  active_comps: [],
+  pending_comps: [],
+  sold_comps: [],
+  dom_context: {
+    subject_dom,
+    average_comp_dom,
+    zip_average_dom,
+    city_average_dom
+  },
+  platform_engagement: {
+    zillow: {
+      views,
+      saves,
+      saves_per_view,
+      compared_to_similar
+    },
+    realtor: {
+      views,
+      saves,
+      compared_to_similar
+    },
+    redfin: {
+      views,
+      saves,
+      hot_home,
+      compared_to_similar
+    },
+    homes: {
+      views,
+      saves,
+      compared_to_similar
+    }
+  },
+  local_market_context: {
+    months_supply,
+    median_sale_price,
+    sale_to_list_ratio,
+    average_dom,
+    inventory_trend,
+    buyer_seller_market
+  },
+  available_data_sources: [],
+  missing_data_sources: []
+}
+
+Comp matching logic:
+When searching for comps, prioritize:
+- same property type
+- same ZIP or nearby radius
+- similar beds/baths
+- similar sqft
+- similar age/year built
+- similar condo community/building if condo
+- similar HOA/condo type if available
+- active, pending, and sold within a reasonable recent window
+
+For condos:
+- prioritize same building/community first
+- then nearby condos with similar sqft/beds/baths
+- separate condo analysis from single-family analysis
+
+For single-family homes:
+- prioritize nearby homes with similar sqft, beds, baths, lot size, and age
+
+Platform engagement:
+If the scraper/API can access views/saves:
+- pull Zillow views/saves
+- pull Realtor.com views/saves
+- pull Redfin views/saves
+- pull Homes.com views/saves if available
+- compare to similar active listings where possible
+
+If exact platform views/saves are not available:
+- do not make up exact numbers
+- show unavailable
+- explain that the app needs listing-owner/MLS/platform data connected
+- still provide next steps based on available pricing/comps data
+
+Important:
+Do not fabricate:
+- exact comps
+- exact pending listings
+- exact sold listings
+- exact views/saves
+- exact DOM
+- exact market stats
+
+If the app cannot access a source, mark it missing.
+
+Anthropic prompt should say:
+“You are analyzing only the structured real estate data provided below. Do not invent comps, views, saves, DOM, or platform metrics. If a data field is missing, state that it is unavailable and explain what should be connected next.”
+
+Required Market Analysis UI sections:
+1. Listing Snapshot
+2. Market Comps
+3. Similar Pending / Sold
+4. Days on Market vs Similar Homes
+5. Views & Saves Across Major Platforms
+6. Price Drop Recommendation
+7. Projected Sale Range
+8. Next Steps to Get This Sold
+9. Market Context
+
+Views & Saves section must recap:
+- whether this listing has more or less views than similar homes/condos
+- whether this listing has more or less saves than similar homes/condos
+- whether views are strong but saves are weak
+- whether low engagement suggests a pricing or presentation problem
+- whether engagement is unavailable because data is not connected
+
+Market comps section must recap:
+- active comps
+- pending comps
+- sold comps
+- whether this listing is priced above, below, or in line with those comps
+- whether a price drop would be beneficial
+
+Projected sale range:
+- Use comps and market data if available.
+- If only Zillow value exists, make clear that the range is preliminary.
+- Do not rely only on Zillow value if comps are available.
+
+Friday refresh:
+- Keep weekly Friday refresh.
+- Do not regenerate every page load.
+- Regenerate only if current weekly analysis is missing/stale or user clicks Refresh.
+- On Refresh, rerun the data-gathering step first, then call Anthropic.
+
+Debug logs:
+Add logs showing:
+- `[market-data] subject property`
+- `[market-data] sources attempted`
+- `[market-data] Zillow data found/missing`
+- `[market-data] active comps found`
+- `[market-data] pending comps found`
+- `[market-data] sold comps found`
+- `[market-data] platform engagement found/missing`
+- `[market-data] local market stats found/missing`
+- `[market-analysis] payload sent to Anthropic`
+- `[market-analysis] Anthropic response`
+- `[market-analysis] saved to Supabase`
+
+Acceptance test:
+1. Open Dashboard → For Sale → property detail.
+2. Click Refresh on Market Analysis.
+3. Confirm backend gathers market data before calling Anthropic.
+4. Confirm the Anthropic payload includes subject property, comps, DOM, engagement, and market context where available.
+5. Confirm the UI no longer gives only a generic “no data connected” recap when Zillow/Apify or other market data exists.
+6. Confirm active/pending/sold comps show if available.
+7. Confirm DOM vs similar homes shows if available.
+8. Confirm views/saves vs similar homes shows if available.
+9. Confirm unavailable sources are clearly labeled, not fabricated.
+10. Confirm the weekly Friday saved-analysis logic still works.
+
+Please report back:
+- Which data sources are currently available in the app
+- Which real estate websites/scrapers/APIs are actually connected
+- Whether Zillow/Apify has views/saves available
+- Whether Realtor.com/Redfin/Homes.com data is connected or missing
+- Whether MLS/Stellar data is connected or missing
+- Which backend function gathers market data
+- What data is sent to Anthropic
+- Which Market Analysis UI sections were updated
+- Which files/functions were changed
