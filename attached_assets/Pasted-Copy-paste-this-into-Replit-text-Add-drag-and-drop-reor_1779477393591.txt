@@ -1,0 +1,126 @@
+Copy/paste this into Replit:
+
+```text
+Add drag-and-drop reordering for the main dashboard tabs without changing the data inside each tab.
+
+Current dashboard tabs:
+- Purchase
+- Refinance
+- Insurance
+- For Sale
+
+Requested behavior:
+Users should be able to drag these dashboard tabs and place them in whatever order they want.
+
+Important:
+Dragging/reordering the tabs should only change the visual order of the tabs. It must not change, move, merge, delete, or corrupt any of the records inside each tab.
+
+Example:
+If user changes order from:
+
+Purchase | Refinance | Insurance | For Sale
+
+to:
+
+For Sale | Purchase | Insurance | Refinance
+
+Then:
+- For Sale still shows For Sale records only
+- Purchase still shows Purchase records only
+- Insurance still shows Insurance records only
+- Refinance still shows Refinance records only
+
+Do not use tab index to determine which content to show.
+Use stable tab IDs.
+
+Required stable tab IDs:
+- purchase
+- refinance
+- insurance
+- for_sale
+
+Implementation requirements:
+1. Add drag-and-drop support to the dashboard tab navigation.
+2. Use stable tab IDs, not array indexes.
+3. Reordering tabs should update only the tab order array.
+4. Active tab should be tracked by tab ID, not index.
+5. Route/query param should continue to work by tab ID.
+   - Example: `/dashboard?tab=purchase`
+   - `/dashboard?tab=refinance`
+   - `/dashboard?tab=insurance`
+   - `/dashboard?tab=for_sale`
+6. The content rendered should be based on the active tab ID.
+7. Reordering should not impact the save/load logic for any tab.
+8. Reordering should not affect Supabase queries.
+9. Reordering should not affect dashboard records.
+10. Reordering should not affect market analysis, Zillow cache, Realtor cache, or any property scenario data.
+
+Persistence:
+Save the user’s preferred tab order so it stays after refresh/logout/login.
+
+Suggested storage:
+- user profile field such as `dashboard_tab_order`
+- or a dedicated user settings table
+- or localStorage as a fallback only if user profile storage is not available
+
+Preferred:
+Persist to Supabase on the user profile/settings so the order follows the user across devices.
+
+Suggested stored value:
+dashboard_tab_order = ["purchase", "refinance", "insurance", "for_sale"]
+
+Default order:
+If user has no saved preference, use:
+["purchase", "refinance", "insurance", "for_sale"]
+
+Drag-and-drop UI:
+- Allow the user to drag each tab left/right.
+- Show a clear drag handle or make the tab draggable.
+- Keep the styling clean and consistent.
+- On desktop, drag with mouse.
+- On mobile, either support drag/touch or provide a simple “Edit order” fallback if drag is difficult.
+- Do not make accidental tab clicks trigger reorder.
+
+Active tab behavior:
+- If the user is currently on Purchase and drags tabs, they should remain on Purchase.
+- Reordering should not switch the active tab unless the user explicitly clicks another tab.
+- If user opens `/dashboard?tab=insurance`, Insurance should be active even if Insurance is visually first, second, third, or fourth.
+
+Data safety requirements:
+- Do not use array position to map tab content.
+- Do not use array position to query data.
+- Do not use the displayed tab order to decide scenario type.
+- Every tab must keep its own stable data source:
+  - Purchase → purchase_scenarios
+  - Refinance → tracked_loans
+  - Insurance → insurance_scenarios
+  - For Sale → seller_scenarios
+- Reordering tabs should not cause records to appear under the wrong tab.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard.
+3. Confirm default tab order is Purchase, Refinance, Insurance, For Sale if no saved order exists.
+4. Drag For Sale to the first position.
+5. Confirm the order becomes For Sale, Purchase, Refinance, Insurance or whichever order the user chose.
+6. Confirm the active tab stays the same during drag unless clicked.
+7. Click Purchase and confirm only Purchase records show.
+8. Click Refinance and confirm only Refinance records show.
+9. Click Insurance and confirm only Insurance records show.
+10. Click For Sale and confirm only For Sale records show.
+11. Refresh the browser.
+12. Confirm the custom tab order persists.
+13. Log out and log back in.
+14. Confirm the custom tab order persists.
+15. Confirm `/dashboard?tab=purchase` still opens Purchase, regardless of visual order.
+16. Confirm no tab content gets mixed up after reorder.
+17. Confirm mobile layout remains usable.
+
+Please make the smallest safe code change possible and tell me:
+- Which dashboard tab/navigation component was changed
+- Which drag-and-drop library or native implementation was used
+- How stable tab IDs are used instead of indexes
+- Where the user’s tab order is saved
+- How active tab routing still works
+- Which files/functions were changed
+```

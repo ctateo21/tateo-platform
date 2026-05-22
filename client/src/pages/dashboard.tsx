@@ -1104,8 +1104,27 @@ export default function Dashboard() {
 // Lets sibling pages (e.g. the new seller detail page) deep-link back to
 // the dashboard on a specific tab via /dashboard?tab=sellers without
 // breaking the existing default-of-Purchase behavior for /dashboard.
+//
+// Stable tab IDs are the source of truth for routing and content. The
+// visual order is a per-user preference (drag-and-drop reorder, persisted
+// to localStorage) and is decoupled from content selection — the active
+// tab is always tracked by ID, never by array index.
 const VALID_TABS = ["purchase", "refinance", "insurance", "sellers"] as const;
 type DashboardTabValue = typeof VALID_TABS[number];
+
+const TAB_META: Record<DashboardTabValue, { label: string; icon: typeof Home }> = {
+  purchase:  { label: "Purchase",  icon: Home },
+  refinance: { label: "Refinance", icon: RefreshCw },
+  insurance: { label: "Insurance", icon: Shield },
+  sellers:   { label: "For Sale",  icon: Tag },
+};
+
+const TAB_CONTENT: Record<DashboardTabValue, () => JSX.Element> = {
+  purchase:  () => <PurchaseTab />,
+  refinance: () => <RefiTab />,
+  insurance: () => <InsuranceTab />,
+  sellers:   () => <SellersTab />,
+};
 
 function readTabFromSearch(search: string): DashboardTabValue {
   const params = new URLSearchParams(search);
@@ -1113,10 +1132,48 @@ function readTabFromSearch(search: string): DashboardTabValue {
   return (VALID_TABS as readonly string[]).includes(t ?? "") ? (t as DashboardTabValue) : "purchase";
 }
 
+/** Per-user persisted dashboard tab order. We key by user id so each
+ *  account keeps its own preference on a shared browser. Falls back
+ *  to the default order on a fresh user or on parse failure. */
+const TAB_ORDER_STORAGE_PREFIX = "dashboard:tab-order:";
+
+function readSavedTabOrder(userId: string | null | undefined): DashboardTabValue[] {
+  const fallback = [...VALID_TABS] as DashboardTabValue[];
+  if (!userId || typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(TAB_ORDER_STORAGE_PREFIX + userId);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return fallback;
+    // Reconcile against VALID_TABS: drop unknown IDs and append any
+    // newly-added tabs the saved order doesn't know about. This keeps
+    // old preferences forward-compatible if we ever add a new tab.
+    const known = parsed.filter((id): id is DashboardTabValue =>
+      (VALID_TABS as readonly string[]).includes(id),
+    );
+    const missing = (VALID_TABS as readonly DashboardTabValue[]).filter(id => !known.includes(id));
+    const merged = [...known, ...missing];
+    return merged.length === VALID_TABS.length ? merged : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function DashboardTabs() {
   const search = useSearch();
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
   const [tab, setTab] = useState<DashboardTabValue>(() => readTabFromSearch(search));
+  const [tabOrder, setTabOrder] = useState<DashboardTabValue[]>(() => readSavedTabOrder(userId));
+  const [dragId, setDragId] = useState<DashboardTabValue | null>(null);
+  const [overId, setOverId] = useState<DashboardTabValue | null>(null);
+
+  // Re-hydrate order when the signed-in user changes (initial state
+  // captured the user from first render, which may have been null).
+  useEffect(() => {
+    setTabOrder(readSavedTabOrder(userId));
+  }, [userId]);
 
   // Keep state in sync if the URL changes externally (e.g. user clicks a
   // link, hits Back/Forward, or another component sets ?tab=sellers).
@@ -1136,38 +1193,84 @@ function DashboardTabs() {
     setLocation(`/dashboard${qs}`, { replace: true });
   }
 
+  function persistOrder(next: DashboardTabValue[]) {
+    setTabOrder(next);
+    if (!userId || typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(TAB_ORDER_STORAGE_PREFIX + userId, JSON.stringify(next));
+    } catch {
+      // localStorage quota / privacy mode — order persists for the session only.
+    }
+  }
+
+  function handleDragStart(id: DashboardTabValue, e: React.DragEvent<HTMLDivElement>) {
+    setDragId(id);
+    e.dataTransfer.effectAllowed = "move";
+    // Required for Firefox to actually start the drag.
+    e.dataTransfer.setData("text/plain", id);
+  }
+
+  function handleDragOver(id: DashboardTabValue, e: React.DragEvent<HTMLDivElement>) {
+    if (!dragId || dragId === id) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setOverId(id);
+  }
+
+  function handleDrop(targetId: DashboardTabValue, e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const sourceId = dragId;
+    setDragId(null);
+    setOverId(null);
+    if (!sourceId || sourceId === targetId) return;
+    const next = [...tabOrder];
+    const from = next.indexOf(sourceId);
+    const to = next.indexOf(targetId);
+    if (from < 0 || to < 0) return;
+    next.splice(from, 1);
+    next.splice(to, 0, sourceId);
+    persistOrder(next);
+    // Active tab stays the same — reordering never switches selection.
+  }
+
+  function handleDragEnd() {
+    setDragId(null);
+    setOverId(null);
+  }
+
   return (
     <Tabs value={tab} onValueChange={handleChange}>
       <TabsList className="mb-6">
-        <TabsTrigger value="purchase" className="gap-2">
-          <Home className="h-4 w-4" /> Purchase
-        </TabsTrigger>
-        <TabsTrigger value="refinance" className="gap-2">
-          <RefreshCw className="h-4 w-4" /> Refinance
-        </TabsTrigger>
-        <TabsTrigger value="insurance" className="gap-2">
-          <Shield className="h-4 w-4" /> Insurance
-        </TabsTrigger>
-        <TabsTrigger value="sellers" className="gap-2">
-          <Tag className="h-4 w-4" /> For Sale
-        </TabsTrigger>
+        {tabOrder.map((id) => {
+          const { label, icon: Icon } = TAB_META[id];
+          const isDragging = dragId === id;
+          const isOver = overId === id && dragId !== id;
+          return (
+            <div
+              key={id}
+              draggable
+              onDragStart={(e) => handleDragStart(id, e)}
+              onDragOver={(e) => handleDragOver(id, e)}
+              onDrop={(e) => handleDrop(id, e)}
+              onDragEnd={handleDragEnd}
+              className={`${isDragging ? "opacity-50" : ""} ${isOver ? "ring-2 ring-primary rounded-md" : ""}`}
+              title="Drag to reorder"
+            >
+              <TabsTrigger value={id} className="gap-2 cursor-grab active:cursor-grabbing">
+                <Icon className="h-4 w-4" /> {label}
+              </TabsTrigger>
+            </div>
+          );
+        })}
       </TabsList>
 
-      <TabsContent value="purchase">
-        <PurchaseTab />
-      </TabsContent>
-
-      <TabsContent value="refinance">
-        <RefiTab />
-      </TabsContent>
-
-      <TabsContent value="insurance">
-        <InsuranceTab />
-      </TabsContent>
-
-      <TabsContent value="sellers">
-        <SellersTab />
-      </TabsContent>
+      {/* Content is always rendered against the stable tab ID — visual
+          order has no effect on which scenario list shows. */}
+      {(VALID_TABS as readonly DashboardTabValue[]).map((id) => (
+        <TabsContent key={id} value={id}>
+          {TAB_CONTENT[id]()}
+        </TabsContent>
+      ))}
     </Tabs>);
 }
 
