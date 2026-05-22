@@ -1644,15 +1644,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
             enriched.primaryPhotoUrl = enriched.primaryPhotoUrl ?? (Array.isArray(norm.photos) && typeof norm.photos[0] === "string" ? norm.photos[0] : null);
             enriched.city  = enriched.city  ?? (typeof norm.displayCity === "string" ? norm.displayCity
                                               : typeof norm.googleCity === "string" ? norm.googleCity : null);
+            // Listing-activity fields squeezed from the Apify priceHistory.
+            // Often null — Zillow returns these inconsistently — and we
+            // deliberately do NOT fabricate when missing.
+            enriched.daysOnMarket   = enriched.daysOnMarket   ?? (typeof norm.daysOnZillow   === "number" ? norm.daysOnZillow   : null);
+            enriched.listDate       = enriched.listDate       ?? (typeof norm.listDate       === "string" ? norm.listDate       : null);
+            enriched.priorPriceCuts = enriched.priorPriceCuts ?? (typeof norm.priorPriceCuts === "number" ? norm.priorPriceCuts : null);
+            enriched.onlineViews    = enriched.onlineViews    ?? (typeof norm.pageViewCount  === "number" ? norm.pageViewCount  : null);
+            enriched.onlineSaves    = enriched.onlineSaves    ?? (typeof norm.favoriteCount  === "number" ? norm.favoriteCount  : null);
           }
-          console.log("[market-analysis] cache lookup", {
+          console.log("[market-data] subject property", {
+            address: body.address,
             cacheKey,
-            hit: !!norm,
-            enrichedFields: {
-              beds: enriched.beds, baths: enriched.baths, sqft: enriched.sqft,
-              yearBuilt: enriched.yearBuilt, zillowValue: enriched.zillowValue,
-              photoCount: enriched.photoCount,
-            },
+            cacheHit: !!norm,
+          });
+          console.log("[market-data] sources attempted", {
+            zillowApify: !!norm,
+            mls: false,
+            realtorDotCom: false,
+            redfin: false,
+            homesDotCom: false,
+          });
+          console.log("[market-data] Zillow data", norm ? "found" : "missing", {
+            beds: enriched.beds, baths: enriched.baths, sqft: enriched.sqft,
+            yearBuilt: enriched.yearBuilt, zillowValue: enriched.zillowValue,
+            photoCount: enriched.photoCount,
+          });
+          console.log("[market-data] active comps", "found:", 0, "(no comps source connected)");
+          console.log("[market-data] pending comps", "found:", 0, "(requires MLS)");
+          console.log("[market-data] sold comps", "found:", 0, "(requires MLS or sold-comps provider)");
+          console.log("[market-data] platform engagement",
+            (enriched.onlineViews != null || enriched.onlineSaves != null) ? "found" : "missing",
+            { zillowViews: enriched.onlineViews, zillowSaves: enriched.onlineSaves });
+          console.log("[market-data] local market stats", "missing", "(no MLS aggregate / Redfin Data Center connected)");
+          console.log("[market-data] listing activity", {
+            daysOnMarket:   enriched.daysOnMarket,
+            listDate:       enriched.listDate,
+            priorPriceCuts: enriched.priorPriceCuts,
           });
         }
       } catch (e: any) {

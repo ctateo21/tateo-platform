@@ -72,6 +72,22 @@ export interface PropertyScenario {
   soldPrice?: number | null;
   /** Last sold date reported by Zillow as an ISO string (only set when isSold). */
   soldDate?: string | null;
+
+  // ── Listing-activity fields (best-effort, often missing from Apify) ──
+  /** Days the active listing has been on Zillow (null when not listed). */
+  daysOnZillow?: number | null;
+  /** ISO date the listing was first posted, derived from priceHistory or
+   *  `datePostedString` when present. Null when not derivable. */
+  listDate?: string | null;
+  /** Zillow page-view count for this listing. Apify often omits this. */
+  pageViewCount?: number | null;
+  /** Zillow favorite (save) count for this listing. Apify often omits this. */
+  favoriteCount?: number | null;
+  /** Count of "Price change" events with a price DECREASE in priceHistory. */
+  priorPriceCuts?: number | null;
+  /** Compact priceHistory summary: most-recent first, max 6 events. Empty
+   *  when Apify didn't return a priceHistory array. */
+  priceHistory?: Array<{ date: string; price: number | null; event: string }>;
 }
 
 // ── Apify HTTP call ─────────────────────────────────────────────────
@@ -601,6 +617,93 @@ export function derivePolicyType(
 // purchase-price / loan-amount calculations.
 const MIN_PURCHASE_PRICE = 20_000;
 
+// ── Listing activity helpers ────────────────────────────────────────
+// Apify's Zillow actor returns priceHistory, daysOnZillow, pageViewCount,
+// and favoriteCount inconsistently — depends on the page, the listing
+// status, and the actor build. Everything here is defensive: any field we
+// can't confidently read becomes null and the UI labels it Unavailable.
+
+function parsePriceHistoryDate(v: unknown): string | null {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  if (Number.isFinite(n) && n > 0) {
+    // Apify sometimes returns seconds, sometimes ms — heuristic split.
+    const ms = n < 1e12 ? n * 1000 : n;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  }
+  const d = new Date(String(v));
+  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+
+function extractListingActivity(row: any): {
+  priceHistory: Array<{ date: string; price: number | null; event: string }>;
+  listDate: string | null;
+  daysOnZillow: number | null;
+  pageViewCount: number | null;
+  favoriteCount: number | null;
+  priorPriceCuts: number | null;
+} {
+  // priceHistory: sort most-recent first, keep 6, count price-decrease events.
+  const rawHistory = Array.isArray(row.priceHistory) ? row.priceHistory : [];
+  const normalizedHistory = rawHistory
+    .map((h: any) => ({
+      date: parsePriceHistoryDate(h?.date ?? h?.time) ?? "",
+      price: num(h?.price),
+      event: typeof h?.event === "string" ? h.event : (typeof h?.priceChangeReason === "string" ? h.priceChangeReason : ""),
+    }))
+    .filter((h: { date: string }) => !!h.date)
+    .sort((a: { date: string }, b: { date: string }) => (a.date < b.date ? 1 : -1));
+  const priceHistory = normalizedHistory.slice(0, 6);
+
+  let priorPriceCuts = 0;
+  for (let i = 0; i < normalizedHistory.length - 1; i++) {
+    const cur = normalizedHistory[i];
+    const prev = normalizedHistory[i + 1];
+    const ev = (cur.event || "").toLowerCase();
+    if ((ev.includes("price") && (ev.includes("change") || ev.includes("cut") || ev.includes("drop"))) &&
+        cur.price != null && prev.price != null && cur.price < prev.price) {
+      priorPriceCuts++;
+    }
+  }
+
+  // List date: prefer the most recent "Listed for sale" event, else the
+  // actor's own datePostedString.
+  let listDate: string | null = null;
+  for (const h of normalizedHistory) {
+    const ev = (h.event || "").toLowerCase();
+    if (ev.includes("listed") && (ev.includes("sale") || ev.includes("market"))) {
+      listDate = h.date;
+      break;
+    }
+  }
+  if (!listDate) {
+    const posted = row.datePostedString ?? row.datePosted ?? row.hdpData?.homeInfo?.datePosted;
+    listDate = parsePriceHistoryDate(posted);
+  }
+
+  // daysOnZillow: trust Apify when present, else derive from listDate.
+  let daysOnZillow: number | null = null;
+  const rawDom = num(row.daysOnZillow ?? row.hdpData?.homeInfo?.daysOnZillow);
+  if (rawDom != null && rawDom >= 0) daysOnZillow = Math.round(rawDom);
+  else if (listDate) {
+    const diff = Date.now() - new Date(listDate + "T00:00:00Z").getTime();
+    if (diff > 0) daysOnZillow = Math.floor(diff / 86_400_000);
+  }
+
+  const pageViewCount = num(row.pageViewCount ?? row.hdpData?.homeInfo?.pageViewCount);
+  const favoriteCount = num(row.favoriteCount ?? row.hdpData?.homeInfo?.favoriteCount);
+
+  return {
+    priceHistory,
+    listDate,
+    daysOnZillow,
+    pageViewCount,
+    favoriteCount,
+    priorPriceCuts: normalizedHistory.length > 0 ? priorPriceCuts : null,
+  };
+}
+
 function normalizeOne(row: any): PropertyScenario {
   const description = pickDescription(row);
   const propertyType = normalizePropertyType(row.homeType ?? row.propertyType ?? row.hdpData?.homeInfo?.homeType);
@@ -669,6 +772,7 @@ function normalizeOne(row: any): PropertyScenario {
   const purchasePrice = soldPrice ?? listingPrice ?? zestimate;
   const estimatedHomeValue = soldPrice ?? zestimate ?? listingPrice;
   const clues = parseInsuranceClues(description);
+  const activity = extractListingActivity(row);
 
   return {
     source: "Zillow via Apify",
@@ -696,6 +800,12 @@ function normalizeOne(row: any): PropertyScenario {
     isSold,
     soldPrice,
     soldDate,
+    daysOnZillow: activity.daysOnZillow,
+    listDate: activity.listDate,
+    pageViewCount: activity.pageViewCount,
+    favoriteCount: activity.favoriteCount,
+    priorPriceCuts: activity.priorPriceCuts,
+    priceHistory: activity.priceHistory,
   };
 }
 

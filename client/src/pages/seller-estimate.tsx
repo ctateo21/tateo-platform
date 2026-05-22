@@ -610,6 +610,10 @@ interface StructuredAnalysis {
   market_context: { summary: string; stats: { label: string; value: string; note?: string | null }[]; };
   data_limitations: string[];
   confidence_level: "low" | "medium" | "high";
+  data_sources?: {
+    available: { source: string; detail?: string | null }[];
+    missing:   { source: string; reason: string }[];
+  };
 }
 
 interface MarketAnalysisRecord {
@@ -1001,6 +1005,54 @@ function RichAnalysis({ structured: s, address }: { structured: StructuredAnalys
           </div>
         )}
       </div>
+
+      {/* Data Sources — honest inventory of what fed this analysis vs what's
+          missing. Server-computed (not Claude-guessed) so it's always
+          accurate. Helps the seller understand why a section says "not
+          connected yet" and what would unlock it. */}
+      {s.data_sources && (s.data_sources.available.length > 0 || s.data_sources.missing.length > 0) && (
+        <div className="border-t pt-3">
+          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Data Sources</h4>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <p className="text-xs font-medium text-green-700 mb-1.5">Connected ({s.data_sources.available.length})</p>
+              {s.data_sources.available.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No data sources connected yet.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {s.data_sources.available.map((src, i) => (
+                    <li key={i} className="text-xs flex items-start gap-1.5">
+                      <span className="text-green-700 mt-0.5">✓</span>
+                      <span>
+                        <span className="font-medium">{src.source}</span>
+                        {src.detail && <span className="text-muted-foreground"> — {src.detail}</span>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div>
+              <p className="text-xs font-medium text-amber-700 mb-1.5">Not connected ({s.data_sources.missing.length})</p>
+              {s.data_sources.missing.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">All data sources are connected.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {s.data_sources.missing.map((src, i) => (
+                    <li key={i} className="text-xs flex items-start gap-1.5">
+                      <span className="text-amber-700 mt-0.5">○</span>
+                      <span>
+                        <span className="font-medium">{src.source}</span>
+                        <span className="text-muted-foreground"> — {src.reason}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Limitations + confidence */}
       {(s.data_limitations.length > 0 || s.confidence_level) && (

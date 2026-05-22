@@ -73,6 +73,7 @@ export interface ListingInput {
   // Listing/activity
   daysOnMarket?: number | null;
   listDate?: string | null;
+  priorPriceCuts?: number | null;
   showingCount?: number | null;
   onlineViews?: number | null;
   onlineSaves?: number | null;
@@ -178,6 +179,17 @@ export interface StructuredAnalysis {
   };
   data_limitations: string[];
   confidence_level: "low" | "medium" | "high";
+
+  /**
+   * Honest inventory of which real-estate data sources actually fed this
+   * analysis. Computed deterministically by the server (NOT asked from the
+   * model), so the UI can show the seller exactly what's connected vs not
+   * connected, with a friendly reason for each missing source.
+   */
+  data_sources: {
+    available: { source: string; detail?: string | null }[];
+    missing:   { source: string; reason: string }[];
+  };
 }
 
 export interface MarketAnalysisRecord {
@@ -326,7 +338,9 @@ function buildPrompt(input: ListingInput, weekOfStr: string): string {
     "2. NEVER invent comp addresses, comp prices, days-on-market, page views, saves, showing counts, or market stats that are not present in the data.",
     "3. If `comps`, `pendingComps`, `soldComps` are missing or empty → set `market_comps.comps` and `similar_pending_sold.items` to [] and say in the summary that comp data has not been connected yet, with a recommendation to add 3–5 comps.",
     "4. If `platformEngagement` is missing → set `platform_engagement.zillow/realtor/redfin` to null, set `comparison_to_similar` to 'unavailable', and say platform engagement data has not been connected yet.",
-    "5. If DOM is missing → set `subject_dom`/`average_comp_dom` to null, `comparison_label` to 'unavailable', and say so plainly.",
+    "5. If DOM is missing → set `subject_dom`/`average_comp_dom` to null, `comparison_label` to 'unavailable', and say so plainly. If `daysOnMarket` IS provided, USE it in `subject_dom` and reference it in the listing snapshot — don't say DOM is unavailable when it isn't.",
+    "5b. If `priorPriceCuts` is provided and > 0, mention it in the listing snapshot and factor it into the price-drop recommendation (further drops have diminishing returns after multiple cuts).",
+    "5c. If `onlineViews` or `onlineSaves` is provided, USE the actual number in `platform_engagement.zillow` instead of null. Still mark `comparison_to_similar` as 'unavailable' unless similar-listing engagement data is also provided.",
     "6. If you cannot project a sale range from the data → set `projected_low`/`projected_high` to null and explain in the summary what would be needed.",
     "7. Do NOT recommend a specific price drop range unless comp data supports it.",
     "8. When data is thin, default `status_label` to 'Insufficient Data' and `confidence_level` to 'low'. Still give 3–6 useful `next_steps` (e.g. add comps, refresh photos, connect platform stats).",
@@ -529,7 +543,103 @@ function coerceStructured(raw: Record<string, unknown> | null, weekOfStr: string
     },
     data_limitations: asStringArray(r.data_limitations),
     confidence_level: asConfidence(r.confidence_level),
+    // Filled in deterministically by computeDataSources() after coercion.
+    data_sources: { available: [], missing: [] },
   };
+}
+
+/**
+ * Deterministic, server-computed inventory of which real-estate data
+ * sources actually fed this analysis. We do this in code (not in the
+ * Anthropic prompt) so the answer is always honest and reproducible.
+ *
+ * "Available" entries describe what we DID feed Claude; "missing" entries
+ * describe what we couldn't, with a friendly reason the seller will
+ * understand.
+ */
+function computeDataSources(input: ListingInput): StructuredAnalysis["data_sources"] {
+  const available: { source: string; detail?: string | null }[] = [];
+  const missing:   { source: string; reason: string }[] = [];
+
+  const hasSubject =
+    (input.beds != null) || (input.baths != null) || (input.sqft != null) ||
+    (input.zillowValue != null) || (input.listPrice != null);
+  if (hasSubject) {
+    const bits: string[] = [];
+    if (input.beds != null && input.baths != null) bits.push(`${input.beds}bd/${input.baths}ba`);
+    if (input.sqft != null) bits.push(`${input.sqft} sqft`);
+    if (input.yearBuilt != null) bits.push(`built ${input.yearBuilt}`);
+    if (input.zillowValue != null) bits.push(`Zestimate $${Math.round(input.zillowValue).toLocaleString()}`);
+    available.push({ source: "Zillow (subject property)", detail: bits.join(" • ") || null });
+  } else {
+    missing.push({
+      source: "Zillow (subject property)",
+      reason: "No cached Zillow scrape for this address yet — open the listing once to fetch it.",
+    });
+  }
+
+  if (input.daysOnMarket != null || input.listDate) {
+    const parts: string[] = [];
+    if (input.daysOnMarket != null) parts.push(`${input.daysOnMarket} days on market`);
+    if (input.listDate) parts.push(`listed ${input.listDate}`);
+    if (input.priorPriceCuts != null && input.priorPriceCuts > 0) parts.push(`${input.priorPriceCuts} prior price cut${input.priorPriceCuts === 1 ? "" : "s"}`);
+    available.push({ source: "Zillow listing activity", detail: parts.join(" • ") || null });
+  } else {
+    missing.push({
+      source: "Zillow listing activity (DOM, list date, price history)",
+      reason: "Zillow didn't return priceHistory or daysOnZillow for this listing on the last pull.",
+    });
+  }
+
+  const zillowEngagement = input.onlineViews != null || input.onlineSaves != null;
+  if (zillowEngagement) {
+    const parts: string[] = [];
+    if (input.onlineViews != null) parts.push(`${input.onlineViews.toLocaleString()} views`);
+    if (input.onlineSaves != null) parts.push(`${input.onlineSaves.toLocaleString()} saves`);
+    available.push({ source: "Zillow views & saves", detail: parts.join(" • ") || null });
+  } else {
+    missing.push({
+      source: "Zillow views & saves",
+      reason: "Zillow only exposes these to the listing owner — connect a Zillow Premier Agent or owner-dashboard feed to fill this in.",
+    });
+  }
+
+  const hasComps = !!(input.comps && input.comps.length);
+  if (hasComps) {
+    available.push({ source: "Active comps", detail: `${input.comps!.length} comp${input.comps!.length === 1 ? "" : "s"} provided` });
+  } else {
+    missing.push({
+      source: "Active comps",
+      reason: "No MLS or comp-search source connected. Add an MLS/Stellar feed, a comps Apify actor, or enter comps manually.",
+    });
+  }
+  if (input.pendingComps && input.pendingComps.length) {
+    available.push({ source: "Pending comps", detail: `${input.pendingComps.length} provided` });
+  } else {
+    missing.push({
+      source: "Pending comps",
+      reason: "Requires an MLS feed — public Zillow scrapes don't reliably surface pending status.",
+    });
+  }
+  if (input.soldComps && input.soldComps.length) {
+    available.push({ source: "Recently sold comps", detail: `${input.soldComps.length} provided` });
+  } else {
+    missing.push({
+      source: "Recently sold comps",
+      reason: "Requires an MLS feed or a sold-comps data provider (ATTOM, RentCast, etc.).",
+    });
+  }
+
+  missing.push({
+    source: "Realtor.com / Redfin / Homes.com engagement",
+    reason: "No scrapers or partnerships for these platforms are wired into the app yet.",
+  });
+  missing.push({
+    source: "Local market stats (months supply, sale-to-list, avg DOM)",
+    reason: "No MLS aggregate or Redfin Data Center feed is connected. We can wire RentCast or an Apify actor on request.",
+  });
+
+  return { available, missing };
 }
 
 /**
@@ -608,6 +718,9 @@ export async function getOrGenerateMarketAnalysis(
     const cachedStructured = cachedRaw
       ? coerceStructured(tryParseJsonObject(cachedRaw), existing.analysis_week_of || cur.weekOfStr)
       : null;
+    // Recompute data_sources on read so the panel reflects the CURRENT
+    // listing input even when the recap text is reused from cache.
+    if (cachedStructured) cachedStructured.data_sources = computeDataSources(input);
     console.log("[market-analysis] cache hit", { id: existing.id, weekOf: existing.analysis_week_of });
     return { ...existing, structured: cachedStructured };
   }
@@ -627,6 +740,7 @@ export async function getOrGenerateMarketAnalysis(
     const result = await callAnthropic(prompt);
     raw = result.raw;
     structured = coerceStructured(tryParseJsonObject(raw), cur.weekOfStr);
+    structured.data_sources = computeDataSources(input);
     console.log("[market-analysis] response received", {
       listingId: input.listingId,
       rawChars: raw.length,
