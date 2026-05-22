@@ -1,0 +1,136 @@
+The `seller_scenarios` table now exists, but For Sale properties still do not persist after logout/login.
+
+I added a For Sale property, logged out, logged back in, and it was gone.
+
+At this point, please stop focusing only on whether the table exists. The table exists now. The issue is that the For Sale data is either:
+1. not being inserted into `seller_scenarios`,
+2. being inserted without the right fields,
+3. being inserted under the wrong `user_id`,
+4. being inserted but not loaded after login,
+5. being loaded but not rendered,
+6. being overwritten by empty local state,
+7. or failing silently due to Supabase/RLS/schema issues.
+
+Please trace and fix the full For Sale save/load chain.
+
+Current table:
+`public.seller_scenarios`
+
+Required save behavior:
+When a logged-in user enters/selects a property address in Dashboard → For Sale, immediately upsert a row into `seller_scenarios`.
+
+The upsert payload must include, at minimum:
+
+{
+  id: sellerScenarioId,
+  user_id: authenticatedUserId,
+  full_address: selectedGoogleFormattedAddress,
+  normalized_property_key: normalizedPropertyKey,
+  created_at: existingCreatedAtOrNow,
+  updated_at: now,
+  estimated_sale_price: estimatedSalePriceOrNull,
+  mortgage_payoff: mortgagePayoffOrNull,
+  seller_closing_costs: sellerClosingCostsOrNull,
+  realtor_commission: realtorCommissionOrNull,
+  buyer_concessions: buyerConcessionsOrNull,
+  repair_budget: repairBudgetOrNull,
+  other_selling_costs: otherSellingCostsOrNull,
+  net_proceeds: netProceedsOrNull,
+  status: statusOrDraft,
+  primary_photo_url: primaryPhotoUrlOrNull,
+  property_photos: propertyPhotosArrayOrEmptyArray
+}
+
+Important:
+- `user_id` must be the authenticated Supabase user ID.
+- `full_address` must not be null.
+- `id` must be stable and reused when updating the same For Sale scenario.
+- Do not wait for Zillow data.
+- Do not wait for Market Analysis.
+- Do not wait for net proceeds.
+- A row with only `id`, `user_id`, `full_address`, `normalized_property_key`, `created_at`, `updated_at`, and `status` should save and appear.
+
+Required load behavior:
+When Dashboard → For Sale loads after auth/session is ready, query:
+
+supabase
+  .from("seller_scenarios")
+  .select("*")
+  .eq("user_id", authenticatedUserId)
+  .order("created_at", { ascending: false })
+
+Then map those rows back into the For Sale UI.
+
+Do not:
+- query before auth is ready and then never refetch
+- use local/session state as the source of truth
+- let an empty local array overwrite Supabase-loaded seller scenarios
+- require Zillow data, photos, market analysis, or net proceeds for the row to render
+- silently swallow Supabase errors
+
+Add temporary console logs:
+
+When For Sale address is selected:
+- selected address
+- normalized property key
+- generated seller scenario ID
+- authenticated user ID
+- full seller scenario object before save
+
+Before Supabase upsert:
+- `[seller-save] payload`
+- exact payload being sent
+- exact table name
+
+After Supabase upsert:
+- `[seller-save] upsert ok`
+- or `[seller-save] upsert FAILED`
+- full Supabase error if any
+
+When For Sale dashboard loads:
+- `[seller-load] auth ready`
+- authenticated user ID
+- query table
+- query filters
+- raw rows returned
+- row count
+- mapped seller scenarios
+- final rendered For Sale properties
+
+Specific things to inspect:
+1. Is `persistSellerScenarios` actually being called after address selection?
+2. Does `persistSellerScenarios` receive the new For Sale scenario?
+3. Does `sellerToRow` map the frontend fields into the exact Supabase column names?
+4. Is `user_id` being set correctly?
+5. Is the Supabase upsert succeeding?
+6. Is the dashboard query returning the saved row after login?
+7. Is `rowToSeller` correctly mapping `full_address` back into the UI field the For Sale tab renders?
+8. Is the For Sale tab rendering from loaded Supabase seller scenarios or only local state?
+9. Is some initialization effect resetting seller scenarios to `[]` after load?
+10. Is RLS blocking insert/select?
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → For Sale.
+3. Enter/select a property address.
+4. Confirm console shows `[seller-save] payload`.
+5. Confirm console shows `[seller-save] upsert ok`.
+6. Confirm Supabase `seller_scenarios` has a row with my `user_id` and `full_address`.
+7. Refresh page.
+8. Confirm console shows `[seller-load] ok` with count at least 1.
+9. Confirm the For Sale property appears.
+10. Log out.
+11. Log back in.
+12. Confirm `[seller-load] ok` returns the saved row.
+13. Confirm the For Sale property appears.
+14. Add a second For Sale property.
+15. Confirm both rows save and both reload after logout/login.
+
+Please report back:
+- Whether `persistSellerScenarios` was being called
+- What exact payload was sent to Supabase
+- Whether Supabase returned an error
+- Whether the row existed in `seller_scenarios`
+- Whether the dashboard load query returned the row
+- Whether the issue was save, load, mapping, auth timing, RLS, or local state overwrite
+- Which files/functions were changed
