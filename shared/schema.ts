@@ -1,6 +1,83 @@
-import { pgTable, text, serial, integer, boolean, json, date, timestamp, varchar, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, json, date, timestamp, varchar, unique, uuid, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+// ─────────────────────────────────────────────────────────────────────
+// Seller Listing Dashboard (Supabase-managed)
+// The authoritative DDL/RLS lives in supabase/schema.sql. These Drizzle
+// table definitions and zod schemas exist so the rest of the codebase
+// can share types and validate payloads.
+// ─────────────────────────────────────────────────────────────────────
+export const listings = pgTable("listings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sellerId: uuid("seller_id").notNull(),
+  address: text("address").notNull(),
+  unit: text("unit"),
+  city: text("city").notNull(),
+  state: text("state").notNull(),
+  zip: text("zip").notNull(),
+  mlsNumber: text("mls_number"),
+  listPrice: integer("list_price").notNull(),
+  beds: integer("beds"),
+  baths: numeric("baths"),
+  sqft: integer("sqft"),
+  community: text("community"),
+  status: text("status").notNull().default("active"),
+  listDate: date("list_date"),
+  lastUpdated: timestamp("last_updated", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const insertListingSchema = createInsertSchema(listings).omit({
+  id: true, lastUpdated: true,
+});
+export type InsertListing = z.infer<typeof insertListingSchema>;
+export type Listing = typeof listings.$inferSelect;
+
+export const weeklyRecaps = pgTable("weekly_recaps", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  listingId: uuid("listing_id").notNull(),
+  recapDate: date("recap_date").notNull(),
+  daysOnMarket: integer("days_on_market"),
+  avgMarketDom: integer("avg_market_dom"),
+  listPrice: integer("list_price"),
+  recommendedPriceLow: integer("recommended_price_low"),
+  recommendedPriceHigh: integer("recommended_price_high"),
+  projectedSaleLow: integer("projected_sale_low"),
+  projectedSaleHigh: integer("projected_sale_high"),
+  zillowDailyViewsEst: integer("zillow_daily_views_est"),
+  zillowDailySavesEst: numeric("zillow_daily_saves_est"),
+  zillowHeatIndexEst: numeric("zillow_heat_index_est"),
+  realtorWeeklyViewsEst: integer("realtor_weekly_views_est"),
+  realtorWeeklySavesEst: integer("realtor_weekly_saves_est"),
+  redfinWeeklyViewsEst: integer("redfin_weekly_views_est"),
+  redfinHotHome: boolean("redfin_hot_home"),
+  comp1Address: text("comp_1_address"), comp1Price: integer("comp_1_price"), comp1Dom: integer("comp_1_dom"), comp1Status: text("comp_1_status"),
+  comp2Address: text("comp_2_address"), comp2Price: integer("comp_2_price"), comp2Dom: integer("comp_2_dom"), comp2Status: text("comp_2_status"),
+  comp3Address: text("comp_3_address"), comp3Price: integer("comp_3_price"), comp3Dom: integer("comp_3_dom"), comp3Status: text("comp_3_status"),
+  marketInventoryMonths: numeric("market_inventory_months"),
+  marketMedianPrice: integer("market_median_price"),
+  marketSaleToListPct: numeric("market_sale_to_list_pct"),
+  marketSummary: text("market_summary"),
+  engagementSummary: text("engagement_summary"),
+  priceDropRationale: text("price_drop_rationale"),
+  nextSteps: text("next_steps").array(),
+  agentNotes: text("agent_notes"),
+  published: boolean("published").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const insertWeeklyRecapSchema = createInsertSchema(weeklyRecaps).omit({
+  id: true, createdAt: true,
+});
+export type InsertWeeklyRecap = z.infer<typeof insertWeeklyRecapSchema>;
+export type WeeklyRecap = typeof weeklyRecaps.$inferSelect;
+
+export const createSellerSchema = z.object({
+  name: z.string().min(1, "Name required"),
+  email: z.string().email("Valid email required"),
+});
+export type CreateSellerInput = z.infer<typeof createSellerSchema>;
+
 
 // Main user table
 export const users = pgTable("users", {

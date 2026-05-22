@@ -30,6 +30,52 @@ import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type
 import { supabaseAdmin } from "./supabase";
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // ── Create seller (agent invites a seller) ────────────────────────
+  // Creates a seller auth user (random password) and triggers a password
+  // recovery email so they can set their own password on first sign-in.
+  app.post("/api/seller-dashboard/create-seller", async (req, res) => {
+    if (!supabaseAdmin) return res.status(503).json({ message: "Supabase admin not configured" });
+    try {
+      const auth = req.headers.authorization?.replace(/^Bearer\s+/i, "");
+      if (!auth) return res.status(401).json({ message: "Sign in as an agent first." });
+      const { data: userRes } = await supabaseAdmin.auth.getUser(auth);
+      if (!userRes?.user?.id) return res.status(401).json({ message: "Invalid session." });
+      const { data: prof } = await supabaseAdmin
+        .from("profiles").select("agent").eq("id", userRes.user.id).maybeSingle();
+      if (!prof?.agent) return res.status(403).json({ message: "Agents only" });
+
+      const { name, email } = req.body ?? {};
+      if (!name || !email) return res.status(400).json({ message: "Name and email required." });
+      const normalizedEmail = String(email).toLowerCase().trim();
+
+      const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+        email: normalizedEmail,
+        email_confirm: true,
+        user_metadata: { name: String(name).trim() },
+        password: Math.random().toString(36).slice(2) + "Aa1!",
+      });
+      if (createErr) {
+        // If user already exists, still return success so the agent can link listings.
+        if (/already.*registered|exists/i.test(createErr.message)) {
+          return res.json({ ok: true, message: "Seller already exists — they can sign in with their existing password." });
+        }
+        throw createErr;
+      }
+
+      // Trigger a password recovery email so the seller can set their own password.
+      await supabaseAdmin.auth.resetPasswordForEmail(normalizedEmail);
+
+      res.json({
+        ok: true,
+        id: created.user!.id,
+        message: `Invited ${normalizedEmail}. They've been emailed a link to set their password.`,
+      });
+    } catch (e: any) {
+      console.error("[create-seller] failed:", e);
+      res.status(500).json({ message: e.message ?? "Create failed" });
+    }
+  });
+
   // ── Seller Dashboard demo seed ────────────────────────────────────
   // Idempotent: creates a demo seller account + 3 sample listings + one
   // published recap per listing. Safe to re-run. Requires the caller to
@@ -50,29 +96,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const DEMO_EMAIL = "demo.seller@tateoco.com";
       const DEMO_PASSWORD = "DemoSeller2025!";
+      const DEMO_AGENT_EMAIL = "demo.agent@tateoco.com";
+      const DEMO_AGENT_PASSWORD = "DemoAgent2025!";
 
-      // Find or create the demo seller in auth.users. Paginate listUsers so
-      // we don't miss the demo account in larger user bases.
-      let sellerId: string | undefined;
-      let page = 1;
-      while (page <= 50) {
-        const { data: pageRes } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 1000 });
-        const found = pageRes?.users?.find((u: any) => u.email === DEMO_EMAIL);
-        if (found) { sellerId = found.id; break; }
-        if (!pageRes?.users?.length || pageRes.users.length < 1000) break;
-        page++;
+      // Helper: find a user by email, paginating to handle large user bases.
+      async function findUserByEmail(email: string): Promise<string | undefined> {
+        let p = 1;
+        while (p <= 50) {
+          const { data: pageRes } = await supabaseAdmin!.auth.admin.listUsers({ page: p, perPage: 1000 });
+          const f = pageRes?.users?.find((u: any) => u.email === email);
+          if (f) return f.id;
+          if (!pageRes?.users?.length || pageRes.users.length < 1000) return undefined;
+          p++;
+        }
+        return undefined;
       }
+
+      // Find or create the demo seller.
+      let sellerId = await findUserByEmail(DEMO_EMAIL);
       if (!sellerId) {
         const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-          email: DEMO_EMAIL,
-          password: DEMO_PASSWORD,
-          email_confirm: true,
+          email: DEMO_EMAIL, password: DEMO_PASSWORD, email_confirm: true,
           user_metadata: { name: "Demo Seller" },
         });
         if (createErr) throw createErr;
         sellerId = created.user!.id;
       }
       if (!sellerId) throw new Error("Failed to resolve demo seller id");
+
+      // Find or create the demo agent (separate account for testing the agent view).
+      let agentId = await findUserByEmail(DEMO_AGENT_EMAIL);
+      if (!agentId) {
+        const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+          email: DEMO_AGENT_EMAIL, password: DEMO_AGENT_PASSWORD, email_confirm: true,
+          user_metadata: { name: "Demo Agent" },
+        });
+        if (createErr) throw createErr;
+        agentId = created.user!.id;
+      }
+      // Set agent role on the demo agent profile. This bypasses the
+      // prevent_agent_self_elevation trigger because we use the service role.
+      if (agentId) {
+        await supabaseAdmin.from("profiles").upsert({
+          id: agentId, name: "Demo Agent", email: DEMO_AGENT_EMAIL, agent: "demo",
+        });
+      }
 
       // Ensure profile row exists with the correct name (trigger handles
       // first-insert, but the name may not be set if trigger isn't installed).
@@ -192,8 +260,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({
         ok: true,
-        message: `Seeded ${listingsCreated} new listings and ${recapsCreated} new recaps. Demo seller: ${DEMO_EMAIL} / ${DEMO_PASSWORD}`,
+        message: `Seeded ${listingsCreated} listings (${recapsCreated} recaps). Demo seller: ${DEMO_EMAIL} / ${DEMO_PASSWORD}. Demo agent: ${DEMO_AGENT_EMAIL} / ${DEMO_AGENT_PASSWORD}.`,
         seller: { email: DEMO_EMAIL, password: DEMO_PASSWORD, id: sellerId },
+        agent: { email: DEMO_AGENT_EMAIL, password: DEMO_AGENT_PASSWORD, id: agentId },
       });
     } catch (e: any) {
       console.error("[seed] failed:", e);

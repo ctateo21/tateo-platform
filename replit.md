@@ -91,11 +91,17 @@ Run `supabase/schema.sql` in the Supabase SQL editor to apply.
 
 **Demo seeding** — On `/admin`, click **Seed Demo Data**. The endpoint (`POST /api/seller-dashboard/seed`, agent-only) creates a demo seller account and seeds the 3 sample Sarasota listings from the spec, each with one published recap. Idempotent.
 
-Demo seller credentials:
-- Email: `demo.seller@tateoco.com`
-- Password: `DemoSeller2025!`
+Demo credentials (both created by the seed endpoint):
+- **Demo seller** — `demo.seller@tateoco.com` / `DemoSeller2025!` (sees `/seller-dashboard` with 3 active listings)
+- **Demo agent** — `demo.agent@tateoco.com` / `DemoAgent2025!` (sees `/admin`; has `profiles.agent = 'demo'` set by the service role)
 
-Log in as the demo seller to see the seller view; log in as an agent (any account with `profiles.agent` set) to see admin.
+Log in as the demo seller to see the seller view; log in as the demo agent (or any account with `profiles.agent` set) to see admin. Non-agent users who navigate to `/admin` are redirected to `/seller-dashboard`.
+
+The `agent` column on `profiles` is protected by the `prevent_agent_self_elevation` trigger — only the service role (server-side admin tooling) can set it, so users cannot grant themselves agent privileges.
+
+Additional agent tools in `/admin`:
+- **Sellers tab** — list of all sellers with linked-listing counts and an **Add Seller** dialog (calls `POST /api/seller-dashboard/create-seller`, agent-only, which provisions a Supabase auth user and emails a password-reset link).
+- **Preview as Seller tab** on every recap editor — renders the recap with the exact seller-facing layout before publish.
 
 ## Changelog
 

@@ -84,7 +84,7 @@ function PriceRangeBar({ low, high, current }: { low: number; high: number; curr
 }
 
 function EngagementCard({
-  platform, views, viewsLabel, saves, savesLabel, heatPct, hot,
+  platform, views, viewsLabel, saves, savesLabel, heatPct, hot, baseline,
 }: {
   platform: string;
   views: number | null;
@@ -93,7 +93,10 @@ function EngagementCard({
   savesLabel: string;
   heatPct?: number | null;
   hot?: boolean | null;
+  baseline: number; // baseline value for the "fresh comp" comparison
 }) {
+  const pct = views != null ? Math.min(100, Math.max(0, (views / baseline) * 100)) : 0;
+  const barColor = pct >= 75 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-red-500";
   return (
     <div className="rounded-lg border bg-card p-4">
       <div className="flex items-center justify-between mb-3">
@@ -111,6 +114,17 @@ function EngagementCard({
           <span className="text-sm text-muted-foreground">{savesLabel}:</span>
           <span className="ml-auto font-semibold tabular-nums">{saves ?? "—"}</span>
         </div>
+        {views != null && (
+          <div className="pt-2">
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1">
+              <span>vs. fresh listing</span>
+              <span className="tabular-nums">{Math.round(pct)}%</span>
+            </div>
+            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+              <div className={`h-full ${barColor}`} style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        )}
         {heatPct != null && (
           <div className="flex items-center gap-2 pt-2 border-t">
             <Flame className="h-4 w-4 text-muted-foreground" />
@@ -149,7 +163,7 @@ function BenchmarkStrip() {
   );
 }
 
-function ListingView({ listing, recaps }: { listing: Listing; recaps: WeeklyRecap[] }) {
+export function ListingView({ listing, recaps }: { listing: Listing; recaps: WeeklyRecap[] }) {
   const latest = recaps[0];
   const history = recaps.slice(1);
   const fullAddress = `${listing.address}${listing.unit ? ` ${listing.unit}` : ""}, ${listing.city}, ${listing.state} ${listing.zip}`;
@@ -259,7 +273,8 @@ function ListingView({ listing, recaps }: { listing: Listing; recaps: WeeklyReca
               <CardTitle className="text-lg">Comparable Properties</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
+              {/* Desktop table */}
+              <div className="hidden sm:block overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-xs uppercase text-muted-foreground border-b">
                     <tr>
@@ -291,6 +306,28 @@ function ListingView({ listing, recaps }: { listing: Listing; recaps: WeeklyReca
                     })}
                   </tbody>
                 </table>
+              </div>
+              {/* Mobile cards */}
+              <div className="sm:hidden space-y-2">
+                {[1, 2, 3].map(n => {
+                  const addr = (latest as any)[`comp_${n}_address`];
+                  const price = (latest as any)[`comp_${n}_price`];
+                  const dom = (latest as any)[`comp_${n}_dom`];
+                  const status = (latest as any)[`comp_${n}_status`];
+                  if (!addr) return null;
+                  return (
+                    <div key={n} className="rounded-lg border p-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <p className="font-medium text-sm flex-1">{addr}</p>
+                        <Badge variant="outline" className={`capitalize text-[10px] ${statusColor(status)}`}>{status ?? "—"}</Badge>
+                      </div>
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Price: <span className="font-semibold text-foreground tabular-nums">{fmtMoney(price)}</span></span>
+                        <span>DOM: <span className="font-semibold text-foreground tabular-nums">{dom ?? "—"}</span></span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               {(latest.market_inventory_months != null || latest.market_median_price != null || latest.market_sale_to_list_pct != null) && (
@@ -332,6 +369,7 @@ function ListingView({ listing, recaps }: { listing: Listing; recaps: WeeklyReca
                   saves={latest.zillow_daily_saves_est}
                   savesLabel="Daily saves"
                   heatPct={latest.zillow_heat_index_est}
+                  baseline={250}
                 />
                 <EngagementCard
                   platform="Realtor.com"
@@ -339,6 +377,7 @@ function ListingView({ listing, recaps }: { listing: Listing; recaps: WeeklyReca
                   viewsLabel="Weekly views"
                   saves={latest.realtor_weekly_saves_est}
                   savesLabel="Weekly saves"
+                  baseline={500}
                 />
                 <EngagementCard
                   platform="Redfin"
@@ -347,6 +386,7 @@ function ListingView({ listing, recaps }: { listing: Listing; recaps: WeeklyReca
                   saves={null}
                   savesLabel="Saves"
                   hot={latest.redfin_hot_home}
+                  baseline={400}
                 />
               </div>
 

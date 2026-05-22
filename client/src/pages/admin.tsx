@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   Home, Plus, Pencil, Trash2, ArrowLeft, Save, Eye, EyeOff,
-  AlertTriangle, FileText, Sparkles, RefreshCw,
+  AlertTriangle, FileText, Sparkles, RefreshCw, UserPlus, Users,
 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ListingView } from "@/pages/seller-dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -187,7 +189,13 @@ function RecapEditor({ recap, listingId, onSaved }: {
           {form.published && <Badge className="bg-emerald-100 text-emerald-800">Published</Badge>}
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent>
+        <Tabs defaultValue="edit">
+          <TabsList className="mb-4">
+            <TabsTrigger value="edit"><Pencil className="h-3.5 w-3.5 mr-1.5" />Edit</TabsTrigger>
+            <TabsTrigger value="preview"><Eye className="h-3.5 w-3.5 mr-1.5" />Preview as Seller</TabsTrigger>
+          </TabsList>
+          <TabsContent value="edit" className="space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div><Label>Recap Date</Label><Input type="date" value={form.recap_date ?? ""} onChange={e => upd({ recap_date: e.target.value })} /></div>
           <div><Label>Days on Market</Label><Input type="number" value={form.days_on_market ?? ""} onChange={e => upd({ days_on_market: num(e.target.value) })} /></div>
@@ -300,6 +308,169 @@ function RecapEditor({ recap, listingId, onSaved }: {
             </AlertDialog>
           )}
         </div>
+          </TabsContent>
+          <TabsContent value="preview">
+            <RecapPreview form={form} nextStepsText={nextStepsText} />
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Preview the recap exactly as the seller will see it.
+function RecapPreview({ form, nextStepsText }: { form: Partial<WeeklyRecap>; nextStepsText: string }) {
+  const previewListing: Listing = {
+    id: "preview",
+    seller_id: "preview",
+    address: "(preview)",
+    unit: null, city: "Sarasota", state: "FL", zip: "—",
+    mls_number: null,
+    list_price: form.list_price ?? 0,
+    beds: null, baths: null, sqft: null,
+    community: null,
+    status: "active",
+    list_date: null,
+    last_updated: new Date().toISOString(),
+  };
+  const previewRecap: WeeklyRecap = {
+    id: "preview",
+    listing_id: "preview",
+    recap_date: form.recap_date ?? new Date().toISOString().slice(0, 10),
+    created_at: new Date().toISOString(),
+    published: true,
+    days_on_market: form.days_on_market ?? null,
+    avg_market_dom: form.avg_market_dom ?? null,
+    list_price: form.list_price ?? null,
+    recommended_price_low: form.recommended_price_low ?? null,
+    recommended_price_high: form.recommended_price_high ?? null,
+    projected_sale_low: form.projected_sale_low ?? null,
+    projected_sale_high: form.projected_sale_high ?? null,
+    zillow_daily_views_est: form.zillow_daily_views_est ?? null,
+    zillow_daily_saves_est: form.zillow_daily_saves_est ?? null,
+    zillow_heat_index_est: form.zillow_heat_index_est ?? null,
+    realtor_weekly_views_est: form.realtor_weekly_views_est ?? null,
+    realtor_weekly_saves_est: form.realtor_weekly_saves_est ?? null,
+    redfin_weekly_views_est: form.redfin_weekly_views_est ?? null,
+    redfin_hot_home: form.redfin_hot_home ?? null,
+    comp_1_address: (form as any).comp_1_address ?? null, comp_1_price: (form as any).comp_1_price ?? null, comp_1_dom: (form as any).comp_1_dom ?? null, comp_1_status: (form as any).comp_1_status ?? null,
+    comp_2_address: (form as any).comp_2_address ?? null, comp_2_price: (form as any).comp_2_price ?? null, comp_2_dom: (form as any).comp_2_dom ?? null, comp_2_status: (form as any).comp_2_status ?? null,
+    comp_3_address: (form as any).comp_3_address ?? null, comp_3_price: (form as any).comp_3_price ?? null, comp_3_dom: (form as any).comp_3_dom ?? null, comp_3_status: (form as any).comp_3_status ?? null,
+    market_inventory_months: form.market_inventory_months ?? null,
+    market_median_price: form.market_median_price ?? null,
+    market_sale_to_list_pct: form.market_sale_to_list_pct ?? null,
+    market_summary: form.market_summary ?? null,
+    engagement_summary: form.engagement_summary ?? null,
+    price_drop_rationale: form.price_drop_rationale ?? null,
+    next_steps: nextStepsText.split("\n").map(s => s.trim()).filter(Boolean),
+    agent_notes: form.agent_notes ?? null,
+  };
+  return (
+    <div className="rounded-lg border-2 border-dashed border-primary/30 bg-muted/20 p-4">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-1">
+        <Eye className="h-3.5 w-3.5" />Seller will see:
+      </p>
+      <ListingView listing={previewListing} recaps={[previewRecap]} />
+    </div>
+  );
+}
+
+// ── Create seller dialog ──────────────────────────────────────────────
+function CreateSellerDialog({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const { toast } = useToast();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/seller-dashboard/create-seller", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ name, email }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message ?? "Create failed");
+      toast({ title: "Seller invited", description: json.message ?? `${email} can now log in.` });
+      setOpen(false);
+      setName(""); setEmail("");
+      onCreated();
+    } catch (e: any) {
+      toast({ title: "Couldn't create seller", description: e.message, variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm"><UserPlus className="h-4 w-4 mr-2" />Add Seller</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Invite Seller</DialogTitle>
+          <DialogDescription>Creates a seller account with a one-time password sent via Supabase invite.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div><Label>Full Name</Label><Input value={name} onChange={e => setName(e.target.value)} /></div>
+          <div><Label>Email</Label><Input type="email" value={email} onChange={e => setEmail(e.target.value)} /></div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={submit} disabled={busy || !name || !email}>
+            <UserPlus className="h-4 w-4 mr-2" />{busy ? "Inviting…" : "Send Invite"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SellersPanel({ sellers, listings, onChange }: {
+  sellers: SellerProfile[];
+  listings: ListingRow[];
+  onChange: () => void;
+}) {
+  return (
+    <Card>
+      <CardHeader className="pb-3 flex flex-row items-center justify-between">
+        <CardTitle className="text-lg flex items-center gap-2"><Users className="h-5 w-5" />Sellers</CardTitle>
+        <CreateSellerDialog onCreated={onChange} />
+      </CardHeader>
+      <CardContent className="p-0">
+        <table className="w-full text-sm">
+          <thead className="text-xs uppercase text-muted-foreground border-b bg-muted/40">
+            <tr>
+              <th className="text-left py-3 px-4">Name</th>
+              <th className="text-left py-3 px-4">Email</th>
+              <th className="text-right py-3 px-4">Linked Listings</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sellers.length === 0 && (
+              <tr><td colSpan={3} className="py-8 text-center text-muted-foreground text-sm">No sellers yet. Click "Add Seller" to invite one.</td></tr>
+            )}
+            {sellers.map(s => {
+              const linked = listings.filter(l => l.seller_id === s.id);
+              return (
+                <tr key={s.id} className="border-b last:border-0">
+                  <td className="py-3 px-4 font-medium">{s.name}</td>
+                  <td className="py-3 px-4 text-muted-foreground">{s.email}</td>
+                  <td className="py-3 px-4 text-right">
+                    <Badge variant="outline">{linked.length}</Badge>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </CardContent>
     </Card>
   );
@@ -365,8 +536,15 @@ export default function AdminPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const [, setLocation] = useLocation();
   const [selected, setSelected] = useState<ListingRow | null>(null);
   const [seeding, setSeeding] = useState(false);
+  const [tab, setTab] = useState<"listings" | "sellers">("listings");
+
+  // Per spec, non-agent users should be redirected away from /admin.
+  useEffect(() => {
+    if (user && !user.agent) setLocation("/seller-dashboard");
+  }, [user, setLocation]);
 
   const { data: listings, refetch } = useQuery({
     queryKey: ["admin", "listings"],
@@ -418,14 +596,8 @@ export default function AdminPage() {
   }
 
   if (!user.agent) {
-    return (
-      <div className="container mx-auto px-4 py-16 max-w-md text-center">
-        <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
-        <h1 className="text-2xl font-bold mb-2">Agents Only</h1>
-        <p className="text-muted-foreground mb-4">This area is restricted to Tateo & Co agents.</p>
-        <Button asChild variant="outline"><Link href="/">Back to Home</Link></Button>
-      </div>
-    );
+    // Render nothing while the useEffect redirect runs.
+    return null;
   }
 
   if (selected) {
@@ -457,6 +629,20 @@ export default function AdminPage() {
           />
         </div>
       </div>
+
+      <Tabs value={tab} onValueChange={(v) => setTab(v as any)} className="mb-4">
+        <TabsList>
+          <TabsTrigger value="listings"><FileText className="h-3.5 w-3.5 mr-1.5" />Listings</TabsTrigger>
+          <TabsTrigger value="sellers"><Users className="h-3.5 w-3.5 mr-1.5" />Sellers</TabsTrigger>
+        </TabsList>
+        <TabsContent value="sellers" className="mt-4">
+          <SellersPanel
+            sellers={sellers ?? []}
+            listings={listings ?? []}
+            onChange={() => qc.invalidateQueries({ queryKey: ["admin"] })}
+          />
+        </TabsContent>
+        <TabsContent value="listings" className="mt-4">
 
       <Card>
         <CardContent className="p-0">
@@ -526,6 +712,8 @@ export default function AdminPage() {
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
