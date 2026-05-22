@@ -100,6 +100,10 @@ export interface TrackedLoan {
 
 // ── In-memory caches (kept in sync with Supabase) ──────────────────
 let _session: AuthUser | null = null;
+// True until the first hydrateFromSupabase() finishes (or immediately if
+// Supabase isn't configured). Consumers use this to distinguish "still
+// loading the session" from "definitely signed out".
+let _authHydrated = false;
 let _purchaseScenarios: PurchaseScenario[] = [];
 let _insuranceScenarios: InsuranceScenario[] = [];
 let _sellerScenarios: SellerScenario[] = [];
@@ -114,6 +118,7 @@ export function subscribeAuthChange(fn: () => void): () => void {
 }
 
 export function getSession(): AuthUser | null { return _session; }
+export function isAuthHydrated(): boolean { return _authHydrated; }
 
 function rowToProfile(row: any): AuthUser {
   return {
@@ -377,6 +382,7 @@ async function hydrateFromSupabase() {
     _sellerScenarios = [];
     _trackedLoans = [];
     try { localStorage.removeItem("tateo_auth"); } catch {}
+    _authHydrated = true;
     notify();
     return;
   }
@@ -416,6 +422,7 @@ async function hydrateFromSupabase() {
   } catch (e) {
     console.warn("[auth] loadScenarios skipped:", e);
   }
+  _authHydrated = true;
   notify();
 }
 
@@ -424,6 +431,9 @@ if (supabaseReady) {
   supabase.auth.onAuthStateChange((_event, _session) => { void hydrateFromSupabase(); });
   // Initial hydration on app load.
   void hydrateFromSupabase();
+} else {
+  // No Supabase configured — there's nothing to wait for.
+  _authHydrated = true;
 }
 
 // ── Auth actions ──────────────────────────────────────────────────

@@ -1,0 +1,178 @@
+Fix Dashboard → For Sale auth detection, market analysis generation, and auto-save.
+
+Current issue 1 — Market Analysis incorrectly says user is not signed in:
+Inside Dashboard → For Sale → listing detail view, the Market Analysis section says:
+
+“Sign in to get a weekly AI-powered market briefing for this listing.”
+
+But I am already signed in.
+
+Expected behavior:
+If the user is logged in and viewing their For Sale listing detail page:
+- Do not show the “Sign in” message.
+- Automatically generate the Market Analysis using the server-side Anthropic API key if no current analysis exists.
+- If a saved current-week analysis already exists, load it from Supabase.
+- If the saved analysis is stale, regenerate it using Anthropic.
+- Show a loading state while it is generating.
+- Save the generated Market Analysis to Supabase.
+- Reuse the saved analysis until the next weekly update cycle.
+
+Important:
+- Use the authenticated Supabase user/session as the source of truth.
+- Do not rely only on frontend local state to determine if the user is signed in.
+- Do not show the sign-in message while auth/session is still loading.
+- While auth is loading, show a loading state instead.
+- Once auth is confirmed, generate/load the Market Analysis.
+- Anthropic API key must stay server-side only.
+- Do not expose the Anthropic API key in frontend code.
+
+Likely bug:
+The Market Analysis component is checking an incorrect auth flag, or it renders the “Sign in” message before Supabase auth finishes loading.
+
+Please inspect:
+- The For Sale detail component
+- The Market Analysis component
+- The Supabase auth/session loading logic
+- Any `user`, `session`, `isAuthenticated`, or `profile` checks
+- The backend/API route that calls Anthropic
+- Whether the listing has a saved `user_id`/`seller_id`
+- Whether the Market Analysis query is blocked because listing ownership is missing or mismatched
+- Whether RLS is blocking the analysis record from being read/written
+
+Fix requirements for Market Analysis:
+1. If auth/session is loading, show:
+   “Loading market analysis…”
+2. If user is logged in and listing belongs to that user, check Supabase for a current saved analysis.
+3. If current analysis exists, display it.
+4. If no current analysis exists, call the backend Anthropic route to generate it.
+5. Save the generated analysis to Supabase.
+6. Display the generated analysis.
+7. If Anthropic fails, show:
+   “Market analysis unavailable right now.”
+8. Do not show “Sign in to get a weekly AI-powered market briefing” unless the user is truly logged out.
+9. Do not call Anthropic on every page load if a current analysis already exists.
+
+Current issue 2 — For Sale address does not automatically save:
+When I enter a property address to run the For Sale numbers, it does not automatically save.
+
+Expected behavior:
+When a logged-in user enters/selects a property address in Dashboard → For Sale:
+- A For Sale/Seller record should be created immediately.
+- The address should auto-save to Supabase.
+- The normalized property key should save.
+- The authenticated user ID should save.
+- The flow/type should save as `for_sale` or `seller`, depending on the app’s existing naming.
+- The property should appear in Dashboard → For Sale after refresh/logout/login.
+- The record should remain until the user deletes it.
+- The user should not need to click a manual save button.
+
+For Sale auto-save requirements:
+1. On valid Google Maps address selection, immediately create/upsert a For Sale listing/scenario record.
+2. Save at minimum:
+   - stable listing/scenario ID
+   - authenticated user ID
+   - full formatted address
+   - normalized property key
+   - flow/type/category = `for_sale` or `seller`
+   - estimated sale price/home value if available
+   - seller closing cost assumptions if available
+   - estimated net proceeds values if available
+   - primaryPhotoUrl/propertyPhotos if available
+   - created_at
+   - updated_at
+3. Save the record even if Zillow/cache has not finished loading.
+4. Save the record even if only the address exists.
+5. When Zillow/cache data returns, update the same For Sale record by stable ID.
+6. When the user edits seller numbers, update the same For Sale record by stable ID.
+7. Do not create duplicates every time Zillow data returns.
+8. Do not rely on local/session state as the source of truth.
+9. Dashboard → For Sale should load saved For Sale records from Supabase after auth is ready.
+10. Empty local state should never overwrite saved Supabase records.
+
+Market Analysis dependency:
+The Market Analysis should use the saved For Sale listing record.
+
+Flow:
+1. User enters/selects For Sale address.
+2. Save For Sale record immediately.
+3. Load Zillow/cache data if available.
+4. Update same For Sale record with Zillow/cache values.
+5. When listing detail opens, Market Analysis checks saved record.
+6. If current weekly analysis does not exist, call Anthropic.
+7. Save Market Analysis to Supabase.
+8. Display it.
+
+Weekly update behavior:
+Use current Friday-cycle logic or lazy refresh:
+- If no Market Analysis exists for the current week, generate one.
+- If current-week Market Analysis exists, use saved version.
+- Do not regenerate on every page load.
+- Save:
+  - analysis_week_of
+  - generated_at
+  - next_update_due_at
+  - market_summary
+  - pricing_analysis
+  - comps_summary
+  - online_interest_summary
+  - showing_summary
+  - recommended_next_steps
+  - risk_flags
+  - data_limitations
+
+Add temporary debug logs:
+For auth:
+- auth loading state
+- user/session ID
+- listing user_id/seller_id
+- whether user is considered signed in
+- why the sign-in message is being shown
+
+For For Sale auto-save:
+- address selected
+- generated listing/scenario ID
+- authenticated user ID
+- normalized property key
+- Supabase table being written to
+- save/upsert payload
+- Supabase response/error
+
+For Market Analysis:
+- saved listing ID
+- existing analysis lookup result
+- whether analysis is current or stale
+- whether Anthropic API route is called
+- backend Anthropic response/error
+- Supabase analysis save result
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → For Sale.
+3. Enter/select a property address.
+4. Confirm For Sale record auto-saves immediately.
+5. Refresh the page.
+6. Confirm the For Sale property is still there.
+7. Log out and log back in.
+8. Confirm the For Sale property is still there.
+9. Click into the For Sale property detail view.
+10. Confirm Market Analysis does not say “Sign in” while already signed in.
+11. Confirm it shows loading while checking/generating.
+12. Confirm it calls Anthropic server-side if no current analysis exists.
+13. Confirm generated analysis saves to Supabase.
+14. Refresh the page.
+15. Confirm saved analysis loads instead of calling Anthropic again.
+16. Simulate stale/next Friday.
+17. Confirm a new analysis can generate.
+18. Confirm Anthropic API key is not exposed to frontend.
+19. Confirm Estimated Net Proceeds still works.
+
+Please make the smallest safe code change possible and tell me:
+- Why the Market Analysis thought I was signed out
+- Which auth/session check was fixed
+- Which backend/API route calls Anthropic
+- Where the Anthropic API key is stored
+- Which Supabase table stores For Sale records
+- Which Supabase table stores Market Analysis records
+- How For Sale address auto-save works
+- How Market Analysis weekly freshness is determined
+- Which files/functions were changed

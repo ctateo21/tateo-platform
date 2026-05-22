@@ -134,7 +134,7 @@ function NumRow({ label, hint, value, onChange, min, max, step = 1, prefix, suff
 export default function SellerEstimatePage() {
   const search = useSearch();
   const [, setLocation] = useLocation();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const isAuthenticated = !!user;
   const { toast } = useToast();
 
@@ -503,6 +503,7 @@ export default function SellerEstimatePage() {
             <MarketAnalysisSection
               scenario={scenario}
               userId={user?.id ?? null}
+              authLoading={authLoading}
             />
 
             {/* Breakdown */}
@@ -581,9 +582,11 @@ function formatFriendlyDate(iso: string | null | undefined): string {
 function MarketAnalysisSection({
   scenario,
   userId,
+  authLoading,
 }: {
   scenario: SellerScenario;
   userId: string | null;
+  authLoading: boolean;
 }) {
   const [analysis, setAnalysis] = useState<MarketAnalysisRecord | null>(null);
   const [loading, setLoading] = useState(false);
@@ -653,6 +656,26 @@ function MarketAnalysisSection({
     fetchAnalysis(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenario.id, userId]);
+
+  // While Supabase hydration is in flight we don't yet know whether the user
+  // is signed in — show a loader instead of flashing a sign-in CTA.
+  if (authLoading) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" /> Market Analysis
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading market analysis…
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   // Auth-gated empty state — calculator above still works for anonymous use.
   if (!userId) {
