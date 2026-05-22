@@ -143,7 +143,7 @@ create table if not exists public.seller_scenarios (
   estimated_sale_price     numeric,
   mortgage_payoff          numeric,
   seller_closing_costs     numeric,
-  realtor_commission_pct   numeric,
+  realtor_commission       numeric,
   buyer_concessions        numeric,
   repair_budget            numeric,
   other_selling_costs      numeric,

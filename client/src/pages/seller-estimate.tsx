@@ -132,7 +132,8 @@ function NumRow({ label, hint, value, onChange, min, max, step = 1, prefix, suff
 export default function SellerEstimatePage() {
   const search = useSearch();
   const [, setLocation] = useLocation();
-  const { isAuthenticated } = useAuth();
+  const { user } = useAuth();
+  const isAuthenticated = !!user;
   const { toast } = useToast();
 
   const { addressFromUrl, idFromUrl } = useMemo(() => {

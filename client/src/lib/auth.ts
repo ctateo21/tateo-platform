@@ -198,7 +198,12 @@ function rowToSeller(row: any): SellerScenario {
     estimatedSalePrice: row.estimated_sale_price != null ? Number(row.estimated_sale_price) : undefined,
     mortgagePayoff: row.mortgage_payoff != null ? Number(row.mortgage_payoff) : undefined,
     sellerClosingCosts: row.seller_closing_costs != null ? Number(row.seller_closing_costs) : undefined,
-    realtorCommissionPct: row.realtor_commission_pct != null ? Number(row.realtor_commission_pct) : undefined,
+    // Schema column is `realtor_commission` (percentage). Fall back to the
+    // pre-rename `realtor_commission_pct` column if a stale row is loaded.
+    realtorCommissionPct:
+      row.realtor_commission != null ? Number(row.realtor_commission) :
+      row.realtor_commission_pct != null ? Number(row.realtor_commission_pct) :
+      undefined,
     buyerConcessions: row.buyer_concessions != null ? Number(row.buyer_concessions) : undefined,
     repairBudget: row.repair_budget != null ? Number(row.repair_budget) : undefined,
     otherSellingCosts: row.other_selling_costs != null ? Number(row.other_selling_costs) : undefined,
@@ -219,7 +224,7 @@ function sellerToRow(s: SellerScenario, userId: string) {
     estimated_sale_price: s.estimatedSalePrice ?? null,
     mortgage_payoff: s.mortgagePayoff ?? null,
     seller_closing_costs: s.sellerClosingCosts ?? null,
-    realtor_commission_pct: s.realtorCommissionPct ?? null,
+    realtor_commission: s.realtorCommissionPct ?? null,
     buyer_concessions: s.buyerConcessions ?? null,
     repair_budget: s.repairBudget ?? null,
     other_selling_costs: s.otherSellingCosts ?? null,
