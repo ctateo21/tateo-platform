@@ -53,6 +53,34 @@ export interface InsuranceScenario {
   coverageType?: string;
 }
 
+export type SellerScenarioStatus =
+  | "draft"
+  | "reviewing"
+  | "ready_to_list"
+  | "listed"
+  | "sold";
+
+export interface SellerScenario {
+  id: string;
+  address: string;
+  normalizedPropertyKey?: string;
+  savedAt: string;
+  updatedAt: string;
+  estimatedSalePrice?: number;
+  mortgagePayoff?: number;
+  sellerClosingCosts?: number;
+  /** Realtor commission stored as a percent (e.g. 6 = 6%). */
+  realtorCommissionPct?: number;
+  buyerConcessions?: number;
+  repairBudget?: number;
+  otherSellingCosts?: number;
+  /** Latest computed net proceeds snapshot. UI always recomputes from inputs. */
+  netProceeds?: number;
+  status: SellerScenarioStatus;
+  primaryPhotoUrl?: string;
+  propertyPhotos?: string[];
+}
+
 export type TrackedLoanPropertyType = "primary" | "secondary" | "investment";
 
 export interface TrackedLoan {
@@ -74,6 +102,7 @@ export interface TrackedLoan {
 let _session: AuthUser | null = null;
 let _purchaseScenarios: PurchaseScenario[] = [];
 let _insuranceScenarios: InsuranceScenario[] = [];
+let _sellerScenarios: SellerScenario[] = [];
 let _trackedLoans: TrackedLoan[] = [];
 const _listeners = new Set<() => void>();
 
@@ -149,6 +178,55 @@ function insuranceToRow(s: InsuranceScenario, userId: string) {
     coverage_type: s.coverageType ?? null,
   };
 }
+function rowToSeller(row: any): SellerScenario {
+  const photos = Array.isArray(row.property_photos)
+    ? row.property_photos.filter((p: any) => typeof p === "string")
+    : undefined;
+  const status: SellerScenarioStatus =
+    row.status === "reviewing" || row.status === "ready_to_list" ||
+    row.status === "listed" || row.status === "sold"
+      ? row.status
+      : "draft";
+  return {
+    id: row.id,
+    address: row.address,
+    normalizedPropertyKey: row.normalized_property_key ?? undefined,
+    savedAt: row.saved_at,
+    updatedAt: row.updated_at ?? row.saved_at,
+    estimatedSalePrice: row.estimated_sale_price != null ? Number(row.estimated_sale_price) : undefined,
+    mortgagePayoff: row.mortgage_payoff != null ? Number(row.mortgage_payoff) : undefined,
+    sellerClosingCosts: row.seller_closing_costs != null ? Number(row.seller_closing_costs) : undefined,
+    realtorCommissionPct: row.realtor_commission_pct != null ? Number(row.realtor_commission_pct) : undefined,
+    buyerConcessions: row.buyer_concessions != null ? Number(row.buyer_concessions) : undefined,
+    repairBudget: row.repair_budget != null ? Number(row.repair_budget) : undefined,
+    otherSellingCosts: row.other_selling_costs != null ? Number(row.other_selling_costs) : undefined,
+    netProceeds: row.net_proceeds != null ? Number(row.net_proceeds) : undefined,
+    status,
+    primaryPhotoUrl: row.primary_photo_url ?? undefined,
+    propertyPhotos: photos,
+  };
+}
+function sellerToRow(s: SellerScenario, userId: string) {
+  return {
+    id: s.id,
+    user_id: userId,
+    address: s.address,
+    normalized_property_key: s.normalizedPropertyKey ?? null,
+    saved_at: s.savedAt,
+    updated_at: s.updatedAt,
+    estimated_sale_price: s.estimatedSalePrice ?? null,
+    mortgage_payoff: s.mortgagePayoff ?? null,
+    seller_closing_costs: s.sellerClosingCosts ?? null,
+    realtor_commission_pct: s.realtorCommissionPct ?? null,
+    buyer_concessions: s.buyerConcessions ?? null,
+    repair_budget: s.repairBudget ?? null,
+    other_selling_costs: s.otherSellingCosts ?? null,
+    net_proceeds: s.netProceeds ?? null,
+    status: s.status ?? "draft",
+    primary_photo_url: s.primaryPhotoUrl ?? null,
+    property_photos: s.propertyPhotos ?? null,
+  };
+}
 function rowToTrackedLoan(row: any): TrackedLoan {
   return {
     id: row.id,
@@ -205,13 +283,22 @@ async function loadProfile(userId: string): Promise<AuthUser | null> {
 }
 
 async function loadScenarios(userId: string) {
-  const [pRes, iRes, lRes] = await Promise.all([
+  const [pRes, iRes, sRes, lRes] = await Promise.all([
     supabase.from("purchase_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("insurance_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
+    supabase.from("seller_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
   _purchaseScenarios = (pRes.data ?? []).map(rowToPurchase);
   _insuranceScenarios = (iRes.data ?? []).map(rowToInsurance);
+  // Tolerate missing seller_scenarios table on environments where the latest
+  // schema.sql has not yet been re-run. Other tabs continue to work.
+  if (sRes.error) {
+    console.warn("[auth] seller_scenarios load skipped:", sRes.error.message);
+    _sellerScenarios = [];
+  } else {
+    _sellerScenarios = (sRes.data ?? []).map(rowToSeller);
+  }
   _trackedLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
 }
 
@@ -280,6 +367,8 @@ async function hydrateFromSupabase() {
     _session = null;
     _purchaseScenarios = [];
     _insuranceScenarios = [];
+    _sellerScenarios = [];
+    _trackedLoans = [];
     try { localStorage.removeItem("tateo_auth"); } catch {}
     notify();
     return;
@@ -375,6 +464,7 @@ export async function logout(): Promise<void> {
   _session = null;
   _purchaseScenarios = [];
   _insuranceScenarios = [];
+  _sellerScenarios = [];
   _trackedLoans = [];
   notify();
 }
@@ -531,6 +621,39 @@ function persistInsuranceScenarios(s: InsuranceScenario[]) {
       await supabase
         .from("insurance_scenarios")
         .upsert(s.map(x => insuranceToRow(x, userId)), { onConflict: "id" });
+    }
+  });
+}
+
+// ── Seller scenarios ──────────────────────────────────────────────
+export function getSellerScenarios(): SellerScenario[] {
+  return _sellerScenarios;
+}
+
+export function saveSellerScenarios(s: SellerScenario[]) {
+  _sellerScenarios = s;
+  notify();
+  void persistSellerScenarios(s);
+}
+
+function persistSellerScenarios(s: SellerScenario[]) {
+  const userId = _session?.id;
+  if (!userId) return Promise.resolve();
+  return enqueueWrite("seller_scenarios", async () => {
+    if (_session?.id !== userId) return;
+    const keep = new Set(s.map(x => x.id));
+    const { data: existing } = await supabase
+      .from("seller_scenarios")
+      .select("id")
+      .eq("user_id", userId);
+    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+    if (toDelete.length > 0) {
+      await supabase.from("seller_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+    }
+    if (s.length > 0) {
+      await supabase
+        .from("seller_scenarios")
+        .upsert(s.map(x => sellerToRow(x, userId)), { onConflict: "id" });
     }
   });
 }

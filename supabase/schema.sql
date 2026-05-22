@@ -127,6 +127,40 @@ create policy "insurance_scenarios_owner" on public.insurance_scenarios
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- ----------------------------------------------------------------------------
+-- 4b. seller_scenarios  (consumer-side seller dashboard tab)
+-- ----------------------------------------------------------------------------
+-- Saved "what if I sold?" scenarios for homeowners considering selling. Mirrors
+-- the purchase/insurance_scenarios pattern: text PK chosen client-side, owner
+-- RLS, idempotent create. Net proceeds are recomputed in the UI from the
+-- stored inputs — we only persist the inputs + a single derived snapshot.
+create table if not exists public.seller_scenarios (
+  id                       text primary key,
+  user_id                  uuid not null references auth.users(id) on delete cascade,
+  address                  text not null,
+  normalized_property_key  text,
+  saved_at                 timestamptz not null default now(),
+  updated_at               timestamptz not null default now(),
+  estimated_sale_price     numeric,
+  mortgage_payoff          numeric,
+  seller_closing_costs     numeric,
+  realtor_commission_pct   numeric,
+  buyer_concessions        numeric,
+  repair_budget            numeric,
+  other_selling_costs      numeric,
+  net_proceeds             numeric,
+  status                   text not null default 'draft',
+  primary_photo_url        text,
+  property_photos          jsonb
+);
+
+create index if not exists seller_scenarios_user_idx on public.seller_scenarios(user_id);
+
+alter table public.seller_scenarios enable row level security;
+drop policy if exists "seller_scenarios_owner" on public.seller_scenarios;
+create policy "seller_scenarios_owner" on public.seller_scenarios
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ----------------------------------------------------------------------------
 -- 5. questionnaire_responses  (multi-step questionnaire autosave)
 -- ----------------------------------------------------------------------------
 create table if not exists public.questionnaire_responses (

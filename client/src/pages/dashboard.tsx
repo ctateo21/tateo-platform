@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import {
   Home, RefreshCw, Shield, Search, LogOut, Trash2, ExternalLink,
-  MapPin, Calendar, Plus, X, Pencil, Check,
+  MapPin, Calendar, Plus, X, Pencil, Check, Tag,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,7 +21,9 @@ import {
   getPurchaseScenarios, savePurchaseScenarios,
   getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
   getInsuranceScenarios,
+  getSellerScenarios, saveSellerScenarios,
   type InsuranceScenario, type PurchaseScenario,
+  type SellerScenario, type SellerScenarioStatus,
 } from "@/lib/auth";
 import {
   normalizePropertyKey,
@@ -1091,32 +1093,298 @@ export default function Dashboard() {
           <p className="text-muted-foreground text-sm mt-1">Your saved property scenarios, all in one place.</p>
         </div>
 
-        <Tabs defaultValue="purchase">
-          <TabsList className="mb-6">
-            <TabsTrigger value="purchase" className="gap-2">
-              <Home className="h-4 w-4" /> Purchase
-            </TabsTrigger>
-            <TabsTrigger value="refinance" className="gap-2">
-              <RefreshCw className="h-4 w-4" /> Refinance
-            </TabsTrigger>
-            <TabsTrigger value="insurance" className="gap-2">
-              <Shield className="h-4 w-4" /> Insurance
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="purchase">
-            <PurchaseTab />
-          </TabsContent>
-
-          <TabsContent value="refinance">
-            <RefiTab />
-          </TabsContent>
-
-          <TabsContent value="insurance">
-            <InsuranceTab />
-          </TabsContent>
-        </Tabs>
+        <DashboardTabs />
       </main>
+    </div>
+  );
+}
+
+// ── Top-level Tabs wrapper — keeps the active tab in the URL (?tab=) ──
+// Lets sibling pages (e.g. the new seller detail page) deep-link back to
+// the dashboard on a specific tab via /dashboard?tab=sellers without
+// breaking the existing default-of-Purchase behavior for /dashboard.
+const VALID_TABS = ["purchase", "refinance", "insurance", "sellers"] as const;
+type DashboardTabValue = typeof VALID_TABS[number];
+
+function readTabFromSearch(search: string): DashboardTabValue {
+  const params = new URLSearchParams(search);
+  const t = params.get("tab");
+  return (VALID_TABS as readonly string[]).includes(t ?? "") ? (t as DashboardTabValue) : "purchase";
+}
+
+function DashboardTabs() {
+  const search = useSearch();
+  const [, setLocation] = useLocation();
+  const [tab, setTab] = useState<DashboardTabValue>(() => readTabFromSearch(search));
+
+  // Keep state in sync if the URL changes externally (e.g. user clicks a
+  // link, hits Back/Forward, or another component sets ?tab=sellers).
+  useEffect(() => {
+    const next = readTabFromSearch(search);
+    setTab(prev => (prev === next ? prev : next));
+  }, [search]);
+
+  function handleChange(value: string) {
+    const next = (VALID_TABS as readonly string[]).includes(value)
+      ? (value as DashboardTabValue)
+      : "purchase";
+    setTab(next);
+    // Only mirror non-default selections into the URL so /dashboard stays
+    // a clean default route. Use replaceState so back-button works.
+    const qs = next === "purchase" ? "" : `?tab=${next}`;
+    setLocation(`/dashboard${qs}`, { replace: true });
+  }
+
+  return (
+    <Tabs value={tab} onValueChange={handleChange}>
+      <TabsList className="mb-6">
+        <TabsTrigger value="purchase" className="gap-2">
+          <Home className="h-4 w-4" /> Purchase
+        </TabsTrigger>
+        <TabsTrigger value="refinance" className="gap-2">
+          <RefreshCw className="h-4 w-4" /> Refinance
+        </TabsTrigger>
+        <TabsTrigger value="insurance" className="gap-2">
+          <Shield className="h-4 w-4" /> Insurance
+        </TabsTrigger>
+        <TabsTrigger value="sellers" className="gap-2">
+          <Tag className="h-4 w-4" /> Sellers
+        </TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="purchase">
+        <PurchaseTab />
+      </TabsContent>
+
+      <TabsContent value="refinance">
+        <RefiTab />
+      </TabsContent>
+
+      <TabsContent value="insurance">
+        <InsuranceTab />
+      </TabsContent>
+
+      <TabsContent value="sellers">
+        <SellersTab />
+      </TabsContent>
+    </Tabs>);
+}
+
+// ── Sellers Tab — saved seller scenarios ─────────────────────────────
+// Compact row style mirrors Purchase / Refinance / Insurance. Tapping the
+// row (or its "Open" button) routes to /seller?address=&id= where the
+// live net-proceeds calculator + Zillow pre-fill lives.
+const SELLER_STATUS_LABEL: Record<SellerScenarioStatus, string> = {
+  draft: "Draft",
+  reviewing: "Reviewing",
+  ready_to_list: "Ready to List",
+  listed: "Listed",
+  sold: "Sold",
+};
+
+const SELLER_STATUS_CLASS: Record<SellerScenarioStatus, string> = {
+  draft:         "bg-muted text-muted-foreground border-muted-foreground/20",
+  reviewing:     "bg-blue-50 text-blue-700 border-blue-200",
+  ready_to_list: "bg-amber-50 text-amber-700 border-amber-200",
+  listed:        "bg-violet-50 text-violet-700 border-violet-200",
+  sold:          "bg-green-50 text-green-700 border-green-200",
+};
+
+function computeSellerNetProceeds(s: SellerScenario): number | null {
+  const sale = s.estimatedSalePrice;
+  if (sale == null) return null;
+  const commission = sale * ((s.realtorCommissionPct ?? 0) / 100);
+  const total =
+    sale -
+    (s.mortgagePayoff ?? 0) -
+    (s.sellerClosingCosts ?? 0) -
+    commission -
+    (s.buyerConcessions ?? 0) -
+    (s.repairBudget ?? 0) -
+    (s.otherSellingCosts ?? 0);
+  return Math.round(total);
+}
+
+function SellersTab() {
+  const [, setLocation] = useLocation();
+  const [scenarios, setScenarios] = useState<SellerScenario[]>([]);
+  const [showAddSearch, setShowAddSearch] = useState(false);
+
+  useEffect(() => {
+    setScenarios(getSellerScenarios());
+    const unsub = subscribeAuthChange(() => setScenarios(getSellerScenarios()));
+    return unsub;
+  }, []);
+
+  function navigate(addr: string, id?: string) {
+    const q = id
+      ? `?address=${encodeURIComponent(addr)}&id=${encodeURIComponent(id)}`
+      : `?address=${encodeURIComponent(addr)}`;
+    setLocation(`/seller${q}`);
+  }
+
+  function remove(id: string, e?: React.MouseEvent) {
+    e?.stopPropagation();
+    const updated = scenarios.filter(s => s.id !== id);
+    setScenarios(updated);
+    saveSellerScenarios(updated);
+  }
+
+  if (scenarios.length === 0 && !showAddSearch) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 px-4">
+        <div className="w-full max-w-2xl text-center">
+          <h2 className="text-2xl font-bold mb-2">Thinking about selling?</h2>
+          <p className="text-muted-foreground mb-8">
+            Enter your property address to see your estimated sale price and net proceeds after payoff, commission, and closing costs.
+          </p>
+          <AddressSearchBar onNavigate={addr => navigate(addr)} />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-2">
+        {scenarios.map(s => (
+          <button
+            key={s.id}
+            onClick={() => navigate(s.address, s.id)}
+            className="group flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-background hover:border-primary hover:bg-accent transition-colors text-sm font-medium max-w-[220px]"
+          >
+            <MapPin className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary shrink-0" />
+            <span className="truncate">{s.address.split(",")[0]}</span>
+            <span
+              role="button"
+              onClick={e => remove(s.id, e)}
+              className="ml-0.5 text-muted-foreground hover:text-destructive transition-colors shrink-0 cursor-pointer"
+            >
+              <X className="h-3 w-3" />
+            </span>
+          </button>
+        ))}
+        <button
+          onClick={() => setShowAddSearch(v => !v)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+        >
+          <Search className="h-3.5 w-3.5" /> Add Property
+        </button>
+      </div>
+
+      {showAddSearch && (
+        <div className="flex items-center gap-2">
+          <AddressSearchBar onNavigate={addr => { setShowAddSearch(false); navigate(addr); }} compact />
+          <Button variant="ghost" size="sm" className="h-10" onClick={() => setShowAddSearch(false)}>Cancel</Button>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {scenarios.map(s => {
+          const net = computeSellerNetProceeds(s);
+          return (
+            <Card
+              key={s.id}
+              className="hover:shadow-md transition-shadow cursor-pointer group relative"
+              onClick={() => navigate(s.address, s.id)}
+            >
+              <CardContent className="py-4">
+                <div className="flex flex-col lg:flex-row lg:items-center gap-4">
+                  {s.primaryPhotoUrl ? (
+                    <img
+                      src={s.primaryPhotoUrl}
+                      alt=""
+                      className="h-16 w-24 object-cover rounded-md border shrink-0 hidden sm:block"
+                      onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                    />
+                  ) : null}
+
+                  <div className="flex-1 min-w-0 lg:max-w-xs">
+                    <div className="flex items-start gap-2">
+                      <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm leading-snug line-clamp-2">{s.address}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                          <Calendar className="h-3 w-3" /> Saved {formatDate(s.savedAt)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex lg:block">
+                    <Badge variant="outline" className={`text-xs ${SELLER_STATUS_CLASS[s.status]}`}>
+                      {SELLER_STATUS_LABEL[s.status]}
+                    </Badge>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-sm flex-1">
+                    {s.estimatedSalePrice != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Est. Sale Price</p>
+                        <p className="font-semibold">{formatCurrency(s.estimatedSalePrice)}</p>
+                      </div>
+                    )}
+                    {s.mortgagePayoff != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Payoff</p>
+                        <p className="font-semibold">{formatCurrency(s.mortgagePayoff)}</p>
+                      </div>
+                    )}
+                    {net != null && (
+                      <div>
+                        <p className="text-xs text-muted-foreground">Net Proceeds</p>
+                        <p className={`font-semibold ${net >= 0 ? "text-green-700" : "text-destructive"}`}>
+                          {formatCurrency(net)}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 lg:shrink-0">
+                    <Button
+                      size="sm"
+                      className="gap-2"
+                      onClick={e => { e.stopPropagation(); navigate(s.address, s.id); }}
+                    >
+                      Open <ExternalLink className="h-3.5 w-3.5" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive px-2"
+                          onClick={e => e.stopPropagation()}
+                          aria-label="Delete seller scenario"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent onClick={e => e.stopPropagation()}>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete this seller scenario?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will remove {s.address.split(",")[0]} from your dashboard. You can always add it back later.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => remove(s.id)}
+                            className="bg-destructive hover:bg-destructive/90"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }
