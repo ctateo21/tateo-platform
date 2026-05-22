@@ -28,6 +28,7 @@ import { fetchGoogleReviews, getMockReviews } from "./integrations/google-review
 import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
 import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
 import { supabaseAdmin } from "./supabase";
+import { getOrGenerateMarketAnalysis, type ListingInput } from "./integrations/listing-market-analysis";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API routes
@@ -1573,6 +1574,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/zillow-property-lookup/policy-type", (req, res) => {
     const { propertyType = "", occupancyType = "" } = req.body ?? {};
     res.json({ policyType: derivePolicyType(propertyType, occupancyType) });
+  });
+
+  // ── POST /api/listing-market-analysis ──────────────────────────────
+  // AI-powered weekly market briefing for a For Sale listing. Reads the
+  // cached row from Supabase first; only calls Anthropic when stale (Friday
+  // rollover) or missing. Anthropic API key is read from env server-side
+  // and never sent to the frontend.
+  //
+  // Auth: the caller MUST send the Supabase access token in the
+  // `Authorization: Bearer <token>` header. We verify it with the admin
+  // client and derive `userId` from the token — never from the request body.
+  // This prevents IDOR since we use the service-role client (RLS bypassed).
+  app.post("/api/listing-market-analysis", async (req, res) => {
+    try {
+      if (!supabaseAdmin) {
+        return res.status(503).json({ error: "Auth backend not configured" });
+      }
+      const authHeader = req.headers.authorization || "";
+      const match = /^Bearer\s+(.+)$/i.exec(authHeader);
+      if (!match) {
+        return res.status(401).json({ error: "Missing bearer token" });
+      }
+      const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(match[1]);
+      if (userErr || !userData?.user?.id) {
+        return res.status(401).json({ error: "Invalid or expired session" });
+      }
+      const verifiedUserId = userData.user.id;
+
+      const body = (req.body ?? {}) as Partial<ListingInput> & { forceRefresh?: boolean };
+      if (!body.listingId || !body.address) {
+        return res.status(400).json({ error: "listingId and address are required" });
+      }
+      const record = await getOrGenerateMarketAnalysis(
+        { ...(body as ListingInput), userId: verifiedUserId },
+        { forceRefresh: !!body.forceRefresh }
+      );
+      // Strip raw_prompt / raw_anthropic_response from the response to keep
+      // the payload small — those are debug-only fields stored in Supabase.
+      const { raw_prompt: _rp, raw_anthropic_response: _ra, ...safe } = record as any;
+      return res.json({ analysis: safe });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      console.error("[market-analysis] route error:", message);
+      return res.status(500).json({ error: message });
+    }
   });
 
   const httpServer = createServer(app);

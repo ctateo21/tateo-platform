@@ -161,6 +161,49 @@ create policy "seller_scenarios_owner" on public.seller_scenarios
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- ----------------------------------------------------------------------------
+-- 4c. listing_market_analyses  (AI-generated weekly seller listing analysis)
+-- ----------------------------------------------------------------------------
+-- One row per (listing_id, analysis_week_of). Generated server-side via
+-- Anthropic at most once per Friday-aligned week per listing. We always read
+-- the most recent row for the listing; staleness is computed off
+-- next_update_due_at so the lazy refresh path can decide whether to regenerate.
+create table if not exists public.listing_market_analyses (
+  id                      text primary key,
+  listing_id              text not null,
+  user_id                 uuid not null references auth.users(id) on delete cascade,
+  property_address        text not null,
+  analysis_week_of        date not null,
+  generated_at            timestamptz not null default now(),
+  next_update_due_at      timestamptz not null,
+  status                  text not null default 'draft',
+  market_summary          text,
+  pricing_analysis        text,
+  comps_summary           text,
+  online_interest_summary text,
+  showing_summary         text,
+  recommended_next_steps  jsonb,
+  risk_flags              jsonb,
+  price_review_recommended boolean,
+  confidence_level        text,
+  data_limitations        jsonb,
+  raw_prompt              text,
+  raw_anthropic_response  text,
+  error_message           text,
+  created_at              timestamptz not null default now(),
+  updated_at              timestamptz not null default now()
+);
+
+create index if not exists listing_market_analyses_listing_idx
+  on public.listing_market_analyses(listing_id, analysis_week_of desc);
+create index if not exists listing_market_analyses_user_idx
+  on public.listing_market_analyses(user_id);
+
+alter table public.listing_market_analyses enable row level security;
+drop policy if exists "listing_market_analyses_owner" on public.listing_market_analyses;
+create policy "listing_market_analyses_owner" on public.listing_market_analyses
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ----------------------------------------------------------------------------
 -- 5. questionnaire_responses  (multi-step questionnaire autosave)
 -- ----------------------------------------------------------------------------
 create table if not exists public.questionnaire_responses (

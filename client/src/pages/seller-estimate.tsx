@@ -3,6 +3,7 @@ import { Helmet } from "react-helmet";
 import { useLocation, useSearch } from "wouter";
 import {
   ArrowLeft, MapPin, Save, AlertCircle, Loader2, ImageOff,
+  Sparkles, TrendingUp, CheckCircle2, AlertTriangle, RefreshCw,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import {
 } from "@/lib/auth";
 import { normalizePropertyKey } from "@/lib/property-key";
 import { apiRequest } from "@/lib/queryClient";
+import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -494,6 +496,15 @@ export default function SellerEstimatePage() {
               </CardContent>
             </Card>
 
+            {/* Market Analysis — AI-powered weekly briefing.
+                Lazy-loads on mount; the backend decides cache-vs-regenerate
+                based on Friday rollover. The Anthropic API key never touches
+                this component. */}
+            <MarketAnalysisSection
+              scenario={scenario}
+              userId={user?.id ?? null}
+            />
+
             {/* Breakdown */}
             <Card>
               <CardHeader className="pb-2">
@@ -529,6 +540,280 @@ function Row({ label, value, positive }: { label: string; value: string; positiv
     <div className="flex items-center justify-between py-2">
       <span className="text-muted-foreground">{label}</span>
       <span className={positive ? "font-medium" : ""}>{value}</span>
+    </div>
+  );
+}
+
+// ─── Market Analysis section ─────────────────────────────────────────
+// Lazy-loads from /api/listing-market-analysis on mount. The backend
+// returns either a cached row (within the current Friday week) or a freshly
+// generated Anthropic analysis. We render loading, error, and stale states
+// without ever blocking the surrounding Net Proceeds UI.
+
+interface MarketAnalysisRecord {
+  id: string;
+  listing_id: string;
+  property_address: string;
+  analysis_week_of: string;
+  generated_at: string;
+  next_update_due_at: string;
+  status: "draft" | "published" | "error";
+  market_summary: string | null;
+  pricing_analysis: string | null;
+  comps_summary: string | null;
+  online_interest_summary: string | null;
+  showing_summary: string | null;
+  recommended_next_steps: string[] | null;
+  risk_flags: string[] | null;
+  price_review_recommended: boolean | null;
+  confidence_level: "low" | "medium" | "high" | null;
+  data_limitations: string[] | null;
+  error_message: string | null;
+}
+
+function formatFriendlyDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function MarketAnalysisSection({
+  scenario,
+  userId,
+}: {
+  scenario: SellerScenario;
+  userId: string | null;
+}) {
+  const [analysis, setAnalysis] = useState<MarketAnalysisRecord | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const requestedRef = useRef<string | null>(null);
+
+  async function fetchAnalysis(forceRefresh = false) {
+    if (!userId) return;
+    if (!scenario.address || scenario.address === "Unknown Address") return;
+    if (forceRefresh) setRefreshing(true); else setLoading(true);
+    setError(null);
+    try {
+      // Pull the current Supabase access token so the server can verify the
+      // caller. The server derives user_id from this token — we never trust
+      // the request body for identity.
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const res = await fetch("/api/listing-market-analysis", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+        listingId: scenario.id,
+        address: scenario.address,
+        estimatedSalePrice: scenario.estimatedSalePrice ?? null,
+        zillowValue: scenario.estimatedSalePrice ?? null,
+        netProceeds: scenario.netProceeds ?? null,
+        mortgagePayoff: scenario.mortgagePayoff ?? null,
+        realtorCommissionPct: scenario.realtorCommissionPct ?? null,
+        sellerClosingCosts: scenario.sellerClosingCosts ?? null,
+        photoCount: scenario.propertyPhotos?.length ?? null,
+        status: scenario.status,
+        scenarioUpdatedAt: scenario.updatedAt,
+        forceRefresh,
+        }),
+      });
+      const body = await res.json();
+      if (body?.analysis) {
+        setAnalysis(body.analysis as MarketAnalysisRecord);
+        if (body.analysis.status === "error" && body.analysis.error_message) {
+          setError(body.analysis.error_message);
+        }
+      } else if (body?.error) {
+        setError(body.error);
+      }
+    } catch (err) {
+      console.warn("[market-analysis] fetch failed:", err);
+      setError(err instanceof Error ? err.message : "Could not load market analysis");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }
+
+  // Fire once per (listingId, userId) pair on mount. Only re-fires if the
+  // user switches to a different listing.
+  useEffect(() => {
+    if (!userId) return;
+    const key = `${scenario.id}::${userId}`;
+    if (requestedRef.current === key) return;
+    requestedRef.current = key;
+    fetchAnalysis(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenario.id, userId]);
+
+  // Auth-gated empty state — calculator above still works for anonymous use.
+  if (!userId) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" /> Market Analysis
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            Sign in to get a weekly AI-powered market briefing for this listing.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const showSkeleton = loading && !analysis;
+  const hasContent = analysis && analysis.status !== "error";
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" /> Market Analysis
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              {analysis?.generated_at
+                ? <>Last updated {formatFriendlyDate(analysis.generated_at)} · Refreshes weekly on Fridays</>
+                : <>Updates every Friday</>}
+            </p>
+          </div>
+          {analysis && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => fetchAnalysis(true)}
+              disabled={refreshing || loading}
+              aria-label="Refresh market analysis"
+            >
+              {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Refresh
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {showSkeleton && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Updating market analysis…
+          </div>
+        )}
+
+        {!showSkeleton && error && !hasContent && (
+          <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium">Market analysis unavailable right now.</p>
+              <p className="text-xs mt-1">
+                Your net proceeds and saved data are unaffected. Try Refresh in a moment.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {hasContent && (
+          <>
+            {analysis!.price_review_recommended && (
+              <div className="flex items-start gap-2 p-3 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-medium">Price review recommended</p>
+                  <p className="text-xs mt-1">
+                    Based on the data we have, it may be worth revisiting the asking price with your agent.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {analysis!.market_summary && (
+              <AnalysisBlock title="Market Summary" body={analysis!.market_summary} />
+            )}
+            {analysis!.pricing_analysis && (
+              <AnalysisBlock title="Pricing Analysis" body={analysis!.pricing_analysis} />
+            )}
+            {analysis!.comps_summary && (
+              <AnalysisBlock title="Comparable Sales / Competition" body={analysis!.comps_summary} />
+            )}
+            {analysis!.online_interest_summary && (
+              <AnalysisBlock title="Online Interest / Listing Activity" body={analysis!.online_interest_summary} />
+            )}
+            {analysis!.showing_summary && (
+              <AnalysisBlock title="Showing Activity" body={analysis!.showing_summary} />
+            )}
+
+            {analysis!.recommended_next_steps && analysis!.recommended_next_steps.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1 mb-2">
+                  <TrendingUp className="h-3.5 w-3.5" /> Recommended Next Steps
+                </h4>
+                <ul className="space-y-1.5">
+                  {analysis!.recommended_next_steps.map((step, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {analysis!.risk_flags && analysis!.risk_flags.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1 mb-2">
+                  <AlertTriangle className="h-3.5 w-3.5" /> Things to Watch
+                </h4>
+                <ul className="space-y-1.5">
+                  {analysis!.risk_flags.map((flag, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500 mt-2 shrink-0" />
+                      <span>{flag}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {analysis!.data_limitations && analysis!.data_limitations.length > 0 && (
+              <div className="text-xs text-muted-foreground border-t pt-3 mt-2">
+                <p className="font-medium mb-1">Where we had limited data:</p>
+                <ul className="list-disc ml-4 space-y-0.5">
+                  {analysis!.data_limitations.map((d, i) => <li key={i}>{d}</li>)}
+                </ul>
+                {analysis!.confidence_level && (
+                  <p className="mt-2">
+                    Confidence: <span className="font-medium capitalize">{analysis!.confidence_level}</span>
+                  </p>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function AnalysisBlock({ title, body }: { title: string; body: string }) {
+  return (
+    <div>
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+        {title}
+      </h4>
+      <p className="text-sm leading-relaxed whitespace-pre-line">{body}</p>
     </div>
   );
 }

@@ -1,0 +1,225 @@
+Add AI-powered weekly market analysis to Dashboard → For Sale listing detail view using my Anthropic API key.
+
+Context:
+Inside Dashboard → For Sale, when a property row is listed and the seller clicks into the expanded/detail view of that listing, Replit should keep the existing Estimated Net Proceeds section that is already built, but add a Market Analysis section to the listing detail page.
+
+The Market Analysis should update every Friday.
+
+The uploaded reference prompt describes the full seller listing dashboard concept, including seller-facing market comps, online interest, price analysis, weekly recap history, next steps, and seller/agent roles. Use that structure as the inspiration for the Market Analysis section, but do not rebuild the entire app right now. Keep this scoped to the For Sale listing detail view.
+
+Current behavior:
+- Dashboard → For Sale has property rows.
+- Clicking into a property row opens the listing detail/expanded view.
+- Estimated Net Proceeds already exists and should stay.
+
+Requested addition:
+Add a Market Analysis section under or near Estimated Net Proceeds.
+
+The Market Analysis should include:
+- Current list price / estimated sale price
+- Estimated market value range
+- Suggested pricing commentary
+- Recent comparable sales / active comps if available
+- Days on market context
+- Market trend summary
+- Online interest / listing performance summary if data exists
+- Showing activity summary if data exists
+- Recommended next steps for the seller
+- Plain-English explanation of whether the listing appears priced correctly, too high, or needs review
+
+Use Anthropic:
+Use my Anthropic API key server-side only.
+
+Important:
+- Do not expose the Anthropic API key to the frontend.
+- Store the key in environment variables.
+- Call Anthropic from the backend/server/API route only.
+- Do not call Anthropic directly from React/frontend.
+- Add error handling if Anthropic is unavailable.
+
+Suggested environment variable:
+ANTHROPIC_API_KEY
+
+Weekly Friday update behavior:
+1. Each For Sale listing should have a saved market analysis record.
+2. The market analysis should automatically refresh every Friday.
+3. If the seller opens the listing detail view and the analysis is stale or missing, generate it.
+4. If the analysis is already current for the week, use the saved version from Supabase instead of generating a new one.
+5. Do not generate a new analysis every time the page loads.
+6. Store the generated analysis in Supabase.
+7. Save the `analysis_week_of`, `generated_at`, and `next_update_due_at`.
+
+Suggested Supabase table:
+`listing_market_analyses`
+
+Suggested fields:
+- `id`
+- `listing_id`
+- `user_id`
+- `property_address`
+- `analysis_week_of`
+- `generated_at`
+- `next_update_due_at`
+- `status`: `"draft" | "published" | "error"`
+- `market_summary`
+- `pricing_analysis`
+- `comps_summary`
+- `online_interest_summary`
+- `showing_summary`
+- `recommended_next_steps`
+- `risk_flags`
+- `raw_prompt`
+- `raw_anthropic_response`
+- `created_at`
+- `updated_at`
+
+If there is already an existing table for listing recaps or market analysis, reuse it instead of creating a duplicate.
+
+Market Analysis UI:
+Inside Dashboard → For Sale → listing detail view, add a section titled:
+
+“Market Analysis”
+
+Show:
+1. Last updated date
+2. Market Summary
+3. Pricing Analysis
+4. Comparable Sales / Competition
+5. Online Interest / Listing Activity
+6. Showing Activity
+7. Recommended Next Steps
+8. Price Review flag if applicable
+
+Keep the language seller-friendly:
+- Avoid jargon.
+- Explain what each metric means.
+- Make it feel like a personal listing briefing, not a generic AI report.
+
+Do not remove or replace:
+- Estimated Net Proceeds
+- Existing seller cost calculations
+- Existing dashboard layout
+- Existing For Sale property rows
+
+Data to send to Anthropic:
+When generating the analysis, include any available listing/property data:
+- address
+- city/state/ZIP
+- list price / estimated sale price
+- Zillow value if available
+- property type
+- beds
+- baths
+- square footage
+- lot size
+- year built
+- HOA amount/status
+- solar status if available
+- days on market if available
+- showing count if available
+- online views/saves if available
+- property photos count if available
+- seller net proceeds inputs
+- seller closing cost assumptions
+- comps if available
+- status: draft, active, pending, sold
+- last updated date
+
+If some fields are missing, the AI should acknowledge limited data and provide a cautious analysis rather than inventing facts.
+
+Prompting requirements:
+Create a backend prompt that asks Anthropic to return structured JSON.
+
+Suggested JSON response format:
+{
+  "market_summary": "",
+  "pricing_analysis": "",
+  "comps_summary": "",
+  "online_interest_summary": "",
+  "showing_summary": "",
+  "recommended_next_steps": [],
+  "risk_flags": [],
+  "price_review_recommended": true,
+  "confidence_level": "low | medium | high",
+  "data_limitations": []
+}
+
+Important:
+- Ask Anthropic not to fabricate MLS data, comps, showings, or platform views.
+- If data is missing, it should say that data is unavailable.
+- The AI can analyze only the data the app provides.
+- The AI can recommend what data should be added next.
+
+Friday scheduling:
+Implement one of these approaches, whichever is smallest and safest:
+1. Supabase scheduled Edge Function / cron job
+2. Backend cron job if the app already has a server process
+3. Lazy Friday refresh:
+   - When the listing detail page loads, check whether it is Friday or whether `next_update_due_at` has passed.
+   - If stale, generate a new analysis.
+   - This is acceptable for MVP if true cron is too large.
+
+Preferred MVP approach:
+Use lazy refresh first if it is much simpler:
+- On listing detail load, check if market analysis is missing or older than the current Friday cycle.
+- If stale, show “Updating market analysis…” and generate a new one.
+- Save the result.
+- Show the saved result after generation.
+
+Loading states:
+When analysis is generating:
+- Show: “Updating market analysis…”
+- Do not block the Estimated Net Proceeds section.
+- Do not show blank space.
+
+If Anthropic fails:
+- Show: “Market analysis unavailable right now.”
+- Keep the rest of the listing detail page working.
+- Save the error state for debugging.
+
+For Sale detail placement:
+Inside the expanded listing detail view:
+1. Existing property/listing overview
+2. Existing Estimated Net Proceeds section
+3. New Market Analysis section
+4. Existing photos/details/other sections, if any
+
+Do not build the full seller admin portal yet:
+The uploaded seller dashboard prompt includes admin roles, seller recaps, published/draft states, platform engagement cards, and recap history. For now, only build the seller-facing Market Analysis section inside Dashboard → For Sale listing detail view.
+
+Do not build right now unless already simple:
+- Agent `/admin` portal
+- Seller invite system
+- Weekly recap editor
+- Email notifications
+- PDF export
+- Full comp table editor
+- Multi-brokerage support
+
+Use the uploaded seller dashboard prompt as the direction for future expansion, but keep this implementation focused.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → For Sale.
+3. Click a property row to open the expanded/detail view.
+4. Confirm Estimated Net Proceeds is still there.
+5. Confirm a new Market Analysis section appears.
+6. Confirm the app checks for an existing saved analysis.
+7. If no current analysis exists, confirm it calls Anthropic from the backend.
+8. Confirm the frontend never exposes the Anthropic API key.
+9. Confirm generated analysis is saved to Supabase.
+10. Refresh the page.
+11. Confirm the saved analysis loads instead of generating a new one.
+12. Simulate the next Friday/stale date.
+13. Confirm analysis updates again.
+14. Confirm missing data does not cause hallucinated facts.
+15. Confirm Anthropic failure does not break the detail page.
+
+Please make the smallest safe code change possible and tell me:
+- Which For Sale detail component was changed
+- Which backend/API route calls Anthropic
+- Which Supabase table stores market analysis
+- How Friday refresh/staleness is determined
+- What data is sent to Anthropic
+- How the Anthropic response is stored and displayed
+- Which files/functions were changed
