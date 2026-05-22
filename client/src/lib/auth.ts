@@ -22,7 +22,6 @@ export interface InvitedUser {
 }
 
 export interface AuthUser {
-  id: string;
   name: string;
   email: string;
   phone?: string;
@@ -44,38 +43,6 @@ export interface PurchaseScenario {
   qualifies?: boolean;
   downPaymentPct?: number;
   loanType?: string;
-  occupancy?: "primary" | "secondary" | "investment";
-  // Conventional-only amortization choice. 30 (default) or 15. Persisted as
-  // `loan_term_years` in Supabase. Only written when non-default to stay
-  // forward-compatible with environments where the column has not yet been
-  // added — see the conditional include in purchaseToRow below.
-  loanTermYears?: 15 | 30;
-  // FHA-only Down Payment Assistance flags. Persisted as `uses_dpa`
-  // (boolean) and `dpa_type` (text: "repayable" | "forgivable") in
-  // Supabase. Always written (mirroring the loan_term_years pattern) so
-  // toggling DPA off actually clears the saved row. Requires migration:
-  //   ALTER TABLE purchase_scenarios ADD COLUMN uses_dpa BOOLEAN;
-  //   ALTER TABLE purchase_scenarios ADD COLUMN dpa_type TEXT;
-  usesDPA?: boolean;
-  dpaType?: "repayable" | "forgivable" | null;
-  // Seller concessions ($) chosen on Page 3 / Page 4 of See My Estimate.
-  // Persisted as `seller_concessions` in Supabase so the slider value
-  // survives refresh/logout/login. Tolerates the column not existing
-  // yet — undefined falls back to 0 downstream. Requires migration:
-  //   ALTER TABLE purchase_scenarios ADD COLUMN seller_concessions NUMERIC;
-  sellerConcessions?: number;
-  // Primary property photo URL captured from the Zillow lookup. Stored on
-  // the scenario row so dashboard cards can render a thumbnail without
-  // re-hitting Apify. Persisted as `primary_photo_url` (TEXT) in Supabase
-  // — always written so clearing a photo actually clears the saved row.
-  // Tolerates the column not existing yet (the upsert will fail and
-  // auth.ts catches/logs). Requires migration:
-  //   ALTER TABLE purchase_scenarios ADD COLUMN primary_photo_url TEXT;
-  // The full propertyPhotos[] array is intentionally NOT persisted here
-  // — it lives in the shared `property_cache` table (keyed by address)
-  // and is rehydrated whenever the estimate page calls
-  // /api/zillow-property-lookup.
-  primaryPhotoUrl?: string | null;
 }
 
 export interface InsuranceScenario {
@@ -84,12 +51,6 @@ export interface InsuranceScenario {
   savedAt: string;
   annualPremium?: number;
   coverageType?: string;
-  // Property-use carryover from Purchase / Refinance. See
-  // shared/property-key.ts and the auto-fill effect in pages/insurance.tsx.
-  occupancyType?: "primary" | "secondary" | "investment";
-  occupancySource?: "purchase" | "refinance" | "insurance_manual" | "unknown";
-  linkedPurchaseScenarioId?: string;
-  linkedRefinanceScenarioId?: string;
 }
 
 export type TrackedLoanPropertyType = "primary" | "secondary" | "investment";
@@ -107,12 +68,6 @@ export interface TrackedLoan {
   propertyType: TrackedLoanPropertyType;
   addedAt: string;
   balanceAsOf?: string;
-  // Conventional-only amortization choice for the *new* (proposed) refi
-  // loan. 30 (default) or 15. Persisted as `new_loan_term_years` in
-  // Supabase. Only written when non-default to stay forward-compatible
-  // with environments where the column has not yet been added — see
-  // the conditional include in trackedLoanToRow below.
-  newLoanTermYears?: 15 | 30;
 }
 
 // ── In-memory caches (kept in sync with Supabase) ──────────────────
@@ -120,13 +75,6 @@ let _session: AuthUser | null = null;
 let _purchaseScenarios: PurchaseScenario[] = [];
 let _insuranceScenarios: InsuranceScenario[] = [];
 let _trackedLoans: TrackedLoan[] = [];
-// User id whose scenario tables have been fully loaded into the caches
-// above. Used to gate the destructive "delete anything not in keep-set"
-// pass inside persist*() — see HYDRATION GATE comment near
-// persistPurchaseScenarios for the full rationale (a write that fires
-// before hydration completes would otherwise wipe the user's existing
-// rows from Supabase).
-let _scenariosHydratedFor: string | null = null;
 const _listeners = new Set<() => void>();
 
 function notify() { _listeners.forEach(fn => { try { fn(); } catch {} }); }
@@ -140,7 +88,6 @@ export function getSession(): AuthUser | null { return _session; }
 
 function rowToProfile(row: any): AuthUser {
   return {
-    id: row.id,
     name: row.name,
     email: row.email,
     phone: row.phone ?? undefined,
@@ -164,41 +111,10 @@ function rowToPurchase(row: any): PurchaseScenario {
     qualifies: row.qualifies ?? undefined,
     downPaymentPct: row.down_payment_pct ?? undefined,
     loanType: row.loan_type ?? undefined,
-    occupancy: row.occupancy ?? undefined,
-    // Tolerates the column not existing yet — row.loan_term_years is
-    // simply undefined, which surfaces as the 30-year default downstream.
-    loanTermYears: row.loan_term_years === 15 ? 15
-                  : row.loan_term_years === 30 ? 30
-                  : undefined,
-    // Tolerates the columns not existing yet — undefined surfaces as
-    // "DPA off" downstream. Strict pairing: dpaType is only honored
-    // when usesDPA is true.
-    usesDPA: row.uses_dpa === true ? true : row.uses_dpa === false ? false : undefined,
-    dpaType: row.uses_dpa === true && (row.dpa_type === "repayable" || row.dpa_type === "forgivable")
-      ? row.dpa_type
-      : null,
-    // Postgres NUMERIC is serialized by PostgREST as a string, so we
-    // coerce defensively. Number.isFinite() filters out NaN/Infinity
-    // and the null/undefined case (Number(null) === 0 would otherwise
-    // mask a missing column).
-    sellerConcessions: (() => {
-      if (row.seller_concessions === null || row.seller_concessions === undefined) return undefined;
-      const n = Number(row.seller_concessions);
-      return Number.isFinite(n) ? n : undefined;
-    })(),
-    // Tolerates the column not existing yet — undefined surfaces as
-    // "no photo" downstream and the dashboard falls back to its
-    // placeholder icon.
-    primaryPhotoUrl:
-      typeof row.primary_photo_url === "string" && row.primary_photo_url.length > 0
-        ? row.primary_photo_url
-        : row.primary_photo_url === null
-          ? null
-          : undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
-  const base: Record<string, any> = {
+  return {
     id: s.id,
     user_id: userId,
     address: s.address,
@@ -212,35 +128,7 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     qualifies: s.qualifies ?? null,
     down_payment_pct: s.downPaymentPct ?? null,
     loan_type: s.loanType ?? null,
-    occupancy: s.occupancy ?? null,
-    // Always include the column so flipping 15 → 30 actually clears the
-    // saved 15 in Supabase. Requires the one-time migration:
-    //   ALTER TABLE purchase_scenarios ADD COLUMN loan_term_years SMALLINT;
-    // Without the column the upsert will fail; auth.ts catches and logs.
-    loan_term_years: s.loanTermYears ?? 30,
-    // Always include both DPA columns so flipping DPA off actually clears
-    // the saved row (same pattern as loan_term_years above). Requires
-    // one-time migration:
-    //   ALTER TABLE purchase_scenarios ADD COLUMN uses_dpa BOOLEAN;
-    //   ALTER TABLE purchase_scenarios ADD COLUMN dpa_type TEXT;
-    // Without the columns the upsert will fail; auth.ts catches and logs.
-    uses_dpa: !!s.usesDPA,
-    dpa_type: s.usesDPA && s.dpaType ? s.dpaType : null,
-    // Always include so dragging the slider back to 0 actually clears
-    // the saved value (same pattern as loan_term_years / DPA columns).
-    // Requires migration:
-    //   ALTER TABLE purchase_scenarios ADD COLUMN seller_concessions NUMERIC;
-    seller_concessions: typeof s.sellerConcessions === "number" ? s.sellerConcessions : 0,
-    // Always include so clearing a photo (or a Zillow miss returning null)
-    // actually clears the saved row. Requires migration:
-    //   ALTER TABLE purchase_scenarios ADD COLUMN primary_photo_url TEXT;
-    // Without the column the upsert will fail; auth.ts catches and logs.
-    primary_photo_url:
-      typeof s.primaryPhotoUrl === "string" && s.primaryPhotoUrl.length > 0
-        ? s.primaryPhotoUrl
-        : null,
   };
-  return base;
 }
 function rowToInsurance(row: any): InsuranceScenario {
   return {
@@ -249,10 +137,6 @@ function rowToInsurance(row: any): InsuranceScenario {
     savedAt: row.saved_at,
     annualPremium: row.annual_premium ?? undefined,
     coverageType: row.coverage_type ?? undefined,
-    occupancyType: row.occupancy_type ?? undefined,
-    occupancySource: row.occupancy_source ?? undefined,
-    linkedPurchaseScenarioId: row.linked_purchase_scenario_id ?? undefined,
-    linkedRefinanceScenarioId: row.linked_refinance_scenario_id ?? undefined,
   };
 }
 function insuranceToRow(s: InsuranceScenario, userId: string) {
@@ -263,10 +147,6 @@ function insuranceToRow(s: InsuranceScenario, userId: string) {
     saved_at: s.savedAt,
     annual_premium: s.annualPremium ?? null,
     coverage_type: s.coverageType ?? null,
-    occupancy_type: s.occupancyType ?? null,
-    occupancy_source: s.occupancySource ?? null,
-    linked_purchase_scenario_id: s.linkedPurchaseScenarioId ?? null,
-    linked_refinance_scenario_id: s.linkedRefinanceScenarioId ?? null,
   };
 }
 function rowToTrackedLoan(row: any): TrackedLoan {
@@ -283,15 +163,10 @@ function rowToTrackedLoan(row: any): TrackedLoan {
     propertyType: (row.property_type ?? "primary") as TrackedLoanPropertyType,
     addedAt: row.added_at,
     balanceAsOf: row.balance_as_of ?? undefined,
-    // Same forward-compat shape as purchase scenarios — missing column
-    // is fine, the default 30 is applied downstream.
-    newLoanTermYears: row.new_loan_term_years === 15 ? 15
-                     : row.new_loan_term_years === 30 ? 30
-                     : undefined,
   };
 }
 function trackedLoanToRow(l: TrackedLoan, userId: string) {
-  const base: Record<string, any> = {
+  return {
     id: l.id,
     user_id: userId,
     property_address: l.propertyAddress,
@@ -305,12 +180,7 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     property_type: l.propertyType ?? "primary",
     added_at: l.addedAt,
     balance_as_of: l.balanceAsOf ?? null,
-    // Always include the column so flipping 15 → 30 actually clears the
-    // saved 15. Requires the one-time migration:
-    //   ALTER TABLE tracked_loans ADD COLUMN new_loan_term_years SMALLINT;
-    new_loan_term_years: l.newLoanTermYears ?? 30,
   };
-  return base;
 }
 
 // ── Serialized write queues (one per table) ────────────────────────
@@ -340,40 +210,9 @@ async function loadScenarios(userId: string) {
     supabase.from("insurance_scenarios").select("*").eq("user_id", userId).order("saved_at", { ascending: false }),
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
-  const dbPurchases  = (pRes.data ?? []).map(rowToPurchase);
-  const dbInsurance  = (iRes.data ?? []).map(rowToInsurance);
-  const dbLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
-
-  // Merge in any local-only rows that were added during the hydration
-  // window (i.e. before this SELECT returned). Replacing the cache
-  // outright would visually drop a just-added Purchase the user just
-  // typed in. We keep DB rows authoritative and append local-only rows
-  // (matched by stable id) on top.
-  const pDbIds = new Set(dbPurchases.map(p => p.id));
-  const iDbIds = new Set(dbInsurance.map(p => p.id));
-  const lDbIds = new Set(dbLoans.map(l => l.id));
-  const pLocalOnly = _purchaseScenarios.filter(p => !pDbIds.has(p.id));
-  const iLocalOnly = _insuranceScenarios.filter(p => !iDbIds.has(p.id));
-  const lLocalOnly = _trackedLoans.filter(l => !lDbIds.has(l.id));
-
-  _purchaseScenarios = [...pLocalOnly, ...dbPurchases];
-  _insuranceScenarios = [...iLocalOnly, ...dbInsurance];
-  _trackedLoans       = [...lLocalOnly, ...dbLoans];
-
-  // Only flip the hydration flag if EVERY table loaded cleanly. A
-  // transient network/RLS/schema error on any table would otherwise mark
-  // hydration "complete" with an incomplete cache, re-enabling the
-  // destructive diff-delete in persist*() and bringing back the original
-  // wipe bug under failure conditions.
-  if (!pRes.error && !iRes.error && !lRes.error) {
-    _scenariosHydratedFor = userId;
-  } else {
-    console.warn("[auth] loadScenarios partial failure — staying unhydrated to avoid destructive writes", {
-      purchase: pRes.error?.message,
-      insurance: iRes.error?.message,
-      tracked_loans: lRes.error?.message,
-    });
-  }
+  _purchaseScenarios = (pRes.data ?? []).map(rowToPurchase);
+  _insuranceScenarios = (iRes.data ?? []).map(rowToInsurance);
+  _trackedLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
 }
 
 // One-time migration of pre-existing localStorage data into Supabase the
@@ -441,20 +280,9 @@ async function hydrateFromSupabase() {
     _session = null;
     _purchaseScenarios = [];
     _insuranceScenarios = [];
-    _trackedLoans = [];
-    _scenariosHydratedFor = null;
     try { localStorage.removeItem("tateo_auth"); } catch {}
     notify();
     return;
-  }
-  // If we're hydrating for a different user than was last loaded, clear
-  // caches and the hydration flag so the new user can't see (or save
-  // over) the old user's rows during the load window.
-  if (_scenariosHydratedFor && _scenariosHydratedFor !== session.user.id) {
-    _purchaseScenarios = [];
-    _insuranceScenarios = [];
-    _trackedLoans = [];
-    _scenariosHydratedFor = null;
   }
   try { localStorage.setItem("tateo_auth", "1"); } catch {}
 
@@ -463,7 +291,6 @@ async function hydrateFromSupabase() {
   // not yet applied, transient network error, or profile row missing).
   const meta = session.user.user_metadata || {};
   const fallback: AuthUser = {
-    id: session.user.id,
     name: meta.name || session.user.email?.split("@")[0] || "User",
     email: session.user.email || "",
     phone: meta.phone ?? undefined,
@@ -549,7 +376,6 @@ export async function logout(): Promise<void> {
   _purchaseScenarios = [];
   _insuranceScenarios = [];
   _trackedLoans = [];
-  _scenariosHydratedFor = null;
   notify();
 }
 
@@ -582,10 +408,7 @@ export async function updateProfile(
   if (updates.name !== undefined) patch.name = updates.name.trim();
   if (targetEmail) patch.email = targetEmail;
   if (phone !== undefined) patch.phone = phone;
-  // NOTE: `agent` is intentionally not written here. The `agent` column on
-  // profiles is protected by a DB trigger (prevent_agent_self_elevation) and
-  // can only be set by the service role. Any attempt to set it client-side
-  // is silently dropped server-side.
+  if (updates.agent !== undefined) patch.agent = updates.agent.trim() || null;
 
   if (Object.keys(patch).length > 0) {
     const { error: pErr } = await supabase.from("profiles").update(patch).eq("id", user.id);
@@ -660,28 +483,16 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
   // rows. If the user has changed by the time the queue drains, drop it.
   const userId = _session?.id;
   if (!userId) return Promise.resolve();
-  // Snapshot hydration state at enqueue time too — if hydration races and
-  // completes between enqueue and execution, we still want the original
-  // intent (upsert-only) honored so we don't accidentally delete the rows
-  // the SELECT just loaded but the caller's `s` array doesn't yet know about.
-  const wasHydrated = _scenariosHydratedFor === userId;
   return enqueueWrite("purchase_scenarios", async () => {
     if (_session?.id !== userId) return; // user changed; abort this stale job
-    // HYDRATION GATE: if the cache for this user wasn't fully loaded from
-    // Supabase yet, the in-memory `s` array doesn't represent the user's
-    // full set — it's just the rows the current session knows about. A
-    // diff-and-delete pass here would wipe their existing properties.
-    // In that case we upsert-only and let `loadScenarios` reconcile.
-    if (wasHydrated) {
-      const keep = new Set(s.map(x => x.id));
-      const { data: existing } = await supabase
-        .from("purchase_scenarios")
-        .select("id")
-        .eq("user_id", userId);
-      const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
-      if (toDelete.length > 0) {
-        await supabase.from("purchase_scenarios").delete().in("id", toDelete).eq("user_id", userId);
-      }
+    const keep = new Set(s.map(x => x.id));
+    const { data: existing } = await supabase
+      .from("purchase_scenarios")
+      .select("id")
+      .eq("user_id", userId);
+    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+    if (toDelete.length > 0) {
+      await supabase.from("purchase_scenarios").delete().in("id", toDelete).eq("user_id", userId);
     }
     if (s.length > 0) {
       await supabase
@@ -705,19 +516,16 @@ export function saveInsuranceScenarios(s: InsuranceScenario[]) {
 function persistInsuranceScenarios(s: InsuranceScenario[]) {
   const userId = _session?.id;
   if (!userId) return Promise.resolve();
-  const wasHydrated = _scenariosHydratedFor === userId;
   return enqueueWrite("insurance_scenarios", async () => {
     if (_session?.id !== userId) return;
-    if (wasHydrated) {
-      const keep = new Set(s.map(x => x.id));
-      const { data: existing } = await supabase
-        .from("insurance_scenarios")
-        .select("id")
-        .eq("user_id", userId);
-      const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
-      if (toDelete.length > 0) {
-        await supabase.from("insurance_scenarios").delete().in("id", toDelete).eq("user_id", userId);
-      }
+    const keep = new Set(s.map(x => x.id));
+    const { data: existing } = await supabase
+      .from("insurance_scenarios")
+      .select("id")
+      .eq("user_id", userId);
+    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+    if (toDelete.length > 0) {
+      await supabase.from("insurance_scenarios").delete().in("id", toDelete).eq("user_id", userId);
     }
     if (s.length > 0) {
       await supabase
@@ -741,19 +549,16 @@ export function saveTrackedLoans(loans: TrackedLoan[]) {
 function persistTrackedLoans(loans: TrackedLoan[]) {
   const userId = _session?.id;
   if (!userId) return Promise.resolve();
-  const wasHydrated = _scenariosHydratedFor === userId;
   return enqueueWrite("tracked_loans", async () => {
     if (_session?.id !== userId) return;
-    if (wasHydrated) {
-      const keep = new Set(loans.map(l => l.id));
-      const { data: existing } = await supabase
-        .from("tracked_loans")
-        .select("id")
-        .eq("user_id", userId);
-      const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
-      if (toDelete.length > 0) {
-        await supabase.from("tracked_loans").delete().in("id", toDelete).eq("user_id", userId);
-      }
+    const keep = new Set(loans.map(l => l.id));
+    const { data: existing } = await supabase
+      .from("tracked_loans")
+      .select("id")
+      .eq("user_id", userId);
+    const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
+    if (toDelete.length > 0) {
+      await supabase.from("tracked_loans").delete().in("id", toDelete).eq("user_id", userId);
     }
     if (loans.length > 0) {
       await supabase

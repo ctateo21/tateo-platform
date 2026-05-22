@@ -32,8 +32,6 @@ import Review from "./pages/review-new";
 import Estimate from "./pages/estimate";
 import Refinance from "./pages/refinance";
 import SelectService from "./pages/select-service";
-import SellerDashboard from "./pages/seller-dashboard";
-import Admin from "./pages/admin";
 import NotFound from "./pages/not-found";
 
 function App() {
@@ -62,8 +60,6 @@ function App() {
                   <Route path="/estimate" component={Estimate} />
                   <Route path="/refinance" component={Refinance} />
                   <Route path="/select-service" component={SelectService} />
-                  <Route path="/seller-dashboard" component={SellerDashboard} />
-                  <Route path="/admin" component={Admin} />
                   <Route component={NotFound} />
                 </Switch>
               </main>

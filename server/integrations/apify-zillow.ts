@@ -34,21 +34,6 @@ export interface ParsedInsuranceClues {
   rawMatchedPhrases: string[];
 }
 
-/**
- * Normalized property photo. Captured from any image-bearing field on the
- * Apify/Zillow row (photos / responsivePhotos / hiResImageLink / imgSrc /
- * imageUrls / photoUrls / media / carouselPhotos / image / propertyImages
- * / listingPhotos). Only `url` is guaranteed; other fields are best-effort
- * and may be null if the source did not provide them.
- */
-export interface PropertyPhoto {
-  url: string;
-  caption: string | null;
-  width: number | null;
-  height: number | null;
-  source: "Zillow via Apify";
-}
-
 export interface PropertyScenario {
   source: "Zillow via Apify";
   address: string;
@@ -66,13 +51,7 @@ export interface PropertyScenario {
   bathrooms: number | null;
   squareFeet: number | null;
   lotSize: number | null;
-  /** Back-compat: flat list of photo URLs. New code should prefer
-   *  `propertyPhotos` / `primaryPhotoUrl`. */
   photos: string[];
-  /** Normalized photo objects (URL + metadata). Deduped, invalid URLs skipped. */
-  propertyPhotos: PropertyPhoto[];
-  /** Convenience: first photo URL, or null if no photos were found. */
-  primaryPhotoUrl: string | null;
   listingDescription: string;
   parsedInsuranceClues: ParsedInsuranceClues;
   insurancePolicyType: "HO3" | "HO6" | "DP3" | "";
@@ -454,114 +433,13 @@ function pickAddress(p: any): string {
   return [a.streetAddress, a.city, a.state, a.zipcode].filter(Boolean).join(", ");
 }
 
-/**
- * Extract every plausible property photo URL from the Apify/Zillow row and
- * normalize into `PropertyPhoto` objects. Scans (in priority order, so
- * order of first appearance wins after dedupe):
- *   1. `photos` / `responsivePhotos`  — Zillow's canonical galleries
- *      (objects with `url`, `mixedSources.jpeg[].{url,width,height}`,
- *      `caption`).
- *   2. `hiResImageLink`                — single high-res hero image.
- *   3. `imgSrc` / `image`              — listing-card thumbnail.
- *   4. `imageUrls` / `photoUrls`       — flat URL arrays.
- *   5. `media` / `carouselPhotos`      — alternate galleries on some
- *      response shapes.
- *   6. `listingPhotos` / `propertyImages` — placeholder fields used by
- *      future image-specific Apify actors (see `fetchZillowPhotos`).
- *
- * Dedupes by URL (first occurrence wins, preserving best metadata when
- * the first hit came from a rich object). Skips invalid / empty / non-http
- * URLs. Returns [] if nothing usable was found — missing photos must never
- * break the scrape flow.
- */
-function pickPhotos(p: any): PropertyPhoto[] {
-  const out: PropertyPhoto[] = [];
-  const seen = new Set<string>();
-
-  const isValidUrl = (u: unknown): u is string =>
-    typeof u === "string" && /^https?:\/\//i.test(u.trim());
-
-  const num = (v: unknown): number | null => {
-    if (typeof v === "number" && Number.isFinite(v)) return v;
-    if (typeof v === "string") {
-      const n = Number(v);
-      if (Number.isFinite(n) && n > 0) return n;
-    }
-    return null;
-  };
-
-  const push = (url: unknown, meta?: { caption?: unknown; width?: unknown; height?: unknown }) => {
-    if (!isValidUrl(url)) return;
-    const trimmed = url.trim();
-    if (seen.has(trimmed)) return;
-    seen.add(trimmed);
-    out.push({
-      url: trimmed,
-      caption: typeof meta?.caption === "string" && meta.caption.length > 0 ? meta.caption : null,
-      width: num(meta?.width),
-      height: num(meta?.height),
-      source: "Zillow via Apify",
-    });
-  };
-
-  // Extract from a Zillow-style photo object that may carry mixedSources
-  // (jpeg/webp arrays of {url,width,height}) and a caption. We prefer the
-  // largest jpeg variant available; if mixedSources is missing we fall back
-  // to the object's own `url`.
-  const pushFromPhotoObj = (ph: any) => {
-    if (typeof ph === "string") {
-      push(ph);
-      return;
-    }
-    if (!ph || typeof ph !== "object") return;
-    const caption = ph.caption ?? ph.subtitle ?? null;
-    const jpegs = Array.isArray(ph?.mixedSources?.jpeg) ? ph.mixedSources.jpeg : null;
-    if (jpegs && jpegs.length > 0) {
-      // Keep only the single largest variant per photo so we don't
-      // bloat propertyPhotos with every size of the same image.
-      const best = jpegs.reduce((acc: any, cur: any) =>
-        (num(cur?.width) ?? 0) > (num(acc?.width) ?? 0) ? cur : acc,
-      jpegs[0]);
-      push(best?.url, { caption, width: best?.width, height: best?.height });
-      return;
-    }
-    push(ph.url, { caption, width: ph.width, height: ph.height });
-  };
-
-  // 1. photos / responsivePhotos / images — canonical galleries
-  for (const key of ["photos", "responsivePhotos", "images"]) {
-    const arr = (p as any)?.[key];
-    if (Array.isArray(arr)) for (const ph of arr) pushFromPhotoObj(ph);
+function pickPhotos(p: any): string[] {
+  if (Array.isArray(p.photos)) {
+    return p.photos.map((ph: any) => (typeof ph === "string" ? ph : ph?.url ?? ph?.mixedSources?.jpeg?.[0]?.url)).filter(Boolean);
   }
-
-  // 2. hiResImageLink — single high-res hero
-  push((p as any)?.hiResImageLink);
-
-  // 3. imgSrc / image — listing-card thumbnail
-  push((p as any)?.imgSrc);
-  const image = (p as any)?.image;
-  if (typeof image === "string") push(image);
-  else if (image && typeof image === "object") pushFromPhotoObj(image);
-
-  // 4. imageUrls / photoUrls — flat URL arrays
-  for (const key of ["imageUrls", "photoUrls"]) {
-    const arr = (p as any)?.[key];
-    if (Array.isArray(arr)) for (const u of arr) push(u);
-  }
-
-  // 5. media / carouselPhotos — alternate gallery shapes
-  for (const key of ["media", "carouselPhotos"]) {
-    const arr = (p as any)?.[key];
-    if (Array.isArray(arr)) for (const m of arr) pushFromPhotoObj(m);
-  }
-
-  // 6. listingPhotos / propertyImages — placeholder for future actor
-  for (const key of ["listingPhotos", "propertyImages"]) {
-    const arr = (p as any)?.[key];
-    if (Array.isArray(arr)) for (const m of arr) pushFromPhotoObj(m);
-  }
-
-  return out;
+  if (Array.isArray(p.images)) return p.images.filter((x: any) => typeof x === "string");
+  if (typeof p.imgSrc === "string") return [p.imgSrc];
+  return [];
 }
 
 function pickDescription(p: any): string {
@@ -808,16 +686,7 @@ function normalizeOne(row: any): PropertyScenario {
     bathrooms: num(row.bathrooms),
     squareFeet: num(row.livingArea ?? row.livingAreaValue ?? row.squareFeet),
     lotSize: num(row.lotSize ?? row.lotAreaValue ?? row.lotAreaSize),
-    // Compute once and share across the three photo fields so we don't
-    // walk the row's image arrays multiple times.
-    ...(() => {
-      const propertyPhotos = pickPhotos(row);
-      return {
-        photos: propertyPhotos.map(ph => ph.url),
-        propertyPhotos,
-        primaryPhotoUrl: propertyPhotos[0]?.url ?? null,
-      };
-    })(),
+    photos: pickPhotos(row),
     listingDescription: description,
     parsedInsuranceClues: clues,
     insurancePolicyType: derivePolicyType(propertyType, ""),
@@ -955,22 +824,4 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
     throw new Error("No Zillow results found for that address");
   }
   return normalized;
-}
-
-// ── Placeholder: future image-specific Apify actor ─────────────────
-/**
- * Placeholder for a second Apify actor that pulls a richer photo set
- * (full gallery, image resolution, image type) from a Zillow URL or
- * ZPID. Intentionally NOT wired yet — the current actor already
- * returns photo URLs via `pickPhotos`, and we defer the second actor
- * until that source proves insufficient. When implemented, this
- * should return the same `PropertyPhoto[]` shape so existing
- * consumers (frontend cards, property cache) work unchanged.
- */
-export async function fetchZillowPhotos(
-  _zillowUrlOrZpid: string,
-): Promise<PropertyPhoto[]> {
-  // Not implemented yet. See PropertyScenario.propertyPhotos populated
-  // by `normalizeZillowRow` for the current photo source.
-  return [];
 }

@@ -56,14 +56,7 @@ export interface LiveRate {
 
 export const PROPERTY_TYPE_ADJUSTMENTS: Record<PropertyType, number> = { primary: 0.00, secondary: 0.25, investment: 0.75 };
 const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = { primary: "Primary Home", secondary: "2nd Home", investment: "Investment" };
-// Shared color map — see client/src/lib/occupancy-colors.ts. Keeps Refinance
-// property-type buttons visually consistent with Dashboard and Insurance.
-import { getOccupancyColor } from "@/lib/occupancy-colors";
-const PROPERTY_TYPE_COLORS: Record<PropertyType, string> = {
-  primary: getOccupancyColor("primary"),
-  secondary: getOccupancyColor("secondary"),
-  investment: getOccupancyColor("investment"),
-};
+const PROPERTY_TYPE_COLORS: Record<PropertyType, string> = { primary: "bg-background text-foreground border", secondary: "bg-amber-600 text-white border-amber-600", investment: "bg-red-600 text-white border-red-600" };
 
 export const CLOSING_COST_PERCENT = 0.60;
 export const CLOSING_COST_FIXED = 4065;
@@ -80,14 +73,6 @@ type HeProduct = "heloc" | "he_loan";
 
 export function getBestConventionalRate(rates: LiveRate[]): LiveRate | null {
   return rates.find(r => r.name === "30 Yr. Fixed") ?? rates.find(r => r.type === "Conventional") ?? rates[0] ?? null;
-}
-
-// 15-year Conventional from the same MND live-rates feed. Falls back to
-// the 30-yr rate object (with a -0.80 estimate applied at the call site
-// would be wrong, so we just return null and let the caller treat that as
-// "no 15-yr available"). LiveRatesResponse already exposes "15 Yr. Fixed".
-export function get15YearConventionalRate(rates: LiveRate[]): LiveRate | null {
-  return rates.find(r => r.name === "15 Yr. Fixed") ?? null;
 }
 
 function getRateDelta(currentRate: number, newRate: number) {
@@ -163,7 +148,7 @@ function FeeToggles({ idPrefix, financeFees, setFinanceFees, includeEscrows, set
   );
 }
 
-function CashOutSection({ loan, newRate, termYears, homeValue, onChangeHomeValue, financeFees, includeEscrows, monthlyEscrow }: { loan: TrackedLoan; newRate: LiveRate; termYears: 15 | 30; homeValue: number; onChangeHomeValue: (v: number) => void; financeFees: boolean; includeEscrows: boolean; monthlyEscrow: number }) {
+function CashOutSection({ loan, newRate, homeValue, onChangeHomeValue, financeFees, includeEscrows, monthlyEscrow }: { loan: TrackedLoan; newRate: LiveRate; homeValue: number; onChangeHomeValue: (v: number) => void; financeFees: boolean; includeEscrows: boolean; monthlyEscrow: number }) {
   const [editing, setEditing] = useState(false);
   const [editInput, setEditInput] = useState(String(Math.round(homeValue)));
 
@@ -181,7 +166,7 @@ function CashOutSection({ loan, newRate, termYears, homeValue, onChangeHomeValue
   const closingCosts = (clampedLoan * CLOSING_COST_PERCENT) / 100 + CLOSING_COST_FIXED;
   const totalFees = closingCosts + escrowAmount;
   const finalLoanWithCosts = clampedLoan + (financeFees ? totalFees : 0);
-  const newMonthlyPI = calculateMonthlyPayment(finalLoanWithCosts, newRate.rate, termYears);
+  const newMonthlyPI = calculateMonthlyPayment(finalLoanWithCosts, newRate.rate, NEW_TERM_YEARS);
   const newLTV = homeValue > 0 ? (finalLoanWithCosts / homeValue) * 100 : 0;
 
   function commitEdit() {
@@ -287,25 +272,11 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   const [propertyType, setPropertyType] = useState<PropertyType>(loan.propertyType);
   const [financeFees, setFinanceFees] = useState(true);
   const [includeEscrows, setIncludeEscrows] = useState(false);
-  // Per-card amortization choice for the *new* refi loan (Rate & Term and
-  // Cash-Out). Defaults to whatever was last persisted (or 30). 2nd-lien /
-  // Home Equity has its own fixed terms and is not affected by this.
-  const [newTermYears, setNewTermYears] = useState<15 | 30>(loan.newLoanTermYears ?? 30);
 
-  const bestRate30 = getBestConventionalRate(liveRates);
-  const bestRate15 = get15YearConventionalRate(liveRates);
-  // Strict pairing: a 15-year term *must* use the 15 Yr. Fixed MND rate.
-  // If the live feed didn't return one (rare — server still has a 6.02
-  // fallback), we degrade the displayed term + amortization back to 30
-  // rather than mixing a 15-yr label with a 30-yr rate. The UI selector
-  // also disables the 15-yr button when bestRate15 is null.
-  const effectiveTermYears: 15 | 30 = newTermYears === 15 && bestRate15 ? 15 : 30;
-  const bestRate = effectiveTermYears === 15 ? bestRate15 : bestRate30;
+  const bestRate = getBestConventionalRate(liveRates);
   const rateAdj = PROPERTY_TYPE_ADJUSTMENTS[propertyType];
   const adjustedRate = bestRate ? bestRate.rate + rateAdj : 6.65 + rateAdj;
-  // 2nd-lien rate is always benchmarked off the 30-yr conventional, regardless of the user's amortization toggle.
-  const adjustedRate30 = bestRate30 ? bestRate30.rate + rateAdj : 6.65 + rateAdj;
-  const heRate = adjustedRate30 + HE_RATE_MARGIN;
+  const heRate = adjustedRate + HE_RATE_MARGIN;
 
   const liveMonths = monthsBetween(loan.balanceAsOf ?? loan.addedAt);
   const currentBalance = liveMonths > 0 && loan.currentPI > 0 ? amortizeBalance(loan.loanBalance, loan.currentRate, loan.currentPI, liveMonths) : loan.loanBalance;
@@ -322,7 +293,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
     currentInterestRate: loan.currentRate,
     newInterestRate: adjustedRate,
     currentTermRemainingYears: Math.max(1, Math.round(loan.estimatedRemainingYears)),
-    newLoanTermYears: effectiveTermYears,
+    newLoanTermYears: NEW_TERM_YEARS,
     closingCostsPercent: CLOSING_COST_PERCENT,
     closingCostsFixed: CLOSING_COST_FIXED,
     includeClosingCostsInLoan: financeFees,
@@ -331,7 +302,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   const rateTermBaseClosingCosts = (currentBalance * CLOSING_COST_PERCENT) / 100 + CLOSING_COST_FIXED;
   // Re-derive numbers when escrow is rolled in (calculateRefinance doesn't know about escrows)
   const rateTermNewLoanAmount = currentBalance + (financeFees ? rateTermBaseClosingCosts + escrowAmount : 0);
-  const rateTermNewMonthlyPI = calculateMonthlyPayment(rateTermNewLoanAmount, adjustedRate, effectiveTermYears);
+  const rateTermNewMonthlyPI = calculateMonthlyPayment(rateTermNewLoanAmount, adjustedRate, NEW_TERM_YEARS);
   const rateTermMonthlySavings = rateTerm.monthlyPaymentCurrent - rateTermNewMonthlyPI;
   const rateTermTotalFees = rateTermBaseClosingCosts + escrowAmount;
   const rateTermBreakEven = rateTermMonthlySavings > 0 ? Math.ceil(rateTermTotalFees / rateTermMonthlySavings) : 0;
@@ -407,42 +378,6 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
           {/* Rate & Term */}
           {activeTab === "rate_term" && (
             <div className="space-y-4">
-              {/* Conventional-only amortization toggle. Drives the new
-                  base rate (15 Yr. Fixed vs 30 Yr. Fixed from MND) and
-                  the amortization term passed to calculateRefinance /
-                  calculateMonthlyPayment. Persisted via onUpdate so the
-                  selection survives refresh / re-login. */}
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-sm font-medium text-muted-foreground">New Loan Term:</span>
-                {([30, 15] as const).map(yrs => {
-                  const disabled = yrs === 15 && !bestRate15;
-                  return (
-                    <button
-                      key={yrs}
-                      type="button"
-                      disabled={disabled}
-                      onClick={() => {
-                        setNewTermYears(yrs);
-                        onUpdate({ newLoanTermYears: yrs });
-                      }}
-                      className={`px-3 py-1 rounded-md text-xs font-semibold border transition-colors ${
-                        newTermYears === yrs
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : disabled
-                          ? "border-border text-muted-foreground/50 cursor-not-allowed"
-                          : "border-border text-muted-foreground hover:border-primary"
-                      }`}
-                      data-testid={`button-refi-term-${yrs}-${loan.id}`}
-                    >
-                      {yrs}-Year Fixed
-                    </button>
-                  );
-                })}
-                {!bestRate15 && (
-                  <span className="text-xs text-muted-foreground">15-yr live rate unavailable</span>
-                )}
-              </div>
-
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Current Loan</p>
@@ -451,7 +386,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
                   <div className="flex justify-between"><span className="text-sm text-muted-foreground">Balance</span><span className="font-semibold">{formatCurrency(currentBalance)}</span></div>
                 </div>
                 <div className="rounded-lg border bg-green-50 border-green-200 p-4 space-y-2">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">After Refinance ({effectiveTermYears} yr)</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">After Refinance ({NEW_TERM_YEARS} yr)</p>
                   <div className="flex justify-between"><span className="text-sm text-muted-foreground">Rate</span><span className="font-bold text-lg text-green-700">{adjustedRate.toFixed(2)}%</span></div>
                   <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Monthly P&I</span><span className="font-semibold">{formatCurrency(rateTermNewMonthlyPI)}</span></div>
                   <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Loan Amount</span><span className="font-semibold">{formatCurrency(rateTermNewLoanAmount)}</span></div>
@@ -487,7 +422,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
           {/* Cash-Out */}
           {activeTab === "cash_out" && bestRate && (
             <div className="space-y-4">
-              <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} termYears={effectiveTermYears} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} />
+              <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} />
               <FeeToggles
                 idPrefix={`co-${loan.id}`}
                 financeFees={financeFees}

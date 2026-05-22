@@ -223,7 +223,7 @@ export default function Refinance() {
       {/* Header */}
       <header className="sticky top-[73px] z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 h-14 flex items-center gap-4">
-          <button onClick={() => setLocation("/dashboard?tab=refinance")} className="text-muted-foreground hover:text-primary transition-colors" data-testid="refinance-back-to-dashboard" aria-label="Back to Refinance dashboard">
+          <button onClick={() => setLocation(address ? `/select-service?address=${encodeURIComponent(address)}` : "/select-service")} className="text-muted-foreground hover:text-primary transition-colors">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2">

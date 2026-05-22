@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation, useSearch } from "wouter";
+import { useLocation } from "wouter";
 import {
   Home, RefreshCw, Shield, Search, LogOut, Trash2, ExternalLink,
   MapPin, Calendar, Plus, X, Pencil, Check,
@@ -49,39 +49,11 @@ const FALLBACK_TODAY_RATE = 6.65;
 const PROPERTY_TYPE_LABELS: Record<string, string> = {
   primary: "Primary Home", secondary: "2nd Home", investment: "Investment",
 };
-// Shared color map — defined in lib/occupancy-colors so Dashboard, Refinance,
-// and Insurance all render the same property-use value with the same color.
-import { getOccupancyColor as _getOccupancyColor } from "@/lib/occupancy-colors";
-const PROPERTY_TYPE_COLORS: Record<string, string> = new Proxy({}, {
-  get: (_t, key: string) => _getOccupancyColor(key),
-}) as Record<string, string>;
-
-/**
- * Property thumbnail used on Purchase dashboard cards. Renders the
- * Zillow primary photo when present, falling back to a MapPin
- * placeholder when no URL is saved or the URL fails to load. Fixed
- * dimensions (16:10 ratio) so the card layout doesn't shift while
- * the image loads.
- */
-function PropertyThumb({ photoUrl, address }: { photoUrl: string | null; address: string }) {
-  const [errored, setErrored] = useState(false);
-  const showImage = !!photoUrl && !errored;
-  return (
-    <div className="w-full lg:w-40 h-24 lg:h-24 rounded-md overflow-hidden bg-muted flex items-center justify-center shrink-0 border">
-      {showImage ? (
-        <img
-          src={photoUrl!}
-          alt={address}
-          className="w-full h-full object-cover"
-          loading="lazy"
-          onError={() => setErrored(true)}
-        />
-      ) : (
-        <MapPin className="h-6 w-6 text-muted-foreground/50" />
-      )}
-    </div>
-  );
-}
+const PROPERTY_TYPE_COLORS: Record<string, string> = {
+  primary: "bg-background text-foreground border",
+  secondary: "bg-amber-600 text-white border-amber-600",
+  investment: "bg-red-600 text-white border-red-600",
+};
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -632,22 +604,6 @@ function PurchaseTab() {
       <div className="space-y-3">
         {scenarios.map(s => {
           const dtiPct = s.dti != null ? Math.round(s.dti * 100) : null;
-          // Derive the "reason" behind the Review / Qualifies status from
-          // the fields persisted on each PurchaseScenario (no math change,
-          // no schema change). 0.45 mirrors the conventional total-DTI
-          // ceiling used in estimate.tsx (see ~line 2904/2928). When a
-          // property is in Review and DTI is over the ceiling, DTI is the
-          // flagged reason; otherwise we attribute Review to Cash to Close
-          // (the only other dashboard-visible driver). When the property
-          // Qualifies, the visible metrics are highlighted green.
-          const isReview = s.qualifies === false;
-          const dtiOver = s.dti != null && s.dti > 0.45;
-          const dtiIsReason = isReview && dtiOver;
-          const cashIsReason = isReview && !dtiIsReason && s.cashToClose != null;
-          const RED_BOX = "rounded-md border border-red-300 bg-red-50 px-2 py-1 -mx-2 -my-1";
-          const GREEN_BOX = "rounded-md border border-green-300 bg-green-50 px-2 py-1 -mx-2 -my-1";
-          const cashBoxClass = cashIsReason ? RED_BOX : s.qualifies === true ? GREEN_BOX : "";
-          const dtiBoxClass = dtiIsReason ? RED_BOX : s.qualifies === true ? GREEN_BOX : "";
           return (
             <Card
               key={s.id}
@@ -656,15 +612,6 @@ function PurchaseTab() {
             >
               <CardContent className="py-4">
                 <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-                  {/* Property thumbnail — Zillow photo when available,
-                       MapPin placeholder otherwise. Fixed aspect avoids
-                       layout shift while the image loads, and a graceful
-                       onError swap restores the placeholder if the URL
-                       404s (Zillow occasionally rotates CDN paths). */}
-                  <PropertyThumb
-                    photoUrl={s.primaryPhotoUrl ?? null}
-                    address={s.address}
-                  />
                   {/* Address + meta */}
                   <div className="flex-1 min-w-0 lg:max-w-xs">
                     <div className="flex items-start gap-2">
@@ -685,8 +632,8 @@ function PurchaseTab() {
                         variant="outline"
                         className={`text-xs ${
                           s.qualifies
-                            ? "bg-green-100 text-green-800 border-green-300"
-                            : "bg-red-100 text-red-800 border-red-300"
+                            ? "bg-green-50 text-green-700 border-green-200"
+                            : "bg-amber-50 text-amber-700 border-amber-200"
                         }`}
                       >
                         {s.qualifies ? "Qualifies" : "Review"}
@@ -710,13 +657,13 @@ function PurchaseTab() {
                         </div>
                       )}
                       {s.cashToClose != null && (
-                        <div className={cashBoxClass} data-testid={`cash-to-close-${cashIsReason ? "review" : s.qualifies === true ? "qualifies" : "neutral"}`}>
+                        <div>
                           <p className="text-xs text-muted-foreground">Cash to Close</p>
                           <p className="font-semibold">{formatCurrency(s.cashToClose)}</p>
                         </div>
                       )}
                       {dtiPct != null && (
-                        <div className={dtiBoxClass} data-testid={`dti-${dtiIsReason ? "review" : s.qualifies === true ? "qualifies" : "neutral"}`}>
+                        <div>
                           <p className="text-xs text-muted-foreground">DTI</p>
                           <p className="font-semibold">{dtiPct}%</p>
                         </div>
@@ -1023,34 +970,30 @@ function InsuranceRowCard({
             </div>
           </div>
 
-          {/* Occupancy — single dropdown is the source of truth. The
-              redundant badge that mirrored the same value was removed; the
-              small caption underneath indicates where the auto-resolved
-              value came from (Purchase / Refinance / Manual). */}
+          {/* Occupancy + override */}
           <div className="flex lg:flex-col items-start gap-1.5 lg:min-w-[150px]">
+            <Badge variant="outline" className={`text-xs ${occupancyBadgeClass}`}>
+              {OCCUPANCY_LABELS[row.occupancy]}
+            </Badge>
             <Select
-              value={row.occupancy === "unknown" ? undefined : row.occupancy}
+              value={row.occupancy}
               onValueChange={(v) => onOccupancyChange(v as OccupancyType)}
             >
-              {/* Trigger is tinted with the shared occupancy color (blue /
-                  yellow / green) so the selected value visually matches
-                  Refinance buttons and the Insurance detail dropdown. */}
-              <SelectTrigger
-                className={`h-7 text-xs w-[150px] ${row.occupancy === "unknown" ? "" : occupancyBadgeClass}`}
-                aria-label="Property use"
-              >
-                <SelectValue placeholder="Select property use" />
+              <SelectTrigger className="h-7 text-xs w-[150px]" aria-label="Change occupancy">
+                <SelectValue placeholder="Change occupancy" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="primary">Primary</SelectItem>
-                <SelectItem value="secondary">Secondary</SelectItem>
+                <SelectItem value="primary">Primary Residence</SelectItem>
+                <SelectItem value="secondary">Second Home</SelectItem>
                 <SelectItem value="investment">Investment</SelectItem>
+                <SelectItem value="unknown">Not selected (auto)</SelectItem>
               </SelectContent>
             </Select>
             <span className="text-[10px] text-muted-foreground">
               {row.occupancySource === "manual_override" && "Manual"}
               {row.occupancySource === "refinance" && "From Refinance"}
               {row.occupancySource === "purchase" && "From Purchase"}
+              {row.occupancySource === "unknown" && "Auto-match"}
             </span>
           </div>
 
@@ -1094,22 +1037,6 @@ function InsuranceRowCard({
 export default function Dashboard() {
   const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
-  const search = useSearch();
-
-  // Drive the active tab from the URL (?tab=purchase|refinance|insurance) so
-  // deep links — like the Back button from the Insurance quote view — land
-  // on the right tab. Default to "purchase" when the param is missing.
-  const tabFromUrl = new URLSearchParams(search).get("tab");
-  const validTabs = ["purchase", "refinance", "insurance"] as const;
-  const activeTab = (validTabs as readonly string[]).includes(tabFromUrl ?? "")
-    ? (tabFromUrl as string)
-    : "purchase";
-  const setActiveTab = (next: string) => {
-    const sp = new URLSearchParams(search);
-    if (next === "purchase") sp.delete("tab"); else sp.set("tab", next);
-    const qs = sp.toString();
-    setLocation(qs ? `/dashboard?${qs}` : "/dashboard");
-  };
 
   if (!user) {
     setLocation("/");
@@ -1164,7 +1091,7 @@ export default function Dashboard() {
           <p className="text-muted-foreground text-sm mt-1">Your saved property scenarios, all in one place.</p>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <Tabs defaultValue="purchase">
           <TabsList className="mb-6">
             <TabsTrigger value="purchase" className="gap-2">
               <Home className="h-4 w-4" /> Purchase

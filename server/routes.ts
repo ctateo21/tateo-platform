@@ -29,268 +29,7 @@ import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
 import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
 import { supabaseAdmin } from "./supabase";
 
-// ────────────────────────────────────────────────────────────────────
-// Seller-dashboard demo seed (shared by manual endpoint + auto-seed).
-// Idempotent: relies on unique indexes (seller_id, mls_number) and
-// (listing_id, recap_date) for race-safe upserts.
-// ────────────────────────────────────────────────────────────────────
-const SELLER_DEMO = {
-  sellerEmail: "demo.seller@tateoco.com",
-  sellerPassword: "DemoSeller2025!",
-  agentEmail: "demo.agent@tateoco.com",
-  agentPassword: "DemoAgent2025!",
-};
-
-async function findUserByEmail(email: string): Promise<string | undefined> {
-  if (!supabaseAdmin) return undefined;
-  let p = 1;
-  while (p <= 50) {
-    const { data: pageRes } = await supabaseAdmin.auth.admin.listUsers({ page: p, perPage: 1000 });
-    const f = pageRes?.users?.find((u: any) => u.email === email);
-    if (f) return f.id;
-    if (!pageRes?.users?.length || pageRes.users.length < 1000) return undefined;
-    p++;
-  }
-  return undefined;
-}
-
-function sellerDashboardSampleListings() {
-  return [
-    {
-      address: "2200 Bahia Vista St", unit: "B-8", city: "Sarasota", state: "FL", zip: "34239",
-      mls_number: "TB8491429", list_price: 210000, beds: 2, baths: 2, sqft: 982,
-      community: "Cordova Gardens IV", status: "active", list_date: "2025-03-30",
-      recap: {
-        days_on_market: 50, avg_market_dom: 28, list_price: 210000,
-        recommended_price_low: 195000, recommended_price_high: 200000,
-        projected_sale_low: 193000, projected_sale_high: 203000,
-        zillow_daily_views_est: 20, zillow_daily_saves_est: 0.5, zillow_heat_index_est: 2.5,
-        realtor_weekly_views_est: 105, realtor_weekly_saves_est: 8,
-        redfin_weekly_views_est: 80, redfin_hot_home: false,
-        comp_1_address: "2210 Bahia Vista St #A-3", comp_1_price: 198000, comp_1_dom: 35, comp_1_status: "sold",
-        comp_2_address: "2245 Bahia Vista St #C-2", comp_2_price: 205000, comp_2_dom: 42, comp_2_status: "active",
-        comp_3_address: "2225 Bahia Vista St #D-1", comp_3_price: 192500, comp_3_dom: 28, comp_3_status: "sold",
-        market_inventory_months: 4.2, market_median_price: 215000, market_sale_to_list_pct: 96.5,
-        market_summary: "Sarasota condo market is balanced with rising inventory. Comparable units sold $5K–$15K below list.",
-        engagement_summary: "Views are below the 25/day threshold and saves are minimal — typical signs that pricing needs adjustment. A reduction should pull this listing back into buyers' search alerts.",
-        price_drop_rationale: "DOM is nearly double the market average and engagement has plateaued. Reducing to $195K–$200K aligns with recent comp closings and should re-trigger Zillow search alerts.",
-        next_steps: [
-          "Reduce price to $195K–$200K",
-          "Refresh listing photos (twilight + wider angles)",
-          "Schedule open house this Saturday",
-          "Boost listing on Zillow and Realtor.com",
-          "Highlight unique loft layout in description",
-        ],
-        agent_notes: "Owner agreed to consider a $10K reduction if no offers by end of week.",
-      },
-    },
-    {
-      address: "2232 Bahia Vista St", unit: "A-1", city: "Sarasota", state: "FL", zip: "34239",
-      mls_number: "TB8491201", list_price: 210000, beds: 2, baths: 2, sqft: 982,
-      community: "Cordova Gardens I", status: "active", list_date: "2025-03-30",
-      recap: {
-        days_on_market: 50, avg_market_dom: 28, list_price: 210000,
-        recommended_price_low: 195000, recommended_price_high: 199000,
-        projected_sale_low: 195000, projected_sale_high: 205000,
-        zillow_daily_views_est: 18, zillow_daily_saves_est: 0.4, zillow_heat_index_est: 2.2,
-        realtor_weekly_views_est: 105, realtor_weekly_saves_est: 6,
-        redfin_weekly_views_est: 75, redfin_hot_home: false,
-        comp_1_address: "2200 Bahia Vista St #B-8", comp_1_price: 210000, comp_1_dom: 50, comp_1_status: "active",
-        comp_2_address: "2245 Bahia Vista St #C-2", comp_2_price: 205000, comp_2_dom: 42, comp_2_status: "active",
-        comp_3_address: "2210 Bahia Vista St #A-3", comp_3_price: 198000, comp_3_dom: 35, comp_3_status: "sold",
-        market_inventory_months: 4.2, market_median_price: 215000, market_sale_to_list_pct: 96.5,
-        market_summary: "Redfin's AVM puts this unit at $249K, $39K above list — a strong value signal we should lean into.",
-        engagement_summary: "Engagement is tracking below B-8 despite being a stronger value vs. the Redfin AVM. We need to either price aggressively or refresh the presentation.",
-        price_drop_rationale: "Reprice to $199K to stagger against B-8 (same community) and avoid direct competition, or invest in updates to reposition at $225K+.",
-        next_steps: [
-          "Reprice to $199K or invest in light updates",
-          "Stagger pricing strategy vs B-8 in same community",
-          "Stage outdoor patio and entryway",
-          "Promote walkability + Redfin AVM in description",
-        ],
-        agent_notes: "Lean on Redfin AVM premium in next promotional push.",
-      },
-    },
-    {
-      address: "4045 Crockers Lake Blvd", unit: "11", city: "Sarasota", state: "FL", zip: "34238",
-      mls_number: "A4640941", list_price: 225000, beds: 3, baths: 2, sqft: 1272,
-      community: "Vintage Grand, Palmer Ranch", status: "active", list_date: "2025-02-18",
-      recap: {
-        days_on_market: 93, avg_market_dom: 49, list_price: 225000,
-        recommended_price_low: 205000, recommended_price_high: 209900,
-        projected_sale_low: 195000, projected_sale_high: 210000,
-        zillow_daily_views_est: 10, zillow_daily_saves_est: 0.2, zillow_heat_index_est: 2.0,
-        realtor_weekly_views_est: 45, realtor_weekly_saves_est: 3,
-        redfin_weekly_views_est: 35, redfin_hot_home: false,
-        comp_1_address: "4002 Crockers Lake Blvd #11", comp_1_price: 182950, comp_1_dom: 60, comp_1_status: "sold",
-        comp_2_address: "4060 Crockers Lake Blvd #14", comp_2_price: 215000, comp_2_dom: 41, comp_2_status: "active",
-        comp_3_address: "4020 Crockers Lake Blvd #6", comp_3_price: 199000, comp_3_dom: 75, comp_3_status: "pending",
-        market_inventory_months: 6.8, market_median_price: 208000, market_sale_to_list_pct: 94.0,
-        market_summary: "Vintage Grand has 5+ active competing units. The most recent comp closed at $182,950 — well below current list.",
-        engagement_summary: "Engagement is critically low. Daily views are less than half the threshold for a healthy listing. A full relist with a fresh price and new media is needed to reset the algorithm and reach a new buyer pool.",
-        price_drop_rationale: "Full relist recommended at $209,900 to break the stale-listing pattern. Competing units below $215K are pulling buyer attention away.",
-        next_steps: [
-          "Full relist at $209,900",
-          "Add professional video walkthrough",
-          "Target investor-buyer segment",
-          "Lead marketing with Floreta floor plan (largest in community)",
-        ],
-        agent_notes: "Recommend cancel-and-relist strategy to reset DOM clock.",
-      },
-    },
-  ];
-}
-
-async function runSellerDashboardSeed(): Promise<{ sellerId: string; agentId: string; listingsCreated: number; recapsCreated: number }> {
-  if (!supabaseAdmin) throw new Error("Supabase admin not configured");
-
-  let sellerId = await findUserByEmail(SELLER_DEMO.sellerEmail);
-  if (!sellerId) {
-    const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-      email: SELLER_DEMO.sellerEmail, password: SELLER_DEMO.sellerPassword, email_confirm: true,
-      user_metadata: { name: "Demo Seller" },
-    });
-    if (error) throw error;
-    sellerId = created.user!.id;
-  }
-
-  let agentId = await findUserByEmail(SELLER_DEMO.agentEmail);
-  if (!agentId) {
-    const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
-      email: SELLER_DEMO.agentEmail, password: SELLER_DEMO.agentPassword, email_confirm: true,
-      user_metadata: { name: "Demo Agent" },
-    });
-    if (error) throw error;
-    agentId = created.user!.id;
-  }
-  // Service role bypasses prevent_agent_self_elevation trigger.
-  await supabaseAdmin.from("profiles").upsert({
-    id: agentId, name: "Demo Agent", email: SELLER_DEMO.agentEmail, agent: "demo",
-  });
-  await supabaseAdmin.from("profiles").upsert({
-    id: sellerId, name: "Demo Seller", email: SELLER_DEMO.sellerEmail, agent: null,
-  });
-
-  let listingsCreated = 0;
-  let recapsCreated = 0;
-  const today = new Date().toISOString().slice(0, 10);
-  for (const sample of sellerDashboardSampleListings()) {
-    const { recap, ...listingData } = sample as any;
-    const { data: upserted, error: upErr } = await supabaseAdmin
-      .from("listings")
-      .upsert({ ...listingData, seller_id: sellerId }, { onConflict: "seller_id,mls_number" })
-      .select("id").single();
-    if (upErr) throw upErr;
-    listingsCreated++;
-    const { error: rErr } = await supabaseAdmin
-      .from("weekly_recaps")
-      .upsert(
-        { ...recap, listing_id: upserted!.id, recap_date: today, published: true },
-        { onConflict: "listing_id,recap_date" }
-      );
-    if (rErr) throw rErr;
-    recapsCreated++;
-  }
-  return { sellerId: sellerId!, agentId: agentId!, listingsCreated, recapsCreated };
-}
-
-// Auto-runs once at server boot so demo accounts and 3 sample listings
-// exist immediately without manual action. Logs and swallows errors so
-// a misconfigured Supabase environment never blocks server startup.
-let _autoSeedDone = false;
-export async function autoSeedSellerDashboard(): Promise<void> {
-  if (_autoSeedDone || !supabaseAdmin) return;
-  _autoSeedDone = true;
-  try {
-    const result = await runSellerDashboardSeed();
-    console.log(`[seller-dashboard] auto-seed ok: ${result.listingsCreated} listings, ${result.recapsCreated} recaps`);
-  } catch (e: any) {
-    console.warn("[seller-dashboard] auto-seed failed (non-fatal):", e?.message ?? e);
-  }
-}
-
 export async function registerRoutes(app: Express): Promise<Server> {
-  // ── Create seller (agent invites a seller) ────────────────────────
-  // Creates a seller auth user (random password) and triggers a password
-  // recovery email so they can set their own password on first sign-in.
-  app.post("/api/seller-dashboard/create-seller", async (req, res) => {
-    if (!supabaseAdmin) return res.status(503).json({ message: "Supabase admin not configured" });
-    try {
-      const auth = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-      if (!auth) return res.status(401).json({ message: "Sign in as an agent first." });
-      const { data: userRes } = await supabaseAdmin.auth.getUser(auth);
-      if (!userRes?.user?.id) return res.status(401).json({ message: "Invalid session." });
-      const { data: prof } = await supabaseAdmin
-        .from("profiles").select("agent").eq("id", userRes.user.id).maybeSingle();
-      if (!prof?.agent) return res.status(403).json({ message: "Agents only" });
-
-      const { name, email } = req.body ?? {};
-      if (!name || !email) return res.status(400).json({ message: "Name and email required." });
-      const normalizedEmail = String(email).toLowerCase().trim();
-
-      const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-        email: normalizedEmail,
-        email_confirm: true,
-        user_metadata: { name: String(name).trim() },
-        password: Math.random().toString(36).slice(2) + "Aa1!",
-      });
-      if (createErr) {
-        // If user already exists, still return success so the agent can link listings.
-        if (/already.*registered|exists/i.test(createErr.message)) {
-          return res.json({ ok: true, message: "Seller already exists — they can sign in with their existing password." });
-        }
-        throw createErr;
-      }
-
-      // Trigger a password recovery email so the seller can set their own password.
-      await supabaseAdmin.auth.resetPasswordForEmail(normalizedEmail);
-
-      res.json({
-        ok: true,
-        id: created.user!.id,
-        message: `Invited ${normalizedEmail}. They've been emailed a link to set their password.`,
-      });
-    } catch (e: any) {
-      console.error("[create-seller] failed:", e);
-      res.status(500).json({ message: e.message ?? "Create failed" });
-    }
-  });
-
-  // Run auto-seed once on first route registration (fire-and-forget).
-  void autoSeedSellerDashboard();
-
-  // ── Seller Dashboard demo seed ────────────────────────────────────
-  // Idempotent: creates a demo seller account + 3 sample listings + one
-  // published recap per listing. Safe to re-run. Requires the caller to
-  // be authenticated as an agent (Bearer token in Authorization header).
-  app.post("/api/seller-dashboard/seed", async (req, res) => {
-    if (!supabaseAdmin) {
-      return res.status(503).json({ message: "Supabase admin not configured" });
-    }
-    try {
-      // Verify caller is an agent via bearer token from the client session.
-      const auth = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-      if (!auth) return res.status(401).json({ message: "Sign in as an agent first." });
-      const { data: userRes, error: userErr } = await supabaseAdmin.auth.getUser(auth);
-      if (userErr || !userRes?.user?.id) return res.status(401).json({ message: "Invalid session." });
-      const { data: prof } = await supabaseAdmin
-        .from("profiles").select("agent").eq("id", userRes.user.id).maybeSingle();
-      if (!prof?.agent) return res.status(403).json({ message: "Agents only" });
-
-      const { sellerId, agentId, listingsCreated, recapsCreated } = await runSellerDashboardSeed();
-      return res.json({
-        ok: true,
-        message: `Seeded ${listingsCreated} listings (${recapsCreated} recaps). Demo seller: ${SELLER_DEMO.sellerEmail} / ${SELLER_DEMO.sellerPassword}. Demo agent: ${SELLER_DEMO.agentEmail} / ${SELLER_DEMO.agentPassword}.`,
-        seller: { email: SELLER_DEMO.sellerEmail, password: SELLER_DEMO.sellerPassword, id: sellerId },
-        agent: { email: SELLER_DEMO.agentEmail, password: SELLER_DEMO.agentPassword, id: agentId },
-      });
-    } catch (e: any) {
-      console.error("[seed] failed:", e);
-      return res.status(500).json({ message: e.message ?? "Seed failed" });
-    }
-  });
-
-
   // API routes
   
   // Get service categories
@@ -693,14 +432,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const html = await response.text();
 
-      // Find the "<term> Yr. <label>" heading on MND, then grab the first
-      // rate% within the next 1000 chars. termPrefix lets us pull either the
-      // 30-year or the 15-year fixed conventional rate from the same page.
-      function extractRate(text: string, label: string, termPrefix: "30 Yr." | "15 Yr." = "30 Yr."): number | null {
-        const anchor = `${termPrefix} ${label}`;
+      function extractRate(text: string, label: string): number | null {
+        // Find the "30 Yr. <label>" heading, then grab the first rate% within the next 1000 chars
+        const anchor = `30 Yr. ${label}`;
         const headIdx = text.indexOf(anchor);
         if (headIdx === -1) return null;
         const section = text.substring(headIdx, headIdx + 1000);
+        // Look for the <div class="rate"> block
         const rateDiv = section.indexOf('<div class="rate">');
         if (rateDiv === -1) return null;
         const after = section.substring(rateDiv, rateDiv + 80);
@@ -711,10 +449,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const rates = {
-        conventional:   extractRate(html, "Fixed")                ?? 6.82,
-        conventional15: extractRate(html, "Fixed", "15 Yr.")      ?? 6.02,
-        fha:            extractRate(html, "FHA")                  ?? 6.38,
-        va:             extractRate(html, "VA")                   ?? 6.25,
+        conventional: extractRate(html, "Fixed") ?? 6.82,
+        fha:          extractRate(html, "FHA")   ?? 6.38,
+        va:           extractRate(html, "VA")    ?? 6.25,
         source: "mortgagenewsdaily.com",
         lastUpdated: new Date().toISOString(),
       };
@@ -722,7 +459,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(rates);
     } catch (err) {
       console.error("Failed to fetch mortgage rates:", err);
-      res.json({ conventional: 6.82, conventional15: 6.02, fha: 6.38, va: 6.25, source: "fallback", lastUpdated: null });
+      res.json({ conventional: 6.82, fha: 6.38, va: 6.25, source: "fallback", lastUpdated: null });
     }
   });
 
@@ -1434,15 +1171,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const agentId   = FUB_AGENT_IDS[agentName] ?? 1;
 
     const phoneDigits = normalizePhoneDigits(params.phone);
-    // Lead alert header — appears as the FUB note subject AND the first
-    // line of the email body, so the assigned agent sees who and where at
-    // a glance. Falls back per spec when name or address is missing.
-    const leadName = `${params.firstName ?? ""} ${params.lastName ?? ""}`.trim() || "New Lead";
-    const leadAddress = (params.address ?? "").trim() || "Address not provided";
-    const leadAlertLine = `Lead Alert from ${leadName} / ${leadAddress}`;
     const messageParts = [
-      leadAlertLine,
-      ...(params.messageHeader ? [params.messageHeader] : []),
+      params.messageHeader || `Property: ${params.address || "address not provided"}`,
       `Agent: ${agentName}`,
     ];
     if (params.scenarioDetails) messageParts.push(params.scenarioDetails);
@@ -1795,19 +1525,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         inFlight = fetchZillowProperty(addressOrUrl);
         inFlightZillow.set(cacheKey, inFlight);
-        // Note: .finally() returns a NEW promise that re-throws any
-        // rejection of `inFlight`. We swallow that here with .catch(() => {})
-        // so it doesn't surface as an unhandled rejection and crash the
-        // process. The original `inFlight` is still awaited below and its
-        // rejection is handled by the surrounding try/catch.
-        inFlight
-          .finally(() => {
-            // Clear only if the slot still points at this same promise.
-            if (inFlightZillow.get(cacheKey) === inFlight) {
-              inFlightZillow.delete(cacheKey);
-            }
-          })
-          .catch(() => {});
+        inFlight.finally(() => {
+          // Clear only if the slot still points at this same promise.
+          if (inFlightZillow.get(cacheKey) === inFlight) {
+            inFlightZillow.delete(cacheKey);
+          }
+        });
       }
       property = await inFlight;
     } catch (e: any) {

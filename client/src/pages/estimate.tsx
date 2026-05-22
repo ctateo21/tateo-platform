@@ -60,7 +60,6 @@ import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/a
 import { useAuth } from "@/context/auth-context";
 import { apiRequest } from "@/lib/queryClient";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
-import { PropertyPhotoCarousel } from "@/components/property-photo-carousel";
 import {
   Dialog,
   DialogContent,
@@ -246,40 +245,9 @@ interface Inputs {
   hasRentalIncome: boolean | null;
   monthlyRentalIncome: number;
   rentalType: "annual" | "short-term" | null;
-  /** Amortization term in years. Only 15 or 30. The UI only exposes the
-   *  15-year choice for Conventional loans — every other loan type is
-   *  forced back to 30 by setLoanType. Drives calcPI termMonths (180 vs
-   *  360) and the base MND rate used (conventional15 vs conventional). */
-  loanTermYears: 15 | 30;
-  /** FHA-only Down Payment Assistance flag. When true, downPaymentPct is
-   *  forced to 0, a 3.5% DPA assistance amount is computed, and the
-   *  first-lien rate is bumped by dpaRateAdjustment(). Auto-forced to
-   *  false whenever loanType ≠ "fha" or creditScore < 600. */
-  usesDPA?: boolean;
-  /** Which DPA flavor the user picked. "repayable" adds a 10-yr second
-   *  lien at first-lien rate + 1.00%. "forgivable" is a silent second
-   *  with no monthly payment but a higher first-lien rate (and possibly
-   *  discount points added to cash-to-close). Null when usesDPA is off. */
-  dpaType?: "repayable" | "forgivable" | null;
-  /** Tracks whether the user has explicitly picked a loan type via the
-   *  loan-type picker (Page 3 or Page 4). When false, the credit-score
-   *  handler is free to auto-recommend via getRecommendedLoanType()
-   *  (e.g. flip to FHA when score < 720). When true, the user's choice
-   *  is preserved and credit-score changes will not re-route the loan
-   *  product. NOT persisted — intentionally resets on hydrate/refresh
-   *  so the recommendation rule can re-engage on a fresh session. */
-  loanTypeManuallySet?: boolean;
-  /** Primary property photo URL from the Zillow lookup. Populated by
-   *  `triggerZillowLookup` via `mergeZillowIntoInputs`, hydrated from
-   *  the saved scenario on mount, and mirrored to Supabase by the
-   *  auto-save effect. null = lookup ran but no photos found;
-   *  undefined = no lookup yet. */
-  primaryPhotoUrl?: string | null;
 }
 
-// FALLBACK_RATES.conventional15 is the Mortgage News Daily 15-year fixed
-// fallback; the live rate comes from /api/mortgage-rates → conventional15.
-const FALLBACK_RATES = { conventional: 6.82, conventional15: 6.02, fha: 6.17, va: 6.25, usda: 6.38, dscr: 6.82, bank_statement: 6.82 };
+const FALLBACK_RATES = { conventional: 6.82, fha: 6.17, va: 6.25, usda: 6.38, dscr: 6.82, bank_statement: 6.82 };
 
 interface PlaceMeta {
   placeId?: string;
@@ -325,11 +293,6 @@ interface Scenario {
    * the baseline — i.e., the user hasn't manually touched it.
    */
   baselineInputs?: Inputs;
-  /** Full deduped list of Zillow property photo URLs captured by the
-   *  most recent triggerZillowLookup. Transient (not persisted) — the
-   *  property_cache row holds the canonical array, and this is the
-   *  per-scenario in-memory copy that drives the step-4 carousel. */
-  propertyPhotos?: string[];
 }
 
 function makeDefaultInputs(price = 350000): Inputs {
@@ -343,68 +306,7 @@ function makeDefaultInputs(price = 350000): Inputs {
     impactWindows: false, roofAttachment: "toenails", swr: false,
     hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, monthlyRentalIncome: 0, rentalType: null,
     isVeteran: null, vaDisability: null, vaDisabilityRating100: null, vaLoanUse: null,
-    loanTermYears: 30,
-    usesDPA: false, dpaType: null,
-    loanTypeManuallySet: false,
-    primaryPhotoUrl: undefined,
   };
-}
-
-// Centralized loan-type recommendation. Keeps the credit-score-driven
-// auto-selection rule in one place so the same below-720→FHA behavior
-// applies regardless of which loan product is currently selected (the
-// previous gate `loanType === "conventional"` was too narrow and broke
-// the rule whenever the in-state loan was already FHA, VA, or USDA).
-//
-// Rules, applied in order:
-//   1. DSCR / Bank Statement are alt-doc products — never auto-replace.
-//   2. Non-primary occupancy: FHA/VA/USDA are owner-occupied-only, so
-//      force Conventional.
-//   3. Manual override wins — if the user explicitly picked a loan type
-//      via the picker, respect it.
-//   4. Score < 720 → FHA.
-//   5. Score ≥ 720 → Conventional.
-function getRecommendedLoanType(args: {
-  creditScore: number;
-  isVeteran: Inputs["isVeteran"];
-  existingLoanType: Inputs["loanType"];
-  userManuallySelectedLoanType: boolean;
-  occupancy: Inputs["occupancy"];
-}): Inputs["loanType"] {
-  const { creditScore, isVeteran, existingLoanType, userManuallySelectedLoanType, occupancy } = args;
-  // DSCR / Bank Statement are alt-doc products the user explicitly
-  // selects on investment scenarios — never auto-replaced.
-  if (existingLoanType === "dscr" || existingLoanType === "bank_statement") return existingLoanType;
-  // FHA/VA/USDA are owner-occupied only — non-primary forces Conventional.
-  if (occupancy !== "primary") return "conventional";
-  // Priority 1 (user spec): VA eligibility + primary residence beats every
-  // other rule, INCLUDING the below-720 FHA rule. Manual overrides do not
-  // block this either. The veteran flag is true/false/null — only an
-  // affirmative `true` triggers VA.
-  if (isVeteran === true) return "va";
-  // Priority 2 (user spec): credit score < 720 unconditionally routes to
-  // FHA on primary-residence loans for non-veterans. Manual overrides do
-  // NOT block this rule.
-  if (creditScore < 720) return "fha";
-  // Priority 3: score ≥ 720, not a veteran — a prior manual pick is
-  // respected; otherwise default to Conventional.
-  if (userManuallySelectedLoanType) return existingLoanType;
-  return "conventional";
-}
-
-// Returns the Mortgage News Daily base rate to use for a given loan type +
-// term. Only Conventional has a 15-year choice; every other product is
-// fixed-30. Centralized so the rate-sync useEffects, setLoanType,
-// setDownPayment, setCreditScore, and the UI term toggle all agree.
-function baseRateFor(
-  rates: { conventional: number; conventional15?: number; fha?: number; va?: number; usda?: number },
-  loanType: string,
-  termYears: 15 | 30,
-): number {
-  if (loanType === "conventional" && termYears === 15) {
-    return rates.conventional15 ?? rates.conventional;
-  }
-  return (rates as any)[loanType] ?? rates.conventional;
 }
 
 /**
@@ -456,54 +358,6 @@ function fhaCreditAdjustment(score: number): number {
   return 1.50;
 }
 
-// ─── FHA Down Payment Assistance (DPA) ──────────────────────────────────────
-// Two flavors, FHA-only, never available below 600 FICO. Both keep FHA's
-// UFMIP (1.75%) and monthly MIP (0.55%) untouched — DPA only changes the
-// first-lien interest rate (and, for repayable, adds a 10-yr / 120-mo
-// fully-amortizing second lien at first-lien rate + 1.00%).
-const DPA_PCT = 0.035;                         // 3.5% of purchase price
-const DPA_SECOND_LIEN_TERM_MONTHS = 120;       // 10 years
-const DPA_SECOND_LIEN_RATE_MARKUP = 1.00;      // first-lien rate + 1.00%
-const DPA_MIN_CREDIT_SCORE = 600;
-
-// Returns the first-lien rate add-on (in percentage points) for the
-// REPAYABLE DPA program by credit score, or null when DPA is not
-// available at this score.
-function dpaRepayableRateAdj(score: number): number | null {
-  if (score < DPA_MIN_CREDIT_SCORE) return null;
-  if (score >= 680) return 0.65;
-  if (score >= 660) return 0.82;
-  if (score >= 640) return 0.95;
-  if (score >= 620) return 1.10;
-  return 1.32;                                 // 600–619
-}
-
-// Returns { rateAdj, points } for the FORGIVABLE / silent-second DPA
-// program by credit score, or null when DPA is not available.
-// `rateAdj` is always 1.53; `points` is added to cash-to-close at close.
-function dpaForgivableAdj(score: number): { rateAdj: number; points: number } | null {
-  if (score < DPA_MIN_CREDIT_SCORE) return null;
-  if (score >= 680) return { rateAdj: 1.53, points: 0 };
-  if (score >= 640) return { rateAdj: 1.53, points: 1.00 };
-  return { rateAdj: 1.53, points: 1.50 };      // 600–639
-}
-
-// Convenience: returns the first-lien rate add-on (in percentage points)
-// to layer ON TOP of fhaCreditAdjustment. Returns 0 when DPA is off,
-// non-FHA, unavailable, or when fields aren't set. Centralized so every
-// rate-setter (setLoanType, setCreditScore, setOccupancy, setDownPayment,
-// setLoanTermYears, setDPA) computes the same number.
-function dpaRateAdjustment(
-  loanType: string,
-  usesDPA: boolean | undefined,
-  dpaType: "repayable" | "forgivable" | null | undefined,
-  score: number,
-): number {
-  if (loanType !== "fha" || !usesDPA || !dpaType) return 0;
-  if (dpaType === "repayable") return dpaRepayableRateAdj(score) ?? 0;
-  return dpaForgivableAdj(score)?.rateAdj ?? 0;
-}
-
 function adjustedRate(base: number, score: number): number {
   return Math.round((base + creditAdjustment(score)) * 1000) / 1000;
 }
@@ -525,18 +379,9 @@ function occupancyRateAdj(occupancy: "primary" | "secondary" | "investment", dow
   return 0;
 }
 
-function fullRate(
-  base: number,
-  score: number,
-  occupancy: "primary" | "secondary" | "investment",
-  downPct: number,
-  loanType?: string,
-  usesDPA?: boolean,
-  dpaType?: "repayable" | "forgivable" | null,
-): number {
+function fullRate(base: number, score: number, occupancy: "primary" | "secondary" | "investment", downPct: number, loanType?: string): number {
   const adj = (loanType === "fha" || loanType === "va") ? fhaCreditAdjustment(score) : creditAdjustment(score);
-  const dpaAdj = dpaRateAdjustment(loanType ?? "", usesDPA, dpaType, score);
-  return Math.round((base + adj + occupancyRateAdj(occupancy, downPct) + dpaAdj) * 1000) / 1000;
+  return Math.round((base + adj + occupancyRateAdj(occupancy, downPct)) * 1000) / 1000;
 }
 
 // ─── SliderInput component ───────────────────────────────────────────────────
@@ -752,21 +597,6 @@ export default function Estimate() {
     triggerZillowLookup(active.id, active.address);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Rehydrate the transient propertyPhotos[] for any scenario that
-  // lacks them — e.g. saved dashboard properties where only the
-  // primaryPhotoUrl is persisted on the row. triggerZillowLookup is
-  // idempotent via zillowFetchedKeysRef and hits property_cache first,
-  // so this never causes a re-scrape; it just unpacks the cached gallery
-  // back into in-memory state so the step-4 carousel has all photos.
-  useEffect(() => {
-    for (const s of scenarios) {
-      if (!s.address || s.address === "Unknown Address") continue;
-      if (Array.isArray(s.propertyPhotos) && s.propertyPhotos.length > 0) continue;
-      triggerZillowLookup(s.id, s.address);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenarios.length]);
   const [showAddressPrompt, setShowAddressPrompt] = useState(false);
   const [showZillowLookup, setShowZillowLookup] = useState(false);
 
@@ -827,7 +657,6 @@ export default function Estimate() {
     zPrice: number | null,
     zHoa: number | null,
     priceSource: PurchasePriceSource | null = null,
-    zPhotoUrl: string | null = null,
   ): Inputs {
     const next: Inputs = { ...current };
     // Treat the field as user-edited if the source is "user" (explicit)
@@ -842,10 +671,6 @@ export default function Estimate() {
     if (zHoa != null && (!baseline || current.hoaMonthly === baseline.hoaMonthly)) {
       next.hoaMonthly = zHoa;
     }
-    // Always reflect the latest Zillow photo result — including null
-    // (lookup ran, no photos). The user can't manually edit this field,
-    // so there's no "user-edited" guard to honor.
-    next.primaryPhotoUrl = zPhotoUrl;
     return next;
   }
 
@@ -892,40 +717,6 @@ export default function Estimate() {
         }
         const zPrice = p.purchasePrice ?? p.listingPrice ?? p.zestimate ?? null;
         const zHoa = p.hoaMonthly ?? null;
-        // Prefer the explicit primary URL from the new normalizer; fall
-        // back to the legacy `photos[0]` for cache entries that pre-date
-        // the field. null = lookup succeeded but no photos found.
-        const zPhotoUrl: string | null =
-          (typeof p.primaryPhotoUrl === "string" && p.primaryPhotoUrl.length > 0
-            ? p.primaryPhotoUrl
-            : null)
-          ?? (Array.isArray(p.photos) && typeof p.photos[0] === "string" && p.photos[0].length > 0
-            ? p.photos[0]
-            : null);
-        // Full photo gallery for the step-4 carousel. Prefer the
-        // normalized propertyPhotos[] objects; fall back to the
-        // back-compat photos[] string array for cached entries that
-        // pre-date the propertyPhotos field. Deduped + invalid URLs
-        // filtered so the carousel never has to defensively re-clean.
-        const zPhotosAll: string[] = (() => {
-          const out: string[] = [];
-          const seen = new Set<string>();
-          const add = (u: unknown) => {
-            if (typeof u !== "string") return;
-            const trimmed = u.trim();
-            if (!/^https?:\/\//i.test(trimmed)) return;
-            if (seen.has(trimmed)) return;
-            seen.add(trimmed);
-            out.push(trimmed);
-          };
-          if (Array.isArray(p.propertyPhotos)) {
-            for (const ph of p.propertyPhotos) add(ph?.url);
-          }
-          if (out.length === 0 && Array.isArray(p.photos)) {
-            for (const u of p.photos) add(u);
-          }
-          return out;
-        })();
         const priceSource = inferPriceSource(p, zPrice, fromCache);
         const nextStatus = fromCache ? "loaded_from_cache" : "loaded_from_zillow";
         // Resolve active-ness from the ref so a tab switch mid-flight
@@ -942,16 +733,9 @@ export default function Estimate() {
             // (typically stale) — the live `inputs` state is the source of
             // truth and is merged separately below.
             const baseSnapshot = s.savedInputs ?? s.baselineInputs ?? null;
-            // Always attach the gallery + status; the savedInputs merge
-            // is the only step gated on having a baseSnapshot. This way
-            // a freshly opened dashboard scenario (savedInputs=null at
-            // mount time) still gets its propertyPhotos[] rehydrated
-            // from the cached lookup so the Step 4 carousel works.
-            if (!baseSnapshot) {
-              return { ...s, zillowStatus: nextStatus, propertyPhotos: zPhotosAll };
-            }
-            const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa, priceSource, zPhotoUrl);
-            return { ...s, savedInputs: merged, zillowStatus: nextStatus, propertyPhotos: zPhotosAll };
+            if (!baseSnapshot) return { ...s, zillowStatus: nextStatus };
+            const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa, priceSource);
+            return { ...s, savedInputs: merged, zillowStatus: nextStatus };
           })
         );
 
@@ -960,7 +744,7 @@ export default function Estimate() {
         // depend on React state timing or nest setter side effects.
         if (isActive) {
           const baseline = baselineByIdRef.current[scenarioId];
-          setInputs(curr => mergeZillowIntoInputs(curr, baseline, zPrice, zHoa, priceSource, zPhotoUrl));
+          setInputs(curr => mergeZillowIntoInputs(curr, baseline, zPrice, zHoa, priceSource));
           if (zPrice != null) {
             toast({
               title: fromCache ? "Property data loaded from saved records" : "Zillow data applied",
@@ -1448,14 +1232,13 @@ export default function Estimate() {
     row("Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`);
     row("Loan Amount", fmt(calc.loanAmount), inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}` : `LTV ${fmtPct(calc.ltv)}`);
     row("Estimated Closing Costs (~3%)", fmt(calc.closingCosts));
-    if (calc.dpaDiscountPointsAmt > 0) row("DPA Discount Points", `+ ${fmt(calc.dpaDiscountPointsAmt)}`, `${calc.dpaDiscountPointsPct.toFixed(2)} pts × loan amount`);
     if (inputs.sellerConcessions > 0) row("Seller Concessions", `− ${fmt(inputs.sellerConcessions)}`);
     row("Estimated Cash to Close", fmt(calc.cashToClose));
 
     // ── Mortgage ──────────────────────────────────────────────────────────
     checkPage(20);
     sectionHeader("Monthly Mortgage Breakdown");
-    row("Principal & Interest", fmt(calc.pi), `${inputs.interestRate.toFixed(3)}% / ${inputs.loanTermYears} yr`);
+    row("Principal & Interest", fmt(calc.pi), `${inputs.interestRate.toFixed(3)}% / 30 yr`);
     row("Property Taxes", `${fmt(calc.monthlyTax)}/mo`, `${fmt(inputs.annualTaxes)}/yr`);
     row("Homeowners Insurance", `${fmt(calc.monthlyHOIns)}/mo`);
     row("Flood Insurance", `${fmt(calc.monthlyFlood)}/mo`);
@@ -1602,7 +1385,7 @@ export default function Estimate() {
   const defaultPrice = 350000;
 
   // Live mortgage rates from mortgagenewsdaily.com
-  const { data: liveRates } = useQuery<{ conventional: number; conventional15?: number; fha: number; va: number; usda?: number; source: string; lastUpdated: string | null }>({
+  const { data: liveRates } = useQuery<{ conventional: number; fha: number; va: number; usda?: number; source: string; lastUpdated: string | null }>({
     queryKey: ["/api/mortgage-rates"],
     staleTime: 60 * 60 * 1000,
   });
@@ -1663,49 +1446,12 @@ export default function Estimate() {
     const loanType = validLoanTypes.includes(saved.loanType as any)
       ? (saved.loanType as Inputs["loanType"])
       : base.loanType;
-    // DPA hydration: only honor saved usesDPA when the saved loan is FHA
-    // (strict pairing — matches the auto-strip invariants in the setters).
-    // Saved dpaType is validated against the two known flavors.
-    const savedUsesDPA = loanType === "fha" && saved.usesDPA === true;
-    const savedDpaType = savedUsesDPA && (saved.dpaType === "repayable" || saved.dpaType === "forgivable")
-      ? saved.dpaType
-      : null;
     return {
       ...base,
       purchasePrice: price,
       downPaymentPct: saved.downPaymentPct ?? base.downPaymentPct,
       interestRate: saved.interestRate ?? base.interestRate,
       loanType,
-      // 15-year is only valid when the saved loan type is Conventional.
-      // Any other product (FHA/VA/USDA/DSCR/Bank Statement) snaps back
-      // to 30 even if a stale 15 value exists.
-      loanTermYears: loanType === "conventional" && saved.loanTermYears === 15 ? 15 : 30,
-      usesDPA: savedUsesDPA && savedDpaType !== null,
-      dpaType: savedDpaType,
-      // Intentionally NOT hydrated from saved scenario: the manual-
-      // override flag is session-only. On every fresh hydrate the
-      // credit-score handler is free to re-recommend (e.g. below-720
-      // → FHA), even if the saved loanType was something else. The
-      // saved loanType still seeds initial state via `loanType` above;
-      // it only gets overridden once the user actually moves the
-      // credit-score slider.
-      loanTypeManuallySet: false,
-      // Hydrate seller concessions from the saved scenario so the
-      // slider value survives refresh/logout/login. The runtime clamp
-      // effect (~line 1608+) re-applies the program-rule max if the
-      // saved value exceeds the new cap (e.g. after the user changes
-      // loan type or down payment).
-      sellerConcessions: typeof saved.sellerConcessions === "number"
-        ? Math.max(0, saved.sellerConcessions)
-        : base.sellerConcessions,
-      // Hydrate the saved Zillow photo so the dashboard thumbnail
-      // survives refresh/logout/login without re-hitting Apify.
-      // `undefined` (no lookup yet) preserves the default and lets
-      // triggerZillowLookup populate it when the scrape completes.
-      primaryPhotoUrl:
-        typeof saved.primaryPhotoUrl === "string" || saved.primaryPhotoUrl === null
-          ? saved.primaryPhotoUrl
-          : base.primaryPhotoUrl,
       annualTaxes: Math.round(price * 0.015),
       annualHOIns: Math.round(price * 0.0075),
     };
@@ -1773,7 +1519,7 @@ export default function Estimate() {
   useEffect(() => {
     if (liveRates && !ratesLoadedRef.current) {
       ratesLoadedRef.current = true;
-      setInputs((p) => ({ ...p, interestRate: fullRate(baseRateFor(liveRates, p.loanType, p.loanTermYears), p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.usesDPA, p.dpaType) }));
+      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType) }));
     }
   }, [liveRates]);
 
@@ -1799,68 +1545,14 @@ export default function Estimate() {
 
   function setLoanType(lt: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement") {
     setInputs((p) => {
-      // DPA is FHA-only — switching to any other loan type clears it.
-      const newUsesDPA = lt === "fha" ? !!p.usesDPA : false;
-      const newDpaType = lt === "fha" ? p.dpaType ?? null : null;
       const newMin = getMinDown(lt, p.hasMortgage, p.occupancy);
-      const newDown = newUsesDPA ? 0 : Math.max(p.downPaymentPct, newMin);
-      // 15-year amortization is Conventional-only. Switching to any other
-      // loan type snaps the term back to 30 so we never end up pulling
-      // the 15-year MND rate for an FHA/VA/etc. product.
-      const newTermYears: 15 | 30 = lt === "conventional" ? p.loanTermYears : 30;
-      const altBase = (lt === "dscr" || lt === "bank_statement") ? rates.conventional : baseRateFor(rates, lt, newTermYears);
+      const newDown = Math.max(p.downPaymentPct, newMin);
+      const baseRate = (lt === "dscr" || lt === "bank_statement") ? rates.conventional : ((rates as any)[lt] ?? rates.conventional);
       return {
         ...p,
         loanType: lt,
-        loanTermYears: newTermYears,
-        usesDPA: newUsesDPA,
-        dpaType: newDpaType,
-        interestRate: fullRate(altBase, p.creditScore, p.occupancy, newDown, lt, newUsesDPA, newDpaType),
+        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, lt),
         downPaymentPct: newDown,
-        // Picking a loan type from the picker (Page 3 or Page 4) is a
-        // manual override — locks in the user's choice so subsequent
-        // credit-score changes don't auto-re-route via
-        // getRecommendedLoanType().
-        loanTypeManuallySet: true,
-      };
-    });
-  }
-
-  // Conventional-only 15- vs 30-year amortization toggle. Recomputes the
-  // base rate from MND (conventional15 vs conventional) and re-applies all
-  // existing Conventional rate adjustments (credit, occupancy, LTV) via
-  // fullRate. P&I, DTI, cash-to-close, qualification all derive from
-  // calc.pi inside the useMemo, which already keys off loanTermYears for
-  // termMonths.
-  function setLoanTermYears(years: 15 | 30) {
-    setInputs((p) => {
-      if (p.loanType !== "conventional") return p;
-      return {
-        ...p,
-        loanTermYears: years,
-        // Conventional cannot have DPA (FHA-only), so pass false/null explicitly.
-        interestRate: fullRate(baseRateFor(rates, p.loanType, years), p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, false, null),
-      };
-    });
-  }
-
-  // FHA-only Down Payment Assistance toggle. Setting uses=true forces
-  // downPaymentPct to 0 and records the DPA flavor; uses=false restores
-  // the FHA 3.5% minimum. Re-runs fullRate with the new DPA rate add-on.
-  // No-op when loanType ≠ "fha" or when score < 600 (UI also disables).
-  function setDPA(uses: boolean, type: "repayable" | "forgivable" | null = null) {
-    setInputs((p) => {
-      if (p.loanType !== "fha") return p;
-      if (uses && p.creditScore < DPA_MIN_CREDIT_SCORE) return p;
-      const newDpaType: "repayable" | "forgivable" | null = uses ? (type ?? p.dpaType ?? "repayable") : null;
-      const newDown = uses ? 0 : 3.5;
-      const baseRate = baseRateFor(rates, p.loanType, p.loanTermYears);
-      return {
-        ...p,
-        usesDPA: uses,
-        dpaType: newDpaType,
-        downPaymentPct: newDown,
-        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, p.loanType, uses, newDpaType),
       };
     });
   }
@@ -1871,22 +1563,14 @@ export default function Estimate() {
       const forcedLoan = occ === "primary" ? p.loanType
         : occ === "investment" && isAltInvestment ? p.loanType
         : "conventional";
-      // DPA only survives when the resulting loan stays FHA (i.e. primary residence).
-      const newUsesDPA = forcedLoan === "fha" ? !!p.usesDPA : false;
-      const newDpaType = forcedLoan === "fha" ? p.dpaType ?? null : null;
       const newMin = getMinDown(forcedLoan, p.hasMortgage, occ);
-      const newDown = newUsesDPA ? 0 : Math.max(p.downPaymentPct, newMin);
-      // 15-year amortization survives only when the resulting loan stays Conventional.
-      const newTermYears: 15 | 30 = forcedLoan === "conventional" ? p.loanTermYears : 30;
-      const baseRate = (forcedLoan === "dscr" || forcedLoan === "bank_statement") ? rates.conventional : baseRateFor(rates, forcedLoan, newTermYears);
+      const newDown = Math.max(p.downPaymentPct, newMin);
+      const baseRate = (forcedLoan === "dscr" || forcedLoan === "bank_statement") ? rates.conventional : ((rates as any)[forcedLoan] ?? rates.conventional);
       return {
         ...p,
         occupancy: occ,
         loanType: forcedLoan,
-        loanTermYears: newTermYears,
-        usesDPA: newUsesDPA,
-        dpaType: newDpaType,
-        interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan, newUsesDPA, newDpaType),
+        interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan),
         downPaymentPct: newDown,
         rentalType: occ === "investment" ? p.rentalType : null,
         annualTaxes: computePropertyTax(address, p.purchasePrice, occ, p.vaDisabilityRating100),
@@ -1896,128 +1580,31 @@ export default function Estimate() {
 
   function setCreditScore(score: number) {
     setInputs((p) => {
-      // Temporary diagnostic so we can confirm the handler actually
-      // fires and observe the before/after loan type on every change.
-      // Tagged so it's easy to grep / strip later.
-      if (typeof window !== "undefined") {
-        console.log("[FHA-RULE] setCreditScore", {
-          prevScore: p.creditScore,
-          newScore: score,
-          prevLoanType: p.loanType,
-          occupancy: p.occupancy,
-          loanTypeManuallySet: p.loanTypeManuallySet,
-        });
-      }
       const isAltLoan = p.loanType === "dscr" || p.loanType === "bank_statement";
-      // Loan-type recommendation runs through the centralized helper so
-      // the priority order (VA → FHA<720 → manual override → Conventional)
-      // is applied consistently regardless of the *current* loan type.
-      const autoLoanType = getRecommendedLoanType({
-        creditScore: score,
-        isVeteran: p.isVeteran,
-        existingLoanType: p.loanType,
-        userManuallySelectedLoanType: !!p.loanTypeManuallySet,
-        occupancy: p.occupancy,
-      });
-      const flippedLoanType = autoLoanType !== p.loanType;
-      const flippedToFhaFromOther = autoLoanType === "fha" && p.loanType !== "fha";
-      const newTermYears: 15 | 30 = autoLoanType === "conventional" ? p.loanTermYears : 30;
-      // DPA stays only when the resulting loan stays FHA AND the new
-      // score is still ≥ 600. If we just auto-flipped *into* FHA (or VA,
-      // or anything else) from a different product, reset DPA — DPA is
-      // FHA-only and the user has to opt in again via the picker.
-      const dpaKept = autoLoanType === "fha"
-        && !flippedLoanType
-        && !!p.usesDPA
-        && score >= DPA_MIN_CREDIT_SCORE;
-      const newUsesDPA = dpaKept;
-      const newDpaType = dpaKept ? p.dpaType ?? null : null;
-      const dpaWasStripped = !!p.usesDPA && !dpaKept;
-      const productMin = getMinDown(autoLoanType, p.hasMortgage, p.occupancy);
-      // Down-payment rules on auto-flip:
-      //   • Into FHA (3.5% standard) → productMin = 3.5
-      //   • Into VA  (0% standard, 0% funding fee waived for disabled vets)
-      //     → productMin = 0
-      //   • Into Conventional → productMin (3% no-mortgage / 5% w-mortgage)
-      // getMinDown already encodes per-product floors, so on any flip we
-      // simply reset to the product min. Off-flip paths preserve the
-      // user's existing down payment.
-      const newDown = newUsesDPA ? 0
-        : flippedLoanType ? productMin
-        : dpaWasStripped ? Math.max(p.downPaymentPct, productMin)
-        : p.downPaymentPct;
-      const baseRate = isAltLoan ? rates.conventional : baseRateFor(rates, autoLoanType, newTermYears);
+      const autoLoanType =
+        isAltLoan ? p.loanType :
+        p.occupancy !== "primary" ? "conventional" :
+        score < 720 && p.loanType === "conventional" ? "fha" :
+        score >= 720 && p.loanType === "fha" ? "conventional" :
+        p.loanType;
+      const baseRate = isAltLoan ? rates.conventional : ((rates as any)[autoLoanType] ?? rates.conventional);
       return {
         ...p,
         creditScore: score,
         loanType: autoLoanType,
-        loanTermYears: newTermYears,
-        usesDPA: newUsesDPA,
-        dpaType: newDpaType,
-        downPaymentPct: newDown,
-        interestRate: fullRate(baseRate, score, p.occupancy, newDown, autoLoanType, newUsesDPA, newDpaType),
+        interestRate: fullRate(baseRate, score, p.occupancy, p.downPaymentPct, autoLoanType),
       };
     });
   }
 
-  // ─── Safety-net invariant: priority-ordered loan-type recommendation ──
-  // Per user spec, the recommendation must follow priority:
-  //   1. Veteran + primary residence  → VA   (beats every other rule)
-  //   2. Score < 720 + primary        → FHA  (beats manual override)
-  //   3. Score ≥ 720                  → existing logic (Conventional or
-  //                                      manual pick)
-  // This effect enforces both priority-1 and priority-2 invariants in
-  // case any other code path (saved-scenario hydrate, scenario tab
-  // switch via switchScenario/removeScenario, scenario carryover at
-  // line ~1171, etc.) leaves the state in an inconsistent combination.
-  // It re-routes through setCreditScore so all side-effects
-  // (down-payment reset, DPA strip, rate recalc) stay consistent with
-  // the picker path. Excludes DSCR/Bank-Statement (alt-doc products,
-  // never auto-replaced) and non-primary occupancy (FHA/VA/USDA are
-  // owner-occupied only — those are already forced to Conventional
-  // by getRecommendedLoanType).
-  useEffect(() => {
-    if (inputs.occupancy !== "primary") return;
-    if (inputs.loanType === "dscr" || inputs.loanType === "bank_statement") return;
-    // Priority 1 — veteran + primary ⇒ VA
-    if (inputs.isVeteran === true && inputs.loanType !== "va") {
-      if (typeof window !== "undefined") {
-        console.log("[FHA-RULE] safety-net VA priority firing", {
-          score: inputs.creditScore,
-          loanType: inputs.loanType,
-          isVeteran: inputs.isVeteran,
-          occupancy: inputs.occupancy,
-        });
-      }
-      setCreditScore(inputs.creditScore);
-      return;
-    }
-    // Priority 2 — non-veteran + score<720 + primary ⇒ FHA
-    if (
-      inputs.isVeteran !== true
-      && inputs.creditScore < 720
-      && inputs.loanType !== "fha"
-    ) {
-      if (typeof window !== "undefined") {
-        console.log("[FHA-RULE] safety-net FHA<720 firing", {
-          score: inputs.creditScore,
-          loanType: inputs.loanType,
-          occupancy: inputs.occupancy,
-        });
-      }
-      setCreditScore(inputs.creditScore);
-    }
-  }, [inputs.creditScore, inputs.loanType, inputs.occupancy, inputs.isVeteran]);
-
   function setDownPayment(pct: number) {
     setInputs((p) => {
-      // When DPA is on, the floor is 0 (assistance covers the down payment).
-      const minDown = p.usesDPA && p.loanType === "fha" ? 0 : getMinDown(p.loanType, p.hasMortgage, p.occupancy);
+      const minDown = getMinDown(p.loanType, p.hasMortgage, p.occupancy);
       const newDown = Math.max(pct, minDown);
       return {
         ...p,
         downPaymentPct: newDown,
-        interestRate: fullRate(baseRateFor(rates, p.loanType, p.loanTermYears), p.creditScore, p.occupancy, newDown, p.loanType, p.usesDPA, p.dpaType),
+        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown, p.loanType),
       };
     });
   }
@@ -2029,69 +1616,33 @@ export default function Estimate() {
   // ─── Calculations ──────────────────────────────────────────────────────────
 
   const calc = useMemo(() => {
-    const { purchasePrice, downPaymentPct, loanType, loanTermYears, creditScore, interestRate,
+    const { purchasePrice, downPaymentPct, loanType, creditScore, interestRate,
       annualTaxes, hoaMonthly, cddAnnual, annualHOIns, annualFloodIns,
       monthlyDebts, monthlyIncome, monthlyRentalIncome, reserves, impactWindows, roofAttachment, swr,
-      vaDisability, vaLoanUse, usesDPA, dpaType } = inputs;
+      vaDisability, vaLoanUse } = inputs;
 
-    // FHA DPA invariant: UFMIP and monthly MIP must be UNCHANGED by DPA.
-    // The DPA second lien (repayable) or silent second (forgivable) covers
-    // the 3.5% standard FHA down-payment contribution, so the FHA first-lien
-    // basis stays at 96.5% LTV regardless of `downPaymentPct` (which is 0
-    // when DPA is on — that 0 reflects the borrower's cash contribution).
-    const dpaActiveForBasis = loanType === "fha" && !!usesDPA && !!dpaType && creditScore >= DPA_MIN_CREDIT_SCORE;
     const downPaymentAmt = purchasePrice * (downPaymentPct / 100);
-    const baseLoanAmount = dpaActiveForBasis
-      ? purchasePrice * 0.965               // standard FHA basis preserved
-      : purchasePrice - downPaymentAmt;
+    const baseLoanAmount = purchasePrice - downPaymentAmt;
     const fhaUFMIP = loanType === "fha" ? Math.round(baseLoanAmount * 0.0175 * 100) / 100 : 0;
     const vaFundingFeeAmt = loanType === "va" ? calcVAFundingFeeAmt(baseLoanAmount, vaDisability, vaLoanUse) : 0;
     const loanAmount = baseLoanAmount + fhaUFMIP + vaFundingFeeAmt;
     const rate = interestRate / 100;
     const ltv = baseLoanAmount / purchasePrice;
 
-    // 15-year Conventional uses 180-month amortization; everything else
-    // stays on the existing 360-month default inside calcPI.
-    const termMonths = loanType === "conventional" && loanTermYears === 15 ? 180 : 360;
-    const pi = calcPI(loanAmount, rate, termMonths);
+    const pi = calcPI(loanAmount, rate);
     const monthlyTax = annualTaxes / 12;
     const monthlyHOIns = annualHOIns / 12;
     const monthlyFlood = annualFloodIns / 12;
     const monthlyCDD = cddAnnual / 12;
 
     const pmi = loanType === "conventional" ? calcConventionalPMI(baseLoanAmount, purchasePrice, creditScore) : 0;
-    // FHA UFMIP + monthly MIP are intentionally unchanged by DPA; the spec
-    // explicitly preserves both. Only the first-lien rate (already baked
-    // into `interestRate` via fullRate) and the optional repayable second
-    // lien / forgivable discount points are DPA-driven.
     const mip = loanType === "fha" ? calcFHAMIP(loanAmount) : 0;
     const mortgageInsurance = pmi + mip;
 
-    // ── FHA Down Payment Assistance derived fields ─────────────────────
-    // dpaActive guards everything: must be FHA, user opted in, score ≥
-    // 600 (matches setDPA's no-op guard + setCreditScore's auto-strip).
-    const dpaActive = loanType === "fha" && !!usesDPA && !!dpaType && creditScore >= DPA_MIN_CREDIT_SCORE;
-    const dpaAmount = dpaActive ? Math.round(purchasePrice * DPA_PCT) : 0;
-    const dpaSecondLienRate = dpaActive && dpaType === "repayable" ? interestRate + DPA_SECOND_LIEN_RATE_MARKUP : 0;
-    const dpaSecondLienPI = dpaActive && dpaType === "repayable"
-      ? calcPI(dpaAmount, dpaSecondLienRate / 100, DPA_SECOND_LIEN_TERM_MONTHS)
-      : 0;
-    const dpaDiscountPointsPct = dpaActive && dpaType === "forgivable"
-      ? (dpaForgivableAdj(creditScore)?.points ?? 0)
-      : 0;
-    const dpaDiscountPointsAmt = dpaDiscountPointsPct > 0
-      ? Math.round(loanAmount * (dpaDiscountPointsPct / 100))
-      : 0;
-
-    // Total monthly payment includes the repayable DPA second-lien P&I
-    // (forgivable has no monthly payment). DTI flows through this.
-    const totalHousing = pi + monthlyTax + monthlyHOIns + monthlyFlood + hoaMonthly + monthlyCDD + mortgageInsurance + dpaSecondLienPI;
+    const totalHousing = pi + monthlyTax + monthlyHOIns + monthlyFlood + hoaMonthly + monthlyCDD + mortgageInsurance;
     const closingCosts = Math.round(purchasePrice * 0.03);
     const sellerConcessions = inputs.sellerConcessions ?? 0;
-    // DPA covers the down payment when active (downPaymentPct is already
-    // 0 in that case, so downPaymentAmt is 0). Forgivable adds discount
-    // points to cash-to-close; repayable does not.
-    const cashToClose = Math.round(downPaymentAmt + closingCosts - sellerConcessions + dpaDiscountPointsAmt);
+    const cashToClose = Math.round(downPaymentAmt + closingCosts - sellerConcessions);
 
     // Rental income: lenders allow 75% of gross rental income to count toward qualifying income
     const rentalIncomeQualifying = Math.round((monthlyRentalIncome ?? 0) * 0.75);
@@ -2144,52 +1695,8 @@ export default function Estimate() {
       closingCosts, cashToClose, housingDTI, dti, maxHousingDti, maxTotalDti, maxDti, requiredIncome, requiredReserves, availableReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
       rentalIncomeQualifying, qualifyingIncome,
-      dpaActive, dpaAmount, dpaSecondLienRate, dpaSecondLienPI, dpaDiscountPointsPct, dpaDiscountPointsAmt,
     };
   }, [inputs]);
-
-  // IMMEDIATE persistence — mirrors the Refinance tab's `updateLoans` pattern
-  // (refinance.tsx:101-107) which fires `saveTrackedLoans` synchronously on
-  // every add. The Purchase flow previously relied SOLELY on the 800ms
-  // debounced effect below; if the user added a property and navigated away
-  // within 800ms, the cleanup `clearTimeout(handle)` cancelled the pending
-  // write and the property never reached Supabase. This effect closes that
-  // gap by ensuring every new address has a dashboard row the instant it
-  // becomes the active address — the debounced effect below then handles
-  // subsequent value updates (price, P&I, DTI, etc.) in place.
-  //
-  // Deps intentionally exclude `inputs`/`calc` so this fires ONCE per new
-  // address, not on every edit. The debounced effect owns updates.
-  useEffect(() => {
-    if (!isAuthenticated) return;
-    if (!address || address === "Unknown Address") return;
-    const existing = getPurchaseScenarios();
-    const key = address.trim().toLowerCase();
-    if (existing.some(s => s.address.trim().toLowerCase() === key)) return;
-    savePurchaseScenarios([
-      ...existing,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        address,
-        savedAt: new Date().toISOString(),
-        price: inputs.purchasePrice,
-        monthlyPayment: Math.round(calc.totalHousing),
-        cashToClose: Math.round(calc.cashToClose),
-        dti: calc.dti,
-        qualifies: calc.qualifies,
-        downPaymentPct: inputs.downPaymentPct,
-        interestRate: inputs.interestRate,
-        loanType: inputs.loanType,
-        occupancy: inputs.occupancy,
-        sellerConcessions: inputs.sellerConcessions,
-        // Capture whatever the Zillow lookup has populated so far. The
-        // debounced auto-save below will overwrite this once the scrape
-        // completes if it landed after this immediate-add fired.
-        primaryPhotoUrl: inputs.primaryPhotoUrl ?? null,
-      },
-    ]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, address]);
 
   // Auto-save / update this estimate on the user's dashboard when they're logged in.
   // Debounced so rapid input changes don't thrash storage. Status is written
@@ -2223,14 +1730,6 @@ export default function Estimate() {
           downPaymentPct: inputs.downPaymentPct,
           interestRate: inputs.interestRate,
           loanType: inputs.loanType,
-          occupancy: inputs.occupancy,
-          loanTermYears: inputs.loanTermYears,
-          usesDPA: !!inputs.usesDPA,
-          dpaType: inputs.dpaType ?? null,
-          sellerConcessions: inputs.sellerConcessions,
-          // Mirror the latest Zillow photo onto the saved scenario so
-          // dashboard cards render the thumbnail without re-scraping.
-          primaryPhotoUrl: inputs.primaryPhotoUrl ?? null,
         };
         if (idx >= 0) {
           // Only write if something actually changed (avoid noisy storage writes)
@@ -2243,12 +1742,6 @@ export default function Estimate() {
             && cur.downPaymentPct === next.downPaymentPct
             && cur.interestRate === next.interestRate
             && cur.loanType === next.loanType
-            && cur.occupancy === next.occupancy
-            && (cur.loanTermYears ?? 30) === next.loanTermYears
-            && (!!cur.usesDPA) === next.usesDPA
-            && (cur.dpaType ?? null) === next.dpaType
-            && (cur.sellerConcessions ?? 0) === (next.sellerConcessions ?? 0)
-            && (cur.primaryPhotoUrl ?? null) === (next.primaryPhotoUrl ?? null)
             && cur.address === address;
           if (!same) {
             const updated = [...existing];
@@ -2312,11 +1805,6 @@ export default function Estimate() {
   }, [
     isAuthenticated, address,
     inputs.purchasePrice, inputs.downPaymentPct, inputs.interestRate, inputs.loanType,
-    // primaryPhotoUrl is included so the debounced save fires when the
-    // Zillow lookup populates a photo (and only a photo) — otherwise
-    // the dashboard thumbnail would not persist until the user touches
-    // another tracked field.
-    inputs.primaryPhotoUrl,
     calc.totalHousing, calc.cashToClose, calc.dti, calc.qualifies,
   ]);
 
@@ -2325,51 +1813,6 @@ export default function Estimate() {
   }
   function fmtPct(n: number): string {
     return (n * 100).toFixed(1) + "%";
-  }
-
-  // Shared seller-concessions slider used on Page 3 (Purchase Details)
-  // AND Page 4 (See My Estimate → Real Estate card). Both sites bind to
-  // the same `inputs.sellerConcessions` state, so editing on either page
-  // updates the other immediately, the cash-to-close calc, and the
-  // auto-save payload — no parallel state needed.
-  function SellerConcessionsBlock() {
-    const maxConcessions = getMaxSellerConcessions(inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice);
-    const pct = inputs.purchasePrice > 0 ? (inputs.sellerConcessions / inputs.purchasePrice) * 100 : 0;
-    const isLoanAllowed = !(
-      (inputs.loanType === "fha" || inputs.loanType === "usda" || inputs.loanType === "va") &&
-      inputs.occupancy !== "primary"
-    );
-    return (
-      <div className="space-y-1">
-        <div className="flex items-center justify-between flex-wrap gap-1">
-          <span className="text-xs text-muted-foreground">Seller Concessions</span>
-          {isLoanAllowed ? (
-            <span className="text-[10px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
-              Max {(maxConcessions / inputs.purchasePrice * 100).toFixed(0)}% · {fmt(maxConcessions)}
-            </span>
-          ) : (
-            <span className="text-[10px] bg-red-50 text-red-600 rounded px-1.5 py-0.5">
-              Not allowed on {inputs.occupancy} with {inputs.loanType.toUpperCase()}
-            </span>
-          )}
-        </div>
-        <SliderInput
-          label=""
-          value={inputs.sellerConcessions}
-          onChange={(v) => set("sellerConcessions", Math.min(v, maxConcessions))}
-          min={0}
-          max={Math.round(maxConcessions)}
-          step={500}
-          prefix="$"
-          disabled={!isLoanAllowed}
-        />
-        {inputs.sellerConcessions > 0 && (
-          <p className="text-[10px] text-green-700 text-right">
-            {pct.toFixed(1)}% of purchase price · reduces cash to close
-          </p>
-        )}
-      </div>
-    );
   }
 
   function Row({ label, value, sub, status, link, onClick }: { label: string; value: string; sub?: string; status?: "green" | "yellow" | "red"; link?: { url: string; label: string }; onClick?: () => void }) {
@@ -2968,10 +2411,7 @@ export default function Estimate() {
                             vaDisability: null,
                             vaDisabilityRating100: null,
                             vaLoanUse: null,
-                            // DPA is FHA-only — switching to VA strips it.
-                            usesDPA: false,
-                            dpaType: null,
-                            interestRate: fullRate(rates.va, p.creditScore, p.occupancy, 0, "va", false, null),
+                            interestRate: fullRate(rates.va, p.creditScore, p.occupancy, 0, "va"),
                             // Clear any prior exemption since the rating-100 answer is being reset
                             annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, null),
                           }))}
@@ -2980,28 +2420,16 @@ export default function Estimate() {
                           Yes
                         </button>
                         <button
-                          onClick={() => setInputs((p) => {
-                            // DPA is FHA-only — switching to Conventional
-                            // strips it. Always clamp the down payment up
-                            // to the Conventional product minimum (covers
-                            // both the DPA-0% case and the FHA-3.5%-with-
-                            // mortgage→Conv-5% case).
-                            const convMin = getMinDown("conventional", p.hasMortgage, p.occupancy);
-                            const newDown = Math.max(p.downPaymentPct, convMin);
-                            return {
-                              ...p,
-                              isVeteran: false,
-                              loanType: "conventional",
-                              vaDisability: null,
-                              vaDisabilityRating100: null,
-                              vaLoanUse: null,
-                              usesDPA: false,
-                              dpaType: null,
-                              downPaymentPct: newDown,
-                              interestRate: fullRate(rates.conventional, p.creditScore, p.occupancy, newDown, "conventional", false, null),
-                              annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, null),
-                            };
-                          })}
+                          onClick={() => setInputs((p) => ({
+                            ...p,
+                            isVeteran: false,
+                            loanType: "conventional",
+                            vaDisability: null,
+                            vaDisabilityRating100: null,
+                            vaLoanUse: null,
+                            interestRate: fullRate(rates.conventional, p.creditScore, p.occupancy, p.downPaymentPct, "conventional"),
+                            annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, null),
+                          }))}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                         >
                           No
@@ -3223,41 +2651,8 @@ export default function Estimate() {
                     )}
                   </div>
 
-                  {/* Amortization term — Conventional-only. Drives base rate (30 vs 15-yr MND) and calcPI termMonths (360 vs 180). */}
-                  {inputs.loanType === "conventional" && (
-                    <div>
-                      <Label className="text-xs text-muted-foreground mb-1.5 block">Loan Term</Label>
-                      <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Loan term in years">
-                        {([30, 15] as const).map(yrs => (
-                          <button
-                            key={yrs}
-                            type="button"
-                            role="radio"
-                            aria-checked={inputs.loanTermYears === yrs}
-                            onClick={() => setLoanTermYears(yrs)}
-                            className={`px-3 py-2 rounded-md text-sm font-semibold border transition-colors ${
-                              inputs.loanTermYears === yrs
-                                ? "bg-primary text-primary-foreground border-primary"
-                                : "border-border text-muted-foreground hover:border-primary"
-                            }`}
-                            data-testid={`button-term-${yrs}`}
-                          >
-                            {yrs}-Year Fixed
-                          </button>
-                        ))}
-                      </div>
-                      <p className="text-[11px] mt-1.5 leading-tight text-muted-foreground">
-                        15-year loans usually carry a lower rate and build equity faster but raise the monthly payment.
-                      </p>
-                    </div>
-                  )}
-
                   {(() => {
-                    // FHA + DPA on → slider floor is 0 (assistance covers DP);
-                    // otherwise the standard product minimum applies.
-                    const minDown = inputs.usesDPA && inputs.loanType === "fha"
-                      ? 0
-                      : getMinDown(inputs.loanType, inputs.hasMortgage, inputs.occupancy);
+                    const minDown = getMinDown(inputs.loanType, inputs.hasMortgage, inputs.occupancy);
                     const snapPoints = [
                       { pct: 0,   label: "0%",   sub: "VA / USDA" },
                       { pct: 3,   label: "3%",   sub: "Conv (no mtg)" },
@@ -3274,7 +2669,6 @@ export default function Estimate() {
                           onChange={(v) => setDownPayment(v)}
                           min={minDown} max={50} step={0.5}
                           suffix="%" decimals={1}
-                          disabled={!!inputs.usesDPA && inputs.loanType === "fha"}
                         />
                         <div className="flex gap-1 flex-wrap pt-0.5">
                           {snapPoints.map(({ pct, label, sub }) => {
@@ -3306,105 +2700,45 @@ export default function Estimate() {
                     );
                   })()}
 
-                  {/* ── FHA Down Payment Assistance (DPA) ──────────────────
-                      FHA-only. Two flavors:
-                        • Repayable — 3.5% second lien, 10-yr term, first-lien
-                          rate + 1.00%. Adds a real monthly P&I (factored into
-                          total monthly + DTI).
-                        • Forgivable — silent second, no monthly payment.
-                          Higher first-lien rate (+1.53), plus discount points
-                          added to cash-to-close on lower credit bands.
-                      Unavailable below 600 FICO. Switching loan type off FHA
-                      or dropping score < 600 auto-strips DPA via the setters. */}
-                  {inputs.loanType === "fha" && (() => {
-                    const eligible = inputs.creditScore >= DPA_MIN_CREDIT_SCORE;
-                    const repayAdj = dpaRepayableRateAdj(inputs.creditScore);
-                    const forgive = dpaForgivableAdj(inputs.creditScore);
+                  {(() => {
+                    const maxConcessions = getMaxSellerConcessions(inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice);
+                    const pct = inputs.purchasePrice > 0 ? (inputs.sellerConcessions / inputs.purchasePrice) * 100 : 0;
+                    const isLoanAllowed = !(
+                      (inputs.loanType === "fha" || inputs.loanType === "usda" || inputs.loanType === "va") &&
+                      inputs.occupancy !== "primary"
+                    );
                     return (
-                      <div className="space-y-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <Label htmlFor="fha-dpa-toggle" className="text-xs font-semibold">
-                            Down Payment Assistance (DPA)
-                          </Label>
-                          <Select
-                            value={inputs.usesDPA ? (inputs.dpaType ?? "repayable") : "none"}
-                            onValueChange={(v) => {
-                              if (v === "none") setDPA(false);
-                              else setDPA(true, v as "repayable" | "forgivable");
-                            }}
-                            disabled={!eligible}
-                          >
-                            <SelectTrigger
-                              id="fha-dpa-toggle"
-                              className="h-8 w-[200px] text-xs"
-                              data-testid="select-fha-dpa"
-                            >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="none">Standard 3.5% down</SelectItem>
-                              <SelectItem value="repayable" disabled={repayAdj === null}>0% down · Repayable</SelectItem>
-                              <SelectItem value="forgivable" disabled={forgive === null}>0% down · Forgivable</SelectItem>
-                            </SelectContent>
-                          </Select>
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between flex-wrap gap-1">
+                          <span className="text-xs text-muted-foreground">Seller Concessions</span>
+                          {isLoanAllowed ? (
+                            <span className="text-[10px] bg-muted rounded px-1.5 py-0.5 text-muted-foreground">
+                              Max {(maxConcessions / inputs.purchasePrice * 100).toFixed(0)}% · {fmt(maxConcessions)}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-red-50 text-red-600 rounded px-1.5 py-0.5">
+                              Not allowed on {inputs.occupancy} with {inputs.loanType.toUpperCase()}
+                            </span>
+                          )}
                         </div>
-                        {!eligible && (
-                          <p className="text-[11px] text-amber-700 leading-tight">
-                            DPA requires a minimum 600 FICO. Your current score is {inputs.creditScore}.
-                          </p>
-                        )}
-                        {eligible && inputs.usesDPA && inputs.dpaType === "repayable" && repayAdj !== null && (
-                          <p className="text-[11px] text-muted-foreground leading-tight">
-                            Adds a 3.5% second lien at first-lien rate + 1.00%, repaid over 10 years.
-                            First-lien rate add-on: +{repayAdj.toFixed(2)}%. FHA UFMIP &amp; monthly MIP unchanged.
-                          </p>
-                        )}
-                        {eligible && inputs.usesDPA && inputs.dpaType === "forgivable" && forgive !== null && (
-                          <p className="text-[11px] text-muted-foreground leading-tight">
-                            Silent second — no monthly payment; forgiven over time per program terms.
-                            First-lien rate add-on: +{forgive.rateAdj.toFixed(2)}%
-                            {forgive.points > 0 ? ` · ${forgive.points.toFixed(2)} discount points added to cash to close` : ""}.
-                            FHA UFMIP &amp; monthly MIP unchanged.
+                        <SliderInput
+                          label=""
+                          value={inputs.sellerConcessions}
+                          onChange={(v) => set("sellerConcessions", Math.min(v, maxConcessions))}
+                          min={0}
+                          max={Math.round(maxConcessions)}
+                          step={500}
+                          prefix="$"
+                          disabled={!isLoanAllowed}
+                        />
+                        {inputs.sellerConcessions > 0 && (
+                          <p className="text-[10px] text-green-700 text-right">
+                            {pct.toFixed(1)}% of purchase price · reduces cash to close
                           </p>
                         )}
                       </div>
                     );
                   })()}
-
-                  {/* ── Loan Amount (read-only, auto-calculated) ────────────
-                      Loan Amount = Purchase Price − Down Payment.
-                      For FHA the UFMIP is financed in, and for VA the funding
-                      fee is financed in, so we surface the same calc.loanAmount
-                      that every downstream number (P&I, DTI, cash to close,
-                      qualification) already uses — keeping one source of truth.
-                      This field is intentionally display-only: the user adjusts
-                      Purchase Price or Down Payment %, and this updates.       */}
-                  <div className="rounded-md border border-border/60 bg-muted/40 px-3 py-2.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs text-muted-foreground">Loan Amount</span>
-                      <span
-                        className="text-sm font-semibold tabular-nums"
-                        data-testid="text-loan-amount"
-                      >
-                        {inputs.purchasePrice > 0 ? fmt(calc.loanAmount) : "—"}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground mt-1 leading-tight">
-                      Calculated from purchase price minus down payment
-                      {inputs.purchasePrice > 0 && (
-                        <> · Down payment {fmt(calc.downPaymentAmt)}</>
-                      )}
-                      {inputs.loanType === "fha" && calc.fhaUFMIP > 0 && (
-                        <> · includes FHA UFMIP {fmt(calc.fhaUFMIP)}</>
-                      )}
-                      {inputs.loanType === "va" && calc.vaFundingFeeAmt > 0 && (
-                        <> · includes VA funding fee {fmt(calc.vaFundingFeeAmt)}</>
-                      )}
-                    </p>
-                  </div>
-
-                  <SellerConcessionsBlock />
-
 
                   <div className="space-y-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -3479,25 +2813,6 @@ export default function Estimate() {
             {/* ── STEP 4: Estimate ─── */}
             {step === 4 && (
               <div className="space-y-4">
-
-                {/* Property photo carousel — placed directly above the
-                    Review Your Answers accordion per spec. Pulls the full
-                    photo list captured by triggerZillowLookup (transient
-                    on the active scenario) and falls back to the
-                    primaryPhotoUrl persisted on Inputs so a freshly
-                    hydrated scenario still shows the dashboard thumbnail
-                    while the background lookup completes. */}
-                {(() => {
-                  const sc = scenarios.find(s => s.id === activeScenarioId);
-                  return (
-                    <PropertyPhotoCarousel
-                      photos={sc?.propertyPhotos ?? null}
-                      primaryPhotoUrl={inputs.primaryPhotoUrl ?? null}
-                      propertyAddress={address}
-                      scenarioId={activeScenarioId}
-                    />
-                  );
-                })()}
 
                 {/* Collapsed answers accordion */}
                 <div className="border border-border rounded-xl overflow-hidden bg-white shadow-sm">
@@ -3594,47 +2909,6 @@ export default function Estimate() {
                   <Row label="Purchase Price" value={fmt(inputs.purchasePrice)} />
                   <Separator />
                   <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`} />
-                  {/* Page 3 ↔ Page 4 mirror: same setDPA setter used here so
-                      flipping the dropdown on either page stays in sync and
-                      the auto-save effect persists usesDPA / dpaType. */}
-                  {inputs.loanType === "fha" && (() => {
-                    const eligible = inputs.creditScore >= DPA_MIN_CREDIT_SCORE;
-                    const repayAdj = dpaRepayableRateAdj(inputs.creditScore);
-                    const forgive = dpaForgivableAdj(inputs.creditScore);
-                    return (
-                      <div className="flex items-center justify-between gap-3 py-1.5 px-1">
-                        <Label htmlFor="estimate-fha-dpa" className="text-xs text-muted-foreground">DPA</Label>
-                        <Select
-                          value={inputs.usesDPA ? (inputs.dpaType ?? "repayable") : "none"}
-                          onValueChange={(v) => {
-                            if (v === "none") setDPA(false);
-                            else setDPA(true, v as "repayable" | "forgivable");
-                          }}
-                          disabled={!eligible}
-                        >
-                          <SelectTrigger
-                            id="estimate-fha-dpa"
-                            className="h-8 w-[200px] text-xs"
-                            data-testid="select-estimate-fha-dpa"
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Standard 3.5% down</SelectItem>
-                            <SelectItem value="repayable" disabled={repayAdj === null}>0% · Repayable</SelectItem>
-                            <SelectItem value="forgivable" disabled={forgive === null}>0% · Forgivable</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    );
-                  })()}
-                  {calc.dpaActive && (
-                    <Row
-                      label={inputs.dpaType === "repayable" ? "DPA (Repayable 2nd lien)" : "DPA (Forgivable)"}
-                      value={fmt(calc.dpaAmount)}
-                      sub="3.5% of purchase price"
-                    />
-                  )}
                   <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={
                     inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}`
                     : inputs.loanType === "va" && calc.vaFundingFeeAmt > 0 ? `includes ${inputs.vaLoanUse === "second" ? "3.30" : "2.15"}% funding fee (${fmt(calc.vaFundingFeeAmt)}) · LTV ${fmtPct(calc.ltv)}`
@@ -3642,20 +2916,6 @@ export default function Estimate() {
                   } />
                   <Separator />
                   <Row label="Estimated Closing Costs (~3%)" value={fmt(calc.closingCosts)} />
-                  {/* Page 4 seller-concessions slider — same component &
-                      state as Page 3, so the two pages stay in sync, the
-                      auto-save effect persists the value, and changes
-                      immediately flow into cashToClose below. */}
-                  <div className="px-1 py-2">
-                    <SellerConcessionsBlock />
-                  </div>
-                  {calc.dpaDiscountPointsAmt > 0 && (
-                    <Row
-                      label="DPA Discount Points"
-                      value={`+ ${fmt(calc.dpaDiscountPointsAmt)}`}
-                      sub={`${calc.dpaDiscountPointsPct.toFixed(2)} pts × loan amount (Forgivable DPA)`}
-                    />
-                  )}
                   {inputs.sellerConcessions > 0 && (
                     <Row label="Seller Concessions" value={`− ${fmt(inputs.sellerConcessions)}`} sub={`${((inputs.sellerConcessions / inputs.purchasePrice) * 100).toFixed(1)}% of purchase price`} />
                   )}
@@ -3676,42 +2936,7 @@ export default function Estimate() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <Row label="Principal & Interest" value={fmt(calc.pi)} sub={`${inputs.interestRate.toFixed(2)}% / ${inputs.loanTermYears} yr`} />
-                  {calc.dpaActive && calc.dpaSecondLienPI > 0 && (
-                    <Row
-                      label="DPA 2nd Lien P&I"
-                      value={fmt(calc.dpaSecondLienPI)}
-                      sub={`${calc.dpaSecondLienRate.toFixed(2)}% / 10 yr · ${fmt(calc.dpaAmount)} balance`}
-                    />
-                  )}
-                  {/* Inline Loan Term selector — Conventional only.
-                      Wired to the same setLoanTermYears used on Page 3,
-                      so Page 3 ↔ Page 4 stay in sync and the auto-save
-                      effect persists the choice. Toggling here re-runs
-                      baseRateFor() (30-yr vs 15-yr MND base) and the
-                      calc useMemo (termMonths 360 → 180), which cascades
-                      into P&I, total monthly, DTI, and qualification. */}
-                  {inputs.loanType === "conventional" && (
-                    <div className="flex items-center justify-between gap-3 py-1.5 px-1 -mt-1 mb-1">
-                      <Label htmlFor="estimate-loan-term" className="text-xs text-muted-foreground">Loan Term</Label>
-                      <Select
-                        value={String(inputs.loanTermYears)}
-                        onValueChange={(v) => setLoanTermYears(v === "15" ? 15 : 30)}
-                      >
-                        <SelectTrigger
-                          id="estimate-loan-term"
-                          className="h-8 w-[150px] text-xs"
-                          data-testid="select-estimate-loan-term"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="30">30-year fixed</SelectItem>
-                          <SelectItem value="15">15-year fixed</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+                  <Row label="Principal & Interest" value={fmt(calc.pi)} sub={`${inputs.interestRate.toFixed(2)}% / 30 yr`} />
                   <Row
                     label="Property Taxes"
                     value={`${fmt(calc.monthlyTax)}/mo`}

@@ -14,10 +14,6 @@ run = ["npm", "run", "start"]
 localPort = 5000
 externalPort = 80
 
-[[ports]]
-localPort = 23636
-externalPort = 3001
-
 [workflows]
 runButton = "Project"
 
@@ -41,7 +37,3 @@ waitForPort = 5000
 
 [agent]
 integrations = ["styling_shadcn:1.0.0", "github:1.0.0"]
-
-[postMerge]
-path = "scripts/post-merge.sh"
-timeoutMs = 20000

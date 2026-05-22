@@ -1,5 +1,4 @@
 import { useMemo, useState, useRef, useEffect } from "react";
-import { getOccupancyColor } from "@/lib/occupancy-colors";
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,13 +14,6 @@ import { getCountyName } from "@/lib/county-tax-estimator";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { useToast } from "@/hooks/use-toast";
-import {
-  getPurchaseScenarios, getTrackedLoans,
-  getInsuranceScenarios, saveInsuranceScenarios,
-  subscribeAuthChange, getSession,
-  type InsuranceScenario,
-} from "@/lib/auth";
-import { normalizePropertyKey, type OccupancyType, type OccupancySource } from "@shared/property-key";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -79,68 +71,6 @@ interface InsuranceSettings {
 
 interface Scenario {
   id: string; address: string; savedSettings: InsuranceSettings | null;
-  occupancyType?: OccupancyType;
-  occupancySource?: OccupancySource;
-  linkedPurchaseScenarioId?: string;
-  linkedRefinanceScenarioId?: string;
-}
-
-const OCCUPANCY_LABELS: Record<OccupancyType, string> = {
-  primary: "Primary residence",
-  secondary: "Second home / secondary",
-  investment: "Investment property",
-};
-
-const OCCUPANCY_SOURCE_LABELS: Record<OccupancySource, string> = {
-  purchase: "from Purchase",
-  refinance: "from Refinance",
-  insurance_manual: "manually set",
-  unknown: "",
-};
-
-// Resolve the best-match occupancy for an address by scanning the user's
-// Purchase scenarios and Refinance tracked loans for one with the same
-// normalized property key. Priority: Purchase first, then Refinance. If
-// both exist, the more recently updated record wins.
-function resolveOccupancyForAddress(address: string): {
-  occupancyType?: OccupancyType;
-  occupancySource?: OccupancySource;
-  linkedPurchaseScenarioId?: string;
-  linkedRefinanceScenarioId?: string;
-} {
-  const key = normalizePropertyKey(address);
-  if (!key) return {};
-  const purchase = getPurchaseScenarios().find(
-    p => normalizePropertyKey(p.address) === key && p.occupancy,
-  );
-  const refi = getTrackedLoans().find(
-    l => normalizePropertyKey(l.propertyAddress) === key,
-  );
-  const out: ReturnType<typeof resolveOccupancyForAddress> = {};
-  if (purchase) {
-    out.linkedPurchaseScenarioId = purchase.id;
-  }
-  if (refi) {
-    out.linkedRefinanceScenarioId = refi.id;
-  }
-  if (purchase && refi) {
-    const purchaseTime = Date.parse(purchase.savedAt);
-    const refiTime = Date.parse(refi.addedAt);
-    if (Number.isFinite(refiTime) && refiTime > purchaseTime) {
-      out.occupancyType = refi.propertyType as OccupancyType;
-      out.occupancySource = "refinance";
-    } else {
-      out.occupancyType = purchase.occupancy;
-      out.occupancySource = "purchase";
-    }
-  } else if (purchase) {
-    out.occupancyType = purchase.occupancy;
-    out.occupancySource = "purchase";
-  } else if (refi) {
-    out.occupancyType = refi.propertyType as OccupancyType;
-    out.occupancySource = "refinance";
-  }
-  return out;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -199,12 +129,9 @@ function SliderRow({ label, value, onChange, min, max, step }: {
   );
 }
 
-function SelectRow({ label, value, onChange, options, selectClassName }: {
+function SelectRow({ label, value, onChange, options }: {
   label: string; value: number; onChange: (v: number) => void;
   options: { value: number; label: string }[];
-  // Optional extra classes for the <select> trigger (used for property-use
-  // color theming so the selected value mirrors Dashboard / Refinance).
-  selectClassName?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -212,7 +139,7 @@ function SelectRow({ label, value, onChange, options, selectClassName }: {
       <select
         value={value}
         onChange={e => onChange(Number(e.target.value))}
-        className={`w-full text-sm border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/20 ${selectClassName ?? "border-border bg-background"}`}
+        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
       >
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -250,199 +177,6 @@ export default function InsuranceDashboard() {
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressParam]);
-
-  // ── Hydrate full set of insurance properties as tabs ───────────────────
-  // The Insurance overview on the dashboard shows every property the user
-  // tracks (insurance + purchase + refinance addresses, deduped). When the
-  // user clicks "Get Quote" on one of them, this view should keep the same
-  // property tabs available — not collapse to just the selected one.
-  useEffect(() => {
-    const apply = () => {
-      const insuranceList = getInsuranceScenarios();
-      const purchases = getPurchaseScenarios();
-      const loans = getTrackedLoans();
-      // Dedup by normalized property key. First record wins for id/address;
-      // insurance scenarios go first so their stable ids are preferred for
-      // tab identity (used in persistence too).
-      const byKey = new Map<string, { id: string; address: string }>();
-      for (const ins of insuranceList) {
-        const k = normalizePropertyKey(ins.address) || `__ins_${ins.id}`;
-        if (!byKey.has(k)) byKey.set(k, { id: ins.id, address: ins.address });
-      }
-      for (const p of purchases) {
-        const k = normalizePropertyKey(p.address) || `__pur_${p.id}`;
-        if (!byKey.has(k)) byKey.set(k, { id: p.id, address: p.address });
-      }
-      for (const l of loans) {
-        const k = normalizePropertyKey(l.propertyAddress) || `__ref_${l.id}`;
-        if (!byKey.has(k)) byKey.set(k, { id: l.id, address: l.propertyAddress });
-      }
-      if (byKey.size === 0) return;
-      const merged: Scenario[] = Array.from(byKey.values()).map(({ id, address }) => ({
-        id, address, savedSettings: null,
-      }));
-      // Ensure addressParam is represented and active. If it matches an
-      // entry by normalized key, use that entry's stable id; otherwise
-      // prepend a fresh sc0 entry so the user's current URL still has a tab.
-      const activeKey = normalizePropertyKey(addressParam);
-      let active = merged.find(s => normalizePropertyKey(s.address) === activeKey && activeKey);
-      if (!active && addressParam) {
-        active = { id: "sc0", address: addressParam, savedSettings: null };
-        merged.unshift(active);
-      }
-      setScenarios(prev => {
-        // Preserve any in-memory occupancy/savedSettings already attached to
-        // matching scenarios (by id) so a hydration tick doesn't blow away
-        // unsaved UI state.
-        const prevById = new Map(prev.map(s => [s.id, s]));
-        return merged.map(s => {
-          const existing = prevById.get(s.id);
-          return existing ? { ...existing, address: s.address } : s;
-        });
-      });
-      if (active) setActiveScenarioId(active.id);
-    };
-    apply();
-    const unsub = subscribeAuthChange(apply);
-    return unsub;
-  // Re-run when the URL address changes so the active tab follows the URL.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [addressParam]);
-
-  // ── Hydrate persisted Insurance occupancy from Supabase ─────────────────
-  // Pulls any prior occupancy/source/linked-id values into the local
-  // scenarios array by matching id first, then falling back to normalized
-  // property key. Re-runs on auth state changes so a fresh login refreshes
-  // the cache.
-  useEffect(() => {
-    const apply = () => {
-      const persisted = getInsuranceScenarios();
-      if (persisted.length === 0) return;
-      setScenarios(prev => {
-        let changed = false;
-        const next = prev.map(s => {
-          const byId = persisted.find(p => p.id === s.id);
-          // Key fallback only fires when there's exactly ONE candidate row
-          // for that normalized key — otherwise we'd risk attaching another
-          // scenario's manual override to this one.
-          let byKey: InsuranceScenario | undefined;
-          if (!byId) {
-            const k = normalizePropertyKey(s.address);
-            const candidates = persisted.filter(p => normalizePropertyKey(p.address) === k);
-            if (candidates.length === 1) byKey = candidates[0];
-          }
-          const match = byId ?? byKey;
-          if (!match) return s;
-          const merged = {
-            occupancyType: s.occupancyType ?? match.occupancyType,
-            occupancySource: s.occupancySource ?? match.occupancySource,
-            linkedPurchaseScenarioId: s.linkedPurchaseScenarioId ?? match.linkedPurchaseScenarioId,
-            linkedRefinanceScenarioId: s.linkedRefinanceScenarioId ?? match.linkedRefinanceScenarioId,
-          };
-          if (
-            merged.occupancyType === s.occupancyType &&
-            merged.occupancySource === s.occupancySource &&
-            merged.linkedPurchaseScenarioId === s.linkedPurchaseScenarioId &&
-            merged.linkedRefinanceScenarioId === s.linkedRefinanceScenarioId
-          ) return s;
-          changed = true;
-          return { ...s, ...merged };
-        });
-        return changed ? next : prev;
-      });
-    };
-    apply();
-    const unsub = subscribeAuthChange(apply);
-    return unsub;
-  }, []);
-
-  // ── Auto-carryover from Purchase / Refinance ───────────────────────────
-  // Whenever a scenario's address changes (or upstream Purchase/Refinance
-  // data updates via auth subscription), recompute the suggested occupancy
-  // for any scenario whose source is NOT a manual override. Manual values
-  // are always preserved.
-  useEffect(() => {
-    const apply = () => {
-      setScenarios(prev => {
-        let changed = false;
-        const next = prev.map(s => {
-          if (s.occupancySource === "insurance_manual") return s;
-          const resolved = resolveOccupancyForAddress(s.address);
-          if (
-            resolved.occupancyType === s.occupancyType &&
-            resolved.occupancySource === s.occupancySource &&
-            resolved.linkedPurchaseScenarioId === s.linkedPurchaseScenarioId &&
-            resolved.linkedRefinanceScenarioId === s.linkedRefinanceScenarioId
-          ) return s;
-          changed = true;
-          return { ...s, ...resolved };
-        });
-        return changed ? next : prev;
-      });
-    };
-    apply();
-    const unsub = subscribeAuthChange(apply);
-    return unsub;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenarios.map(s => s.address).join("|")]);
-
-  // ── Persist occupancy fields to Supabase ───────────────────────────────
-  // Mirrors any scenario that has an occupancyType into the persisted
-  // InsuranceScenario rows. Debounced so toggling the Select doesn't fire
-  // a write per keystroke. Only runs when the user is signed in.
-  useEffect(() => {
-    if (!getSession()?.id) return;
-    const handle = setTimeout(() => {
-      const persisted = getInsuranceScenarios();
-      const byId = new Map(persisted.map(p => [p.id, p]));
-      const merged: InsuranceScenario[] = persisted.slice();
-      let dirty = false;
-      for (const s of scenarios) {
-        if (!s.occupancyType) continue;
-        const existing = byId.get(s.id);
-        const row: InsuranceScenario = {
-          ...(existing ?? { id: s.id, address: s.address, savedAt: new Date().toISOString() }),
-          address: s.address,
-          occupancyType: s.occupancyType,
-          occupancySource: s.occupancySource ?? "unknown",
-          linkedPurchaseScenarioId: s.linkedPurchaseScenarioId,
-          linkedRefinanceScenarioId: s.linkedRefinanceScenarioId,
-        };
-        // Skip the write entirely when the row is byte-identical to what's
-        // already cached — otherwise saveInsuranceScenarios → notify() →
-        // hydration effect → setScenarios → this effect would loop.
-        const same = existing
-          && existing.address === row.address
-          && existing.occupancyType === row.occupancyType
-          && existing.occupancySource === row.occupancySource
-          && existing.linkedPurchaseScenarioId === row.linkedPurchaseScenarioId
-          && existing.linkedRefinanceScenarioId === row.linkedRefinanceScenarioId;
-        if (same) continue;
-        if (existing) {
-          const idx = merged.findIndex(p => p.id === s.id);
-          merged[idx] = row;
-        } else {
-          merged.push(row);
-        }
-        dirty = true;
-      }
-      if (dirty) saveInsuranceScenarios(merged);
-    }, 600);
-    return () => clearTimeout(handle);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenarios]);
-
-  function setOccupancyForActive(value: OccupancyType) {
-    setScenarios(prev => prev.map(s =>
-      s.id === activeScenarioId
-        ? {
-            ...s,
-            occupancyType: value,
-            occupancySource: "insurance_manual",
-          }
-        : s,
-    ));
-  }
 
   // ── Settings state ───────────────────────────────────────────────────────
   const [regionKey, setRegionKey] = useState<RegionKey>(getRegionFromAddress(addressParam));
@@ -702,7 +436,7 @@ export default function InsuranceDashboard() {
           <div className="container mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setLocation("/dashboard?tab=insurance")}
+                onClick={() => setLocation(`/select-service${addressParam ? `?address=${encodeURIComponent(addressParam)}` : ""}`)}
                 className="text-muted-foreground hover:text-primary transition-colors"
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -785,31 +519,6 @@ export default function InsuranceDashboard() {
                   onChange={i => setRegionKey(Object.keys(REGIONS)[i] as RegionKey)}
                   options={Object.entries(REGIONS).map(([, r], i) => ({ value: i, label: r.name + " — " + r.counties }))}
                 />
-
-                {(() => {
-                  const active = scenarios.find(s => s.id === activeScenarioId);
-                  const occ = active?.occupancyType ?? "primary";
-                  const src = active?.occupancySource;
-                  const OPTIONS: OccupancyType[] = ["primary", "secondary", "investment"];
-                  return (
-                    <div className="space-y-1">
-                      <SelectRow
-                        label="Property Use"
-                        value={OPTIONS.indexOf(occ)}
-                        onChange={i => setOccupancyForActive(OPTIONS[i])}
-                        options={OPTIONS.map((v, i) => ({ value: i, label: OCCUPANCY_LABELS[v] }))}
-                        selectClassName={getOccupancyColor(occ)}
-                      />
-                      {src && src !== "unknown" && (
-                        <p className="text-[11px] text-muted-foreground pl-1">
-                          {src === "insurance_manual"
-                            ? "Manual selection"
-                            : `Auto-filled ${OCCUPANCY_SOURCE_LABELS[src]}`}
-                        </p>
-                      )}
-                    </div>
-                  );
-                })()}
 
                 <SliderRow
                   label="Rebuild / Replacement Cost (Coverage A)"
