@@ -12,7 +12,8 @@
 // indexing.
 import Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "../supabase";
-import { scrapeRealtorCompsForListing, type RealtorScrapeResult } from "./realtor-apify";
+import { type RealtorScrapeResult } from "./realtor-apify";
+import { getOrFetchRealtorComps, type RealtorCachedResult } from "./realtor-cache";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -991,16 +992,19 @@ export async function getOrGenerateMarketAnalysis(
   // Best-effort Realtor.com scrape against the subject ZIP. Failure is
   // logged but does NOT block generation — Anthropic's web_search tool
   // is still available as a fallback comp source.
-  let realtor: RealtorScrapeResult | null = null;
+  let realtor: RealtorCachedResult | null = null;
   try {
-    realtor = await scrapeRealtorCompsForListing({
+    realtor = await getOrFetchRealtorComps({
       address: input.address,
       zip: input.zip,
       propertyType: input.propertyType,
+      normalizedPropertyKey: input.normalizedPropertyKey,
+      forceRefresh: opts.forceRefresh,
     });
   } catch (e: any) {
     console.warn("[market-data] Realtor scrape threw:", e?.message);
   }
+  console.log("[market-analysis] realtor source", { source: realtor?.source ?? "missing" });
   console.log("[market-data] active comps returned count", { count: realtor?.active.length ?? 0 });
   console.log("[market-data] pending/sold returned count", {
     pending: realtor?.pending.length ?? 0,

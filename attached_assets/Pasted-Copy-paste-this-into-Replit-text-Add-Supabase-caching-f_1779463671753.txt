@@ -1,0 +1,211 @@
+Copy/paste this into Replit:
+
+```text
+Add Supabase caching for the Realtor.com scraper, the same way Zillow/Apify data is cached.
+
+Current issue:
+The Realtor.com scraper is being used for Market Analysis comps, but it should not scrape Realtor.com every time a user opens a For Sale property or every time Market Analysis runs.
+
+Goal:
+When Realtor.com scraper `memo23/realtor-search-cheerio` runs, store the normalized results in Supabase so future market analyses can reuse the saved Realtor.com data instead of scraping again.
+
+This should work similarly to the existing Zillow/Apify property cache.
+
+Expected behavior:
+1. Before running the Realtor.com scraper, check Supabase for cached Realtor.com market data.
+2. If valid cached Realtor.com data exists, use it.
+3. If no valid cache exists, run the Realtor.com scraper.
+4. Normalize the scraper results.
+5. Save the normalized results to Supabase.
+6. Use the saved/normalized Realtor.com data in Market Analysis.
+7. Do not scrape Realtor.com again until the cache is stale.
+
+Cache freshness:
+Use the same Friday 8:00 AM Eastern weekly cycle as Market Analysis.
+
+Rules:
+- Realtor.com data should refresh once per week per property/market.
+- The weekly cache cycle starts Friday at 8:00 AM Eastern.
+- If cached data exists for the current Friday cycle, use it.
+- If cached data is missing or stale, run the scraper once.
+- Save new results to Supabase.
+- Reuse saved results for the rest of the week.
+
+Do not let normal users trigger repeated Realtor.com scraping.
+
+Suggested table:
+Create or reuse a table like:
+
+`realtor_market_cache`
+
+Suggested columns:
+- `id`
+- `normalized_property_key`
+- `property_address`
+- `zip`
+- `city`
+- `state`
+- `property_type`
+- `search_radius_miles`
+- `search_params` jsonb
+- `active_comps` jsonb
+- `pending_comps` jsonb
+- `sold_comps` jsonb
+- `raw_realtor_response` jsonb
+- `normalized_results` jsonb
+- `data_sources` jsonb
+- `cache_week_of`
+- `generated_at`
+- `next_update_due_at`
+- `status`: `"success" | "empty" | "error"`
+- `error_message`
+- `created_at`
+- `updated_at`
+
+If another cache table already exists for external market data, reuse it instead of creating a duplicate.
+
+Cache key:
+Use a stable key based on:
+- normalized property key
+- ZIP
+- property type
+- search radius
+- search filters
+- Friday weekly cycle
+
+Do not rely on raw formatted address alone.
+
+Suggested cache key:
+`realtor:${normalizedPropertyKey}:${zip}:${propertyType}:${radius}:${weekOf}`
+
+Realtor.com scraper:
+Use Apify actor:
+
+`memo23/realtor-search-cheerio`
+
+Use it to pull nearby similar properties for the For Sale Market Analysis.
+
+Normalize fields when available:
+- address
+- city
+- state
+- zip
+- price
+- beds
+- baths
+- sqft
+- price_per_sqft
+- property_type
+- listing_status
+- days_on_market
+- list_date
+- price_reduction
+- price_history
+- url
+- photo_count
+- source = `Realtor.com`
+
+Market Analysis integration:
+Update `gatherSellerMarketDataForAnalysis(sellerScenario)` so it does this:
+
+1. Load seller scenario.
+2. Load Zillow/Apify subject property data/cache.
+3. Check Realtor.com cache.
+4. If current Realtor.com cache exists:
+   - use cached active/pending/sold comps
+   - do not run Apify
+5. If no current Realtor.com cache exists:
+   - run `memo23/realtor-search-cheerio`
+   - normalize results
+   - save to Supabase cache
+   - use saved results
+6. Send the normalized Realtor.com data to Anthropic as part of the Market Analysis payload.
+
+Do not run Realtor.com scraper if:
+- current-week cache exists
+- a previous successful scrape for the same property/search cycle exists
+- the user simply leaves and reopens the detail view
+- the user refreshes the browser
+
+Only run it if:
+- no current cache exists
+- current cache is stale after Friday 8:00 AM Eastern
+- admin/dev manually forces refresh
+
+Normal users:
+- Should not have a button that can repeatedly call Realtor.com scraper.
+- Should not have a button that repeatedly calls Anthropic.
+- Data should load from Supabase cache whenever possible.
+
+If scraper fails:
+- Save a cache row with `status = "error"` and `error_message`.
+- Do not retry constantly on every page load.
+- Use a short retry cooldown, such as 1 hour, or wait until the next weekly cycle.
+- Market Analysis should still work with available data and label Realtor.com unavailable.
+
+If scraper returns no useful comps:
+- Save `status = "empty"`.
+- Save empty arrays.
+- Do not keep scraping repeatedly.
+- Market Analysis should show that Realtor.com returned no usable comps for that search.
+
+Supabase/RLS:
+This cache can be shared across users because market data is not user-private.
+Use whichever security model is safest:
+- allow authenticated users to read cache rows, or
+- route all cache access through backend service role only.
+
+Do not expose Apify token to frontend.
+Do not call Apify from React/frontend.
+All Realtor.com scraping and cache writes should happen server-side.
+
+Data Sources panel / debug:
+Even if the seller-facing UI hides the Data Sources panel, keep backend logging so we can confirm whether data came from:
+- Realtor.com cache
+- fresh Realtor.com scrape
+- Zillow cache
+- fresh Zillow scrape
+- Anthropic web search
+
+Debug logs:
+Add logs:
+- `[realtor-cache] lookup key`
+- `[realtor-cache] hit`
+- `[realtor-cache] miss`
+- `[realtor-cache] stale`
+- `[realtor-cache] using cached results`
+- `[realtor-scraper] running memo23/realtor-search-cheerio`
+- `[realtor-scraper] results count`
+- `[realtor-cache] saving results`
+- `[realtor-cache] save ok`
+- `[market-analysis] realtor source = cache/fresh/missing/error`
+
+Acceptance test:
+1. Open Dashboard → For Sale → property detail.
+2. Trigger Market Analysis for a property with no Realtor.com cache.
+3. Confirm backend checks Realtor.com cache first.
+4. Confirm cache miss runs `memo23/realtor-search-cheerio`.
+5. Confirm Realtor.com results are normalized.
+6. Confirm normalized results save to Supabase.
+7. Confirm Market Analysis uses those saved Realtor.com results.
+8. Leave the detail view and reopen it.
+9. Confirm Realtor.com scraper does not run again.
+10. Confirm cached Realtor.com data is used.
+11. Refresh the browser.
+12. Confirm cached Realtor.com data is still used.
+13. Log out and log back in.
+14. Confirm cached Realtor.com data is still used.
+15. Simulate next Friday after 8:00 AM Eastern.
+16. Confirm Realtor.com scraper runs once again and updates the cache.
+17. Confirm normal users cannot repeatedly trigger Realtor.com scraping.
+
+Please make the smallest safe code change possible and tell me:
+- Which Supabase table stores Realtor.com cached data
+- What cache key is used
+- How Friday 8:00 AM freshness is calculated
+- Where `memo23/realtor-search-cheerio` is called
+- How Realtor.com results are normalized
+- How Market Analysis uses cached Realtor.com data
+- How repeated scraping is prevented
+- Which files/functions were changed
+```
