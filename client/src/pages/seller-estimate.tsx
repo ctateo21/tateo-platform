@@ -327,9 +327,12 @@ export default function SellerEstimatePage() {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="space-y-4">
+          {/* Row 1: Property photo/card  ←→  Estimated Net Proceeds.
+              Stacks on mobile (photo first, KPI second). */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
           {/* Left: address + photo + status */}
-          <Card className="lg:col-span-1 self-start">
+          <Card>
             <CardContent className="p-0 overflow-hidden rounded-lg">
               <div className="aspect-[4/3] bg-muted flex items-center justify-center relative">
                 {scenario.primaryPhotoUrl ? (
@@ -395,31 +398,30 @@ export default function SellerEstimatePage() {
             </CardContent>
           </Card>
 
-          {/* Right: calculator */}
-          <div className="lg:col-span-2 space-y-4">
-            {/* Net proceeds — primary KPI */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Estimated Net Proceeds</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-baseline justify-between gap-3 flex-wrap">
-                  <div className={`text-4xl font-bold ${net >= 0 ? "text-green-700" : "text-destructive"}`}>
-                    {formatCurrency(net)}
-                  </div>
-                  <Badge variant="outline" className="text-xs">
-                    Sale {formatCurrency(sale)} − Costs {formatCurrency(sale - net)}
-                  </Badge>
+          {/* Right of Row 1: Estimated Net Proceeds KPI. */}
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Estimated Net Proceeds</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-baseline justify-between gap-3 flex-wrap">
+                <div className={`text-4xl font-bold ${net >= 0 ? "text-green-700" : "text-destructive"}`}>
+                  {formatCurrency(net)}
                 </div>
-                <p className="text-xs text-muted-foreground mt-2">
-                  After mortgage payoff, agent commission, closing costs, concessions, and repairs.
-                </p>
-              </CardContent>
-            </Card>
+                <Badge variant="outline" className="text-xs">
+                  Sale {formatCurrency(sale)} − Costs {formatCurrency(sale - net)}
+                </Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-2">
+                After mortgage payoff, agent commission, closing costs, concessions, and repairs.
+              </p>
+            </CardContent>
+          </Card>
+          </div>
 
-            {/* Sale & Costs (inputs) paired side-by-side with the Breakdown
-                on desktop, stacked on mobile (Sale & Costs first). */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          {/* Row 2: Sale & Costs  ←→  Net Proceeds Breakdown.
+              Stacks on mobile (Sale & Costs first). */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Sale &amp; Costs</CardTitle>
@@ -522,18 +524,17 @@ export default function SellerEstimatePage() {
                 </dl>
               </CardContent>
             </Card>
-            </div>
-
-            {/* Market Analysis — AI-powered weekly briefing.
-                Lazy-loads on mount; the backend decides cache-vs-regenerate
-                based on Friday rollover. The Anthropic API key never touches
-                this component. */}
-            <MarketAnalysisSection
-              scenario={scenario}
-              userId={user?.id ?? null}
-              authLoading={authLoading}
-            />
           </div>
+
+          {/* Market Analysis — full width below Row 1 + Row 2.
+              Lazy-loads on mount; the backend decides cache-vs-regenerate
+              based on Friday rollover. The Anthropic API key never touches
+              this component. */}
+          <MarketAnalysisSection
+            scenario={scenario}
+            userId={user?.id ?? null}
+            authLoading={authLoading}
+          />
         </div>
       </div>
     </div>

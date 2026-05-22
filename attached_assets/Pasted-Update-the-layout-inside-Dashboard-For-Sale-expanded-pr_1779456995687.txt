@@ -1,0 +1,73 @@
+Update the layout inside Dashboard → For Sale → expanded property detail view.
+
+Current issue:
+The layout is not grouped the way I want.
+
+Requested layout:
+At the top of the expanded For Sale property page, I want:
+
+Row 1:
+Two columns side by side:
+- Left column: Property photo / photo carousel / property card
+- Right column: Estimated Net Proceeds card
+
+Row 2:
+Directly below Row 1, two columns side by side:
+- Left column: Sale & Costs
+- Right column: Net Proceeds Breakdown
+
+Row 3:
+Market Analysis stays at the bottom below those sections.
+
+Desktop layout should be:
+
+[ Property Photos / Property Card ]    [ Estimated Net Proceeds ]
+
+[ Sale & Costs ]                       [ Net Proceeds Breakdown ]
+
+[ Market Analysis full width ]
+
+Mobile layout:
+Stack everything cleanly in this order:
+1. Property Photos / Property Card
+2. Estimated Net Proceeds
+3. Sale & Costs
+4. Net Proceeds Breakdown
+5. Market Analysis
+
+Important:
+- Keep the existing Estimated Net Proceeds calculation.
+- Keep the existing Sale & Costs inputs/sliders.
+- Keep the existing Net Proceeds Breakdown calculation.
+- Keep Market Analysis at the bottom.
+- Do not change For Sale persistence.
+- Do not change Market Analysis logic.
+- Do not change Zillow/photo logic.
+- This is only a layout/formatting change.
+
+Implementation requirements:
+1. Find the expanded For Sale property detail component.
+2. Wrap the top property photo/card and Estimated Net Proceeds card in a responsive two-column grid.
+3. Wrap Sale & Costs and Net Proceeds Breakdown in a second responsive two-column grid below the first.
+4. Keep Market Analysis below both grids, full width.
+5. Match the existing card spacing, widths, borders, and styling.
+6. Make sure the two-column layout aligns cleanly on desktop.
+7. Make sure it stacks correctly on mobile/tablet.
+8. Avoid duplicate cards or duplicate Net Proceeds Breakdown sections.
+
+Acceptance test:
+1. Go to Dashboard → For Sale.
+2. Open a saved For Sale property.
+3. Confirm photos/property card and Estimated Net Proceeds are side by side at the top.
+4. Confirm Sale & Costs and Net Proceeds Breakdown are side by side underneath.
+5. Confirm Market Analysis stays at the bottom.
+6. Resize to mobile width and confirm everything stacks in the correct order.
+7. Confirm changing Sale & Costs still updates Estimated Net Proceeds and Net Proceeds Breakdown.
+8. Confirm no data or calculations were changed.
+
+Please make the smallest safe code change possible and tell me:
+- Which For Sale expanded/detail component was changed
+- How the top two-column grid was built
+- How the second two-column grid was built
+- How mobile stacking works
+- Which files/functions were changed
