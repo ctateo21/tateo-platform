@@ -349,6 +349,21 @@ create policy "weekly_recaps_seller_read" on public.weekly_recaps
 create policy "weekly_recaps_agent_all" on public.weekly_recaps
   for all using (public.is_agent()) with check (public.is_agent());
 
+-- View: latest recap per listing.
+-- The admin dashboard previously fetched every recap and reduced client-side
+-- to find each listing's most recent one. With hundreds of listings this gets
+-- slow; DISTINCT ON lets Postgres do it in one indexed pass.
+create or replace view public.listing_latest_recap
+with (security_invoker = true) as
+  select distinct on (listing_id)
+    listing_id,
+    recap_date,
+    days_on_market
+  from public.weekly_recaps
+  order by listing_id, recap_date desc, created_at desc;
+
+grant select on public.listing_latest_recap to anon, authenticated;
+
 -- Agents need to read all profiles (to display seller names in admin).
 drop policy if exists "profiles_agent_read_all" on public.profiles;
 create policy "profiles_agent_read_all" on public.profiles

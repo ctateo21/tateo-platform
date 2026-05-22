@@ -98,12 +98,12 @@ export async function fetchAllListingsWithSellers(): Promise<(Listing & {
   seller_name?: string; seller_email?: string;
   last_recap_date?: string | null; last_recap_dom?: number | null;
 })[]> {
+  // `listing_latest_recap` is a Postgres view (DISTINCT ON listing_id) so we
+  // get one row per listing in a single query instead of pulling every recap.
   const [{ data: listings, error: lErr }, { data: profiles, error: pErr }, { data: recaps, error: rErr }] = await Promise.all([
     supabase.from("listings").select("*").order("last_updated", { ascending: false }),
     supabase.from("profiles").select("id, name, email"),
-    supabase.from("weekly_recaps")
-      .select("listing_id, recap_date, days_on_market")
-      .order("recap_date", { ascending: false }),
+    supabase.from("listing_latest_recap").select("listing_id, recap_date, days_on_market"),
   ]);
   if (lErr) throw lErr;
   if (pErr) throw pErr;
@@ -111,10 +111,10 @@ export async function fetchAllListingsWithSellers(): Promise<(Listing & {
   const byId = new Map((profiles ?? []).map((p: any) => [p.id, p]));
   const lastRecapByListing = new Map<string, { date: string; dom: number | null }>();
   for (const r of recaps ?? []) {
-    const lid = (r as any).listing_id;
-    if (!lastRecapByListing.has(lid)) {
-      lastRecapByListing.set(lid, { date: (r as any).recap_date, dom: (r as any).days_on_market ?? null });
-    }
+    lastRecapByListing.set((r as any).listing_id, {
+      date: (r as any).recap_date,
+      dom: (r as any).days_on_market ?? null,
+    });
   }
   return (listings ?? []).map((l: any) => {
     const recap = lastRecapByListing.get(l.id);
