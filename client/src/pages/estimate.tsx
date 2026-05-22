@@ -118,6 +118,12 @@ function getMaxSellerConcessions(
 ): number {
   if (loanType === "fha" || loanType === "usda") return purchasePrice * 0.06;
   if (loanType === "va") return purchasePrice * 0.04;
+  // DSCR is investment-only by program rules, so it always uses the
+  // conventional investment cap (2%) regardless of the selected
+  // occupancy in the UI.
+  if (loanType === "dscr") return purchasePrice * 0.02;
+  // Bank statement follows the conventional table (handled by the
+  // conventional branch below — no early return needed).
   // Conventional
   if (occupancy === "secondary" || occupancy === "investment") return purchasePrice * 0.02;
   // Primary conventional
