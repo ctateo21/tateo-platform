@@ -1867,7 +1867,13 @@ export default function Estimate() {
     // requirements are no-ops here — there is nothing to clear or
     // expose. If a DPA toggle is added later, reset it to false
     // alongside the `loanType: rec` write above.
-  }, [inputs.occupancy, inputs.creditScore, inputs.isVeteran, step, activeScenarioId]);
+    // NOTE: `step` is intentionally NOT a dependency. The rule must
+    // fire on input/scenario changes so it can correct a stale
+    // Conventional carried in from a saved scenario, but it must NOT
+    // fire on mere step navigation — otherwise a user who manually
+    // overrides loan type on Page 4 would see the rule clobber their
+    // choice the moment they navigate back to Page 3.
+  }, [inputs.occupancy, inputs.creditScore, inputs.isVeteran, activeScenarioId]);
 
   function setDownPayment(pct: number) {
     setInputs((p) => {
@@ -3519,10 +3525,66 @@ export default function Estimate() {
               {/* Mortgage Section */}
               <Card>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2 text-primary">
-                    <Building2 className="h-4 w-4" />
-                    Mortgage
-                  </CardTitle>
+                  {/* Title + loan-type selector. Mirrors the Page 3
+                      Loan Type Select (around line 3055) — same
+                      `inputs.loanType` source of truth, same
+                      `setLoanType` setter, same eligibility gating —
+                      so switching here re-runs every downstream calc
+                      (rate / P&I / MIP / VA funding fee / cash-to-
+                      close / DTI / qualification) and stays in sync
+                      with Page 3. On mobile the controls stack
+                      vertically. */}
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <CardTitle className="text-base flex items-center gap-2 text-primary">
+                      <Building2 className="h-4 w-4" />
+                      Mortgage
+                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground whitespace-nowrap">Loan Type</Label>
+                      <Select
+                        value={inputs.loanType}
+                        onValueChange={(v) => setLoanType(v as any)}
+                      >
+                        <SelectTrigger className="h-8 w-[160px] text-xs" data-testid="select-page4-loan-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* Conventional needs 620+ FICO. Keep the row
+                              visible (so the trigger never goes empty)
+                              but disable it sub-620. */}
+                          <SelectItem
+                            value="conventional"
+                            disabled={inputs.creditScore < CONVENTIONAL_MIN_FICO}
+                          >
+                            Conventional{inputs.creditScore < CONVENTIONAL_MIN_FICO ? " (620+ FICO)" : ""}
+                          </SelectItem>
+                          {/* FHA: primary only. */}
+                          {inputs.occupancy === "primary" && (
+                            <SelectItem value="fha">FHA</SelectItem>
+                          )}
+                          {/* VA: primary + veteran only. Kept visible
+                              when already selected (even if veteran
+                              flag flips) so the trigger never blanks. */}
+                          {inputs.occupancy === "primary" && (inputs.isVeteran === true || inputs.loanType === "va") && (
+                            <SelectItem value="va">VA</SelectItem>
+                          )}
+                          {/* USDA: primary only. Page 3 exposes it
+                              too; keep parity so a USDA selection
+                              made on Page 3 stays selectable here. */}
+                          {inputs.occupancy === "primary" && (
+                            <SelectItem value="usda">USDA</SelectItem>
+                          )}
+                          {/* DSCR / Bank Statement: investment only. */}
+                          {inputs.occupancy === "investment" && (
+                            <SelectItem value="dscr">DSCR</SelectItem>
+                          )}
+                          {inputs.occupancy === "investment" && (
+                            <SelectItem value="bank_statement">Bank Statement</SelectItem>
+                          )}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <Row label="Principal & Interest" value={fmt(calc.pi)} sub={`${inputs.interestRate.toFixed(2)}% / 30 yr`} />

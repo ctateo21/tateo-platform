@@ -1,0 +1,109 @@
+Copy/paste this into Replit:
+
+```text id="page4-mortgage-loan-type-dropdown"
+Update Purchase Flow → Page 4 → See My Estimate → Mortgage card.
+
+Current issue:
+On Page 4, the Mortgage card header only says “Mortgage.” I want the loan type shown directly next to that header, and I want the user to be able to change the loan type from Page 4.
+
+Location:
+Purchase Flow → Page 4 → See My Estimate
+Mortgage card/header
+
+Expected behavior:
+1. Next to the “Mortgage” card header, show the current loan type.
+2. Make the loan type a dropdown/select control.
+3. The dropdown should default to whatever loan type was selected/defaulted on Page 3 of the questionnaire / Purchase Details.
+4. If the user changes the loan type on Page 4, the mortgage details should immediately recalculate and update.
+
+Example header:
+Mortgage  [FHA ▼]
+
+or:
+Mortgage — Loan Type: [FHA ▼]
+
+Loan type options:
+- Conventional
+- FHA
+- VA
+- DSCR
+- Bank Statement
+
+Rules:
+1. The Page 4 loan type dropdown must use the same purchase scenario state as Page 3.
+2. If Page 3 defaults to FHA, Page 4 should show FHA.
+3. If Page 3 defaults to VA, Page 4 should show VA.
+4. If the user changes loan type on Page 4, Page 3 should reflect the same loan type if they go back.
+5. Save the selected loan type to the purchase scenario.
+6. Persist after refresh/logout/login.
+
+Occupancy/eligibility rules:
+- VA should only be available if the user is VA eligible/veteran and the property is Primary Residence.
+- FHA should only be available for Primary Residence.
+- If Property Use is Secondary or Investment, disable or hide FHA and VA.
+- If user changes from FHA/VA to another loan type, clear FHA DPA state if not applicable.
+- If user changes to FHA, standard FHA should default to 3.5% down unless FHA DPA is selected.
+- If user changes to VA, down payment should default to 0% if VA logic currently does that.
+- Keep the existing Page 3 automatic recommendation logic:
+  - Primary + Veteran/VA eligible → VA
+  - Primary + credit score below 720 and not veteran → FHA
+  - otherwise existing logic
+
+Mortgage details that must update when loan type changes:
+- interest rate / pricing
+- loan amount
+- down payment default/rules if applicable
+- principal and interest
+- PMI/MIP
+- VA funding fee if applicable
+- FHA upfront/monthly MIP if applicable
+- DPA options if FHA
+- cash to close
+- DTI
+- qualification/review status
+- dashboard summary values
+
+Important:
+- Do not create separate Page 4-only loan type state.
+- Do not just display static text.
+- The Page 4 dropdown must control the same selected loan type used by calculations.
+- Reuse Page 3 loan type logic/state if possible.
+- Do not break the Page 3 default logic.
+- Do not break FHA DPA.
+- Do not break VA eligibility logic.
+- Do not break Conventional, DSCR, or Bank Statement calculations.
+- Do not let Page 4 use stale loan type values.
+
+UI requirements:
+- Place the dropdown directly beside or immediately under the Mortgage card title.
+- Keep the card header clean.
+- On mobile, stack cleanly:
+  Mortgage
+  Loan Type: [dropdown]
+- The selected loan type should be obvious to the user.
+
+Acceptance test:
+1. Start a Purchase questionnaire.
+2. Enter Primary Residence, Veteran = No, credit score 680.
+3. Go to Page 3 and confirm loan type defaults to FHA.
+4. Go to Page 4 / See My Estimate.
+5. Confirm Mortgage card header shows loan type dropdown set to FHA.
+6. Change loan type on Page 4 to Conventional.
+7. Confirm mortgage details recalculate immediately.
+8. Go back to Page 3 and confirm loan type now shows Conventional.
+9. Change Page 3 back to FHA.
+10. Return to Page 4 and confirm dropdown shows FHA.
+11. Select VA only when Veteran/VA eligible + Primary Residence.
+12. Confirm VA is unavailable/disabled if not VA eligible or not Primary.
+13. Confirm FHA is unavailable/disabled if not Primary.
+14. Refresh/logout/login and confirm selected loan type persists.
+15. Confirm cash to close, monthly payment, DTI, and qualification status update after loan type changes.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 4 Mortgage card component was changed
+- Where the loan type dropdown was placed
+- How Page 3 and Page 4 loan type stay synced
+- Which mortgage calculations update when loan type changes
+- How FHA/VA restrictions are enforced
+- Which files/functions were changed
+```
