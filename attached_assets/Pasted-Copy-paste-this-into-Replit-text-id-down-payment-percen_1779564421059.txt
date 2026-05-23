@@ -1,0 +1,169 @@
+Copy/paste this into Replit:
+
+```text id="down-payment-percent-dollar"
+Fix the down payment control on Purchase Page 3 and Page 4 / See My Estimate so users can enter down payment as either a percentage or a dollar amount.
+
+Locations:
+1. Purchase Flow → Page 3 → Purchase Details → Down Payment
+2. Purchase Flow → Page 4 → See My Estimate → Down Payment area
+
+Current issue:
+Down payment currently follows percentage-based rules, but users also need the option to enter a dollar amount.
+
+Expected behavior:
+Allow users to choose down payment mode:
+- Percentage
+- Dollar Amount
+
+Default:
+Keep the current default percentage rules already in place.
+
+Examples:
+- Conventional default should stay whatever the app currently defaults to.
+- FHA should still default to 3.5%.
+- VA should still default to 0%, if VA logic currently does that.
+- FHA DPA 0% option should keep working.
+- Any existing loan-program defaults should remain unchanged.
+
+Do not replace the current default logic with a generic default.
+
+Mode behavior:
+1. If Percentage mode is selected:
+   - User enters/selects down payment percentage.
+   - Down payment dollar amount is calculated from purchase price.
+   - Example: $500,000 purchase price × 5% = $25,000 down payment.
+
+2. If Dollar Amount mode is selected:
+   - User enters/selects down payment dollar amount.
+   - Down payment percentage is calculated from purchase price.
+   - Example: $25,000 ÷ $500,000 = 5%.
+
+Suggested fields:
+- `down_payment_mode`: `"percent" | "amount"`
+- `down_payment_percent`
+- `down_payment_amount`
+
+Calculation rules:
+If mode is percent:
+- `down_payment_amount = round(purchase_price × down_payment_percent / 100)`
+
+If mode is amount:
+- `down_payment_percent = round((down_payment_amount / purchase_price) × 100, 2)`
+
+If purchase price changes:
+- Keep the selected mode as the source of truth.
+- If mode is percent, recalculate the dollar amount.
+- If mode is amount, recalculate the percentage.
+
+Formatting:
+- Percentage should display with two decimals:
+  - 3.50%
+  - 5.00%
+  - 20.00%
+- Dollar amount should round to the nearest whole dollar:
+  - $17,500
+  - $25,000
+- Show both values if clean:
+  - 3.50% / $17,500
+
+Page 3 and Page 4 sync:
+- If user changes down payment on Page 3, Page 4 should immediately reflect it.
+- If user changes down payment on Page 4, Page 3 should reflect it if they go back.
+- Page 3 and Page 4 should use the same scenario state.
+- Auto-save mode, percent, and amount for logged-in users.
+- Persist after refresh/logout/login.
+
+Loan amount:
+Loan Amount must remain read-only/calculated.
+
+Loan Amount = Purchase Price - Down Payment Amount
+
+Important:
+- User should not be able to manually edit Loan Amount.
+- Changing down payment percent or dollar amount should update Loan Amount immediately.
+- Any dependent calculations should update immediately.
+
+Dependent calculations to update:
+- loan amount
+- principal and interest
+- monthly payment
+- PMI/MIP if applicable
+- DTI
+- cash to close
+- qualification status
+- dashboard summary values
+- FHA DPA behavior if applicable
+
+Loan-program rules:
+Keep existing loan-program down payment rules in place:
+- FHA standard default 3.5%
+- FHA DPA 0% if selected
+- VA 0% if applicable
+- Conventional default/minimum rules already in the app
+- Any existing DSCR / Bank Statement rules already in the app
+
+If a user enters a down payment below the minimum for that loan type:
+- Either prevent it or show validation, following existing app behavior.
+- Do not silently break loan qualification/payment logic.
+
+If a user changes loan type:
+- Re-apply the existing default percentage rules for that loan type unless the app already preserves user overrides.
+- If preserving user overrides, make sure they remain valid for the new loan type.
+- If the existing down payment is invalid for the new loan type, adjust or show validation.
+
+FHA DPA:
+Do not break FHA DPA:
+- Standard FHA remains 3.5% down.
+- FHA DPA remains 0% down when selected.
+- If FHA DPA is selected, down payment mode should reflect 0% / $0.
+- If the user switches back to standard FHA, down payment returns to 3.5% unless manually changed within valid FHA rules.
+
+Validation:
+- Down payment amount cannot be negative.
+- Down payment percentage cannot be negative.
+- Down payment amount cannot exceed purchase price.
+- Down payment percentage cannot exceed 100%.
+- If purchase price is missing, allow input but show calculated counterpart as blank or “—.”
+- Avoid long floating-point decimals.
+
+UI requirements:
+- Add a toggle/dropdown near the down payment control:
+  - Percentage
+  - Dollar Amount
+- Default to Percentage mode.
+- In Percentage mode, use the current slider/control behavior.
+- In Dollar Amount mode, allow a dollar input or dollar-based slider.
+- Keep the UI clean and mobile-friendly.
+- Show helper text if useful:
+  “Loan amount is calculated from purchase price minus down payment.”
+
+Acceptance test:
+1. Go to Purchase Page 3.
+2. Confirm Down Payment defaults to Percentage mode using the current loan-program default.
+3. Enter purchase price of $500,000.
+4. Select FHA.
+5. Confirm down payment defaults to 3.50% / $17,500.
+6. Switch to Dollar Amount mode.
+7. Enter $25,000.
+8. Confirm percentage shows 5.00%.
+9. Confirm loan amount shows $475,000 and is read-only.
+10. Go to Page 4 / See My Estimate.
+11. Confirm down payment mode and values match Page 3.
+12. Change down payment on Page 4.
+13. Confirm Page 3 stays synced if user goes back.
+14. Confirm monthly payment, DTI, cash to close, and qualification status update.
+15. Confirm VA 0% behavior still works.
+16. Confirm FHA DPA 0% behavior still works.
+17. Refresh/logout/login.
+18. Confirm down payment mode, percent, amount, and calculated loan amount persist.
+19. Confirm Purchase dashboard summary updates correctly.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 3 component was changed
+- Which Page 4 component was changed
+- Which fields store down payment mode/percent/amount
+- How the current default percentage rules were preserved
+- How loan amount remains read-only
+- Which dependent calculations update
+- Which files/functions were changed
+```
