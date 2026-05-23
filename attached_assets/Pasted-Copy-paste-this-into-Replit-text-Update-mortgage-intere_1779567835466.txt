@@ -1,0 +1,96 @@
+Copy/paste this into Replit:
+
+```text
+Update mortgage interest rate calculations and display formatting.
+
+Requested changes:
+1. Drop all Conventional interest rate parameters by 0.100%.
+2. Round displayed interest rates to the nearest 3rd decimal point for all loan types.
+
+Part 1 — Conventional rate adjustment:
+For Conventional loans only, reduce the final calculated Conventional interest rate by 0.100%.
+
+Example:
+- Current Conventional calculated rate: 6.875%
+- New displayed/calculated Conventional rate: 6.775%
+
+This should apply to Conventional rates wherever they are calculated/displayed:
+- Purchase Page 3
+- Purchase Page 4 / See My Estimate
+- Refinance tab
+- Dashboard summaries
+- Any other Conventional loan estimate display
+
+Important:
+- Only apply the -0.100% adjustment once.
+- Do not double-apply it if Conventional rate logic is reused between Purchase and Refinance.
+- Do not apply this adjustment to FHA, VA, USDA, DSCR, Bank Statement, or other loan types.
+- Do not change Mortgage News Daily base rates directly.
+- Apply the adjustment inside the Conventional pricing/rate calculation layer after the normal Conventional pricing adjustments are calculated.
+
+Part 2 — Interest rate rounding/display:
+For all loan types, when showing interest rates in the UI, round to the nearest 3rd decimal point.
+
+Applies to:
+- Conventional
+- FHA
+- VA
+- USDA
+- DSCR
+- Bank Statement
+- any other loan type
+
+Formatting examples:
+- 6.8746% → 6.875%
+- 6.8744% → 6.874%
+- 7.1% → 7.100%
+- 5.99% → 5.990%
+
+Use consistent formatting:
+- Always show 3 decimal places.
+- Example: `6.775%`
+
+Calculation vs display:
+- Prefer rounding the final rate used in payment calculations to 3 decimals so displayed rate and payment math match.
+- If the app already uses raw rates internally, ensure displayed rate and payment calculation do not materially conflict.
+- Avoid floating-point artifacts such as `6.774999999`.
+
+Suggested helper:
+Create or reuse a shared helper:
+
+function roundRateToThreeDecimals(rate) {
+  return Math.round(Number(rate) * 1000) / 1000;
+}
+
+function formatRate(rate) {
+  return `${roundRateToThreeDecimals(rate).toFixed(3)}%`;
+}
+
+Suggested Conventional logic:
+
+if (loanType === "conventional") {
+  finalRate = finalRate - 0.100;
+}
+
+finalRate = roundRateToThreeDecimals(finalRate);
+
+Acceptance test:
+1. Run a Conventional purchase estimate.
+2. Confirm the Conventional rate is 0.100% lower than before.
+3. Confirm the Conventional adjustment is applied only once.
+4. Confirm FHA rate is not reduced by 0.100%.
+5. Confirm VA rate is not reduced by 0.100%.
+6. Confirm USDA rate is not reduced by 0.100%.
+7. Confirm DSCR and Bank Statement rates are not reduced by 0.100%.
+8. Confirm all displayed rates show exactly 3 decimals.
+9. Confirm payment calculations use the rounded final rate or otherwise match the displayed rate.
+10. Confirm Purchase and Refinance both use the updated Conventional rate logic.
+11. Confirm Dashboard summaries show rates to 3 decimals.
+
+Please make the smallest safe code change possible and tell me:
+- Which Conventional rate function was adjusted
+- Where the -0.100% adjustment is applied
+- How double-application is prevented
+- Which shared formatting/rounding helper is used
+- Which files/functions were changed
+```

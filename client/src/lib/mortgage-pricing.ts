@@ -98,13 +98,30 @@ export interface PricingResult {
   pricingConnected: boolean;
 }
 
+/** Round a percentage rate to the nearest 3 decimal places. Used by
+ *  the rate engine so both payment math and the displayed rate share
+ *  the same value (prevents 6.774999%-style float artifacts). */
+export function roundRateToThreeDecimals(rate: number): number {
+  return Math.round(Number(rate) * 1000) / 1000;
+}
+
+/** Canonical display formatter — always 3 decimal places + `%`. */
+export function formatRate(rate: number): string {
+  return `${roundRateToThreeDecimals(rate).toFixed(3)}%`;
+}
+
 /** Canonical pricing call used by both Purchase and Refinance flows. */
 export function priceLoan(inputs: PricingInputs): PricingResult {
   const { loanType, creditScore, propertyType, liveRates } = inputs;
   const baseRate    = getBaseRatePctForLoanType(liveRates, loanType);
   const creditAdj   = creditScoreAdjustmentPct(creditScore);
   const occupancyAdj = PROPERTY_TYPE_LLPA_PCT[propertyType];
-  const rate = baseRate + creditAdj + occupancyAdj;
+  // Conventional-only pricing concession: drop the final Conventional
+  // rate by 10 bps (0.100%). Applied once here in the shared engine
+  // so it can never be double-applied. FHA / VA / USDA / DSCR /
+  // Bank Statement are untouched.
+  const conventionalAdj = loanType === "conventional" ? -0.1 : 0;
+  const rate = roundRateToThreeDecimals(baseRate + creditAdj + occupancyAdj + conventionalAdj);
 
   // Temporary debug logs — see spec request.
   console.log("[refi-rate] credit score", creditScore);

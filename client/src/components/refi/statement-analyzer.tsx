@@ -199,7 +199,7 @@ export function StatementAnalyzer({
             <div className="p-3 bg-muted rounded-md">
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div><p className="text-muted-foreground text-xs">Loan Balance</p><p className="font-semibold">{formatCurrency(analysis.loanBalance)}</p></div>
-                <div><p className="text-muted-foreground text-xs">Interest Rate</p><p className="font-semibold">{analysis.interestRate}%</p></div>
+                <div><p className="text-muted-foreground text-xs">Interest Rate</p><p className="font-semibold">{Number(analysis.interestRate).toFixed(3)}%</p></div>
                 <div><p className="text-muted-foreground text-xs">Monthly P&I</p><p className="font-semibold">{formatCurrency(analysis.principalAndInterest)}</p></div>
                 <div><p className="text-muted-foreground text-xs">Est. Remaining</p><p className="font-semibold">{analysis.estimatedRemainingYears} years</p></div>
                 <div>

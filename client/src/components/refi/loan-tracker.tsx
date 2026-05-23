@@ -129,12 +129,12 @@ export function getBestOption(loan: TrackedLoan, adjustedTodayRate: number, prop
   const hasSecondLienEquity = homeValue > 0 && homeValue * maxCltv - loanBalance > 10_000;
 
   if (rateDelta <= 0) {
-    if (hasSecondLienEquity) return { type: "second_lien", label: "2nd Lien Home Equity", reason: `Your ${currentRate.toFixed(2)}% rate is below today's market — protect it and tap equity via a 2nd lien instead`, badgeClass: "bg-yellow-100 text-yellow-800 border-yellow-300", cardBg: "bg-yellow-50 border-yellow-200", Icon: Landmark };
-    return { type: "hold", label: "Hold — no action needed", reason: `Your ${currentRate.toFixed(2)}% rate is at or below today's market and equity is limited — wait for conditions to improve`, badgeClass: "bg-muted text-muted-foreground border", cardBg: "bg-muted/40 border-border", Icon: Home };
+    if (hasSecondLienEquity) return { type: "second_lien", label: "2nd Lien Home Equity", reason: `Your ${currentRate.toFixed(3)}% rate is below today's market — protect it and tap equity via a 2nd lien instead`, badgeClass: "bg-yellow-100 text-yellow-800 border-yellow-300", cardBg: "bg-yellow-50 border-yellow-200", Icon: Landmark };
+    return { type: "hold", label: "Hold — no action needed", reason: `Your ${currentRate.toFixed(3)}% rate is at or below today's market and equity is limited — wait for conditions to improve`, badgeClass: "bg-muted text-muted-foreground border", cardBg: "bg-muted/40 border-border", Icon: Home };
   }
-  if (rateDelta >= 0.75) return { type: "rate_term", label: "Rate & Term Refinance", reason: `${rateDelta.toFixed(2)}% rate drop from ${currentRate.toFixed(2)}% → ${adjustedTodayRate.toFixed(2)}% — strongest savings opportunity right now`, badgeClass: "bg-blue-100 text-blue-800 border-blue-300", cardBg: "bg-blue-50 border-blue-200", Icon: ArrowLeftRight };
-  if (hasSecondLienEquity) return { type: "second_lien", label: "2nd Lien Home Equity", reason: `Only a modest ${rateDelta.toFixed(2)}% rate gap — a 2nd lien lets you tap equity while keeping your current rate`, badgeClass: "bg-yellow-100 text-yellow-800 border-yellow-300", cardBg: "bg-yellow-50 border-yellow-200", Icon: Landmark };
-  return { type: "rate_term", label: "Rate & Term Refinance", reason: `${rateDelta.toFixed(2)}% rate drop available — only viable option since equity is limited`, badgeClass: "bg-blue-100 text-blue-800 border-blue-300", cardBg: "bg-blue-50 border-blue-200", Icon: ArrowLeftRight };
+  if (rateDelta >= 0.75) return { type: "rate_term", label: "Rate & Term Refinance", reason: `${rateDelta.toFixed(3)}% rate drop from ${currentRate.toFixed(3)}% → ${adjustedTodayRate.toFixed(3)}% — strongest savings opportunity right now`, badgeClass: "bg-blue-100 text-blue-800 border-blue-300", cardBg: "bg-blue-50 border-blue-200", Icon: ArrowLeftRight };
+  if (hasSecondLienEquity) return { type: "second_lien", label: "2nd Lien Home Equity", reason: `Only a modest ${rateDelta.toFixed(3)}% rate gap — a 2nd lien lets you tap equity while keeping your current rate`, badgeClass: "bg-yellow-100 text-yellow-800 border-yellow-300", cardBg: "bg-yellow-50 border-yellow-200", Icon: Landmark };
+  return { type: "rate_term", label: "Rate & Term Refinance", reason: `${rateDelta.toFixed(3)}% rate drop available — only viable option since equity is limited`, badgeClass: "bg-blue-100 text-blue-800 border-blue-300", cardBg: "bg-blue-50 border-blue-200", Icon: ArrowLeftRight };
 }
 
 function RateCompare({ current, today }: { current: number; today: number }) {
@@ -144,10 +144,10 @@ function RateCompare({ current, today }: { current: number; today: number }) {
       <span className="font-bold text-base">{current.toFixed(3)}%</span>
       <span className="text-muted-foreground">current</span>
       <span className="text-muted-foreground">→</span>
-      <span className={`font-bold text-base ${delta > 0 ? "text-green-600" : "text-muted-foreground"}`}>{today.toFixed(2)}%</span>
+      <span className={`font-bold text-base ${delta > 0 ? "text-green-600" : "text-muted-foreground"}`}>{today.toFixed(3)}%</span>
       <span className="text-muted-foreground">today</span>
-      {delta > 0 ? <span className="flex items-center gap-0.5 text-xs text-green-600 font-medium"><TrendingDown className="h-3 w-3" />{delta.toFixed(2)}% lower</span>
-        : delta < 0 ? <span className="flex items-center gap-0.5 text-xs text-red-500 font-medium"><TrendingUp className="h-3 w-3" />{Math.abs(delta).toFixed(2)}% higher</span>
+      {delta > 0 ? <span className="flex items-center gap-0.5 text-xs text-green-600 font-medium"><TrendingDown className="h-3 w-3" />{delta.toFixed(3)}% lower</span>
+        : delta < 0 ? <span className="flex items-center gap-0.5 text-xs text-red-500 font-medium"><TrendingUp className="h-3 w-3" />{Math.abs(delta).toFixed(3)}% higher</span>
         : <span className="flex items-center gap-0.5 text-xs text-muted-foreground"><Minus className="h-3 w-3" />Same</span>}
     </div>
   );
@@ -186,7 +186,7 @@ function FeeToggles({ idPrefix, financeFees, setFinanceFees, includeEscrows, set
   );
 }
 
-function CashOutSection({ loan, newRate, homeValue, onChangeHomeValue, financeFees, includeEscrows, monthlyEscrow }: { loan: TrackedLoan; newRate: LiveRate; homeValue: number; onChangeHomeValue: (v: number) => void; financeFees: boolean; includeEscrows: boolean; monthlyEscrow: number }) {
+function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeValue, financeFees, includeEscrows, monthlyEscrow }: { loan: TrackedLoan; newRate: LiveRate; displayRate: number; homeValue: number; onChangeHomeValue: (v: number) => void; financeFees: boolean; includeEscrows: boolean; monthlyEscrow: number }) {
   const [editing, setEditing] = useState(false);
   const [editInput, setEditInput] = useState(String(Math.round(homeValue)));
 
@@ -204,7 +204,7 @@ function CashOutSection({ loan, newRate, homeValue, onChangeHomeValue, financeFe
   const closingCosts = (clampedLoan * CLOSING_COST_PERCENT) / 100 + CLOSING_COST_FIXED;
   const totalFees = closingCosts + escrowAmount;
   const finalLoanWithCosts = clampedLoan + (financeFees ? totalFees : 0);
-  const newMonthlyPI = calculateMonthlyPayment(finalLoanWithCosts, newRate.rate, NEW_TERM_YEARS);
+  const newMonthlyPI = calculateMonthlyPayment(finalLoanWithCosts, displayRate, NEW_TERM_YEARS);
   const newLTV = homeValue > 0 ? (finalLoanWithCosts / homeValue) * 100 : 0;
 
   function commitEdit() {
@@ -290,7 +290,7 @@ function CashOutSection({ loan, newRate, homeValue, onChangeHomeValue, financeFe
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">After Cash-Out</p>
             <Badge variant="outline" className="text-xs">{newRate.name} · {newRate.type}</Badge>
           </div>
-          <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Rate</span><span className="font-bold text-lg">{newRate.rate.toFixed(2)}%</span></div>
+          <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Rate</span><span className="font-bold text-lg">{displayRate.toFixed(3)}%</span></div>
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Monthly P&I</span><span className="font-semibold">{formatCurrency(newMonthlyPI)}</span></div>
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Loan Amount</span><span className="font-semibold">{formatCurrency(finalLoanWithCosts)} <span className="text-xs text-muted-foreground">{financeFees ? "(incl. fees)" : "(fees paid at close)"}</span></span></div>
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">Est. Closing Costs</span><span className="font-semibold">{formatCurrency(closingCosts)}</span></div>
@@ -436,7 +436,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
                 {PROPERTY_TYPE_LABELS[pt]}
               </button>
             ))}
-            {rateAdj > 0 && <span className="text-xs text-amber-600">+{rateAdj.toFixed(2)}% LLPA for {PROPERTY_TYPE_LABELS[propertyType].toLowerCase()}</span>}
+            {rateAdj > 0 && <span className="text-xs text-amber-600">+{rateAdj.toFixed(3)}% LLPA for {PROPERTY_TYPE_LABELS[propertyType].toLowerCase()}</span>}
           </div>
 
           {/* Loan type selector — VA/FHA disabled when not primary */}
@@ -529,7 +529,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
                 </div>
                 <div className="rounded-lg border bg-green-50 border-green-200 p-4 space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">After Refinance ({NEW_TERM_YEARS} yr)</p>
-                  <div className="flex justify-between"><span className="text-sm text-muted-foreground">Rate</span><span className="font-bold text-lg text-green-700">{adjustedRate.toFixed(2)}%</span></div>
+                  <div className="flex justify-between"><span className="text-sm text-muted-foreground">Rate</span><span className="font-bold text-lg text-green-700">{adjustedRate.toFixed(3)}%</span></div>
                   <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Monthly P&I</span><span className="font-semibold">{formatCurrency(rateTermNewMonthlyPI)}</span></div>
                   <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Loan Amount</span><span className="font-semibold">{formatCurrency(rateTermNewLoanAmount)}</span></div>
                 </div>
@@ -557,14 +557,14 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
                   <p className={`text-xl font-bold ${rateTermLifetimeNet > 0 ? "text-green-700" : "text-amber-700"}`}>{formatCurrency(Math.abs(rateTermLifetimeNet))}{rateTermLifetimeNet < 0 ? " loss" : ""}</p>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">Closing costs est. {formatCurrency(rateTermBaseClosingCosts)}{includeEscrows && escrowAmount > 0 ? ` + ${formatCurrency(escrowAmount)} escrow reserve` : ""} {financeFees ? "(rolled into new loan)" : "(paid at closing)"}. Rates include {rateAdj > 0 ? `+${rateAdj.toFixed(2)}% LLPA for ${PROPERTY_TYPE_LABELS[propertyType].toLowerCase()}.` : "no LLPA adjustment for primary home."}</p>
+              <p className="text-xs text-muted-foreground">Closing costs est. {formatCurrency(rateTermBaseClosingCosts)}{includeEscrows && escrowAmount > 0 ? ` + ${formatCurrency(escrowAmount)} escrow reserve` : ""} {financeFees ? "(rolled into new loan)" : "(paid at closing)"}. Rates include {rateAdj > 0 ? `+${rateAdj.toFixed(3)}% LLPA for ${PROPERTY_TYPE_LABELS[propertyType].toLowerCase()}.` : "no LLPA adjustment for primary home."}</p>
             </div>
           )}
 
           {/* Cash-Out */}
           {activeTab === "cash_out" && (
             <div className="space-y-4">
-              <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} />
+              <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} displayRate={adjustedRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} />
               <FeeToggles
                 idPrefix={`co-${loan.id}`}
                 financeFees={financeFees}
@@ -633,8 +633,8 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
         <div className="flex items-center justify-between p-3 rounded-md border bg-muted/30 flex-wrap gap-2">
           <div className="space-y-0.5">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">2nd Lien Rate</p>
-            <p className="font-bold text-xl">{heRate.toFixed(2)}%</p>
-            <p className="text-xs text-muted-foreground">30yr + {HE_RATE_MARGIN.toFixed(2)}% 2nd-lien margin{rateAdjustment > 0 ? ` + ${rateAdjustment.toFixed(2)}% occupancy` : ""}</p>
+            <p className="font-bold text-xl">{heRate.toFixed(3)}%</p>
+            <p className="text-xs text-muted-foreground">30yr + {HE_RATE_MARGIN.toFixed(3)}% 2nd-lien margin{rateAdjustment > 0 ? ` + ${rateAdjustment.toFixed(3)}% occupancy` : ""}</p>
           </div>
           <div className="text-right">
             <p className="text-xs text-muted-foreground">Max Available</p>
@@ -704,7 +704,7 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
           <div className="rounded-lg border bg-yellow-50 border-yellow-200 p-4 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Draw Period · {HELOC_DRAW_YEARS} yrs</p>
             <div className="flex justify-between"><span className="text-sm text-muted-foreground">Monthly interest</span><span className="font-bold text-xl">{formatCurrency(helocInterestOnly)}</span></div>
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Rate</span><span className="font-semibold">{heRate.toFixed(2)}%</span></div>
+            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Rate</span><span className="font-semibold">{heRate.toFixed(3)}%</span></div>
           </div>
           <div className="rounded-lg border bg-yellow-50 border-yellow-200 p-4 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Repayment Period · {HELOC_REPAY_YEARS} yrs</p>
@@ -724,7 +724,7 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
           <div className="rounded-lg border bg-yellow-50 border-yellow-200 p-4 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fixed HE Loan · {HE_LOAN_TERM_YEARS} yrs</p>
             <div className="flex justify-between"><span className="text-sm text-muted-foreground">Monthly P&I</span><span className="font-bold text-xl">{formatCurrency(heLoanMonthly)}</span></div>
-            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Rate</span><span className="font-semibold">{heRate.toFixed(2)}%</span></div>
+            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Rate</span><span className="font-semibold">{heRate.toFixed(3)}%</span></div>
             <div className="flex justify-between"><span className="text-sm text-muted-foreground">Total interest</span><span className="font-semibold">{formatCurrency(heLoanTotalInterest)}</span></div>
             <div className="flex justify-between border-t pt-2 mt-1"><span className="text-sm font-medium">Combined monthly</span><span className="font-bold">{formatCurrency(loan.currentPI + heLoanMonthly)}</span></div>
           </div>

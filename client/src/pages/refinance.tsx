@@ -54,7 +54,7 @@ function buildScenarioDetails(analysis: MortgageAnalysis): string {
     `Property: ${analysis.propertyAddress || "Unknown"}`,
     `Lender: ${analysis.lender || "Unknown"}`,
     `Loan Balance: ${formatCurrency(analysis.loanBalance)}`,
-    `Interest Rate: ${analysis.interestRate}%`,
+    `Interest Rate: ${Number(analysis.interestRate).toFixed(3)}%`,
     `Monthly P&I: ${formatCurrency(analysis.principalAndInterest)}`,
     `Est. Home Value: ${formatCurrency(analysis.estimatedHomeValue)}`,
     `Remaining Term: ${analysis.estimatedRemainingYears} years`,

@@ -142,7 +142,7 @@ function RateTermRecRow({ loan, details, homeValueStat }: { loan: TrackedLoan; d
     <div className="space-y-2">
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {homeValueStat}
-        <RecStat label="New Rate" value={`${adjustedTodayRate.toFixed(2)}%`} valueClass="text-blue-700" />
+        <RecStat label="New Rate" value={`${adjustedTodayRate.toFixed(3)}%`} valueClass="text-blue-700" />
         <RecStat label="New Monthly" value={`${formatCurrency(newMonthlyPI)}/mo`} />
         <RecStat
           label="Monthly Savings"
@@ -197,7 +197,7 @@ function RecOverview({
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         {homeValueStat}
         <RecStat label="Equity Available" value={formatCurrency(heAvailable)} valueClass="text-yellow-800" />
-        <RecStat label="2nd Lien Rate" value={`${heRate.toFixed(2)}%`} />
+        <RecStat label="2nd Lien Rate" value={`${heRate.toFixed(3)}%`} />
         <RecStat label="Est. Monthly" value={heMonthly > 0 ? `${formatCurrency(heMonthly)}/mo` : "—"} />
         <RecStat label="1st Lien Stays" value={`${loan.currentRate}%`} />
       </div>
@@ -209,7 +209,7 @@ function RecOverview({
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
       {homeValueStat}
       <RecStat label="Your Rate" value={`${loan.currentRate}%`} valueClass="text-green-700" />
-      <RecStat label="Today's Rate" value={`${adjustedTodayRate.toFixed(2)}%`} />
+      <RecStat label="Today's Rate" value={`${adjustedTodayRate.toFixed(3)}%`} />
       <RecStat label="Monthly P&I" value={`${formatCurrency(loan.currentPI)}/mo`} />
       <RecStat label="Action" value="Hold" />
     </div>

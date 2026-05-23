@@ -413,7 +413,17 @@ function occupancyRateAdj(occupancy: "primary" | "secondary" | "investment", dow
 
 function fullRate(base: number, score: number, occupancy: "primary" | "secondary" | "investment", downPct: number, loanType?: string): number {
   const adj = (loanType === "fha" || loanType === "va") ? fhaCreditAdjustment(score) : creditAdjustment(score);
-  return Math.round((base + adj + occupancyRateAdj(occupancy, downPct)) * 1000) / 1000;
+  let rate = base + adj + occupancyRateAdj(occupancy, downPct);
+  // Conventional-only pricing concession: drop the final Conventional
+  // rate by 10 bps (0.100%). Applied once here in the single rate
+  // engine used by Purchase Page 3, Page 4, and every effect that
+  // recalculates `inputs.interestRate`, so it can never be double-
+  // applied. FHA / VA / USDA / DSCR / Bank Statement are untouched.
+  if (loanType === "conventional") rate -= 0.1;
+  // Round once at the engine boundary so both the payment math and
+  // the displayed rate use the same 3-decimal value (avoids
+  // 6.774999% style float artifacts).
+  return Math.round(rate * 1000) / 1000;
 }
 
 // ─── SliderInput component ───────────────────────────────────────────────────
@@ -3587,7 +3597,7 @@ export default function Estimate() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <Row label="Principal & Interest" value={fmt(calc.pi)} sub={`${inputs.interestRate.toFixed(2)}% / 30 yr`} />
+                  <Row label="Principal & Interest" value={fmt(calc.pi)} sub={`${inputs.interestRate.toFixed(3)}% / 30 yr`} />
                   <Row
                     label="Property Taxes"
                     value={`${fmt(calc.monthlyTax)}/mo`}

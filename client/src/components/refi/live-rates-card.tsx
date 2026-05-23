@@ -41,7 +41,7 @@ function RateTile({ rate, isSelected, onSelect }: { rate: LiveRate; isSelected: 
       className={`flex flex-col items-center justify-center gap-1.5 p-3 rounded-md border transition-colors text-center w-full ${isSelected ? "border-primary bg-accent" : "border-border bg-background hover:bg-accent/50"}`}
     >
       <p className="font-medium text-xs leading-tight text-muted-foreground">{rate.name}</p>
-      <p className="text-2xl font-bold leading-none">{rate.rate.toFixed(2)}%</p>
+      <p className="text-2xl font-bold leading-none">{rate.rate.toFixed(3)}%</p>
       <ChangeIndicator change={rate.change} />
       <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${typeColor}`}>{rate.type}</span>
     </button>
