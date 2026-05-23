@@ -87,6 +87,18 @@ function calcPI(loanAmount: number, annualRate: number, termMonths = 360): numbe
 /** Minimum FICO required for a Conventional loan. Below this, the loan
  *  type is not offered (Fannie/Freddie won't price it). */
 const CONVENTIONAL_MIN_FICO = 620;
+/** Hard cap on the down-payment percentage selectable in either the
+ *  Page 3 Loan Details slider or the Page 4 See My Estimate slider.
+ *  Above this, the loan amount drops below 25% LTV which the
+ *  downstream pricing/qualification logic isn't designed for. */
+const MAX_DOWN_PAYMENT_PCT = 75;
+/** Clamp a down-payment percentage into the valid window. Used by
+ *  every code path that mutates `inputs.downPaymentPct` so a stale
+ *  >75 value from a saved scenario can never resurface after the
+ *  user changes loan type / occupancy / mortgage-status. */
+function clampDownPaymentPct(pct: number, min: number): number {
+  return Math.min(Math.max(pct, min), MAX_DOWN_PAYMENT_PCT);
+}
 
 /** Conventional PMI — credit-keyed annual factor, applied uniformly
  *  across LTV bands (per current pricing matrix). Returns monthly PMI
@@ -1583,14 +1595,18 @@ export default function Estimate() {
     // stay coherent even if the price has since changed.
     const savedMode: "percent" | "amount" =
       saved.downPaymentMode === "amount" ? "amount" : "percent";
-    const savedPct = saved.downPaymentPct ?? base.downPaymentPct;
+    // Clamp rehydrated values to the same [minDown..75%] window the
+    // live editors enforce so saved scenarios from before the 75%
+    // cap (or with stale price) can never re-introduce a >75% DP.
+    const savedPct = Math.min(saved.downPaymentPct ?? base.downPaymentPct, MAX_DOWN_PAYMENT_PCT);
     let dpPct = savedPct;
     let dpAmt =
       saved.downPaymentAmount != null
         ? Math.round(saved.downPaymentAmount)
         : Math.round(price * (savedPct / 100));
     if (savedMode === "amount" && price > 0) {
-      const clampedAmt = Math.max(0, Math.min(dpAmt, price));
+      const maxAmt = Math.floor(price * (MAX_DOWN_PAYMENT_PCT / 100));
+      const clampedAmt = Math.max(0, Math.min(dpAmt, maxAmt));
       dpAmt = clampedAmt;
       dpPct = Math.round((clampedAmt / price) * 10000) / 100;
     } else if (savedMode === "percent") {
@@ -1662,7 +1678,8 @@ export default function Estimate() {
     setInputs((p) => {
       if (p.purchasePrice <= 0) return p;
       if (p.downPaymentMode === "amount" && p.downPaymentAmount != null) {
-        const clampedAmt = Math.max(0, Math.min(p.downPaymentAmount, p.purchasePrice));
+        const maxAmt = Math.floor(p.purchasePrice * (MAX_DOWN_PAYMENT_PCT / 100));
+        const clampedAmt = Math.max(0, Math.min(p.downPaymentAmount, maxAmt));
         const newPct = Math.round((clampedAmt / p.purchasePrice) * 10000) / 100;
         if (clampedAmt === p.downPaymentAmount && newPct === p.downPaymentPct) return p;
         return { ...p, downPaymentAmount: clampedAmt, downPaymentPct: newPct };
@@ -1743,7 +1760,7 @@ export default function Estimate() {
   function setLoanType(lt: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement") {
     setInputs((p) => {
       const newMin = getMinDown(lt, p.hasMortgage, p.occupancy);
-      const newDown = Math.max(p.downPaymentPct, newMin);
+      const newDown = clampDownPaymentPct(p.downPaymentPct, newMin);
       const baseRate = (lt === "dscr" || lt === "bank_statement") ? rates.conventional : ((rates as any)[lt] ?? rates.conventional);
       return {
         ...p,
@@ -1769,7 +1786,7 @@ export default function Estimate() {
         : occ === "investment" && belowConvMin ? "dscr"
         : "conventional";
       const newMin = getMinDown(forcedLoan, p.hasMortgage, occ);
-      const newDown = Math.max(p.downPaymentPct, newMin);
+      const newDown = clampDownPaymentPct(p.downPaymentPct, newMin);
       const baseRate = (forcedLoan === "dscr" || forcedLoan === "bank_statement") ? rates.conventional : ((rates as any)[forcedLoan] ?? rates.conventional);
       return {
         ...p,
@@ -1888,7 +1905,7 @@ export default function Estimate() {
   function setDownPayment(pct: number) {
     setInputs((p) => {
       const minDown = getMinDown(p.loanType, p.hasMortgage, p.occupancy);
-      const newDown = Math.max(pct, minDown);
+      const newDown = Math.min(Math.max(pct, minDown), MAX_DOWN_PAYMENT_PCT);
       // Re-derive the $ amount so the Dollar-Amount input/display
       // stays in sync when the user edits the percent slider.
       const newAmt = Math.round(p.purchasePrice * (newDown / 100));
@@ -1909,7 +1926,8 @@ export default function Estimate() {
    *  typed value would otherwise drop below program minimums). */
   function setDownPaymentDollars(amount: number) {
     setInputs((p) => {
-      const safeAmt = Math.max(0, Math.min(amount, p.purchasePrice));
+      const maxAmt = Math.floor(p.purchasePrice * (MAX_DOWN_PAYMENT_PCT / 100));
+      const safeAmt = Math.max(0, Math.min(amount, maxAmt));
       const minPct = getMinDown(p.loanType, p.hasMortgage, p.occupancy);
       const minAmt = Math.round(p.purchasePrice * (minPct / 100));
       const finalAmt = Math.max(safeAmt, minAmt);
@@ -2071,7 +2089,7 @@ export default function Estimate() {
       inputs.downPaymentAmount ??
       Math.round(price * (inputs.downPaymentPct / 100));
     const minAmt = price > 0 ? Math.round(price * (minDown / 100)) : 0;
-    const maxAmt = Math.max(minAmt, Math.round(price * 0.5));
+    const maxAmt = Math.max(minAmt, Math.floor(price * (MAX_DOWN_PAYMENT_PCT / 100)));
     const loanAmt = Math.max(0, price - dpAmt);
     return (
       <div className="space-y-1">
@@ -2113,7 +2131,7 @@ export default function Estimate() {
             value={Number(Number(inputs.downPaymentPct).toFixed(2))}
             onChange={(v) => setDownPayment(v)}
             min={minDown}
-            max={50}
+            max={MAX_DOWN_PAYMENT_PCT}
             step={0.25}
             suffix="%"
             decimals={2}
@@ -2841,7 +2859,7 @@ export default function Estimate() {
                         <button
                           onClick={() => setInputs((p) => {
                             const newMin = getMinDown(p.loanType, true, p.occupancy);
-                            return { ...p, hasMortgage: true, downPaymentPct: Math.max(p.downPaymentPct, newMin) };
+                            return { ...p, hasMortgage: true, downPaymentPct: clampDownPaymentPct(p.downPaymentPct, newMin) };
                           })}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasMortgage === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
                         >
@@ -3258,7 +3276,7 @@ export default function Estimate() {
                             label=""
                             value={inputs.downPaymentPct}
                             onChange={(v) => setDownPayment(v)}
-                            min={minDown} max={50} step={0.5}
+                            min={minDown} max={MAX_DOWN_PAYMENT_PCT} step={0.5}
                             suffix="%" decimals={1}
                           />
                         ) : (
@@ -3267,7 +3285,7 @@ export default function Estimate() {
                             value={dpAmt}
                             onChange={(v) => setDownPaymentDollars(v)}
                             min={minAmt}
-                            max={Math.max(minAmt, Math.round(inputs.purchasePrice * 0.5))}
+                            max={Math.max(minAmt, Math.floor(inputs.purchasePrice * (MAX_DOWN_PAYMENT_PCT / 100)))}
                             step={500}
                             prefix="$"
                           />

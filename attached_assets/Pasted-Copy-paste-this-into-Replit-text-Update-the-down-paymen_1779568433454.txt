@@ -1,0 +1,68 @@
+Copy/paste this into Replit:
+
+```text
+Update the down payment controls so users can increase down payment up to 75% of the purchase price.
+
+Locations:
+- Purchase Page 3 → Purchase Details → Down Payment
+- Purchase Page 4 → See My Estimate → Real Estate section → Down Payment
+
+Current issue:
+The down payment slider/input does not allow high enough down payments.
+
+Requested behavior:
+Allow down payment to go all the way up to 75% of purchase price.
+
+Requirements:
+1. Set the max down payment percentage to 75.00%.
+2. If using dollar amount mode, allow dollar amount up to 75% of purchase price.
+3. Keep the Percentage / Dollar Amount toggle working.
+4. Keep Page 3 and Page 4 synced.
+5. Keep the loan amount read-only/calculated:
+   Loan Amount = Purchase Price - Down Payment Amount
+6. If down payment is set to 75%, loan amount should equal 25% of purchase price.
+7. Do not allow down payment above 75%.
+8. Do not allow down payment above purchase price.
+9. Keep existing loan-program default down payments:
+   - FHA standard default = 3.50%
+   - VA default = 0.00%
+   - USDA default = 0.00%
+   - Conventional/default rules already in place
+10. This change only increases the maximum selectable amount; it should not change default values.
+
+Validation:
+- Down payment percentage minimum remains 0% unless existing loan rules require higher.
+- Down payment percentage maximum = 75.00%.
+- Down payment amount maximum = purchase price × 75%.
+- If user enters a dollar amount above the 75% cap, cap it at 75%.
+- If purchase price changes and the current dollar down payment exceeds 75%, cap it.
+
+Calculations that must update:
+- loan amount
+- principal and interest
+- monthly payment
+- PMI/MIP if applicable
+- cash to close
+- DTI
+- qualification/review status
+- dashboard summary values
+
+Acceptance test:
+1. Enter purchase price of $500,000.
+2. Set down payment to 75.00%.
+3. Confirm down payment amount is $375,000.
+4. Confirm loan amount is $125,000.
+5. Switch to Dollar Amount mode.
+6. Try entering $400,000.
+7. Confirm it caps at $375,000 / 75.00%.
+8. Confirm Page 3 and Page 4 stay synced.
+9. Confirm calculations update immediately.
+10. Refresh/logout/login and confirm saved down payment value persists.
+
+Please make the smallest safe code change possible and tell me:
+- Which down payment component/slider max was changed
+- How percent and dollar caps are enforced
+- How Page 3 and Page 4 stay synced
+- Which calculations update
+- Which files/functions were changed
+```
