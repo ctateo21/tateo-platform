@@ -1,0 +1,191 @@
+Copy/paste this into Replit:
+
+```text id="purchase-primary-below720-fha-va-priority"
+Fix the Purchase tab questionnaire loan type default logic.
+
+Current issue:
+In the Purchase tab questionnaire, when the user selects:
+- Property use = Primary Residence
+- Credit score below 720
+
+the loan type does not automatically default to FHA on Page 3 → Purchase Details.
+
+This is wrong.
+
+Required rule:
+Inside the Purchase tab questionnaire, on Page 3 → Purchase Details, loan type should default based on this priority:
+
+1. VA wins first:
+If Property Use = Primary Residence AND user is a veteran / VA eligible:
+- Automatically default loan type to VA
+- VA should override the below-720 FHA rule
+
+2. FHA wins second:
+If Property Use = Primary Residence AND credit score is below 720 AND user is not a veteran / not VA eligible:
+- Automatically default loan type to FHA
+
+3. Existing logic otherwise:
+If credit score is 720+ or property use is not Primary Residence:
+- Use the app’s existing loan recommendation/default logic
+
+Examples:
+- Primary Residence + Veteran = Yes + 680 credit score → VA
+- Primary Residence + Veteran = Yes + 740 credit score → VA
+- Primary Residence + Veteran = No + 680 credit score → FHA
+- Primary Residence + Veteran = No + 719 credit score → FHA
+- Primary Residence + Veteran = No + 720 credit score → existing logic
+- Secondary Home + 680 credit score → do not auto-pick FHA because FHA requires primary
+- Investment Property + 680 credit score → do not auto-pick FHA because FHA requires primary
+
+Location:
+This is all inside the Purchase tab questionnaire.
+
+The rule must apply on:
+- Page 3 → Purchase Details
+- and stay synced into Page 4 → See My Estimate
+
+Likely file:
+- pages/mortgage-new.tsx for Page 3 Purchase Details
+- pages/estimate.tsx for Page 4 See My Estimate
+- any shared purchase scenario / loan recommendation utility
+
+Hard requirement:
+When the user reaches or updates Page 3 → Purchase Details:
+- If Primary + Veteran/VA eligible → selected loan type must be VA
+- Else if Primary + credit score < 720 → selected loan type must be FHA
+
+This should update the visible selected loan type on Page 3, not only a hidden recommendation field.
+
+Likely bug:
+The code may be updating a `recommendedLoanType` field but the UI is displaying a different field like `loanType`, `selectedLoanType`, `purchaseDetails.loanType`, or scenario state.
+
+Please inspect and sync all relevant fields:
+- loanType
+- selectedLoanType
+- recommendedLoanType
+- loan_type
+- scenario.loanType
+- scenario.loan_type
+- purchaseDetails.loanType
+- purchaseDetails.loan_type
+- Page 3 local state
+- Page 4 estimate state
+
+Implementation direction:
+Create or update one centralized helper like:
+
+getPurchaseRecommendedLoanType({
+  occupancyType,
+  propertyUse,
+  creditScore,
+  isVeteran,
+  isVaEligible,
+  currentLoanType
+})
+
+Priority logic:
+
+if ((isVeteran || isVaEligible) && occupancyType === "primary") {
+  return "va";
+}
+
+if (occupancyType === "primary" && Number(creditScore) < 720) {
+  return "fha";
+}
+
+return existingRecommendationLogic(...);
+
+Important:
+- The VA check must run before the FHA check.
+- The FHA below-720 rule should only run for Primary Residence.
+- FHA should not auto-select for Secondary or Investment.
+- VA should not auto-select for Secondary or Investment.
+- Do not let FHA DPA logic control whether FHA gets selected.
+- FHA should be selected first, then FHA DPA options become available.
+- If VA is selected, clear FHA DPA state.
+
+When VA is auto-selected:
+- set loan type to VA
+- hide FHA DPA options
+- set `uses_dpa = false`
+- set `dpa_type = null`
+- apply VA pricing/payment/funding fee logic
+
+When FHA is auto-selected:
+- set loan type to FHA
+- default down payment to standard FHA 3.5%
+- set `uses_dpa = false`
+- set `dpa_type = null`
+- keep FHA DPA available as an optional 0% down choice
+- apply FHA pricing/MIP logic
+
+Manual override:
+For now, do not let a previous Conventional selection block the rule.
+If the user changes the relevant answers so the rule applies, force the correct default:
+- Primary + Veteran → VA
+- Primary + credit score below 720 and not veteran → FHA
+
+The issue I keep seeing:
+I put Primary Residence and credit score below 720, but Page 3 still does not default to FHA.
+This needs to be fixed directly at the Page 3 Purchase Details selected loan type state.
+
+Trigger points:
+Re-run this recommendation/default logic whenever any of these change:
+- credit score
+- property use / occupancy
+- veteran / VA eligibility
+- purchase scenario loads
+- user reaches Page 3 Purchase Details
+- user navigates from Page 3 to Page 4
+
+Page 3 and Page 4 sync:
+- Page 3 Purchase Details should show the correct auto-selected loan type.
+- Page 4 See My Estimate should show the same loan type.
+- Do not let Page 4 use stale loan type state.
+- Save the selected loan type to the purchase scenario/dashboard record.
+
+Debug logs:
+Add temporary logs:
+- `[purchase-loan-default] credit score`
+- `[purchase-loan-default] occupancy/property use`
+- `[purchase-loan-default] veteran/VA eligible`
+- `[purchase-loan-default] previous loan type`
+- `[purchase-loan-default] recommended loan type`
+- `[purchase-loan-default] final selected loan type`
+- `[purchase-loan-default] updated fields`
+- `[purchase-loan-default] Page 3 visible loan type`
+- `[purchase-loan-default] Page 4 visible loan type`
+
+Acceptance test:
+1. Start a Purchase questionnaire.
+2. Select Primary Residence.
+3. Select Veteran / VA eligible = No.
+4. Enter credit score 680.
+5. Go to Page 3 → Purchase Details.
+6. Confirm loan type automatically defaults to FHA.
+7. Confirm down payment defaults to standard FHA 3.5%.
+8. Confirm FHA DPA is available but not automatically selected.
+9. Change credit score to 719.
+10. Confirm loan type remains FHA.
+11. Change credit score to 720.
+12. Confirm existing non-FHA recommendation logic can run.
+13. Select Veteran / VA eligible = Yes while Primary Residence.
+14. Confirm loan type automatically changes to VA.
+15. Confirm VA overrides FHA even if credit score is below 720.
+16. Change Property Use to Secondary.
+17. Confirm VA/FHA are not auto-selected.
+18. Change Property Use to Investment.
+19. Confirm VA/FHA are not auto-selected.
+20. Go to Page 4 → See My Estimate.
+21. Confirm Page 4 shows the same loan type as Page 3.
+22. Refresh/logout/login and confirm saved purchase scenario keeps the correct loan type.
+
+Please make the smallest safe code change possible and tell me:
+- Which Purchase loan recommendation/default function was changed
+- Which Page 3 Purchase Details component was changed
+- Which field controls the visible selected loan type on Page 3
+- How VA priority is handled before FHA
+- How the Primary + credit score below 720 → FHA rule is enforced
+- How Page 3 and Page 4 stay synced
+- Which files/functions were changed
+```

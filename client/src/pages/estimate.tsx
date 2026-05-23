@@ -1706,6 +1706,30 @@ export default function Estimate() {
     return hasMortgage === true ? 5 : 3;
   }
 
+  // ─── Purchase loan-type priority rule ───────────────────────────
+  // On Page 3 (Purchase Details) the visible loan type must follow a
+  // strict priority that beats whatever the user previously had
+  // selected:
+  //   1. Primary + Veteran          → VA   (overrides everything)
+  //   2. Primary + FICO < 720       → FHA  (only when not veteran)
+  //   3. Otherwise no recommendation (existing selection wins).
+  // Non-primary (Secondary / Investment) is never auto-defaulted to
+  // FHA or VA — those programs require Primary occupancy.
+  // Returns null when no rule applies.
+  function getPurchaseRecommendedLoanType(args: {
+    occupancy: "primary" | "secondary" | "investment";
+    creditScore: number;
+    isVeteran: boolean | null;
+  }): "fha" | "va" | null {
+    if (args.occupancy !== "primary") return null;
+    if (args.isVeteran === true) return "va";
+    // Strict "not a veteran" per spec — `null` means unanswered and
+    // is treated as unknown so we don't auto-pick FHA before the
+    // veteran question is answered on Page 2.
+    if (args.isVeteran === false && Number(args.creditScore) < 720) return "fha";
+    return null;
+  }
+
   function setLoanType(lt: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement") {
     setInputs((p) => {
       const newMin = getMinDown(lt, p.hasMortgage, p.occupancy);
@@ -1783,6 +1807,67 @@ export default function Estimate() {
       };
     });
   }
+
+  // Re-apply the Purchase loan-type priority rule whenever any input
+  // it depends on changes, or whenever the user reaches Page 3. This
+  // is what makes Primary + sub-720 land on FHA (and Primary + Veteran
+  // land on VA) even when a saved scenario carried in a stale
+  // Conventional selection. `inputs.loanType` is the same state Page 4
+  // reads, so the two pages stay in sync automatically.
+  useEffect(() => {
+    const rec = getPurchaseRecommendedLoanType({
+      occupancy: inputs.occupancy,
+      creditScore: inputs.creditScore,
+      isVeteran: inputs.isVeteran,
+    });
+    console.debug("[purchase-loan-default] credit score", inputs.creditScore);
+    console.debug("[purchase-loan-default] occupancy/property use", inputs.occupancy);
+    console.debug("[purchase-loan-default] veteran/VA eligible", inputs.isVeteran);
+    console.debug("[purchase-loan-default] previous loan type", inputs.loanType);
+    console.debug("[purchase-loan-default] recommended loan type", rec);
+    if (!rec) {
+      console.debug("[purchase-loan-default] final selected loan type", inputs.loanType, "(no rule applies)");
+      return;
+    }
+    // FHA → snap to its standard 3.5%; VA → 0%.
+    const targetDown = rec === "fha" ? 3.5 : 0;
+    // Skip only when the loan type AND the down-payment already match
+    // the recommendation. Without the DP check, FHA arriving via
+    // setCreditScore's own auto-switch (which preserves the prior DP)
+    // would leave a stale 5% / 20% in place, violating the spec's
+    // "default DP to 3.5% when FHA wins" requirement.
+    if (rec === inputs.loanType && inputs.downPaymentPct === targetDown) {
+      console.debug("[purchase-loan-default] final selected loan type", inputs.loanType, "(already matches)");
+      return;
+    }
+    setInputs((p) => {
+      const newMin = getMinDown(rec, p.hasMortgage, p.occupancy);
+      const newDown = Math.max(targetDown, newMin);
+      const baseRate = (rates as any)[rec] ?? rates.conventional;
+      console.debug("[purchase-loan-default] final selected loan type", rec);
+      console.debug("[purchase-loan-default] updated fields", {
+        loanType: rec,
+        downPaymentPct: newDown,
+        downPaymentAmount: Math.round(p.purchasePrice * (newDown / 100)),
+      });
+      console.debug("[purchase-loan-default] Page 3 visible loan type", rec);
+      console.debug("[purchase-loan-default] Page 4 visible loan type", rec);
+      return {
+        ...p,
+        loanType: rec,
+        downPaymentPct: newDown,
+        downPaymentAmount: Math.round(p.purchasePrice * (newDown / 100)),
+        downPaymentMode: "percent",
+        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, rec),
+      };
+    });
+    // NOTE: No FHA-DPA / `uses_dpa` / `dpa_type` fields exist in the
+    // current Inputs / purchase_scenarios schema, so the spec's
+    // "clear DPA state when VA wins" / "keep DPA available on FHA"
+    // requirements are no-ops here — there is nothing to clear or
+    // expose. If a DPA toggle is added later, reset it to false
+    // alongside the `loanType: rec` write above.
+  }, [inputs.occupancy, inputs.creditScore, inputs.isVeteran, step, activeScenarioId]);
 
   function setDownPayment(pct: number) {
     setInputs((p) => {
