@@ -1860,6 +1860,91 @@ export default function Estimate() {
     );
   }
 
+  /** Reusable Down Payment control. Rendered inside the Real Estate
+   *  card on Page 4 (See My Estimate) so the user can flip between
+   *  Percentage / Dollar Amount and slide live. Edits the same
+   *  canonical `inputs.downPaymentPct` + `downPaymentMode` +
+   *  `downPaymentAmount` fields used by the rest of the app, which
+   *  is also what Page 3 (Loan Details / Purchase Details edit
+   *  overlay) writes to — so the two surfaces stay synced via the
+   *  shared scenario state without any duplicate state here. Matches
+   *  the style of `renderSellerConcessions()` a few lines below it. */
+  function renderDownPayment() {
+    const price = inputs.purchasePrice;
+    const minDown = getMinDown(inputs.loanType, inputs.hasMortgage, inputs.occupancy);
+    const mode: "percent" | "amount" = inputs.downPaymentMode ?? "percent";
+    const dpAmt =
+      inputs.downPaymentAmount ??
+      Math.round(price * (inputs.downPaymentPct / 100));
+    const minAmt = price > 0 ? Math.round(price * (minDown / 100)) : 0;
+    const maxAmt = Math.max(minAmt, Math.round(price * 0.5));
+    const loanAmt = Math.max(0, price - dpAmt);
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center justify-between flex-wrap gap-1">
+          <span className="text-xs text-muted-foreground">
+            Down Payment
+            <span className="ml-1.5 text-foreground/80 font-medium">
+              {Number(inputs.downPaymentPct).toFixed(2)}% / {fmt(dpAmt)}
+            </span>
+          </span>
+          <div className="inline-flex rounded border border-border overflow-hidden text-[10px] leading-none">
+            <button
+              type="button"
+              data-testid="dp-mode-percent-re"
+              onClick={() => setDownPaymentMode("percent")}
+              className={`px-2 py-1 transition-colors ${
+                mode === "percent"
+                  ? "bg-primary text-primary-foreground font-semibold"
+                  : "bg-background text-muted-foreground hover:text-foreground"
+              }`}
+              aria-pressed={mode === "percent"}
+            >%</button>
+            <button
+              type="button"
+              data-testid="dp-mode-amount-re"
+              onClick={() => setDownPaymentMode("amount")}
+              className={`px-2 py-1 border-l border-border transition-colors ${
+                mode === "amount"
+                  ? "bg-primary text-primary-foreground font-semibold"
+                  : "bg-background text-muted-foreground hover:text-foreground"
+              }`}
+              aria-pressed={mode === "amount"}
+            >$</button>
+          </div>
+        </div>
+        {mode === "percent" ? (
+          <SliderInput
+            label=""
+            value={Number(Number(inputs.downPaymentPct).toFixed(2))}
+            onChange={(v) => setDownPayment(v)}
+            min={minDown}
+            max={50}
+            step={0.25}
+            suffix="%"
+            decimals={2}
+            disabled={price <= 0}
+          />
+        ) : (
+          <SliderInput
+            label=""
+            value={dpAmt}
+            onChange={(v) => setDownPaymentDollars(v)}
+            min={minAmt}
+            max={maxAmt}
+            step={500}
+            prefix="$"
+            disabled={price <= 0}
+          />
+        )}
+        <p className="text-[10px] text-muted-foreground text-right">
+          Loan Amount: <span className="font-semibold text-foreground">{fmt(loanAmt)}</span>
+          <span className="ml-1 opacity-70">(price − down payment)</span>
+        </p>
+      </div>
+    );
+  }
+
   // ─── Calculations ──────────────────────────────────────────────────────────
 
   const calc = useMemo(() => {
@@ -3197,7 +3282,17 @@ export default function Estimate() {
                 <CardContent>
                   <Row label="Purchase Price" value={fmt(inputs.purchasePrice)} />
                   <Separator />
-                  <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`} />
+                  {/* Down Payment — interactive Percentage / Dollar Amount
+                      toggle + slider, matching the Seller Concessions
+                      control style further down this card. Writes the
+                      same canonical inputs the rest of the page (and
+                      Page 3 / Loan Details) reads from, so every
+                      dependent calc (loan amount, P&I, PMI/MIP, cash
+                      to close, DTI, qualification) updates live. */}
+                  <div className="py-2">
+                    {renderDownPayment()}
+                  </div>
+                  <Separator />
                   <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={
                     inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}`
                     : inputs.loanType === "va" && calc.vaFundingFeeAmt > 0 ? `includes ${inputs.vaLoanUse === "second" ? "3.30" : "2.15"}% funding fee (${fmt(calc.vaFundingFeeAmt)}) · LTV ${fmtPct(calc.ltv)}`

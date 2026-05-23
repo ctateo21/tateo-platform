@@ -1,0 +1,103 @@
+Copy/paste this into Replit:
+
+```text id="page4-down-payment-exact-placement"
+The Page 4 down payment control was not added in the correct place.
+
+I need it added specifically inside:
+
+Purchase Flow → Page 4 → See My Estimate → Real Estate section
+
+The Real Estate section currently has:
+1. Purchase Price
+2. Down Payment
+3. Estimated Closing Costs
+4. Seller Concessions
+
+I need the Down Payment line under Purchase Price to have the same type of control as Seller Concessions a few lines below.
+
+Required placement:
+Inside the Real Estate card, put the Down Payment control directly under Purchase Price and above Estimated Closing Costs.
+
+Required behavior:
+1. The user must be able to flip between:
+   - Percentage
+   - Dollar Amount
+
+2. The control must include a slider, similar to the Seller Concessions slider below it.
+
+3. If Percentage mode is selected:
+   - Slider controls down payment percentage.
+   - Show percent with two decimals.
+   - Example: 3.50%, 5.00%, 20.00%
+   - Calculate dollar amount from purchase price.
+
+4. If Dollar Amount mode is selected:
+   - Slider/input controls down payment dollar amount.
+   - Round dollar amount to nearest whole dollar.
+   - Calculate percentage from purchase price.
+
+5. Show both values clearly if possible:
+   - Example: 3.50% / $17,500
+
+6. Page 4 Down Payment must use the same state as Page 3.
+   - If user changes down payment on Page 3, Page 4 updates.
+   - If user changes down payment on Page 4, Page 3 updates if user goes back.
+
+7. Loan Amount must remain read-only/calculated:
+   Loan Amount = Purchase Price - Down Payment Amount
+
+8. Changing Down Payment on Page 4 must immediately update:
+   - loan amount
+   - principal and interest
+   - monthly payment
+   - PMI/MIP
+   - cash to close
+   - DTI
+   - qualification/review status
+   - dashboard summary values
+
+Important:
+- Do not add this somewhere else on the page.
+- Do not only add a static text value.
+- Do not only show the dollar amount.
+- Do not only show percentage.
+- It must be an interactive control with Percentage / Dollar Amount toggle and slider.
+- Reuse the Page 3 Down Payment component if possible.
+- Match the Seller Concessions control style already on Page 4.
+- Keep the same loan-program defaults:
+  - FHA standard = 3.50%
+  - FHA DPA = 0% when selected
+  - VA = 0% when applicable
+  - Conventional/default rules already used by the app
+- Do not break FHA DPA.
+- Do not break VA 0%.
+- Do not allow manual editing of Loan Amount.
+
+Likely file:
+pages/estimate.tsx
+
+Likely target:
+The Real Estate section/card that currently renders Purchase Price, Down Payment, Estimated Closing Costs, and Seller Concessions.
+
+Acceptance test:
+1. Go to Purchase Page 4 / See My Estimate.
+2. Find the Real Estate section.
+3. Confirm Down Payment appears directly under Purchase Price.
+4. Confirm Down Payment has Percentage / Dollar Amount toggle.
+5. Confirm it has a slider like Seller Concessions.
+6. Switch to Percentage mode and set 3.50%.
+7. Confirm dollar amount calculates correctly.
+8. Switch to Dollar Amount mode and enter/slide to a dollar value.
+9. Confirm percent calculates correctly.
+10. Confirm loan amount updates and stays read-only.
+11. Confirm payment, cash to close, DTI, and qualification status update immediately.
+12. Go back to Page 3 and confirm the same mode/value is synced.
+13. Refresh/logout/login and confirm the saved mode/value persists.
+
+Please make the smallest safe code change possible and tell me:
+- Exactly where in pages/estimate.tsx the Down Payment control was added
+- Whether the Seller Concessions slider style/component was reused
+- Whether Page 3 and Page 4 use the same down payment state
+- Which dependent calculations update
+- Which files/functions were changed
+```
