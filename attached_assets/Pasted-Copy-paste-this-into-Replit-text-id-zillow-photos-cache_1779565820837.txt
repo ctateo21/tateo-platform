@@ -1,0 +1,198 @@
+Copy/paste this into Replit:
+
+```text id="zillow-photos-cache-flows"
+Fix Zillow photo scraping, storage, and display.
+
+Current issue:
+Photos are not scraping/saving correctly for previously searched homes or newly searched homes.
+
+I need Zillow-scraped photos to be stored so they can populate when someone is working on numbers for a home.
+
+Photos should only display in these tabs/flows:
+- Cash Buy
+- Purchase
+- For Sale
+
+Photos should NOT display in:
+- Refinance
+- Insurance
+unless explicitly added later.
+
+Goal:
+When a user enters/selects a property address in Cash Buy, Purchase, or For Sale:
+1. Check the existing property/Zillow cache by normalized property key.
+2. If cached photos exist, load them immediately.
+3. If photos are missing/stale and Zillow scrape runs, extract all available photos.
+4. Save photos to Supabase/property cache.
+5. Save `primaryPhotoUrl` and `propertyPhotos` to the relevant scenario record.
+6. Display photos at the top of the detail/numbers page for that home.
+7. Previously searched homes should load saved photos without scraping again.
+
+Photo fields to extract from Zillow/Apify:
+Inspect the full raw Zillow/Apify response for fields like:
+- photos
+- images
+- imageUrls
+- photoUrls
+- imgSrc
+- hiResImageLink
+- responsivePhotos
+- media
+- carouselPhotos
+- propertyImages
+- listingPhotos
+- attributionInfo
+- originalPhotos
+- propertyPhotos
+
+Normalize all valid image URLs into:
+
+propertyPhotos: [
+  {
+    url: "",
+    caption: null,
+    width: null,
+    height: null,
+    source: "Zillow via Apify"
+  }
+]
+
+Set:
+primaryPhotoUrl = propertyPhotos[0]?.url || null
+
+Storage requirements:
+Store photos in the shared property/Zillow cache table, and also copy/reference them into the scenario record where needed.
+
+Shared cache:
+- Save `primaryPhotoUrl`
+- Save `propertyPhotos`
+- Save `photos_updated_at`
+- Save normalized property key
+- Save Zillow/ZPID/listing URL if available
+
+Scenario records:
+For Cash Buy:
+- Save to `cash_buy_scenarios.primary_photo_url`
+- Save to `cash_buy_scenarios.property_photos`
+
+For Purchase:
+- Save to the Purchase scenario record using the existing photo fields, or add:
+  - `primary_photo_url`
+  - `property_photos`
+
+For For Sale:
+- Save to `seller_scenarios.primary_photo_url`
+- Save to `seller_scenarios.property_photos`
+
+If any of those tables are missing photo columns, give me the exact SQL migration needed.
+
+Do not download/store image files yet:
+- Store only image URLs.
+- Do not store image binaries.
+- Do not expose Apify token to frontend.
+- Do not call Apify from React/frontend.
+
+Display rules:
+Only display photos in:
+1. Dashboard → Cash Buy → property detail/numbers page
+2. Dashboard → Purchase → property detail/Page 4 estimate/numbers page
+3. Dashboard → For Sale → property detail page
+
+Do not display photos in:
+- Dashboard → Refinance
+- Dashboard → Insurance
+
+Photo placement:
+- Put photo carousel at the top of the detail/numbers page.
+- If multiple photos exist, show one at a time with left/right arrows.
+- If only one photo exists, show the single photo.
+- If photos are loading, show:
+  “Loading property photos…”
+- If no photos exist after loading completes, show the normal placeholder.
+- Do not show “No property photos available” while Zillow/property cache is still loading.
+
+Cache behavior:
+1. On address selection:
+   - set photo status to loading
+   - check Supabase/property cache first
+2. If cache has photos:
+   - display cached photos
+   - save/copy them into the active scenario if missing
+   - do not run Zillow just for photos
+3. If cache does not have photos:
+   - run Zillow scrape if not already running
+   - extract photos
+   - save to property cache
+   - save/copy to active scenario
+   - display photos
+4. If Zillow returns no photos:
+   - save empty array with updated timestamp
+   - show placeholder after loading completes
+5. Do not repeatedly scrape the same address on every page load.
+
+Previously searched homes:
+If a home was already searched before and the Zillow/property cache has photos:
+- load photos from cache
+- populate the scenario
+- display photos without running Apify again
+
+If a previous home was searched before but photos were not stored because of the old bug:
+- when that property is opened again, check if scenario photos are missing
+- check shared property cache
+- if shared cache is also missing photos, run Zillow once and save the photos
+
+Data safety:
+- Do not overwrite existing good photo arrays with empty arrays from a failed scrape.
+- Do not overwrite user/scenario photos with blank/null.
+- Deduplicate photo URLs.
+- Skip invalid/empty URLs.
+- Use stable scenario/property IDs, not array indexes.
+
+Debug logs:
+Add temporary logs:
+- `[zillow-photos] flow`
+- `[zillow-photos] normalized property key`
+- `[zillow-photos] cache lookup`
+- `[zillow-photos] cache hit photos count`
+- `[zillow-photos] cache miss`
+- `[zillow-photos] running Zillow scrape`
+- `[zillow-photos] raw photo fields found`
+- `[zillow-photos] normalized photo count`
+- `[zillow-photos] saving to property cache`
+- `[zillow-photos] saving to scenario`
+- `[zillow-photos] display photos count`
+- `[zillow-photos] skipped for unsupported flow`
+
+Acceptance test:
+1. Go to Dashboard → Purchase.
+2. Enter/select a new property address.
+3. Confirm Zillow scrape runs if needed.
+4. Confirm photos are extracted and saved.
+5. Confirm photos display on Purchase detail/Page 4 estimate.
+6. Leave and return to the property.
+7. Confirm photos load from Supabase/cache without scraping again.
+8. Go to Dashboard → Cash Buy.
+9. Enter/select a property address.
+10. Confirm photos display at the top of the Cash Buy detail page.
+11. Refresh/logout/login.
+12. Confirm Cash Buy photos still display.
+13. Go to Dashboard → For Sale.
+14. Enter/select a property address.
+15. Confirm photos display at the top of the For Sale detail page.
+16. Refresh/logout/login.
+17. Confirm For Sale photos still display.
+18. Open Refinance and Insurance.
+19. Confirm photos are not shown there.
+20. Confirm no broken image boxes appear.
+21. Confirm loading state appears before photos finish loading.
+
+Please make the smallest safe code change possible and tell me:
+- Which Zillow/Apify response fields contained photos
+- Which normalization function was fixed/added
+- Which Supabase table stores shared cached photos
+- Which scenario tables store/copy photos
+- Whether any SQL migration is needed
+- How previously searched homes get photos populated
+- How photos are restricted to Cash Buy, Purchase, and For Sale only
+- Which files/functions were changed
+```

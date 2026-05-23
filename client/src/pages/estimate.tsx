@@ -55,7 +55,12 @@ import {
   ChevronUp,
   ClipboardList,
   LayoutDashboard,
+  Loader2,
+  Camera,
 } from "lucide-react";
+import {
+  Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext,
+} from "@/components/ui/carousel";
 import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
 import { useAuth } from "@/context/auth-context";
 import { apiRequest } from "@/lib/queryClient";
@@ -544,6 +549,65 @@ function StepEditWrapper({
   );
 }
 
+/**
+ * Property photo carousel for the Purchase / `/estimate` flow.
+ * Mirrors the Cash Buy PhotoCarousel (client/src/pages/cash-buy.tsx)
+ * so behaviour stays consistent across surfaces:
+ *   - "loading"  → spinner with text
+ *   - "loaded" + 0 photos → friendly placeholder (NOT shown while loading)
+ *   - 1 photo    → single image
+ *   - 2+ photos  → carousel with prev/next arrows
+ * Photos are deduped via the primary+rest merge.
+ */
+function PhotoCarousel({
+  photos, primary, status,
+}: {
+  photos: string[]; primary?: string; status: "idle" | "loading" | "loaded" | "error";
+}) {
+  const all = useMemo(() => {
+    const list = [primary, ...photos].filter((p): p is string => !!p);
+    return Array.from(new Set(list));
+  }, [photos, primary]);
+
+  if (status === "loading" && all.length === 0) {
+    return (
+      <div className="rounded-xl border bg-muted/40 aspect-[16/9] flex items-center justify-center text-sm text-muted-foreground gap-2">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading property photos…
+      </div>
+    );
+  }
+  if (all.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed bg-muted/30 aspect-[16/9] flex flex-col items-center justify-center text-sm text-muted-foreground gap-2">
+        <Camera className="h-5 w-5" />
+        <span>No photos found for this property.</span>
+      </div>
+    );
+  }
+  if (all.length === 1) {
+    return (
+      <div className="rounded-xl overflow-hidden border bg-muted/20">
+        <img src={all[0]} alt="" className="w-full aspect-[16/9] object-cover" />
+      </div>
+    );
+  }
+  return (
+    <Carousel className="w-full">
+      <CarouselContent>
+        {all.map((src, i) => (
+          <CarouselItem key={`${i}-${src}`}>
+            <div className="rounded-xl overflow-hidden border bg-muted/20">
+              <img src={src} alt="" className="w-full aspect-[16/9] object-cover" />
+            </div>
+          </CarouselItem>
+        ))}
+      </CarouselContent>
+      <CarouselPrevious />
+      <CarouselNext />
+    </Carousel>
+  );
+}
+
 export default function Estimate() {
   const search = useSearch();
   const [, setLocation] = useLocation();
@@ -750,6 +814,17 @@ export default function Estimate() {
         // doesn't cause us to mirror this update onto a different tab.
         const isActive = activeScenarioIdRef.current === scenarioId;
 
+        // Photo normalization — server returns `p.photos: string[]` already
+        // deduped + filtered by the expanded `pickPhotos` extractor. Apply
+        // the data-safety rule: only overwrite the saved photo array when
+        // the fresh result is non-empty (the backend already preserves cached
+        // photos through empty scrapes, so an empty here means "really none").
+        const freshPhotos = Array.isArray(p.photos)
+          ? p.photos.filter((x): x is string => typeof x === "string" && x.length > 0)
+          : [];
+        const freshPrimary = freshPhotos[0] ?? undefined;
+        console.log(`[zillow-photos] display photos count=${freshPhotos.length} fromCache=${fromCache}`);
+
         // Update the scenario's saved snapshot using ONLY the latest state
         // visible to the functional updater.
         setScenarios(prev =>
@@ -760,11 +835,29 @@ export default function Estimate() {
             // (typically stale) — the live `inputs` state is the source of
             // truth and is merged separately below.
             const baseSnapshot = s.savedInputs ?? s.baselineInputs ?? null;
-            if (!baseSnapshot) return { ...s, zillowStatus: nextStatus };
+            // Photo merge: always prefer a non-empty fresh array; otherwise
+            // keep whatever was already on the scenario (don't blank out).
+            const nextPhotos = freshPhotos.length > 0 ? freshPhotos : s.propertyPhotos;
+            const nextPrimary = freshPrimary ?? s.primaryPhotoUrl;
+            if (!baseSnapshot) return {
+              ...s,
+              zillowStatus: nextStatus,
+              ...(nextPhotos ? { propertyPhotos: nextPhotos } : {}),
+              ...(nextPrimary ? { primaryPhotoUrl: nextPrimary } : {}),
+            };
             const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa, priceSource);
-            return { ...s, savedInputs: merged, zillowStatus: nextStatus };
+            return {
+              ...s,
+              savedInputs: merged,
+              zillowStatus: nextStatus,
+              ...(nextPhotos ? { propertyPhotos: nextPhotos } : {}),
+              ...(nextPrimary ? { primaryPhotoUrl: nextPrimary } : {}),
+            };
           })
         );
+        if (freshPhotos.length > 0) {
+          console.log(`[zillow-photos] saving to scenario id=${scenarioId} photos=${freshPhotos.length}`);
+        }
 
         // Mirror into live `inputs` only if this scenario is still active
         // RIGHT NOW. Baseline comes from the ref-backed map so we don't
@@ -3187,6 +3280,29 @@ export default function Estimate() {
             {/* ── STEP 4: Estimate ─── */}
             {step === 4 && (
               <div className="space-y-4">
+
+                {/* Property photo carousel — at the very top of the
+                    detail/numbers page per spec. Photos come from the
+                    active scenario (loaded from Supabase / property
+                    cache, or freshly scraped via triggerZillowLookup).
+                    Loading state is gated to the Zillow lookup status
+                    so we never show "No photos" while a lookup is in
+                    flight. Display is restricted to the Purchase flow
+                    only — Refinance and Insurance never render this. */}
+                {(() => {
+                  const sc = scenarios.find(s => s.id === activeScenarioId);
+                  const status: "idle" | "loading" | "loaded" | "error" =
+                    sc?.zillowStatus === "loading" ? "loading"
+                    : sc?.zillowStatus === "error" || sc?.zillowStatus === "unavailable" ? "error"
+                    : sc?.zillowStatus ? "loaded" : "idle";
+                  return (
+                    <PhotoCarousel
+                      photos={sc?.propertyPhotos ?? []}
+                      primary={sc?.primaryPhotoUrl}
+                      status={status}
+                    />
+                  );
+                })()}
 
                 {/* Collapsed answers accordion */}
                 <div className="border border-border rounded-xl overflow-hidden bg-white shadow-sm">

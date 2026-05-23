@@ -53,6 +53,15 @@ export interface PurchaseScenario {
    *  `price * downPaymentPct / 100` for "percent" mode; in
    *  "amount" mode this is the source of truth and pct is derived. */
   downPaymentAmount?: number;
+  /** First photo URL (denormalized for fast list cards). Set when
+   *  Zillow/Apify returns at least one photo or restored from the
+   *  shared property_cache; used by `/estimate` to render the hero
+   *  image immediately on revisit. */
+  primaryPhotoUrl?: string;
+  /** Full photo list (deduped URLs). Persisted to the
+   *  `purchase_scenarios.property_photos` jsonb column so the
+   *  Purchase detail page can show a carousel without re-scraping. */
+  propertyPhotos?: string[];
 }
 
 export interface InsuranceScenario {
@@ -262,6 +271,10 @@ function rowToPurchase(row: any): PurchaseScenario {
       row.down_payment_amount != null && Number.isFinite(Number(row.down_payment_amount))
         ? Number(row.down_payment_amount)
         : undefined,
+    primaryPhotoUrl: row.primary_photo_url ?? undefined,
+    propertyPhotos: Array.isArray(row.property_photos)
+      ? row.property_photos.filter((p: any) => typeof p === "string")
+      : undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -281,6 +294,14 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     loan_type: s.loanType ?? null,
     down_payment_mode: s.downPaymentMode ?? null,
     down_payment_amount: s.downPaymentAmount ?? null,
+    // Data safety: never overwrite a previously-saved good photo array
+    // with an empty array — leave the column untouched when we have
+    // nothing fresh to write. The merge happens on the read side; on
+    // write we only send a value when we actually have one.
+    ...(s.primaryPhotoUrl ? { primary_photo_url: s.primaryPhotoUrl } : {}),
+    ...(s.propertyPhotos && s.propertyPhotos.length > 0
+      ? { property_photos: s.propertyPhotos }
+      : {}),
   };
 }
 function rowToInsurance(row: any): InsuranceScenario {

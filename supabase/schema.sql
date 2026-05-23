@@ -119,6 +119,15 @@ alter table public.purchase_scenarios
   add column if not exists down_payment_mode   text,
   add column if not exists down_payment_amount numeric;
 
+-- Property photos cached on the purchase scenario so the estimate page
+-- can re-display them instantly on revisit without re-scraping Apify.
+-- Matches the shape already used by cash_buy_scenarios / seller_scenarios:
+--   primary_photo_url: first photo url (denormalized for fast list views)
+--   property_photos:   full normalized photo array (jsonb)
+alter table public.purchase_scenarios
+  add column if not exists primary_photo_url text,
+  add column if not exists property_photos   jsonb;
+
 create index if not exists purchase_scenarios_user_idx on public.purchase_scenarios(user_id);
 
 alter table public.purchase_scenarios enable row level security;

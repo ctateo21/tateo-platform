@@ -449,13 +449,84 @@ function pickAddress(p: any): string {
   return [a.streetAddress, a.city, a.state, a.zipcode].filter(Boolean).join(", ");
 }
 
+/**
+ * Extract every photo URL we can find in a raw Zillow/Apify property
+ * blob. Apify returns different shapes depending on which actor was
+ * used (`photos`, `images`, `responsivePhotos`, `originalPhotos`,
+ * `mediaContents`, etc.) so we walk a known set of candidate fields,
+ * pull every string url, dedupe, and return a flat string[]. The
+ * downstream `PropertyScenario.photos` contract is still `string[]`
+ * to avoid breaking existing consumers (Cash Buy, Seller, the
+ * `property_cache.normalized` blob already stored).
+ *
+ * Data-safety:
+ *   - skips empty / non-http urls
+ *   - dedupes (preserves insertion order so the first/primary photo
+ *     wins for `primaryPhotoUrl`)
+ *   - never throws: returns [] for any unexpected shape
+ */
 function pickPhotos(p: any): string[] {
-  if (Array.isArray(p.photos)) {
-    return p.photos.map((ph: any) => (typeof ph === "string" ? ph : ph?.url ?? ph?.mixedSources?.jpeg?.[0]?.url)).filter(Boolean);
+  if (!p || typeof p !== "object") return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: any) => {
+    const url =
+      typeof raw === "string"
+        ? raw
+        : raw?.url
+          ?? raw?.href
+          ?? raw?.src
+          ?? raw?.imgSrc
+          ?? raw?.hiResImageLink
+          ?? raw?.image
+          ?? raw?.mixedSources?.jpeg?.[0]?.url
+          ?? raw?.mixedSources?.webp?.[0]?.url
+          ?? null;
+    if (typeof url !== "string") return;
+    const trimmed = url.trim();
+    if (!trimmed || !/^https?:\/\//i.test(trimmed)) return;
+    if (seen.has(trimmed)) return;
+    seen.add(trimmed);
+    out.push(trimmed);
+  };
+
+  const arrayFields = [
+    "photos",
+    "images",
+    "imageUrls",
+    "photoUrls",
+    "responsivePhotos",
+    "originalPhotos",
+    "carouselPhotos",
+    "propertyImages",
+    "listingPhotos",
+    "propertyPhotos",
+  ];
+  for (const f of arrayFields) {
+    const v = (p as any)[f];
+    if (Array.isArray(v)) v.forEach(push);
   }
-  if (Array.isArray(p.images)) return p.images.filter((x: any) => typeof x === "string");
-  if (typeof p.imgSrc === "string") return [p.imgSrc];
-  return [];
+
+  // `media` / `mediaContents` are often arrays of objects with a
+  // `mediaUrl` or nested `images[]`.
+  for (const f of ["media", "mediaContents"]) {
+    const v = (p as any)[f];
+    if (Array.isArray(v)) {
+      for (const m of v) {
+        if (!m) continue;
+        push(m.mediaUrl ?? m.url ?? m);
+        if (Array.isArray(m.images)) m.images.forEach(push);
+      }
+    }
+  }
+
+  // Singletons.
+  push(p.imgSrc);
+  push(p.hiResImageLink);
+  push(p.primaryPhotoUrl);
+  push(p.attributionInfo?.photoUrl);
+
+  return out;
 }
 
 function pickDescription(p: any): string {

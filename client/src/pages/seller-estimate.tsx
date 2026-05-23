@@ -6,6 +6,9 @@ import {
   Sparkles, TrendingUp, AlertTriangle,
   Home, Eye, Heart, Calendar, DollarSign, BarChart3,
 } from "lucide-react";
+import {
+  Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext,
+} from "@/components/ui/carousel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -334,37 +337,56 @@ export default function SellerEstimatePage() {
           {/* Left: address + photo + status */}
           <Card>
             <CardContent className="p-0 overflow-hidden rounded-lg">
-              <div className="aspect-[4/3] bg-muted flex items-center justify-center relative">
-                {scenario.primaryPhotoUrl ? (
-                  <img
-                    src={scenario.primaryPhotoUrl}
-                    alt={scenario.address}
-                    className="w-full h-full object-cover"
-                    onError={e => {
-                      const img = e.currentTarget as HTMLImageElement;
-                      img.style.display = "none";
-                      const fallback = img.nextElementSibling as HTMLElement | null;
-                      if (fallback) fallback.style.display = "flex";
-                    }}
-                  />
-                ) : null}
-                <div
-                  className="absolute inset-0 flex-col items-center justify-center text-muted-foreground gap-2"
-                  style={{ display: scenario.primaryPhotoUrl ? "none" : "flex" }}
-                >
-                  {zillowStatus === "loading" ? (
-                    <>
-                      <Loader2 className="h-6 w-6 animate-spin" />
-                      <span className="text-xs">Looking up property…</span>
-                    </>
-                  ) : (
-                    <>
-                      <ImageOff className="h-8 w-8" />
-                      <span className="text-xs">No photo available</span>
-                    </>
-                  )}
-                </div>
-              </div>
+              {/* Photo carousel — primary + propertyPhotos (deduped).
+                  Falls through to a placeholder if no photos exist
+                  after lookup completes; shows a loading state while
+                  the Zillow scrape is in flight so we never flash
+                  "No photo available" prematurely. */}
+              {(() => {
+                const list = Array.from(new Set([
+                  scenario.primaryPhotoUrl,
+                  ...(scenario.propertyPhotos ?? []),
+                ].filter((p): p is string => !!p)));
+                if (list.length === 0) {
+                  return (
+                    <div className="aspect-[4/3] bg-muted flex flex-col items-center justify-center text-muted-foreground gap-2">
+                      {zillowStatus === "loading" ? (
+                        <>
+                          <Loader2 className="h-6 w-6 animate-spin" />
+                          <span className="text-xs">Loading property photos…</span>
+                        </>
+                      ) : (
+                        <>
+                          <ImageOff className="h-8 w-8" />
+                          <span className="text-xs">No photo available</span>
+                        </>
+                      )}
+                    </div>
+                  );
+                }
+                if (list.length === 1) {
+                  return (
+                    <div className="aspect-[4/3] bg-muted">
+                      <img src={list[0]} alt={scenario.address} className="w-full h-full object-cover" />
+                    </div>
+                  );
+                }
+                return (
+                  <Carousel className="w-full">
+                    <CarouselContent>
+                      {list.map((src, i) => (
+                        <CarouselItem key={`${i}-${src}`}>
+                          <div className="aspect-[4/3] bg-muted">
+                            <img src={src} alt={scenario.address} className="w-full h-full object-cover" />
+                          </div>
+                        </CarouselItem>
+                      ))}
+                    </CarouselContent>
+                    <CarouselPrevious className="left-2" />
+                    <CarouselNext className="right-2" />
+                  </Carousel>
+                );
+              })()}
               <div className="p-4 space-y-3">
                 <div className="flex items-start gap-2">
                   <MapPin className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />

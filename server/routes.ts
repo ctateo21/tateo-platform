@@ -1501,8 +1501,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // 1. Cache check (only if Supabase admin is configured). Successful
     // entries are served regardless of age — see header comment.
+    console.log(`[zillow-photos] flow lookup key=${cacheKey}`);
+    let cachedNormalized: any = null;
     if (supabaseAdmin) {
       try {
+        console.log(`[zillow-photos] cache lookup key=${cacheKey}`);
         const { data: cached } = await supabaseAdmin
           .from("property_cache")
           .select("normalized, fetched_at")
@@ -1512,10 +1515,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const ageMs = cached.fetched_at
             ? Date.now() - new Date(cached.fetched_at).getTime()
             : null;
+          const cachedPhotosCount = Array.isArray((cached.normalized as any).photos)
+            ? (cached.normalized as any).photos.length
+            : 0;
           console.log(`[zillow-lookup] cache HIT key=${cacheKey} ageHours=${ageMs != null ? (ageMs / 3_600_000).toFixed(1) : "?"}`);
-          return res.json({ cached: true, property: cached.normalized });
+          console.log(`[zillow-photos] cache hit photos count=${cachedPhotosCount}`);
+          // Photo back-fill: if the cached normalized blob has photos
+          // already, serve immediately. Otherwise fall through and
+          // re-scrape — old cache entries from before the photo-fix
+          // may have empty arrays.
+          if (cachedPhotosCount > 0) {
+            return res.json({ cached: true, property: cached.normalized });
+          }
+          cachedNormalized = cached.normalized;
+          console.log(`[zillow-photos] cache hit had 0 photos — re-scraping for photos`);
+        } else {
+          console.log(`[zillow-lookup] cache MISS key=${cacheKey}`);
+          console.log(`[zillow-photos] cache miss key=${cacheKey}`);
         }
-        console.log(`[zillow-lookup] cache MISS key=${cacheKey}`);
       } catch (e: any) {
         console.warn("[zillow-lookup] cache read failed:", e?.message);
       }
@@ -1523,6 +1540,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // 2. Live Apify call — deduped by cacheKey so two concurrent requests
     // for the same property share one Apify run.
+    console.log(`[zillow-photos] running Zillow scrape key=${cacheKey}`);
     let property: PropertyScenario;
     try {
       let inFlight = inFlightZillow.get(cacheKey);
@@ -1539,6 +1557,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       property = await inFlight;
+      console.log(`[zillow-photos] normalized photo count=${(property.photos ?? []).length}`);
+      // Data safety: if the fresh scrape returned 0 photos but the
+      // existing cache row had some, preserve the cached photos so we
+      // don't blank out a good record because of a one-off scrape miss.
+      if (
+        (!property.photos || property.photos.length === 0) &&
+        cachedNormalized &&
+        Array.isArray((cachedNormalized as any).photos) &&
+        (cachedNormalized as any).photos.length > 0
+      ) {
+        console.log(`[zillow-photos] preserving ${(cachedNormalized as any).photos.length} cached photos over empty fresh result`);
+        property.photos = (cachedNormalized as any).photos;
+      }
     } catch (e: any) {
       const msg = String(e?.message ?? e);
       const status = /No Zillow results/i.test(msg) ? 404
@@ -1553,6 +1584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // 3. Write-through cache (best-effort; never block the response).
     // Only successful scrapes are cached.
     if (supabaseAdmin) {
+      console.log(`[zillow-photos] saving to property cache key=${cacheKey} photos=${(property.photos ?? []).length}`);
       void supabaseAdmin
         .from("property_cache")
         .upsert(
