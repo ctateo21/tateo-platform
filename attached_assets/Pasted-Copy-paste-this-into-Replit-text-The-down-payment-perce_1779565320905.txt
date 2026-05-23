@@ -1,0 +1,85 @@
+Copy/paste this into Replit:
+
+```text
+The down payment percent/dollar toggle is now correctly added on Page 3 of the Purchase Details. Now I need the same control added to Page 4 of the Purchase tab estimate page.
+
+Location:
+Purchase Flow → Page 4 → See My Estimate
+File likely:
+pages/estimate.tsx
+
+Placement:
+Inside the Real Estate section.
+
+Current Real Estate section order is:
+1. Real Estate
+2. Purchase Price
+3. Down Payment
+
+Add the same down payment control directly under Purchase Price, where Down Payment currently appears.
+
+Expected behavior:
+1. Page 4 should show the Down Payment control under Purchase Price in the Real Estate section.
+2. It should include the same toggle/options as Page 3:
+   - Percentage
+   - Dollar Amount
+3. Page 4 should use the same purchase scenario state as Page 3.
+4. If the user changes down payment on Page 3, Page 4 should show the same value.
+5. If the user changes down payment on Page 4, Page 3 should show the same value if they go back.
+6. The loan amount should remain read-only/calculated:
+   Loan Amount = Purchase Price - Down Payment Amount
+7. Changing down payment on Page 4 should immediately update:
+   - loan amount
+   - principal and interest
+   - monthly payment
+   - PMI/MIP if applicable
+   - cash to close
+   - DTI
+   - qualification/review status
+   - dashboard summary values
+
+Default behavior:
+Keep the same loan-program defaults already working:
+- FHA standard = 3.5%
+- FHA DPA = 0% if selected
+- VA = 0% if applicable
+- Conventional/default rules already used by the app
+
+Do not reset the down payment when moving between Page 3 and Page 4.
+
+Formatting:
+- Percentage should display with two decimals:
+  - 3.50%
+  - 5.00%
+  - 20.00%
+- Dollar amount should round to the nearest whole dollar:
+  - $17,500
+  - $25,000
+- Show both values if clean:
+  - 3.50% / $17,500
+
+Important:
+- Do not update the multi-step questionnaire unless that is tied to this exact Page 4 estimate screen.
+- Do not create separate Page 4-only down payment state.
+- Reuse the same down payment component/logic from Page 3 if possible.
+- Do not break FHA DPA, VA 0%, or existing loan-program default down payment logic.
+- Do not allow the user to manually edit Loan Amount.
+
+Acceptance test:
+1. Go to Purchase Page 3.
+2. Confirm down payment percent/dollar toggle works.
+3. Go to Page 4 / See My Estimate.
+4. In the Real Estate section, confirm Down Payment appears directly under Purchase Price.
+5. Confirm Down Payment has Percentage / Dollar Amount options.
+6. Change the value on Page 4.
+7. Confirm monthly payment, loan amount, cash to close, DTI, and qualification status update.
+8. Go back to Page 3 and confirm the same down payment mode/value is shown.
+9. Refresh/logout/login and confirm the saved down payment mode/value persists.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 4 estimate component was changed
+- Whether the Page 3 down payment component was reused
+- How Page 3 and Page 4 stay synced
+- Which dependent calculations update from Page 4
+- Which files/functions were changed
+```
