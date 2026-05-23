@@ -110,6 +110,15 @@ create table if not exists public.purchase_scenarios (
   loan_type         text
 );
 
+-- Page 3 (`/mortgage`) and Page 4 (`/estimate`) share the down-payment
+-- control via these two columns:
+--   down_payment_mode:   'percent' | 'amount' — UI source of truth.
+--   down_payment_amount: canonical $ value (mirrors price * pct / 100
+--                        in percent mode; the real input in amount mode).
+alter table public.purchase_scenarios
+  add column if not exists down_payment_mode   text,
+  add column if not exists down_payment_amount numeric;
+
 create index if not exists purchase_scenarios_user_idx on public.purchase_scenarios(user_id);
 
 alter table public.purchase_scenarios enable row level security;

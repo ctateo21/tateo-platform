@@ -224,6 +224,17 @@ interface Inputs {
   /** Provenance of `purchasePrice`. Defaults to "default" on a new scenario. */
   purchasePriceSource?: PurchasePriceSource;
   downPaymentPct: number;
+  /** UX mode for the down-payment control on Page 3 + Page 4.
+   *  "percent" (default): pct is canonical, $ amount is derived
+   *  on every render. "amount": $ amount is canonical (stored in
+   *  `downPaymentAmount`) and pct is derived. Persisted so the
+   *  user's choice survives reload/login and stays in sync with
+   *  the Page 3 controls in `pages/mortgage-new.tsx`. */
+  downPaymentMode?: "percent" | "amount";
+  /** Canonical down-payment dollar amount. Always mirrors
+   *  `purchasePrice * downPaymentPct / 100` in "percent" mode and
+   *  is the user-edited source of truth in "amount" mode. */
+  downPaymentAmount?: number;
   sellerConcessions: number;
   /** UX mode for the seller-concessions control on Page 3. Persisted so
    *  the user's choice survives reload / login. The canonical numeric
@@ -313,7 +324,7 @@ interface Scenario {
 
 function makeDefaultInputs(price = 350000): Inputs {
   return {
-    occupancy: "primary", purchasePrice: price, purchasePriceSource: "default", downPaymentPct: 5, sellerConcessions: 0, sellerConcessionsMode: "percent",
+    occupancy: "primary", purchasePrice: price, purchasePriceSource: "default", downPaymentPct: 5, downPaymentMode: "percent", downPaymentAmount: Math.round(price * 0.05), sellerConcessions: 0, sellerConcessionsMode: "percent",
     loanType: "conventional", creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
@@ -1462,10 +1473,32 @@ export default function Estimate() {
     const loanType = validLoanTypes.includes(saved.loanType as any)
       ? (saved.loanType as Inputs["loanType"])
       : base.loanType;
+    // Reconcile saved DP mode + pct + amount so Page 4 picks up
+    // whatever the user last set on Page 3 (or in a previous Page 4
+    // session). When the saved mode is "amount" and a $ value is
+    // present, the pct is recomputed from amount/price so the two
+    // stay coherent even if the price has since changed.
+    const savedMode: "percent" | "amount" =
+      saved.downPaymentMode === "amount" ? "amount" : "percent";
+    const savedPct = saved.downPaymentPct ?? base.downPaymentPct;
+    let dpPct = savedPct;
+    let dpAmt =
+      saved.downPaymentAmount != null
+        ? Math.round(saved.downPaymentAmount)
+        : Math.round(price * (savedPct / 100));
+    if (savedMode === "amount" && price > 0) {
+      const clampedAmt = Math.max(0, Math.min(dpAmt, price));
+      dpAmt = clampedAmt;
+      dpPct = Math.round((clampedAmt / price) * 10000) / 100;
+    } else if (savedMode === "percent") {
+      dpAmt = Math.round(price * (dpPct / 100));
+    }
     return {
       ...base,
       purchasePrice: price,
-      downPaymentPct: saved.downPaymentPct ?? base.downPaymentPct,
+      downPaymentPct: dpPct,
+      downPaymentMode: savedMode,
+      downPaymentAmount: dpAmt,
       interestRate: saved.interestRate ?? base.interestRate,
       loanType,
       annualTaxes: Math.round(price * 0.015),
@@ -1515,6 +1548,27 @@ export default function Estimate() {
   useEffect(() => {
     setInputs(prev => ({ ...prev, annualHOIns: insPremiumCalc.mid }));
   }, [insPremiumCalc.mid]);
+
+  // Re-derive the non-canonical down-payment field whenever the
+  // purchase price changes. The user's chosen mode is the source of
+  // truth: in "amount" mode we hold the dollar amount steady and
+  // recompute pct; in "percent" mode we hold the pct steady and
+  // recompute the dollar amount. This keeps Page 4 self-consistent
+  // when the user edits price after picking a down-payment mode.
+  useEffect(() => {
+    setInputs((p) => {
+      if (p.purchasePrice <= 0) return p;
+      if (p.downPaymentMode === "amount" && p.downPaymentAmount != null) {
+        const clampedAmt = Math.max(0, Math.min(p.downPaymentAmount, p.purchasePrice));
+        const newPct = Math.round((clampedAmt / p.purchasePrice) * 10000) / 100;
+        if (clampedAmt === p.downPaymentAmount && newPct === p.downPaymentPct) return p;
+        return { ...p, downPaymentAmount: clampedAmt, downPaymentPct: newPct };
+      }
+      const newAmt = Math.round(p.purchasePrice * (p.downPaymentPct / 100));
+      if (newAmt === p.downPaymentAmount) return p;
+      return { ...p, downPaymentAmount: newAmt };
+    });
+  }, [inputs.purchasePrice]);
 
   // Clamp seller concessions whenever loan type, occupancy, or down payment changes
   useEffect(() => {
@@ -1641,11 +1695,54 @@ export default function Estimate() {
     setInputs((p) => {
       const minDown = getMinDown(p.loanType, p.hasMortgage, p.occupancy);
       const newDown = Math.max(pct, minDown);
+      // Re-derive the $ amount so the Dollar-Amount input/display
+      // stays in sync when the user edits the percent slider.
+      const newAmt = Math.round(p.purchasePrice * (newDown / 100));
       return {
         ...p,
         downPaymentPct: newDown,
+        downPaymentMode: "percent",
+        downPaymentAmount: newAmt,
         interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown, p.loanType),
       };
+    });
+  }
+
+  /** Dollar-Amount mode setter. Stores the user-typed dollar amount
+   *  as canonical and derives pct from the current purchase price.
+   *  Honors the same per-loan-type minimum DP enforced by
+   *  `setDownPayment` (clamps amount up to `minPct * price` when the
+   *  typed value would otherwise drop below program minimums). */
+  function setDownPaymentDollars(amount: number) {
+    setInputs((p) => {
+      const safeAmt = Math.max(0, Math.min(amount, p.purchasePrice));
+      const minPct = getMinDown(p.loanType, p.hasMortgage, p.occupancy);
+      const minAmt = Math.round(p.purchasePrice * (minPct / 100));
+      const finalAmt = Math.max(safeAmt, minAmt);
+      const finalPct =
+        p.purchasePrice > 0
+          ? Math.round((finalAmt / p.purchasePrice) * 10000) / 100
+          : minPct;
+      return {
+        ...p,
+        downPaymentAmount: finalAmt,
+        downPaymentPct: finalPct,
+        downPaymentMode: "amount",
+        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, finalPct, p.loanType),
+      };
+    });
+  }
+
+  /** Toggle the DP control between Percentage and Dollar Amount.
+   *  Switching never changes the numeric down-payment — it just
+   *  flips which field the UI lets you edit. */
+  function setDownPaymentMode(mode: "percent" | "amount") {
+    setInputs((p) => {
+      const amt =
+        p.downPaymentAmount != null
+          ? p.downPaymentAmount
+          : Math.round(p.purchasePrice * (p.downPaymentPct / 100));
+      return { ...p, downPaymentMode: mode, downPaymentAmount: amt };
     });
   }
 
@@ -1883,6 +1980,10 @@ export default function Estimate() {
           dti: calc.dti,
           qualifies: calc.qualifies,
           downPaymentPct: inputs.downPaymentPct,
+          downPaymentMode: inputs.downPaymentMode ?? "percent",
+          downPaymentAmount:
+            inputs.downPaymentAmount ??
+            Math.round(inputs.purchasePrice * (inputs.downPaymentPct / 100)),
           interestRate: inputs.interestRate,
           loanType: inputs.loanType,
         };
@@ -1895,6 +1996,8 @@ export default function Estimate() {
             && cur.dti === next.dti
             && cur.qualifies === next.qualifies
             && cur.downPaymentPct === next.downPaymentPct
+            && (cur.downPaymentMode ?? "percent") === next.downPaymentMode
+            && cur.downPaymentAmount === next.downPaymentAmount
             && cur.interestRate === next.interestRate
             && cur.loanType === next.loanType
             && cur.address === address;
@@ -2825,6 +2928,12 @@ export default function Estimate() {
 
                   {(() => {
                     const minDown = getMinDown(inputs.loanType, inputs.hasMortgage, inputs.occupancy);
+                    const mode: "percent" | "amount" = inputs.downPaymentMode ?? "percent";
+                    const dpAmt =
+                      inputs.downPaymentAmount ??
+                      Math.round(inputs.purchasePrice * (inputs.downPaymentPct / 100));
+                    const minAmt = Math.round(inputs.purchasePrice * (minDown / 100));
+                    const loanAmt = Math.max(0, inputs.purchasePrice - dpAmt);
                     const snapPoints = [
                       { pct: 0,   label: "0%",   sub: "VA / USDA" },
                       { pct: 3,   label: "3%",   sub: "Conv (no mtg)" },
@@ -2835,13 +2944,55 @@ export default function Estimate() {
                     ];
                     return (
                       <div className="space-y-2">
-                        <SliderInput
-                          label="Down Payment"
-                          value={inputs.downPaymentPct}
-                          onChange={(v) => setDownPayment(v)}
-                          min={minDown} max={50} step={0.5}
-                          suffix="%" decimals={1}
-                        />
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-muted-foreground">
+                            Down Payment
+                            <span className="ml-1.5 text-foreground/80 font-medium">
+                              {Number(inputs.downPaymentPct).toFixed(2)}% / ${dpAmt.toLocaleString()}
+                            </span>
+                          </span>
+                          <div className="inline-flex rounded-md border border-border overflow-hidden text-[11px]">
+                            <button
+                              type="button"
+                              data-testid="dp-mode-percent"
+                              onClick={() => setDownPaymentMode("percent")}
+                              className={`px-2 py-0.5 transition-colors ${
+                                mode === "percent"
+                                  ? "bg-primary text-primary-foreground font-semibold"
+                                  : "bg-background text-muted-foreground hover:text-foreground"
+                              }`}
+                            >Percentage</button>
+                            <button
+                              type="button"
+                              data-testid="dp-mode-amount"
+                              onClick={() => setDownPaymentMode("amount")}
+                              className={`px-2 py-0.5 transition-colors border-l border-border ${
+                                mode === "amount"
+                                  ? "bg-primary text-primary-foreground font-semibold"
+                                  : "bg-background text-muted-foreground hover:text-foreground"
+                              }`}
+                            >Dollar Amount</button>
+                          </div>
+                        </div>
+                        {mode === "percent" ? (
+                          <SliderInput
+                            label=""
+                            value={inputs.downPaymentPct}
+                            onChange={(v) => setDownPayment(v)}
+                            min={minDown} max={50} step={0.5}
+                            suffix="%" decimals={1}
+                          />
+                        ) : (
+                          <SliderInput
+                            label=""
+                            value={dpAmt}
+                            onChange={(v) => setDownPaymentDollars(v)}
+                            min={minAmt}
+                            max={Math.max(minAmt, Math.round(inputs.purchasePrice * 0.5))}
+                            step={500}
+                            prefix="$"
+                          />
+                        )}
                         <div className="flex gap-1 flex-wrap pt-0.5">
                           {snapPoints.map(({ pct, label, sub }) => {
                             const isMin = pct === minDown;
@@ -2867,6 +3018,10 @@ export default function Estimate() {
                               </button>
                             );
                           })}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground leading-tight pt-0.5">
+                          Loan Amount: <span className="text-foreground font-semibold">${loanAmt.toLocaleString()}</span>
+                          <span className="ml-1 opacity-70">(calculated: purchase price − down payment)</span>
                         </div>
                       </div>
                     );

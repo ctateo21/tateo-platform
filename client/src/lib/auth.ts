@@ -44,6 +44,15 @@ export interface PurchaseScenario {
   qualifies?: boolean;
   downPaymentPct?: number;
   loanType?: string;
+  /** UI mode for the down-payment control. Persisted so the user's
+   *  choice (Percentage vs. Dollar Amount) survives reload/login
+   *  and stays in sync between Purchase Page 3 (`/mortgage`) and
+   *  Page 4 (`/estimate`). Defaults to "percent" when missing. */
+  downPaymentMode?: "percent" | "amount";
+  /** Canonical down-payment dollar amount. Always equals
+   *  `price * downPaymentPct / 100` for "percent" mode; in
+   *  "amount" mode this is the source of truth and pct is derived. */
+  downPaymentAmount?: number;
 }
 
 export interface InsuranceScenario {
@@ -245,6 +254,14 @@ function rowToPurchase(row: any): PurchaseScenario {
     qualifies: row.qualifies ?? undefined,
     downPaymentPct: row.down_payment_pct ?? undefined,
     loanType: row.loan_type ?? undefined,
+    downPaymentMode:
+      row.down_payment_mode === "amount" || row.down_payment_mode === "percent"
+        ? row.down_payment_mode
+        : undefined,
+    downPaymentAmount:
+      row.down_payment_amount != null && Number.isFinite(Number(row.down_payment_amount))
+        ? Number(row.down_payment_amount)
+        : undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -262,6 +279,8 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     qualifies: s.qualifies ?? null,
     down_payment_pct: s.downPaymentPct ?? null,
     loan_type: s.loanType ?? null,
+    down_payment_mode: s.downPaymentMode ?? null,
+    down_payment_amount: s.downPaymentAmount ?? null,
   };
 }
 function rowToInsurance(row: any): InsuranceScenario {

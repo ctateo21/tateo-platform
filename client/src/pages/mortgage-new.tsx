@@ -5,6 +5,12 @@ import { Button } from "@/components/ui/button";
 import { FileText, Download, ArrowRight, DollarSign, Percent, Calculator, Home, ExternalLink, Search } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
+import {
+  getSession,
+  getPurchaseScenarios,
+  savePurchaseScenarios,
+  type PurchaseScenario,
+} from "@/lib/auth";
 
 export default function Mortgage() {  
   // State for income-based calculator
@@ -32,6 +38,17 @@ export default function Mortgage() {
   const [manualPropertyPrice, setManualPropertyPrice] = useState<string>('');
   const [propertyData, setPropertyData] = useState<any>(null);
   const [downPaymentPercent, setDownPaymentPercent] = useState<number>(20);
+  // Page 3 down-payment UX state. `downPaymentMode` controls whether
+  // the user is editing percent or dollars; the percent above is the
+  // canonical numeric for every downstream calculation, so existing
+  // P&I / qualification / DTI / closing-cost logic keeps reading
+  // `downPaymentPercent` unchanged. When the user enters a dollar
+  // amount we convert immediately to percent so a single source of
+  // truth feeds the math, and we also persist the typed dollar amount
+  // so price changes can re-derive percent without losing the user's
+  // intent (see the price-sync effect below).
+  const [downPaymentMode, setDownPaymentMode] = useState<"percent" | "amount">("percent");
+  const [downPaymentAmountInput, setDownPaymentAmountInput] = useState<number>(0);
   const [addressCreditScore, setAddressCreditScore] = useState<string>('');
   const [monthlyIncome, setMonthlyIncome] = useState<string>('');
   const [addressMonthlyDebts, setAddressMonthlyDebts] = useState<string>('');
@@ -445,6 +462,138 @@ export default function Mortgage() {
       setIsSearching(false);
     }
   };
+
+  // ── Down-payment sync & persistence ────────────────────────────────
+  // Per-loan-type defaults. Mirrors the rules used by Page 4
+  // (`getMinDown` in pages/estimate.tsx) — VA/USDA = 0%, FHA = 3.5%,
+  // Conventional uses the app's current 5% slot for repeat buyers;
+  // anything else falls through to the existing Page 3 default of
+  // 20%. Returns null to mean "no per-program default" so the user's
+  // current value is preserved.
+  function getDefaultDownPctForLoanType(lt: string): number | null {
+    if (lt === "va" || lt === "usda") return 0;
+    if (lt === "fha") return 3.5;
+    if (lt === "conventional") return 5;
+    return null;
+  }
+
+  // When the user picks a different loan type, snap the down-payment
+  // to that program's default. This honors the spec's requirement to
+  // preserve per-loan-type defaults (FHA 3.5%, VA 0%, FHA DPA 0%,
+  // Conv 5%). We only fire on an actual loan-type change (tracked via
+  // a ref), so we don't trample user edits made afterward.
+  const lastLoanTypeRef = useRef<string>('');
+  useEffect(() => {
+    if (!addressLoanType || addressLoanType === lastLoanTypeRef.current) return;
+    lastLoanTypeRef.current = addressLoanType;
+    const def = getDefaultDownPctForLoanType(addressLoanType);
+    if (def === null) return;
+    setDownPaymentPercent(def);
+    setDownPaymentAmountInput(Math.round(propertyPrice * (def / 100)));
+  }, [addressLoanType, propertyPrice]);
+
+  // Price-sync: when purchase price changes, hold the user's mode as
+  // source of truth and recompute the other field. Mirrors the
+  // identical effect in pages/estimate.tsx so Page 3 and Page 4 stay
+  // self-consistent when the price updates.
+  useEffect(() => {
+    if (propertyPrice <= 0) return;
+    if (downPaymentMode === "amount" && downPaymentAmountInput > 0) {
+      const clampedAmt = Math.min(downPaymentAmountInput, propertyPrice);
+      const newPct = Math.round((clampedAmt / propertyPrice) * 10000) / 100;
+      if (clampedAmt !== downPaymentAmountInput) setDownPaymentAmountInput(clampedAmt);
+      if (newPct !== downPaymentPercent) setDownPaymentPercent(newPct);
+    } else {
+      const newAmt = Math.round(propertyPrice * (downPaymentPercent / 100));
+      if (newAmt !== downPaymentAmountInput) setDownPaymentAmountInput(newAmt);
+    }
+  }, [propertyPrice]);
+
+  // Hydrate Page 3 from the saved purchase_scenarios row keyed by
+  // address whenever the resolved address changes. This is what makes
+  // a value typed on Page 4 (`/estimate`) show up here when the user
+  // navigates back, and vice-versa.
+  const hydratedAddressRef = useRef<string>('');
+  useEffect(() => {
+    const addr = propertyAddress?.trim();
+    if (!addr || addr === hydratedAddressRef.current) return;
+    const hasSession = getSession() !== null || localStorage.getItem("tateo_auth") === "1";
+    if (!hasSession) return;
+    const saved = getPurchaseScenarios().find(
+      (s) => s.address.trim().toLowerCase() === addr.toLowerCase()
+    );
+    if (!saved) return;
+    hydratedAddressRef.current = addr;
+    if (saved.downPaymentMode === "amount" || saved.downPaymentMode === "percent") {
+      setDownPaymentMode(saved.downPaymentMode);
+    }
+    if (typeof saved.downPaymentPct === "number" && Number.isFinite(saved.downPaymentPct)) {
+      setDownPaymentPercent(saved.downPaymentPct);
+    }
+    if (typeof saved.downPaymentAmount === "number" && Number.isFinite(saved.downPaymentAmount)) {
+      setDownPaymentAmountInput(Math.round(saved.downPaymentAmount));
+    } else if (typeof saved.downPaymentPct === "number" && propertyPrice > 0) {
+      setDownPaymentAmountInput(Math.round(propertyPrice * (saved.downPaymentPct / 100)));
+    }
+    if (saved.loanType && !addressLoanType) {
+      setAddressLoanType(saved.loanType);
+    }
+  }, [propertyAddress, propertyPrice]);
+
+  // Auto-persist Page 3 down-payment edits to the same
+  // purchase_scenarios row Page 4 reads from. Debounced so we don't
+  // hammer storage on every keystroke. Only runs when authenticated
+  // and we have an address — guests stay local-only.
+  useEffect(() => {
+    const addr = propertyAddress?.trim();
+    if (!addr) return;
+    const hasSession = getSession() !== null || localStorage.getItem("tateo_auth") === "1";
+    if (!hasSession) return;
+    const handle = setTimeout(() => {
+      try {
+        const existing = getPurchaseScenarios();
+        const key = addr.toLowerCase();
+        const idx = existing.findIndex((s) => s.address.trim().toLowerCase() === key);
+        const dpAmt =
+          downPaymentMode === "amount" && downPaymentAmountInput > 0
+            ? downPaymentAmountInput
+            : Math.round(propertyPrice * (downPaymentPercent / 100));
+        const patch: Partial<PurchaseScenario> = {
+          address: addr,
+          price: propertyPrice || undefined,
+          downPaymentPct: downPaymentPercent,
+          downPaymentMode,
+          downPaymentAmount: dpAmt,
+          loanType: addressLoanType || undefined,
+        };
+        if (idx >= 0) {
+          const cur = existing[idx];
+          const same =
+            cur.price === patch.price &&
+            cur.downPaymentPct === patch.downPaymentPct &&
+            (cur.downPaymentMode ?? "percent") === patch.downPaymentMode &&
+            cur.downPaymentAmount === patch.downPaymentAmount &&
+            (cur.loanType ?? undefined) === patch.loanType;
+          if (same) return;
+          const updated = [...existing];
+          updated[idx] = { ...cur, ...patch };
+          savePurchaseScenarios(updated);
+        } else {
+          savePurchaseScenarios([
+            ...existing,
+            {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              savedAt: new Date().toISOString(),
+              ...patch,
+            } as PurchaseScenario,
+          ]);
+        }
+      } catch (err) {
+        console.warn("[mortgage-new] DP auto-save failed:", err);
+      }
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [propertyAddress, propertyPrice, downPaymentPercent, downPaymentMode, downPaymentAmountInput, addressLoanType]);
 
   // Calculate qualification based on property address
   const handleAddressCalculate = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -964,19 +1113,100 @@ export default function Mortgage() {
 
                           {showPropertyResult && (
                             <div className="space-y-2 mt-4">
-                              <label htmlFor="downPayment" className="block text-sm font-medium text-gray-700">Down Payment (%)</label>
+                              {/* Down Payment control: shared Percentage / Dollar Amount toggle.
+                                  Page 3 (here) and Page 4 (/estimate) both edit the same scenario
+                                  state keyed by address — see the auto-persist effect that writes
+                                  to `purchase_scenarios`. Percent remains canonical for the
+                                  existing P&I / qualification / DTI math below. */}
+                              <div className="flex items-center justify-between gap-2">
+                                <label htmlFor="downPayment" className="block text-sm font-medium text-gray-700">
+                                  Down Payment
+                                  <span className="ml-2 text-xs text-gray-500 font-normal">
+                                    {downPaymentPercent.toFixed(2)}% / ${Math.round((downPaymentPercent / 100) * propertyPrice).toLocaleString()}
+                                  </span>
+                                </label>
+                                <div className="inline-flex rounded-md border border-gray-300 overflow-hidden text-xs">
+                                  <button
+                                    type="button"
+                                    data-testid="dp-mode-percent"
+                                    onClick={() => setDownPaymentMode("percent")}
+                                    className={`px-2 py-1 transition-colors ${
+                                      downPaymentMode === "percent"
+                                        ? "bg-primary text-white font-semibold"
+                                        : "bg-white text-gray-600 hover:text-gray-900"
+                                    }`}
+                                  >Percentage</button>
+                                  <button
+                                    type="button"
+                                    data-testid="dp-mode-amount"
+                                    onClick={() => setDownPaymentMode("amount")}
+                                    className={`px-2 py-1 border-l border-gray-300 transition-colors ${
+                                      downPaymentMode === "amount"
+                                        ? "bg-primary text-white font-semibold"
+                                        : "bg-white text-gray-600 hover:text-gray-900"
+                                    }`}
+                                  >Dollar Amount</button>
+                                </div>
+                              </div>
                               <div className="relative">
-                                <input 
-                                  type="number" 
-                                  id="downPayment" 
-                                  name="downPayment" 
-                                  placeholder="20" 
-                                  min="3" 
-                                  max="50"
-                                  className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                                  value={downPaymentPercent}
-                                  onChange={(e) => setDownPaymentPercent(parseInt(e.target.value))}
-                                />
+                                {(() => {
+                                  // Per-program minimum down-payment percent. Falls back to 0
+                                  // when no specific loan-type rule applies so the field stays
+                                  // editable; the loan-type default effect re-snaps when the
+                                  // user picks a program.
+                                  const minPct = getDefaultDownPctForLoanType(addressLoanType) ?? 0;
+                                  const minAmt = propertyPrice > 0 ? Math.round(propertyPrice * (minPct / 100)) : 0;
+                                  return downPaymentMode === "percent" ? (
+                                    <input
+                                      type="number"
+                                      id="downPayment"
+                                      name="downPayment"
+                                      placeholder="20"
+                                      min={minPct}
+                                      max="100"
+                                      step="0.01"
+                                      className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                                      value={Number.isFinite(downPaymentPercent) ? downPaymentPercent : ''}
+                                      onChange={(e) => {
+                                        const raw = parseFloat(e.target.value);
+                                        const pct = Number.isFinite(raw) ? Math.max(minPct, Math.min(100, raw)) : minPct;
+                                        setDownPaymentPercent(pct);
+                                        setDownPaymentAmountInput(Math.round(propertyPrice * (pct / 100)));
+                                      }}
+                                    />
+                                  ) : (
+                                    <input
+                                      type="number"
+                                      id="downPaymentAmt"
+                                      name="downPaymentAmt"
+                                      placeholder="25000"
+                                      min={minAmt}
+                                      max={propertyPrice || undefined}
+                                      step="100"
+                                      className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+                                      value={downPaymentAmountInput > 0 ? downPaymentAmountInput : ''}
+                                      onChange={(e) => {
+                                        const raw = parseFloat(e.target.value);
+                                        const cap = propertyPrice > 0 ? propertyPrice : Number.POSITIVE_INFINITY;
+                                        const amt = Number.isFinite(raw) ? Math.max(minAmt, Math.min(cap, raw)) : minAmt;
+                                        setDownPaymentAmountInput(amt);
+                                        if (propertyPrice > 0) {
+                                          const pct = Math.round((amt / propertyPrice) * 10000) / 100;
+                                          setDownPaymentPercent(pct);
+                                        }
+                                      }}
+                                    />
+                                  );
+                                })()}
+                              </div>
+                              <div className="text-xs text-gray-600">
+                                Loan Amount:{" "}
+                                <span className="font-semibold text-gray-900">
+                                  ${Math.max(0, Math.round(propertyPrice - propertyPrice * (downPaymentPercent / 100))).toLocaleString()}
+                                </span>
+                                <span className="ml-1 text-gray-400">
+                                  (calculated: purchase price − down payment)
+                                </span>
                               </div>
                             </div>
                           )}
