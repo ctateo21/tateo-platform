@@ -12,3 +12,9 @@ id = "yVE6y31diWM_RFFvnVR4c"
 uri = "file://dist/supabase-schema.tar.gz"
 type = "unspecified"
 title = "supabase/schema.sql (compressed)"
+
+[[outputs]]
+id = "YEuwpSFX7CxRNHymiL5sF"
+uri = "file://exports/tateo-codebase.tar.gz"
+type = "unspecified"
+title = "Tateo & Co codebase (38 MB, excludes node_modules/.git)"
