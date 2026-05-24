@@ -351,27 +351,41 @@ export default function Refinance() {
     // "refinance"). So we gate on the snapshot here.
     const originalHomeValue = loan.estimatedHomeValue;
     const photos = Array.isArray(p.photos) ? p.photos.filter(Boolean) : [];
-    let appliedZillowValue = false;
-    updateLoans(prev => prev.map(l => {
-      if (l.propertyAddress.trim().toLowerCase() !== key) return l;
-      if (l.estimatedHomeValue !== originalHomeValue) {
-        // User edited between request start and response — keep theirs.
-        return l;
-      }
-      appliedZillowValue = true;
-      return { ...l, estimatedHomeValue: homeValue };
-    }));
-    // Pass the loan we actually settled on to the seller sync so the
-    // helper sees the right estimatedHomeValue. When we skipped the
-    // overwrite, we still want photos backfilled, so pass the
-    // user-edited home value through unchanged.
-    const loanForSeller: TrackedLoan = appliedZillowValue
-      ? { ...loan, estimatedHomeValue: homeValue }
-      : loan;
-    syncSellerFromRefinance(loanForSeller, {
-      primaryPhotoUrl: photos[0],
-      propertyPhotos: photos.length > 0 ? photos.slice(0, 8) : undefined,
+    // Resolve the race-guard synchronously from the auth cache. We
+    // CANNOT use the React state-updater closure for this because the
+    // updater runs later during reconciliation, while
+    // syncSellerFromRefinance below needs the resolved value NOW —
+    // otherwise the seller_scenarios row gets re-synced with the
+    // stale statement value and the Zillow value never reaches it.
+    const currentLoans = getTrackedLoans();
+    const matched = currentLoans.find(
+      l => l.propertyAddress.trim().toLowerCase() === key,
+    );
+    const userEditedSinceStart =
+      !!matched && matched.estimatedHomeValue !== originalHomeValue;
+    const finalHomeValue = userEditedSinceStart
+      ? matched!.estimatedHomeValue
+      : homeValue;
+    if (!userEditedSinceStart) {
+      updateLoans(prev => prev.map(l => {
+        if (l.propertyAddress.trim().toLowerCase() !== key) return l;
+        if (l.estimatedHomeValue !== originalHomeValue) return l;
+        return { ...l, estimatedHomeValue: homeValue };
+      }));
+    }
+    console.log("[refi-to-seller] zillow auto-pull resolved", {
+      originalHomeValue,
+      zillowHomeValue: homeValue,
+      finalHomeValue,
+      userEditedSinceStart,
     });
+    syncSellerFromRefinance(
+      { ...loan, estimatedHomeValue: finalHomeValue },
+      {
+        primaryPhotoUrl: photos[0],
+        propertyPhotos: photos.length > 0 ? photos.slice(0, 8) : undefined,
+      },
+    );
   }
 
   return (
