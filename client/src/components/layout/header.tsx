@@ -15,12 +15,33 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/context/auth-context";
 import AuthDialog from "@/components/ui/auth-dialog";
+import { ReferralSourceDialog, getStoredReferralSource } from "@/components/referral-source-dialog";
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [referralOpen, setReferralOpen] = useState(false);
   const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
+
+  // Send the user to the existing Schedule-a-Call flow. Used both as
+  // the post-referral-dialog Continue handler AND as a fast-path when
+  // the user already answered in this browser session.
+  function goToScheduling() {
+    setIsOpen(false);
+    setLocation("/#schedule");
+    // Honor the URL hash on same-page nav.
+    if (typeof window !== "undefined" && window.location.hash !== "#schedule") {
+      window.location.hash = "schedule";
+    }
+  }
+
+  function handleScheduleClick(e: React.MouseEvent) {
+    e.preventDefault();
+    if (getStoredReferralSource()) { goToScheduling(); return; }
+    setIsOpen(false); // close mobile sheet if open
+    setReferralOpen(true);
+  }
 
   const links = [
     { href: "/", label: "HOME", icon: <Home className="mr-2 h-4 w-4" /> },
@@ -152,8 +173,12 @@ export default function Header() {
             </Button>
           )}
 
-          <Button asChild className="bg-black hover:bg-gray-800 text-white border border-black">
-            <Link href="/#schedule">Schedule a Call</Link>
+          <Button
+            className="bg-black hover:bg-gray-800 text-white border border-black"
+            onClick={handleScheduleClick}
+            data-testid="schedule-call-desktop"
+          >
+            Schedule a Call
           </Button>
         </nav>
 
@@ -250,10 +275,12 @@ export default function Header() {
                 </button>
               )}
 
-              <Button asChild className="bg-black hover:bg-gray-800 text-white border border-black w-full mt-4">
-                <Link href="/#schedule" onClick={() => setIsOpen(false)}>
-                  Schedule a Call
-                </Link>
+              <Button
+                className="bg-black hover:bg-gray-800 text-white border border-black w-full mt-4"
+                onClick={handleScheduleClick}
+                data-testid="schedule-call-mobile"
+              >
+                Schedule a Call
               </Button>
             </nav>
           </SheetContent>
@@ -262,6 +289,15 @@ export default function Header() {
 
       {/* Auth dialog (triggered from header) */}
       <AuthDialog open={authOpen} onOpenChange={setAuthOpen} />
+
+      {/* "How did you hear from us?" gate in front of Schedule-a-Call.
+          Only shown once per browser session — repeat clicks skip
+          straight to the scheduling flow via getStoredReferralSource(). */}
+      <ReferralSourceDialog
+        open={referralOpen}
+        onOpenChange={setReferralOpen}
+        onContinue={() => { setReferralOpen(false); goToScheduling(); }}
+      />
     </header>
   );
 }

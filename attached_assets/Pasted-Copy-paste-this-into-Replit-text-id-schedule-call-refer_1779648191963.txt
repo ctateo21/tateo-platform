@@ -1,0 +1,114 @@
+Copy/paste this into Replit:
+
+```text id="schedule-call-referral-popup"
+Update the “Schedule a Call” button behavior.
+
+Current behavior:
+When someone clicks “Schedule a Call,” it likely routes directly to scheduling or opens the current call flow.
+
+Requested change:
+When someone clicks “Schedule a Call,” show a popup/modal first asking:
+
+“How did you hear from us?”
+
+Options:
+1. Licensed Professional
+2. Social Media
+3. Word of Mouth
+
+Conditional fields:
+
+If user selects “Licensed Professional”:
+- Show a text input:
+  “Who referred you?”
+- Placeholder:
+  “Enter their name”
+- Helper text:
+  “We may contact them to thank them or coordinate next steps.”
+
+If user selects “Social Media”:
+- Show a dropdown or radio options:
+  “Which platform?”
+- Options:
+  - Instagram
+  - Facebook
+  - TikTok
+  - YouTube
+  - LinkedIn
+  - Google
+  - Other
+
+If user selects “Word of Mouth”:
+- Optional text input:
+  “Who referred you?” 
+- Placeholder:
+  “Enter their name, if you’d like”
+
+After user answers:
+- Continue to the existing Schedule a Call flow.
+- Do not break the current scheduling link/modal.
+- Pass/save the referral source data if possible.
+
+Suggested fields:
+- `referral_source`: `"licensed_professional" | "social_media" | "word_of_mouth"`
+- `referral_name`
+- `referral_platform`
+- `referral_notes`
+
+Where to store:
+If there is an existing lead/contact form submission:
+- include these fields in the lead payload
+- include them in the FUB lead alert/email body
+- include them in any Supabase lead/scenario record if relevant
+
+FUB/lead alert:
+If a lead alert is sent to Follow Up Boss, include:
+
+How they heard from us:
+- Source: Licensed Professional / Social Media / Word of Mouth
+- Name: [if entered]
+- Platform: [if selected]
+
+UI requirements:
+- Modal title: “How did you hear from us?”
+- Keep it quick and simple.
+- Include buttons:
+  - Continue
+  - Cancel
+- Require the user to choose one option before continuing.
+- Require name only for Licensed Professional.
+- Require platform only for Social Media.
+- Word of Mouth name can be optional.
+- Keep mobile layout clean.
+
+Important:
+- Do not remove the Schedule a Call button.
+- Do not break existing scheduling behavior.
+- Do not require account creation just to answer this question.
+- Do not ask this question repeatedly in the same session if the user already answered it, unless they click Schedule a Call again later.
+- If the user cancels, close the modal and do not open scheduling.
+
+Acceptance test:
+1. Click Schedule a Call.
+2. Confirm modal appears asking “How did you hear from us?”
+3. Select Licensed Professional.
+4. Confirm name input appears and is required.
+5. Enter a name and click Continue.
+6. Confirm existing scheduling flow opens.
+7. Click Schedule a Call again.
+8. Select Social Media.
+9. Confirm platform dropdown appears and is required.
+10. Select Instagram and continue.
+11. Confirm scheduling flow opens.
+12. Select Word of Mouth.
+13. Confirm optional name field appears or no extra field is required.
+14. Continue and confirm scheduling flow opens.
+15. Confirm referral data is included in lead/FUB payload if a lead is created.
+
+Please make the smallest safe code change possible and tell me:
+- Which Schedule a Call component/button was changed
+- Whether a new referral modal component was created
+- Where referral source data is stored/passed
+- Whether FUB/lead alerts include the referral source
+- Which files/functions were changed
+```
