@@ -439,9 +439,23 @@ export default function InsuranceDashboard() {
           {/* Address + action bar */}
           <div className="container mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-3">
+              {/* Back routing matches Cash Buy / Seller / Purchase: a
+                  logged-in user is always inside a dashboard scenario, so
+                  Back returns to Dashboard → Insurance tab. Only the
+                  logged-out flow (entered via the six-service picker)
+                  should land back on /select-service. */}
               <button
-                onClick={() => setLocation(`/select-service${addressParam ? `?address=${encodeURIComponent(addressParam)}` : ""}`)}
+                onClick={() => {
+                  if (isAuthenticated) {
+                    setLocation("/dashboard?tab=insurance");
+                  } else {
+                    setLocation(
+                      `/select-service${addressParam ? `?address=${encodeURIComponent(addressParam)}` : ""}`
+                    );
+                  }
+                }}
                 className="text-muted-foreground hover:text-primary transition-colors"
+                aria-label={isAuthenticated ? "Back to Insurance dashboard" : "Back to Services"}
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>

@@ -1,0 +1,106 @@
+Copy/paste this into Replit:
+
+```text id="logged-in-refi-insurance-back-fix"
+Fix logged-in Back button behavior for Refinance and Insurance detail views.
+
+Current issue:
+When I am logged in and open a detailed view for:
+- Refinance
+- Insurance
+
+Then hit the Back button, it takes me back to the logged-out-style six service choice screen.
+
+That is wrong.
+
+Expected behavior:
+When I am logged in and I am inside a saved scenario/detail view, hitting Back should take me back to the main Dashboard overview with the top dashboard tabs.
+
+The dashboard should show the renamed tabs:
+- Purchase with Loan
+- Refinance
+- Insurance
+- Sell Your Home
+- Purchase with Cash
+
+Current working behavior:
+The other 3 tabs already work correctly:
+- Purchase with Loan
+- Purchase with Cash
+- Sell Your Home
+
+Broken behavior:
+- Refinance detail view
+- Insurance detail view
+
+Fix requirement:
+Make Refinance and Insurance use the same logged-in Back behavior as the other 3 tabs.
+
+Logged-in Back behavior:
+If user is authenticated:
+- Back from Refinance detail should go to Dashboard → Refinance tab overview.
+- Back from Insurance detail should go to Dashboard → Insurance tab overview.
+- Do not go to the six-service selection screen.
+- Do not go to the address entry page.
+- Preserve the dashboard tab order and current tab state.
+
+Logged-out Back behavior:
+If user is not authenticated and came from the address/service-selection flow:
+- Back should return to the six-service selection screen.
+- This logged-out behavior should remain unchanged.
+
+Important distinction:
+Logged-in scenario detail views should route back to Dashboard.
+Logged-out temporary flows should route back to service selection.
+
+Likely bug:
+Refinance and Insurance detail views are probably using the same `returnToServiceSelection` or logged-out back-state logic even when the user is authenticated.
+
+Please inspect:
+- Refinance detail Back handler
+- Insurance detail Back handler
+- Working Back handler for Purchase with Loan
+- Working Back handler for Purchase with Cash
+- Working Back handler for Sell Your Home
+- auth/session check used for Back routing
+- route state/query params like `returnToServiceSelection`, `fromDashboard`, `fromServiceChoice`, or similar
+
+Implementation direction:
+Use a shared back handler if possible:
+
+If authenticated user:
+- navigate to `/dashboard?tab=refinance` for Refinance detail
+- navigate to `/dashboard?tab=insurance` for Insurance detail
+
+If not authenticated and came from service choice:
+- navigate back to the six-option service selection screen
+
+Do not rely only on browser history because the previous history entry may be the service-selection screen.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard.
+3. Open Refinance tab.
+4. Click View/Edit on a saved refinance property.
+5. Hit Back.
+6. Confirm it returns to Dashboard → Refinance tab overview.
+7. Open Insurance tab.
+8. Click View/Edit on a saved insurance property.
+9. Hit Back.
+10. Confirm it returns to Dashboard → Insurance tab overview.
+11. Confirm it does not go to the six-service choice screen.
+12. Confirm it does not go to address entry.
+13. Confirm Purchase with Loan, Purchase with Cash, and Sell Your Home Back behavior still works.
+14. Log out.
+15. Enter an address and choose Refinance.
+16. Hit Back.
+17. Confirm logged-out Refinance still returns to the six-service choice screen.
+18. Repeat for Insurance logged out.
+19. Confirm logged-out Insurance still returns to service choice.
+
+Please make the smallest safe code change possible and tell me:
+- Why Refinance and Insurance were going to service choice while logged in
+- Which working tab behavior was reused
+- Which Back handlers were changed
+- How logged-in vs logged-out routing is separated
+- Which files/functions were changed
+```

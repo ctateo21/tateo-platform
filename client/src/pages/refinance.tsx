@@ -13,6 +13,7 @@ import { formatCurrency } from "@/lib/refi-calculations";
 import { useQuery } from "@tanstack/react-query";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { getTrackedLoans, saveTrackedLoans, subscribeAuthChange, type TrackedLoan } from "@/lib/auth";
+import { useAuth } from "@/context/auth-context";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { Input } from "@/components/ui/input";
@@ -101,6 +102,9 @@ export default function Refinance() {
   // ?debug=1 re-exposes the manual "Pull from Zillow" button. The normal
   // flow now auto-runs a Zillow lookup whenever a tracked loan is added.
   const debugMode = new URLSearchParams(search).get("debug") === "1";
+
+  const { user } = useAuth();
+  const isAuthenticated = !!user;
 
   const [statementData, setStatementData] = useState<MortgageAnalysis | null>(null);
   const [trackedLoans, setTrackedLoansState] = useState<TrackedLoan[]>(() => getTrackedLoans());
@@ -286,7 +290,26 @@ export default function Refinance() {
       {/* Header */}
       <header className="sticky top-[73px] z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto px-4 h-14 flex items-center gap-4">
-          <button onClick={() => setLocation(address ? `/select-service?address=${encodeURIComponent(address)}` : "/select-service")} className="text-muted-foreground hover:text-primary transition-colors">
+          {/* Back routing matches Cash Buy / Seller / Purchase: a
+              logged-in user is always inside a dashboard scenario, so
+              Back returns to Dashboard → Refinance tab. Only the
+              logged-out flow (entered via the six-service picker)
+              should land back on /select-service. */}
+          <button
+            onClick={() => {
+              if (isAuthenticated) {
+                setLocation("/dashboard?tab=refinance");
+              } else {
+                setLocation(
+                  address
+                    ? `/select-service?address=${encodeURIComponent(address)}`
+                    : "/select-service"
+                );
+              }
+            }}
+            className="text-muted-foreground hover:text-primary transition-colors"
+            aria-label={isAuthenticated ? "Back to Refinance dashboard" : "Back to Services"}
+          >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2">
