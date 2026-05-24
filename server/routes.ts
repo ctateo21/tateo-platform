@@ -19,8 +19,6 @@ import {
   homeServicesFormSchema, 
   serviceCategories
 } from "@shared/schema";
-import { netcalcsheetIntegration } from "./integrations/netcalcsheet";
-import { ariveIntegration } from "./integrations/arive";
 import { canopyConnectIntegration } from "./integrations/canopy-connect";
 import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowProperty } from "./integrations/zillow";
 import { getHillsboroughTaxEstimate, isHillsboroughCountyAddress } from "./integrations/hillsborough-tax";
@@ -150,27 +148,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         status: "pending",
       });
       
-      // Process integrations based on selected services
-      const integrationPromises = [];
-      
-      // NetCalcSheet integration for real estate
-      if (selectedServices.includes("real-estate")) {
-        integrationPromises.push(processNetCalcsheetIntegration(submission.id, formData.realEstate));
-      }
-      
-      // Arive integration for mortgage
-      if (selectedServices.includes("mortgage")) {
-        integrationPromises.push(processAriveIntegration(submission.id, formData.mortgage));
-      }
-      
-      // Canopy Connect integration for insurance
-      if (selectedServices.includes("insurance")) {
-        integrationPromises.push(processCanopyConnectIntegration(submission.id, formData.insurance));
-      }
-      
-      // Process all integrations in parallel
-      await Promise.allSettled(integrationPromises);
-      
       // Update submission status to completed
       await storage.updateSubmissionStatus(submission.id, "completed");
       
@@ -197,63 +174,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     res.json(submission);
-  });
-
-  // Questionnaire step saving endpoints
-  
-  // Save questionnaire step response
-  app.post("/api/questionnaire/save-step", async (req, res) => {
-    try {
-      const { sessionId, serviceType, stepName, responseData, isCompleted } = req.body;
-      
-      if (!sessionId || !serviceType || !stepName || !responseData) {
-        return res.status(400).json({ 
-          success: false, 
-          error: "Missing required fields" 
-        });
-      }
-      
-      const response = await storage.saveQuestionnaireResponse({
-        sessionId,
-        serviceType,
-        stepName,
-        responseData,
-        isCompleted: isCompleted || false,
-      });
-      
-      res.json({ 
-        success: true, 
-        response,
-        message: "Step saved successfully" 
-      });
-    } catch (error) {
-      console.error("Error saving questionnaire step:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: "Failed to save step" 
-      });
-    }
-  });
-
-  // Get questionnaire responses for a session
-  app.get("/api/questionnaire/session/:sessionId", async (req, res) => {
-    try {
-      const { sessionId } = req.params;
-      
-      const responses = await storage.getQuestionnaireResponsesBySession(sessionId);
-      
-      res.json({ 
-        success: true, 
-        responses,
-        sessionId 
-      });
-    } catch (error) {
-      console.error("Error getting questionnaire responses:", error);
-      res.status(500).json({ 
-        success: false, 
-        error: "Failed to get responses" 
-      });
-    }
   });
 
   // API keys endpoints
@@ -1918,84 +1838,3 @@ export async function registerRoutes(app: Express): Promise<Server> {
   return httpServer;
 }
 
-// Integration helper functions
-async function processNetCalcsheetIntegration(submissionId: number, formData: any) {
-  try {
-    // Create integration request record
-    const integrationRequest = await storage.createIntegrationRequest({
-      submissionId,
-      provider: "netcalcsheet",
-      requestData: formData,
-      status: "pending",
-    });
-    
-    // Process the integration
-    const response = await netcalcsheetIntegration(formData);
-    
-    // Update integration request with response
-    await storage.updateIntegrationRequest(
-      integrationRequest.id,
-      "completed",
-      response
-    );
-    
-    return response;
-  } catch (error) {
-    console.error("NetCalcSheet integration error:", error);
-    throw error;
-  }
-}
-
-async function processAriveIntegration(submissionId: number, formData: any) {
-  try {
-    // Create integration request record
-    const integrationRequest = await storage.createIntegrationRequest({
-      submissionId,
-      provider: "arive",
-      requestData: formData,
-      status: "pending",
-    });
-    
-    // Process the integration
-    const response = await ariveIntegration(formData);
-    
-    // Update integration request with response
-    await storage.updateIntegrationRequest(
-      integrationRequest.id,
-      "completed",
-      response
-    );
-    
-    return response;
-  } catch (error) {
-    console.error("Arive integration error:", error);
-    throw error;
-  }
-}
-
-async function processCanopyConnectIntegration(submissionId: number, formData: any) {
-  try {
-    // Create integration request record
-    const integrationRequest = await storage.createIntegrationRequest({
-      submissionId,
-      provider: "canopy-connect",
-      requestData: formData,
-      status: "pending",
-    });
-    
-    // Process the integration
-    const response = await canopyConnectIntegration(formData);
-    
-    // Update integration request with response
-    await storage.updateIntegrationRequest(
-      integrationRequest.id,
-      "completed",
-      response
-    );
-    
-    return response;
-  } catch (error) {
-    console.error("Canopy Connect integration error:", error);
-    throw error;
-  }
-}

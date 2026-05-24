@@ -1,0 +1,97 @@
+I need you to remove several deprecated features 
+from the codebase. Follow these instructions exactly. 
+Do not remove anything not listed here. 
+Do not refactor anything else while doing this.
+Confirm each deletion before moving to the next.
+
+─── FILES TO DELETE ENTIRELY ───────────────────
+
+Delete these pages:
+- client/src/pages/questionnaire.tsx
+- client/src/pages/service-questionnaire.tsx
+
+Delete these questionnaire component files:
+- client/src/components/questionnaire/plaid-integration.tsx
+- client/src/components/questionnaire/refinance-plaid-integration.tsx
+- client/src/components/questionnaire/truv-integration.tsx
+- client/src/components/questionnaire/income-type-selection.tsx
+- client/src/components/questionnaire/loan-analysis.tsx
+- client/src/components/questionnaire/refinance-loan-analysis.tsx
+- client/src/components/questionnaire/lender-price-step.tsx
+- client/src/components/questionnaire/mortgage-liabilities-form.tsx
+- client/src/components/questionnaire/credit-score-step.tsx
+- client/src/components/questionnaire/escrow-step.tsx
+- client/src/components/questionnaire/home-ownership-history-step.tsx
+- client/src/components/questionnaire/loan-assistance-step.tsx
+- client/src/components/questionnaire/loan-balance-step.tsx
+- client/src/components/questionnaire/loan-type-step.tsx
+- client/src/components/questionnaire/mortgage-type-step.tsx
+- client/src/components/questionnaire/non-qm-step.tsx
+- client/src/components/questionnaire/property-location-step.tsx
+- client/src/components/questionnaire/property-ownership-step.tsx
+- client/src/components/questionnaire/refinance-lien-type-step.tsx
+- client/src/components/questionnaire/refinance-type-step.tsx
+- client/src/components/questionnaire/taxstatus-integration.tsx
+
+Delete these server integration files:
+- server/integrations/arive.ts
+- server/integrations/netcalcsheet.ts
+
+─── FILES TO CLEAN (remove references only) ────
+
+In client/src/App.tsx:
+- Remove the import line for Questionnaire
+- Remove the import line for ServiceQuestionnaire
+- Remove the Route for /questionnaire
+- Remove the Route for /service-questionnaire
+- Do not change any other routes
+
+In server/routes.ts:
+- Remove the import line for ariveIntegration
+- Remove the import line for netcalcsheetIntegration
+- Remove the import line for canopyConnectIntegration
+- Remove the processAriveIntegration function 
+  (starts around line 1758)
+- Remove the processNetCalcSheetIntegration function
+  (check for it near the Arive function)
+- Remove the processCanopyConnectIntegration function
+  (starts around line 1785)
+- Remove the two API routes for questionnaire:
+  POST /api/questionnaire/save-step
+  GET /api/questionnaire/session/:sessionId
+- Remove any calls to these functions inside 
+  the /api/submit route (lines ~156-170)
+- Do NOT remove any other routes
+- Do NOT remove the Canopy Connect import 
+  if it is used elsewhere — check line 662 
+  first. If there is a standalone 
+  GET/POST route for Canopy Connect that 
+  is NOT tied to the questionnaire, 
+  keep that route intact.
+
+─── DO NOT TOUCH ───────────────────────────────
+
+Do not remove or modify:
+- client/src/pages/estimate.tsx (purchase flow)
+- client/src/pages/refinance.tsx
+- client/src/pages/insurance.tsx
+- client/src/pages/cash-buy.tsx
+- client/src/pages/seller-estimate.tsx
+- client/src/pages/dashboard.tsx
+- client/src/pages/mortgage-new-fixed.tsx
+- server/integrations/canopy-connect.ts
+- server/integrations/apify-zillow.ts
+- server/integrations/zillow.ts
+- server/integrations/realtor-apify.ts
+- server/integrations/listing-market-analysis.ts
+- Any Supabase auth code
+- Any database schema or migrations
+- Any components not in the questionnaire folder
+
+─── AFTER DELETION ─────────────────────────────
+
+After all deletions and cleanups:
+1. Run TypeScript check: npx tsc --noEmit
+2. Fix any import errors caused by the removals
+3. Make sure the app still builds without errors
+4. Report what was deleted and any errors fixed

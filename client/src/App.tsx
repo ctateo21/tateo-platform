@@ -20,8 +20,6 @@ import Footer from "./components/layout/footer";
 import Home from "./pages/home";
 import Dashboard from "./pages/dashboard";
 import Settings from "./pages/settings";
-import Questionnaire from "./pages/questionnaire";
-import ServiceQuestionnaire from "./pages/service-questionnaire";
 import RealEstate from "./pages/real-estate";
 import Mortgage from "./pages/mortgage-new-fixed";
 import Insurance from "./pages/insurance";
@@ -50,8 +48,6 @@ function App() {
                   <Route path="/" component={Home} />
                   <Route path="/dashboard" component={Dashboard} />
                   <Route path="/settings" component={Settings} />
-                  <Route path="/questionnaire" component={Questionnaire} />
-                  <Route path="/service-questionnaire" component={ServiceQuestionnaire} />
                   <Route path="/real-estate" component={RealEstate} />
                   <Route path="/mortgage" component={Mortgage} />
                   <Route path="/insurance" component={Insurance} />
