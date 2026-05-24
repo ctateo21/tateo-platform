@@ -1,0 +1,124 @@
+Copy/paste this into Replit:
+
+```text id="purchase-property-type-dropdown"
+Add a Property Type dropdown under Purchase Price on Purchase Page 3.
+
+Location:
+Dashboard → Purchase → Page 3 Purchase Details
+
+Placement:
+Under the Purchase Price field, add a dropdown labeled:
+
+“Property Type”
+
+Purpose:
+The property type should default from Zillow scraper data when available, but users must be able to manually change it.
+
+Expected behavior:
+1. On Page 3 Purchase Details, directly under Purchase Price, show a Property Type dropdown.
+2. Default value should be:
+   - Zillow/Apify property type if available
+   - otherwise “Single Family Residence”
+3. User can manually change the property type.
+4. If Zillow scraper later returns property type data, it should populate the dropdown only if the user has not manually changed it.
+5. If the user manually changes the property type, do not overwrite it with Zillow data later.
+6. Save the selected property type to the purchase scenario.
+7. Persist after refresh/logout/login.
+8. Page 4 / See My Estimate should use the same property type if needed.
+
+Suggested dropdown options:
+- Single Family Residence
+- Townhouse
+- Condominium
+- Villa
+- Manufactured Home
+- Multi-Family
+- Duplex
+- Triplex
+- Quadplex
+- Land
+- Other
+
+Zillow/Apify fields to inspect:
+When Zillow scraper/property cache returns data, inspect fields like:
+- homeType
+- propertyType
+- home_type
+- property_type
+- buildingType
+- resoFacts.propertySubType
+- propertySubType
+- listingSubType
+- any nested property facts/type fields
+
+Normalize Zillow values into app-friendly values.
+
+Examples:
+- SINGLE_FAMILY → Single Family Residence
+- SingleFamily → Single Family Residence
+- TOWNHOUSE → Townhouse
+- CONDO → Condominium
+- CONDOMINIUM → Condominium
+- MANUFACTURED → Manufactured Home
+- MULTI_FAMILY → Multi-Family
+- DUPLEX → Duplex
+- TRIPLEX → Triplex
+- QUADPLEX → Quadplex
+
+Suggested fields:
+- `property_type`
+- `property_type_source`: `"zillow" | "manual" | "default"`
+
+Default logic:
+- If Zillow has property type:
+  - set `property_type` from Zillow
+  - set `property_type_source = "zillow"`
+- If Zillow does not have property type:
+  - set `property_type = "Single Family Residence"`
+  - set `property_type_source = "default"`
+- If user manually changes dropdown:
+  - set `property_type_source = "manual"`
+  - do not overwrite with future Zillow/cache data unless user resets it
+
+Supabase / persistence:
+Add property type to the Purchase scenario save/load mapping.
+
+If the purchase scenario table does not already have fields, give me SQL like:
+
+alter table public.purchase_scenarios
+add column if not exists property_type text default 'Single Family Residence',
+add column if not exists property_type_source text default 'default';
+
+Also store normalized property type in the shared property/Zillow cache if appropriate so other flows can reuse it later.
+
+Important:
+- Do not break Zillow address scraping.
+- Do not break purchase price auto-population.
+- Do not break taxes/insurance/HOA logic.
+- Do not overwrite manual user selections with Zillow data.
+- Do not make this a free-text field unless “Other” needs a future custom input.
+- Do not change loan type logic.
+
+Acceptance test:
+1. Go to Dashboard → Purchase → Page 3 Purchase Details.
+2. Confirm Property Type dropdown appears directly under Purchase Price.
+3. Confirm it defaults to Single Family Residence if Zillow data is unavailable.
+4. Enter/select an address where Zillow returns property type.
+5. Confirm dropdown updates to the Zillow property type.
+6. Manually change property type to Townhouse.
+7. Confirm it saves as manual.
+8. Trigger/reload Zillow data again.
+9. Confirm manual Townhouse selection is not overwritten.
+10. Refresh/logout/login.
+11. Confirm selected property type persists.
+12. Confirm Page 4 uses or preserves the same property type if applicable.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 3 Purchase Details component was changed
+- Which Zillow/Apify field contained property type
+- How Zillow property types are normalized
+- Which purchase scenario field stores property type
+- Whether a Supabase migration is needed
+- How manual override is protected
+- Which files/functions were changed
+```

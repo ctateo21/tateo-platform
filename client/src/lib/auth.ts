@@ -62,6 +62,13 @@ export interface PurchaseScenario {
    *  `purchase_scenarios.property_photos` jsonb column so the
    *  Purchase detail page can show a carousel without re-scraping. */
   propertyPhotos?: string[];
+  /** User-facing property type (e.g. "Single Family Residence",
+   *  "Townhouse", "Condominium"). Defaults to "Single Family Residence"
+   *  when neither the user nor Zillow has supplied one. */
+  propertyType?: string;
+  /** Where `propertyType` came from. "manual" means the user picked it
+   *  on Page 3 and Zillow refreshes must not overwrite it. */
+  propertyTypeSource?: "manual" | "zillow" | "default";
 }
 
 export interface InsuranceScenario {
@@ -275,6 +282,13 @@ function rowToPurchase(row: any): PurchaseScenario {
     propertyPhotos: Array.isArray(row.property_photos)
       ? row.property_photos.filter((p: any) => typeof p === "string")
       : undefined,
+    propertyType: row.property_type ?? undefined,
+    propertyTypeSource:
+      row.property_type_source === "manual" ||
+      row.property_type_source === "zillow" ||
+      row.property_type_source === "default"
+        ? row.property_type_source
+        : undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -302,6 +316,8 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     ...(s.propertyPhotos && s.propertyPhotos.length > 0
       ? { property_photos: s.propertyPhotos }
       : {}),
+    ...(s.propertyType ? { property_type: s.propertyType } : {}),
+    ...(s.propertyTypeSource ? { property_type_source: s.propertyTypeSource } : {}),
   };
 }
 function rowToInsurance(row: any): InsuranceScenario {

@@ -12,6 +12,45 @@ import {
   type PurchaseScenario,
 } from "@/lib/auth";
 
+// Canonical Property Type dropdown options. Order matches the spec
+// (Single Family Residence first → Other last). Stored as plain strings
+// so we don't ripple a new union type through the existing schema.
+const PROPERTY_TYPE_OPTIONS = [
+  "Single Family Residence",
+  "Townhouse",
+  "Condominium",
+  "Villa",
+  "Manufactured Home",
+  "Multi-Family",
+  "Duplex",
+  "Triplex",
+  "Quadplex",
+  "Land",
+  "Other",
+] as const;
+
+/** Map a raw Zillow/Apify property-type value to one of our dropdown
+ *  labels. Returns null when nothing recognizable is provided so the
+ *  caller can leave the existing selection alone. */
+function zillowToDropdownPropertyType(raw: unknown): string | null {
+  if (!raw) return null;
+  const s = String(raw).toUpperCase().replace(/[^A-Z]/g, "");
+  if (!s) return null;
+  if (s.includes("QUAD") || s.includes("FOURPLEX")) return "Quadplex";
+  if (s.includes("TRIPLEX")) return "Triplex";
+  if (s.includes("DUPLEX")) return "Duplex";
+  if (s.includes("MULTI")) return "Multi-Family";
+  if (s.includes("TOWN")) return "Townhouse";
+  if (s.includes("CONDO") || s === "APARTMENT") return "Condominium";
+  if (s.includes("VILLA")) return "Villa";
+  if (s.includes("MANUFACTURED") || s.includes("MOBILE")) return "Manufactured Home";
+  if (s.includes("LAND") || s.includes("LOT")) return "Land";
+  if (s.includes("SINGLE") || s.includes("SFR") || s.includes("HOUSE")) {
+    return "Single Family Residence";
+  }
+  return null;
+}
+
 export default function Mortgage() {  
   // State for income-based calculator
   const [yearlyIncome, setYearlyIncome] = useState<string>('');
@@ -37,6 +76,14 @@ export default function Mortgage() {
   const [propertyPrice, setPropertyPrice] = useState<number>(0);
   const [manualPropertyPrice, setManualPropertyPrice] = useState<string>('');
   const [propertyData, setPropertyData] = useState<any>(null);
+  // Property Type dropdown (Page 3, under Purchase Price). Default is
+  // "Single Family Residence"; auto-seeds from Zillow when the scraper
+  // returns a recognizable type, unless the user has already picked
+  // one manually. Source provenance is persisted so a later Zillow
+  // refresh can't overwrite a manual choice.
+  const [propertyType, setPropertyType] = useState<string>("Single Family Residence");
+  const [propertyTypeSource, setPropertyTypeSource] =
+    useState<"manual" | "zillow" | "default">("default");
   const [downPaymentPercent, setDownPaymentPercent] = useState<number>(20);
   // Page 3 down-payment UX state. `downPaymentMode` controls whether
   // the user is editing percent or dollars; the percent above is the
@@ -421,6 +468,34 @@ export default function Mortgage() {
         setPropertyData(data.property);
         setPropertyPrice(data.property.price);
         setShowPropertyResult(true);
+
+        // Auto-seed Property Type from Zillow only when the user has
+        // NOT already picked one manually. We inspect a handful of
+        // likely fields the scraper might surface (homeType, propertyType,
+        // resoFacts.propertySubType, etc.) and normalize to our
+        // dropdown labels.
+        if (propertyTypeSource !== "manual") {
+          const zillowType = zillowToDropdownPropertyType(
+            data.property?.propertyType ??
+              data.property?.homeType ??
+              data.property?.home_type ??
+              data.property?.property_type ??
+              data.property?.buildingType ??
+              data.property?.propertySubType ??
+              data.property?.listingSubType ??
+              data.property?.resoFacts?.propertySubType,
+          );
+          if (zillowType) {
+            setPropertyType(zillowType);
+            setPropertyTypeSource("zillow");
+          } else {
+            // No recognizable Zillow type — fall back to the documented
+            // default so we never carry forward a stale value (e.g.
+            // "Condo" from a prior address) onto the new property.
+            setPropertyType("Single Family Residence");
+            setPropertyTypeSource("default");
+          }
+        }
         
         // Log the property details
         console.log(`Found property:`, data.property);
@@ -522,7 +597,16 @@ export default function Mortgage() {
     const saved = getPurchaseScenarios().find(
       (s) => s.address.trim().toLowerCase() === addr.toLowerCase()
     );
-    if (!saved) return;
+    if (!saved) {
+      // First time we see this address with no saved row — reset
+      // Property Type to the documented default so a manual pick on a
+      // *previous* address doesn't bleed through and suppress the
+      // Zillow auto-seed that's about to run.
+      hydratedAddressRef.current = addr;
+      setPropertyType("Single Family Residence");
+      setPropertyTypeSource("default");
+      return;
+    }
     hydratedAddressRef.current = addr;
     if (saved.downPaymentMode === "amount" || saved.downPaymentMode === "percent") {
       setDownPaymentMode(saved.downPaymentMode);
@@ -537,6 +621,18 @@ export default function Mortgage() {
     }
     if (saved.loanType && !addressLoanType) {
       setAddressLoanType(saved.loanType);
+    }
+    // Restore Property Type + provenance so a "manual" pick survives
+    // reload/login and a fresh Zillow lookup won't clobber it.
+    if (typeof saved.propertyType === "string" && saved.propertyType) {
+      setPropertyType(saved.propertyType);
+    }
+    if (
+      saved.propertyTypeSource === "manual" ||
+      saved.propertyTypeSource === "zillow" ||
+      saved.propertyTypeSource === "default"
+    ) {
+      setPropertyTypeSource(saved.propertyTypeSource);
     }
   }, [propertyAddress, propertyPrice]);
 
@@ -565,6 +661,8 @@ export default function Mortgage() {
           downPaymentMode,
           downPaymentAmount: dpAmt,
           loanType: addressLoanType || undefined,
+          propertyType,
+          propertyTypeSource,
         };
         if (idx >= 0) {
           const cur = existing[idx];
@@ -573,7 +671,9 @@ export default function Mortgage() {
             cur.downPaymentPct === patch.downPaymentPct &&
             (cur.downPaymentMode ?? "percent") === patch.downPaymentMode &&
             cur.downPaymentAmount === patch.downPaymentAmount &&
-            (cur.loanType ?? undefined) === patch.loanType;
+            (cur.loanType ?? undefined) === patch.loanType &&
+            (cur.propertyType ?? undefined) === patch.propertyType &&
+            (cur.propertyTypeSource ?? undefined) === patch.propertyTypeSource;
           if (same) return;
           const updated = [...existing];
           updated[idx] = { ...cur, ...patch };
@@ -593,7 +693,7 @@ export default function Mortgage() {
       }
     }, 600);
     return () => clearTimeout(handle);
-  }, [propertyAddress, propertyPrice, downPaymentPercent, downPaymentMode, downPaymentAmountInput, addressLoanType]);
+  }, [propertyAddress, propertyPrice, downPaymentPercent, downPaymentMode, downPaymentAmountInput, addressLoanType, propertyType, propertyTypeSource]);
 
   // Calculate qualification based on property address
   const handleAddressCalculate = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -1098,6 +1198,46 @@ export default function Mortgage() {
                                   readOnly={!showManualPriceInput}
                                 />
                               </div>
+                            </div>
+                          )}
+
+                          {/* Property Type dropdown — sits directly under
+                              Purchase Price. Defaults to "Single Family
+                              Residence", auto-seeds from Zillow when the
+                              scraper returns a recognizable type, and
+                              flips to "manual" the moment the user picks
+                              their own value so future scraper refreshes
+                              won't overwrite it. */}
+                          {(showPropertyResult || showManualPriceInput) && (
+                            <div className="space-y-2 mt-4">
+                              <label
+                                htmlFor="propertyTypeSelect"
+                                className="block text-sm font-medium text-gray-700"
+                              >
+                                Property Type
+                              </label>
+                              <select
+                                id="propertyTypeSelect"
+                                name="propertyTypeSelect"
+                                className="px-4 py-2 w-full border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent bg-white"
+                                value={propertyType}
+                                onChange={(e) => {
+                                  setPropertyType(e.target.value);
+                                  setPropertyTypeSource("manual");
+                                }}
+                              >
+                                {PROPERTY_TYPE_OPTIONS.map((opt) => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                                {/* If the saved value isn't in the
+                                    canonical list (older row, alt
+                                    Zillow value, etc.), surface it so
+                                    we don't silently drop it. */}
+                                {propertyType &&
+                                  !PROPERTY_TYPE_OPTIONS.includes(propertyType) && (
+                                    <option value={propertyType}>{propertyType}</option>
+                                  )}
+                              </select>
                             </div>
                           )}
 
