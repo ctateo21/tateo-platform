@@ -13,6 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import CurrencyInput from "@/components/questionnaire/currency-input";
 import NumberInput from "@/components/questionnaire/number-input";
 import { IncomeTypeSelection } from "./income-type-selection";
+import { scrollToTop } from "@/lib/scroll";
 
 interface MortgageIncomeFormProps {
   initialData?: {
@@ -119,6 +120,7 @@ export function MortgageIncomeForm({
       }
       // For retired flow, continue to details
       setCurrentStep('retired-details');
+      scrollToTop();
     }
   };
 

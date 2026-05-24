@@ -5,6 +5,7 @@ import { Progress } from "@/components/ui/progress";
 import { useServices } from "@/context/services-context";
 import { useToast } from "@/hooks/use-toast";
 import { submitQuestionnaire } from "@/lib/api";
+import { scrollToTop } from "@/lib/scroll";
 
 import RealEstateForm from "@/components/questionnaire/real-estate-form";
 import MortgageForm from "@/components/questionnaire/mortgage-form";
@@ -51,6 +52,7 @@ export default function Questionnaire() {
     // Go to next step
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
+      scrollToTop();
     }
   };
   

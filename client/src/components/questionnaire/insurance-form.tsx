@@ -10,6 +10,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form } from "@/components/ui/form";
 import { ArrowLeft, ChevronRight } from "lucide-react";
+import { scrollToTop } from "@/lib/scroll";
 
 interface InsuranceFormProps {
   onSubmit: (data: z.infer<typeof insuranceFormSchema>) => void;
@@ -51,6 +52,7 @@ export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) 
       form.setValue("residentialTypes", []);
     }
     setCurrentStep(2);
+    scrollToTop();
   };
 
   const handleTypeSelection = (type: string, checked: boolean) => {
@@ -86,6 +88,7 @@ export default function InsuranceForm({ onSubmit, onBack }: InsuranceFormProps) 
     }
     
     setCurrentStep(3);
+    scrollToTop();
   };
 
   const handleQuoteTypeChange = (value: "new" | "current") => {

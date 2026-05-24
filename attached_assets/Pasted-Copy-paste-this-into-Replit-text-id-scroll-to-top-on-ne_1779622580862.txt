@@ -1,0 +1,55 @@
+Copy/paste this into Replit:
+
+```text id="scroll-to-top-on-next"
+Update all multi-step flows so clicking Next automatically scrolls the user to the top of the next screen.
+
+Current issue:
+When a user clicks Next, the app moves to the next page/step but keeps the prior scroll position. The user then has to manually scroll up.
+
+Expected behavior:
+Anytime a user clicks Next and moves to another screen, step, or page:
+- Automatically scroll to the top of the new screen.
+- The user should start at the top of the next page/step every time.
+
+Apply this to all relevant flows, including:
+- Purchase questionnaire
+- Purchase Page 3 → Page 4
+- Refinance flow
+- Insurance flow
+- For Sale flow
+- Cash Buy flow
+- Any dashboard detail multi-step screens
+- Any other wizard/questionnaire flow using a Next button
+
+Implementation requirements:
+1. Find the shared Next/navigation handler if one exists.
+2. Add a reusable helper like:
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+3. Call it immediately after step/page navigation.
+4. If route navigation is asynchronous, call it after the new route/step renders.
+5. If the app uses a scrollable container instead of the window, scroll that container to top instead.
+6. Prefer a shared implementation so each Next button does not need separate duplicate logic.
+7. Do not scroll to top when the user is only editing a field and staying on the same screen.
+8. Do not break Back button behavior unless existing behavior also needs top-scroll.
+9. Keep mobile behavior clean.
+
+Acceptance test:
+1. Start a Purchase estimate.
+2. Scroll down on a step.
+3. Click Next.
+4. Confirm the next screen opens at the top.
+5. Repeat for Page 3 to Page 4.
+6. Test Refinance, Insurance, For Sale, and Cash Buy flows.
+7. Confirm every Next button lands the user at the top of the next screen.
+8. Confirm normal form edits do not unexpectedly scroll the page.
+
+Please make the smallest safe code change possible and tell me:
+- Which shared navigation/Next handler was changed
+- Whether scrolling uses window or a scroll container
+- Which flows were updated
+- Which files/functions were changed
+```

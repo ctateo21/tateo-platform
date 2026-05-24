@@ -72,6 +72,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
+import { scrollToTop } from "@/lib/scroll";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { jsPDF } from "jspdf";
@@ -2830,7 +2831,7 @@ export default function Estimate() {
 
             {step === 1 && (
               <div className="flex justify-end pt-2">
-                <Button onClick={() => setStep(2)} className="gap-2">
+                <Button onClick={() => { setStep(2); scrollToTop(); }} className="gap-2">
                   Next <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -3105,7 +3106,7 @@ export default function Estimate() {
                 <Button variant="outline" onClick={() => setStep(1)} className="gap-2">
                   <ChevronLeft className="h-4 w-4" /> Back
                 </Button>
-                <Button onClick={() => setStep(3)} className="gap-2">
+                <Button onClick={() => { setStep(3); scrollToTop(); }} className="gap-2">
                   Next <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
@@ -3390,7 +3391,7 @@ export default function Estimate() {
                 <Button variant="outline" onClick={() => setStep(2)} className="gap-2">
                   <ChevronLeft className="h-4 w-4" /> Back
                 </Button>
-                <Button onClick={() => setStep(4)} className="gap-2">
+                <Button onClick={() => { setStep(4); scrollToTop(); }} className="gap-2">
                   See My Estimate <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>

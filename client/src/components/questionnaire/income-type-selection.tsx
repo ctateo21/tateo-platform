@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeft } from "lucide-react";
 import { TruvIntegration } from "./truv-integration";
 import { TaxStatusIntegration } from "./taxstatus-integration";
+import { scrollToTop } from "@/lib/scroll";
 
 interface IncomeTypeSelectionProps {
   onComplete: (data: any) => void;
@@ -72,6 +73,7 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
     
     // Start with the first API in the queue
     setCurrentStep(queue[0] as any);
+    scrollToTop();
   };
 
   const handleEmploymentTypeToggle = (employmentType: string) => {
@@ -91,6 +93,7 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
       // Move to next API in queue
       setCurrentApiIndex(nextIndex);
       setCurrentStep(apiQueue[nextIndex] as any);
+      scrollToTop();
     } else {
       // Complete the flow
       onComplete({
@@ -136,6 +139,7 @@ export function IncomeTypeSelection({ onComplete, onBack, defaultValues }: Incom
     } else {
       setCurrentStep('ssa');
     }
+    scrollToTop();
   };
 
   const handleSSAComplete = (data: any) => {
