@@ -183,6 +183,20 @@ create table if not exists public.seller_scenarios (
 
 create index if not exists seller_scenarios_user_idx on public.seller_scenarios(user_id);
 
+-- Additive: provenance ("source") columns so the Refinance → Sell-Your-Home
+-- auto-create flow can safely overwrite system-generated values without
+-- ever clobbering a value the user manually edited in the Sell-Your-Home
+-- detail view. NULL = "auto / overridable" (legacy rows).
+--   estimated_sale_price_source : 'refinance' | 'zillow' | 'manual'
+--   mortgage_payoff_source      : 'refinance_statement' | 'manual'
+--   realtor_commission_source   : 'default_5_percent' | 'manual'
+--   seller_closing_costs_source : 'default_1_percent' | 'manual'
+alter table public.seller_scenarios
+  add column if not exists estimated_sale_price_source text,
+  add column if not exists mortgage_payoff_source      text,
+  add column if not exists realtor_commission_source   text,
+  add column if not exists seller_closing_costs_source text;
+
 alter table public.seller_scenarios enable row level security;
 drop policy if exists "seller_scenarios_owner" on public.seller_scenarios;
 create policy "seller_scenarios_owner" on public.seller_scenarios

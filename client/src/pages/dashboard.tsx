@@ -1637,7 +1637,7 @@ function SellersTab() {
         title: "For Sale property didn't save",
         description:
           e.message +
-          " — apply supabase/migrations/2026_05_22_seller_and_market_analysis.sql in the Supabase SQL editor.",
+          " — re-apply supabase/schema.sql in the Supabase SQL editor to add any missing columns.",
         variant: "destructive",
       });
     });
@@ -1725,7 +1725,7 @@ function SellersTab() {
         <div className="rounded-md border border-destructive/40 bg-destructive/10 text-destructive text-sm px-3 py-2">
           <strong>Saving to Supabase failed.</strong> {persistError}
           <div className="text-xs mt-1 opacity-90">
-            Apply <code>supabase/migrations/2026_05_22_seller_and_market_analysis.sql</code> in your Supabase SQL editor, then refresh.
+            Re-apply <code>supabase/schema.sql</code> in your Supabase SQL editor (it's idempotent), then refresh.
           </div>
         </div>
       )}
