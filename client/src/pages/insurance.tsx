@@ -1,5 +1,6 @@
 import { useMemo, useState, useRef, useEffect } from "react";
 import { useSearch, useLocation } from "wouter";
+import ScenarioActions from "@/components/scenario-actions";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -480,12 +481,12 @@ export default function InsuranceDashboard() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleShare}>
-                <Share2 className="h-4 w-4" /> Share
-              </Button>
-              <Button size="sm" className="gap-1.5 bg-secondary hover:bg-secondary/90 text-white" onClick={handleSave}>
-                <Save className="h-4 w-4" /> Save Scenario
-              </Button>
+              {/* Standard Share + Save Scenario pair, identical to
+                  the other four detail views. Replaces the previous
+                  ad-hoc handlers (URL copy + toast-only save) so the
+                  auth gate + post-login replay behaves the same
+                  everywhere. */}
+              <ScenarioActions scenarioType="insurance" />
             </div>
           </div>
         </div>

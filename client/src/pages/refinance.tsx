@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useSearch, useLocation } from "wouter";
+import ScenarioActions from "@/components/scenario-actions";
 import { Home, ArrowLeft, Building2, Landmark } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -293,10 +294,16 @@ export default function Refinance() {
             <h1 className="text-lg font-semibold">Refinance Calculator</h1>
           </div>
           {address && <span className="text-sm text-muted-foreground hidden sm:block">· {address}</span>}
+          {/* Share + Save Scenario — auth-gated, draft state
+              preserved through the AuthDialog (same component used
+              by the other four flows). */}
+          <div className="ml-auto">
+            <ScenarioActions scenarioType="refinance" />
+          </div>
           {/* "Pull from Zillow" is now auto-run after a statement is
               tracked. Button stays available under ?debug=1 for QA. */}
           {debugMode && (
-            <div className="ml-auto">
+            <div>
               <Button
                 variant="outline"
                 size="sm"

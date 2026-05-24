@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Helmet } from "react-helmet";
 import { useLocation, useSearch } from "wouter";
+import ScenarioActions from "@/components/scenario-actions";
 import {
   ArrowLeft, MapPin, Save, AlertCircle, Loader2, Banknote, Camera, Sparkles,
 } from "lucide-react";
@@ -549,15 +550,16 @@ export default function CashBuyPage() {
             <ArrowLeft className="h-4 w-4" />{" "}
             {isAuthenticated ? "Back to Cash Buy" : "Back to Services"}
           </Button>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            {!isAuthenticated && (
-              <span className="flex items-center gap-1 text-amber-600">
-                <AlertCircle className="h-3 w-3" /> Sign in to save
-              </span>
-            )}
-            {isAuthenticated && saveStatus === "saving" && (<><Loader2 className="h-3 w-3 animate-spin" /> Saving…</>)}
-            {isAuthenticated && saveStatus === "saved" && (<><Save className="h-3 w-3 text-green-600" /> Saved</>)}
-            {isAuthenticated && saveStatus === "error" && (<><AlertCircle className="h-3 w-3 text-destructive" /> Save failed</>)}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              {isAuthenticated && saveStatus === "saving" && (<><Loader2 className="h-3 w-3 animate-spin" /> Saving…</>)}
+              {isAuthenticated && saveStatus === "saved" && (<><Save className="h-3 w-3 text-green-600" /> Saved</>)}
+              {isAuthenticated && saveStatus === "error" && (<><AlertCircle className="h-3 w-3 text-destructive" /> Save failed</>)}
+            </div>
+            {/* Share + Save buttons — auth-gated for logged-out users;
+                draft state survives the auth dialog because the
+                dialog renders inside this component tree. */}
+            <ScenarioActions scenarioType="cash_buy" />
           </div>
         </div>
 

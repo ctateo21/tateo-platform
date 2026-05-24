@@ -1,0 +1,215 @@
+Copy/paste this into Replit:
+
+```text id="share-save-buttons-all-detail-views"
+Add Share and Save Scenario buttons inside each detailed address/scenario view for all 5 dashboard tabs.
+
+Tabs/flows:
+1. Purchase with Cash
+2. Purchase with Loan
+3. Refinance
+4. Insurance
+5. Sell Your Home
+
+Current issue:
+Share and Save Scenario buttons are not consistently available inside each detailed property/address view.
+
+Requested behavior:
+Inside the detailed view of a property/address for every tab, show both buttons:
+
+- Share
+- Save Scenario
+
+These buttons should be visible in the detailed scenario/property view, not only on dashboard rows.
+
+Placement:
+Place the buttons near the top of each detailed view, preferably near:
+- property address/title
+- back button
+- main summary/header area
+
+Use a consistent layout across all 5 flows.
+
+Required behavior — Save Scenario:
+When a user clicks Save Scenario:
+
+If user is logged in:
+- Save/update the scenario immediately.
+- Show confirmation:
+  “Scenario saved.”
+- Keep them on the same detailed view.
+
+If user is not logged in:
+- Prompt them to log in or create an account.
+- After login/signup, save the scenario automatically.
+- Return them to the same detailed scenario view.
+- Preserve all entered data, address, Zillow data, calculations, photos, and selected options.
+
+Do not lose their progress.
+
+Required behavior — Share:
+When a user clicks Share:
+
+If user is logged in:
+- Create or copy a shareable link to the scenario.
+- The shared link should reference the saved scenario ID.
+- Show/copy link if share functionality already exists.
+- If share permissions exist, preserve current app behavior.
+
+If user is not logged in:
+- Prompt them to log in or create an account first.
+- After login/signup, save the scenario automatically.
+- Then create or show the shareable link.
+- Return them to the same detailed scenario view.
+
+Important:
+A scenario must be saved before it can be shared, because the share link needs a stable saved scenario ID.
+
+Login/signup gate:
+Use the same login/create-account modal or flow already used elsewhere in the app.
+
+When user clicks Share or Save Scenario while logged out:
+- Open auth modal/page.
+- Preserve intent:
+  - `save_scenario`
+  - `share_scenario`
+- Preserve flow type:
+  - `cash_buy`
+  - `purchase`
+  - `refinance`
+  - `insurance`
+  - `seller` / `for_sale`
+- Preserve current scenario draft data.
+- After auth completes, perform the intended action automatically.
+
+Suggested state:
+- `pendingAuthAction`: `"save_scenario" | "share_scenario"`
+- `pendingScenarioType`
+- `pendingScenarioDraft`
+- `returnToScenarioId` or draft temp ID
+
+Scenario persistence:
+Make sure each flow saves to the correct table:
+
+Purchase with Cash:
+- `cash_buy_scenarios`
+
+Purchase with Loan:
+- `purchase_scenarios`
+
+Refinance:
+- `tracked_loans`
+
+Insurance:
+- `insurance_scenarios`
+
+Sell Your Home:
+- `seller_scenarios`
+
+Do not mix scenario types.
+Do not save Purchase with Cash into Purchase with Loan.
+Do not save Sell Your Home into Purchase/Refinance/etc.
+
+Detailed views to update:
+Add Share and Save Scenario buttons to:
+- Cash Buy detail view
+- Purchase with Loan Page 4 / See My Estimate detail view
+- Refinance detail view
+- Insurance detail view
+- Sell Your Home detail view
+
+If the app has reusable detail header component:
+- Add buttons there and pass scenario type/action handlers.
+- Otherwise add to each detail page individually.
+
+Button behavior by flow:
+
+Purchase with Cash:
+- Save cash buy scenario.
+- Share cash buy scenario.
+
+Purchase with Loan:
+- Save purchase scenario.
+- Share purchase scenario.
+
+Refinance:
+- Save tracked loan/refinance scenario.
+- Share refinance scenario.
+
+Insurance:
+- Save insurance scenario.
+- Share insurance scenario.
+
+Sell Your Home:
+- Save seller scenario.
+- Share seller scenario.
+
+Share link:
+If share links already exist:
+- Reuse existing share link system.
+
+If not, create a simple stable route pattern such as:
+- `/shared/scenario/:scenarioType/:scenarioId`
+or use the app’s existing route pattern.
+
+For now, if full public share pages are too large:
+- Save the scenario
+- Copy/share an authenticated link to the detailed view
+- Tell me what remains to build for public share access
+
+But the button should still exist and not fail silently.
+
+UI requirements:
+- Buttons should be visible and consistent.
+- Use icons if available:
+  - Share icon for Share
+  - Save icon for Save Scenario
+- Keep mobile layout clean.
+- On mobile, stack or use compact buttons.
+- Show loading state when saving/sharing.
+- Disable double-click while saving.
+- Show error if save/share fails.
+
+Data safety:
+- Do not lose current unsaved form data when auth opens.
+- Do not reset address.
+- Do not reset Zillow/cache data.
+- Do not reset selected loan type, down payment, concessions, insurance inputs, market analysis, or cash-to-close/net-proceeds calculations.
+- Do not overwrite existing saved scenarios with blank draft data.
+- Use stable scenario IDs.
+
+Acceptance test:
+1. Log out.
+2. Start Purchase with Loan.
+3. Enter an address and complete enough fields to reach See My Estimate.
+4. Confirm Share and Save Scenario buttons appear in the detailed view.
+5. Click Save Scenario.
+6. Confirm login/create-account prompt appears.
+7. Log in/create account.
+8. Confirm the scenario saves automatically and returns to the same view.
+9. Confirm data is preserved.
+10. Log out again.
+11. Start Purchase with Cash.
+12. Confirm Share and Save Scenario buttons appear.
+13. Repeat save/login flow.
+14. Test Refinance detail view.
+15. Test Insurance detail view.
+16. Test Sell Your Home detail view.
+17. Log in.
+18. Open each saved scenario.
+19. Confirm Share and Save Scenario buttons appear.
+20. Click Save Scenario while logged in.
+21. Confirm it saves without auth prompt.
+22. Click Share while logged in.
+23. Confirm it saves first if needed and produces/copies/shows share link.
+24. Confirm each scenario saves to the correct table.
+25. Confirm dashboard rows still load correctly after refresh/logout/login.
+
+Please make the smallest safe code change possible and tell me:
+- Which detail views/components were updated
+- Whether a reusable scenario detail header was created
+- How Share and Save buttons work for each of the 5 flows
+- How logged-out auth gating preserves scenario data
+- Which tables each scenario type saves to
+- Whether share links already existed or were added
+- Which files/functions were changed
+```

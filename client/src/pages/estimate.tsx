@@ -1,4 +1,5 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
+import ScenarioActions from "@/components/scenario-actions";
 import { estimateAnnualTax, getCountyTaxLink, getCountyName } from "@/lib/county-tax-estimator";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
@@ -2828,12 +2829,14 @@ export default function Estimate() {
                   </Button>
                 );
               })()}
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShareDialogOpen(true)}>
-                <Share2 className="h-4 w-4" /> Share
-              </Button>
-              <Button size="sm" className="gap-1.5 bg-secondary hover:bg-secondary/90 text-white" onClick={() => openLeadDialog("save")}>
-                <Save className="h-4 w-4" /> Save Scenario
-              </Button>
+              {/* Share + Save Scenario — replaces the previous pair
+                  that opened ShareDialog + LeadCaptureDialog so the
+                  Purchase-with-Loan detail view uses the same
+                  AuthDialog-gated component as the other four flows.
+                  Draft state (inputs, scenarios, Zillow cache)
+                  survives the dialog because it renders inside this
+                  component tree. */}
+              <ScenarioActions scenarioType="purchase" />
             </div>
           </div>
         </div>
