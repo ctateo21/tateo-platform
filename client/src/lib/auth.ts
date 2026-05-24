@@ -532,6 +532,7 @@ function cashBuyToRow(s: CashBuyScenario, userId: string) {
   };
 }
 function rowToTrackedLoan(row: any): TrackedLoan {
+  console.log("[refi-load] loaded loan_type", { id: row.id, loan_type: row.loan_type });
   return {
     id: row.id,
     propertyAddress: row.property_address,
@@ -561,7 +562,7 @@ function rowToTrackedLoan(row: any): TrackedLoan {
   };
 }
 function trackedLoanToRow(l: TrackedLoan, userId: string) {
-  return {
+  const row = {
     id: l.id,
     user_id: userId,
     property_address: l.propertyAddress,
@@ -579,6 +580,8 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     loan_number: l.loanNumber && l.loanNumber.trim() ? l.loanNumber.trim() : null,
     credit_score: typeof l.creditScore === "number" && l.creditScore > 0 ? l.creditScore : null,
   };
+  console.log("[refi-save] tracked_loans payload loan_type", { loanId: l.id, loan_type: row.loan_type });
+  return row;
 }
 
 // ── Serialized write queues (one per table) ────────────────────────
@@ -1156,14 +1159,30 @@ function persistTrackedLoans(loans: TrackedLoan[]) {
       // — each retry strips one more missing column and retries.
       let lastErr: string | null = null;
       for (let attempt = 0; attempt <= TRACKED_LOAN_OPTIONAL_COLUMNS.length; attempt++) {
+        const rows = buildRows();
         const { error: upErr } = await supabase
           .from("tracked_loans")
-          .upsert(buildRows(), { onConflict: "id" });
-        if (!upErr) { lastErr = null; break; }
+          .upsert(rows, { onConflict: "id" });
+        if (!upErr) {
+          console.log("[refi-save] upsert ok loan_type", {
+            count: rows.length,
+            loan_types: rows.map(r => r.loan_type).filter(Boolean),
+            stripped: Array.from(stripped),
+          });
+          lastErr = null;
+          break;
+        }
         const missing = extractMissingColumn(upErr.message);
         if (missing && (TRACKED_LOAN_OPTIONAL_COLUMNS as readonly string[]).includes(missing) && !stripped.has(missing)) {
           // Older schema — strip the missing optional column and retry.
+          // We also notify so the UI can toast: a silent strip means the
+          // user thinks their change saved when actually that field never
+          // reached Supabase (e.g. `loan_type` → revert to default on read).
           console.warn(`[tracked_loans] retrying without missing column '${missing}'`);
+          notifyError({
+            table: "tracked_loans",
+            message: `Your Supabase tracked_loans table is missing the '${missing}' column — re-apply supabase/schema.sql so this field can persist.`,
+          });
           stripped.add(missing);
           continue;
         }

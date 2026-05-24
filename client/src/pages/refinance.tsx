@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearch, useLocation } from "wouter";
 import ScenarioActions from "@/components/scenario-actions";
 import { Home, ArrowLeft, Building2, Landmark } from "lucide-react";
@@ -12,6 +12,7 @@ import { LoanTracker, type MortgageAnalysis, type LiveRate, type PropertyType } 
 import { useQuery } from "@tanstack/react-query";
 import {
   getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
+  subscribePersistenceError,
   getSellerScenarios, saveSellerScenarios,
   type TrackedLoan,
 } from "@/lib/auth";
@@ -95,25 +96,54 @@ export default function Refinance() {
   const [statementData, setStatementData] = useState<MortgageAnalysis | null>(null);
   const [trackedLoans, setTrackedLoansState] = useState<TrackedLoan[]>(() => getTrackedLoans());
 
+  const { toast } = useToast();
+
   // Keep local state in sync with auth cache (login, logout, hydration completes).
   useEffect(() => {
     const unsub = subscribeAuthChange(() => setTrackedLoansState(getTrackedLoans()));
     return unsub;
   }, []);
 
+  // Surface tracked_loans persistence errors (including missing-column
+  // warnings from the schema-safe strip-and-retry) as a single toast.
+  // Without this, a missing `loan_type` column silently strips on every
+  // save, so the user sees their FHA/VA selection "revert" to
+  // Conventional after refresh with no explanation.
+  const warnedMissingRef = useRef(new Set<string>());
+  useEffect(() => {
+    const unsub = subscribePersistenceError(e => {
+      if (e.table !== "tracked_loans") return;
+      const sig = e.message;
+      if (warnedMissingRef.current.has(sig)) return;
+      warnedMissingRef.current.add(sig);
+      toast({
+        title: "Refinance didn't fully save",
+        description: e.message,
+        variant: "destructive",
+      });
+    });
+    return unsub;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Wrap setter so any update also persists to Supabase via the auth helper.
+  // We surface tracked_loans persistence failures via toast so the user
+  // knows when (e.g.) a loan type change didn't actually save — silent
+  // .catch() previously hid schema errors and made loan type appear to
+  // "revert" on refresh.
   function updateLoans(updater: TrackedLoan[] | ((prev: TrackedLoan[]) => TrackedLoan[])) {
     setTrackedLoansState(prev => {
       const next = typeof updater === "function" ? (updater as (p: TrackedLoan[]) => TrackedLoan[])(prev) : updater;
-      // Fire-and-forget auto-save. Errors are surfaced via the
-      // persistence-error toast subscriber in dashboard.tsx, so we
-      // swallow the rejection here to prevent the dev runtime overlay.
-      saveTrackedLoans(next).catch(() => {});
+      saveTrackedLoans(next).catch((e: any) => {
+        toast({
+          title: "Refinance change didn't save",
+          description: e?.message || "We'll keep your change on screen, but it didn't reach Supabase.",
+          variant: "destructive",
+        });
+      });
       return next;
     });
   }
-
-  const { toast } = useToast();
   const [showZillowLookup, setShowZillowLookup] = useState(false);
 
   // Refinance only needs estimatedHomeValue from Zillow — the rest of the

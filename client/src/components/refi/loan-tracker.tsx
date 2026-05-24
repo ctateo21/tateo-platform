@@ -320,6 +320,30 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   }, [homeValue]);
   const [propertyType, setPropertyType] = useState<PropertyType>(loan.propertyType);
   const [loanType, setLoanType] = useState<LoanType>(loan.loanType ?? "conventional");
+  // ── Hydration sync ─────────────────────────────────────────────
+  // On a hard refresh of /refinance, the parent (Refinance) initially
+  // renders with `getTrackedLoans()` returning [] (auth/cache hasn't
+  // hydrated yet). When hydration completes, the parent re-renders
+  // with the persisted rows — under the same loan id, so this card
+  // doesn't remount and `useState` initializers DO NOT re-run.
+  // Without this sync, local `loanType`/`propertyType` stays
+  // "conventional"/initial, then the next user edit (or any other
+  // re-render that bubbles through onUpdate) would write the stale
+  // local value back to tracked_loans, clobbering the persisted one.
+  // The deps key on the prop value, so syncing to the same value is a
+  // no-op — we only setState when the prop genuinely differs.
+  useEffect(() => {
+    const incoming = loan.loanType ?? "conventional";
+    if (incoming !== loanType) {
+      console.log("[refi-load] loaded loan_type", { loanId: loan.id, loanType: incoming });
+      setLoanType(incoming);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loan.loanType]);
+  useEffect(() => {
+    if (loan.propertyType !== propertyType) setPropertyType(loan.propertyType);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loan.propertyType]);
   const [financeFees, setFinanceFees] = useState(true);
   const [includeEscrows, setIncludeEscrows] = useState(false);
 
@@ -338,6 +362,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   }
   function handleLoanTypeChange(lt: LoanType) {
     if (!isLoanTypeAllowed(lt, propertyType)) return;
+    console.log("[refi-save] selected loan type", { loanId: loan.id, loanType: lt });
     setLoanType(lt);
     onUpdate({ loanType: lt });
   }

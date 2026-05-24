@@ -1,0 +1,183 @@
+Copy/paste this into Replit:
+
+```text
+Two Refinance → Sell Your Home issues still need to be fixed.
+
+Everything else is saving now, but these two items are still wrong:
+
+1. Refinance loan type changes are not persisting.
+2. Refinance estimated home value is not mapping into Sell Your Home estimated sale price.
+
+Issue 1 — Refinance loan type must auto-save after user changes it
+
+Current behavior:
+When a mortgage statement is uploaded, the Refinance record defaults to Conventional.
+
+If the user changes the Refinance loan type to:
+- FHA
+- VA
+- USDA
+- DSCR
+- Bank Statement
+- Conventional
+
+that change does not persist when they come back to the dashboard/detail view.
+
+Expected behavior:
+If the user changes loan type in the Refinance detail view, it should auto-save immediately to `tracked_loans`.
+
+Requirements:
+- The selected refinance loan type should persist after refresh/logout/login.
+- The Refinance dashboard row should show/use the saved loan type.
+- The Refinance detail view should reload with the saved loan type.
+- Do not reset it back to Conventional unless the saved value is invalid.
+- If the user changes occupancy/property use and that invalidates the selected loan type, then switch to a valid loan type and save that change.
+- Otherwise preserve the user-selected loan type.
+
+Fields to inspect:
+- `loan_type`
+- `loanType`
+- `selectedLoanType`
+- `refinanceLoanType`
+- any frontend-to-Supabase mapping for tracked loans
+
+Likely issue:
+The UI state may update, but the save payload to `tracked_loans` is either:
+- not including loan type,
+- saving the wrong field name,
+- overwriting it with Conventional on load,
+- or not calling the save function after loan type changes.
+
+Fix requirements:
+1. Find the Refinance loan type dropdown/control.
+2. When user changes loan type, update scenario state.
+3. Auto-save the updated refinance record to `tracked_loans`.
+4. Ensure `tracked_loans` has the loan type column the code uses.
+5. Ensure row → frontend and frontend → row mapping includes loan type.
+6. Ensure the mortgage statement parser/default does not overwrite a manually changed loan type later.
+
+If the table is missing the needed column, give me SQL like:
+
+alter table public.tracked_loans
+add column if not exists loan_type text default 'conventional';
+
+Issue 2 — Refinance estimated home value must copy to Sell Your Home estimated sale price
+
+Current behavior:
+When a mortgage statement is uploaded, the app creates/updates a matching Sell Your Home scenario.
+
+But the estimated sale price is wrong.
+
+Example:
+- Refinance tab shows home value = $386,000
+- Sell Your Home tab does not use that $386,000 as estimated sales price
+
+Expected behavior:
+The Sell Your Home estimated sale price must use the estimated home value shown in the Refinance tab.
+
+Mapping:
+When creating/updating the Sell Your Home scenario from Refinance:
+
+`seller_scenarios.estimated_sale_price = refinance estimated home value shown in the Refinance UI`
+
+Use the exact same field that powers the visible “Estimated Home Value” in Refinance.
+
+Priority order for Sell Your Home estimated sale price:
+1. Manual Sell Your Home estimated sale price, if user manually edited it
+2. Refinance estimated home value shown in Refinance UI
+3. Zillow/property cache estimated value
+4. blank/0 only if no value exists
+
+Do not use:
+- old cached Zillow value if Refinance has a user-entered/displayed estimated home value
+- rent estimate
+- prior default value
+- stale value from before the user edited Refinance home value
+
+Requirements:
+1. Inspect the Refinance detail view and identify the exact state field used for “Estimated Home Value.”
+2. Use that exact field in `createOrUpdateSellerScenarioFromRefinance`.
+3. When Refinance estimated home value changes, update the matching Sell Your Home scenario unless the Sell Your Home estimated sale price was manually edited.
+4. Do not create duplicate Sell Your Home scenarios.
+5. Match by `user_id + normalized_property_key`.
+6. Preserve manual seller edits.
+
+Sell Your Home fields should map as:
+- `full_address` = Refinance property address
+- `normalized_property_key` = Refinance normalized property key
+- `estimated_sale_price` = Refinance estimated home value shown in UI
+- `mortgage_payoff` = Refinance loan balance/current unpaid principal balance
+- `realtor_commission` = estimated_sale_price × 5%
+- `seller_closing_costs` = estimated_sale_price × seller closing cost percent, default 1.85% if that update is active, otherwise current seller closing cost logic
+- `net_proceeds` = estimated sale price - mortgage payoff - realtor commission - seller closing costs - buyer concessions - repair budget - other selling costs
+- `status` = draft
+
+Important:
+- Do not run Market Analysis for auto-created Draft seller scenarios.
+- Market Analysis should only run for status:
+  - `ready_to_list`
+  - `listed`
+- Draft seller scenarios should show the placeholder only.
+
+Manual override protection:
+If Sell Your Home estimated sale price was manually edited:
+- do not overwrite it from Refinance
+
+If Sell Your Home mortgage payoff was manually edited:
+- do not overwrite it from Refinance
+
+If Sell Your Home commission or closing costs were manually edited:
+- do not overwrite them from Refinance
+
+If source fields exist, use them:
+- `estimated_sale_price_source`
+- `mortgage_payoff_source`
+- `realtor_commission_source`
+- `seller_closing_costs_source`
+
+If source fields do not exist, use the smallest safe manual-protection logic possible and tell me what was done.
+
+Debug logs:
+Add temporary logs:
+- `[refi-save] selected loan type`
+- `[refi-save] tracked_loans payload loan_type`
+- `[refi-save] upsert ok loan_type`
+- `[refi-load] loaded loan_type`
+- `[refi-to-seller] refinance home value UI field`
+- `[refi-to-seller] refinance home value used`
+- `[refi-to-seller] existing seller estimated sale price`
+- `[refi-to-seller] manual seller price override true/false`
+- `[refi-to-seller] final seller estimated sale price`
+- `[refi-to-seller] seller scenario upsert ok`
+
+Acceptance test:
+1. Upload a mortgage statement.
+2. Select Primary / Secondary / Investment.
+3. Confirm loan auto-saves to Refinance.
+4. Change loan type from Conventional to FHA.
+5. Refresh the page.
+6. Confirm Refinance still shows FHA.
+7. Change loan type to VA, if valid.
+8. Refresh/logout/login.
+9. Confirm VA persists.
+10. Change loan type to DSCR or Bank Statement where valid.
+11. Confirm it persists.
+12. Confirm the Refinance dashboard row uses the saved loan type.
+13. Enter/change Refinance estimated home value to $386,000.
+14. Confirm matching Sell Your Home scenario estimated sale price becomes $386,000.
+15. Confirm mortgage payoff equals refinance loan balance.
+16. Confirm no duplicate Sell Your Home scenario is created.
+17. Manually edit Sell Your Home estimated sale price.
+18. Change/upload Refinance again.
+19. Confirm manual Sell Your Home sale price is not overwritten.
+20. Confirm Market Analysis does not run while Sell Your Home status is Draft.
+
+Please make the smallest safe code change possible and tell me:
+- Why refinance loan type was reverting to Conventional
+- Which tracked_loans field stores loan type
+- Whether a Supabase migration is needed
+- Which Refinance UI field stores estimated home value
+- Which field now maps to seller_scenarios.estimated_sale_price
+- How manual seller overrides are protected
+- Which files/functions were changed
+```
