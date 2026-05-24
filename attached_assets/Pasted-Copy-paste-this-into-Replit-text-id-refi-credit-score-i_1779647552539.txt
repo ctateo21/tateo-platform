@@ -1,0 +1,77 @@
+Copy/paste this into Replit:
+
+```text id="refi-credit-score-input-autosave-only"
+Fix the Credit Score input on the Refinance tab.
+
+Current issue:
+On Dashboard → Refinance, the Credit Score control does not allow me to freely type a score.
+
+Right now, I can only click up/down in 10-point increments.
+
+Requested behavior:
+Allow users to type any valid credit score manually.
+
+Examples:
+- 641
+- 678
+- 719
+- 742
+
+Do not force 10-point increments.
+
+Location:
+Dashboard → Refinance → Credit Score input near Loan Dashboard (X/10)
+
+Requirements:
+1. Change the Credit Score control so users can type directly into it.
+2. Use step `1`, not step `10`.
+3. Allow exact numeric values between 300 and 850.
+4. Do not block typing while the user is mid-entry.
+5. If the field is blank while typing, do not crash.
+6. On blur or save, validate the score:
+   - min 300
+   - max 850
+   - numeric only
+7. Autosave the credit score anytime it changes.
+8. Debounce autosave slightly if needed.
+9. Persist after refresh/logout/login.
+10. Do not require a Save button.
+
+Important:
+The actual refinance rates already adjust when credit scores change. Do not rebuild the rate calculation logic.
+
+Only fix:
+- typing/free entry
+- step/increment behavior
+- autosave/persistence
+
+Do not:
+- change refinance rate formulas
+- change loan type logic
+- reset loan type to Conventional
+- change mortgage statement analysis
+- change dashboard layout
+- change other tabs
+
+Acceptance test:
+1. Go to Dashboard → Refinance.
+2. Click the Credit Score field.
+3. Type `678`.
+4. Confirm the field accepts exactly `678`.
+5. Confirm it does not force the value to 670 or 680.
+6. Confirm spinner arrows, if present, move by 1 point, not 10.
+7. Refresh the page.
+8. Confirm `678` is still shown.
+9. Log out and log back in.
+10. Confirm `678` is still shown.
+11. Type `719`.
+12. Confirm it accepts and saves `719`.
+13. Confirm rates continue adjusting as they already do.
+
+Please make the smallest safe code change possible and tell me:
+- Which Refinance credit score input component was changed
+- Whether the input now uses step 1/free numeric entry
+- Where credit score autosaves
+- How blank/invalid typing is handled
+- Which files/functions were changed
+```

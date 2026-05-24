@@ -204,9 +204,24 @@ export default function Refinance() {
       setCreditScore(0);
       return;
     }
-    const clamped = Math.max(300, Math.min(850, n));
-    setCreditScore(clamped);
-    updateLoans(prev => prev.map(l => ({ ...l, creditScore: clamped })));
+    // Allow free typing: cap the upper bound so the field can't exceed
+    // 850, but DO NOT clamp the lower bound here — otherwise typing
+    // "6" would jump to 300 and block entry of "678". Only fan-out to
+    // tracked loans (autosave) when the value is in the valid range.
+    const display = Math.min(850, n);
+    setCreditScore(display);
+    if (display >= 300) {
+      updateLoans(prev => prev.map(l => ({ ...l, creditScore: display })));
+    }
+  }
+
+  // On blur, snap a partial entry (e.g. "67") up to the 300 floor and
+  // persist. Empty/zero is left alone per "do not overwrite with blank".
+  function handleCreditScoreBlur() {
+    if (creditScore > 0 && creditScore < 300) {
+      setCreditScore(300);
+      updateLoans(prev => prev.map(l => ({ ...l, creditScore: 300 })));
+    }
   }
 
   const { data: ratesData } = useQuery<LiveRatesResponse>({
@@ -498,6 +513,7 @@ export default function Refinance() {
           liveRates={ratesData?.rates ?? []}
           creditScore={creditScore}
           onCreditScoreChange={handleCreditScoreChange}
+          onCreditScoreBlur={handleCreditScoreBlur}
           onAnalyzeAnotherClick={() => {
             analyzerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
           }}

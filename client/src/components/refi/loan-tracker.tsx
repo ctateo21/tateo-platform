@@ -782,6 +782,7 @@ interface LoanTrackerProps {
    *  fan-out-to-all-loans logic; we just render the control. */
   creditScore?: number;
   onCreditScoreChange?: (raw: string) => void;
+  onCreditScoreBlur?: () => void;
   /** Triggered by the inline "Analyze Another Mortgage Statement"
    *  button — the page scrolls the existing analyzer card into view
    *  (or opens it). Kept as a callback so analyzer logic is unchanged. */
@@ -790,7 +791,7 @@ interface LoanTrackerProps {
 
 export function LoanTracker({
   loans, liveRates, onRemove, onUpdate, maxLoans = 10,
-  creditScore, onCreditScoreChange, onAnalyzeAnotherClick,
+  creditScore, onCreditScoreChange, onCreditScoreBlur, onAnalyzeAnotherClick,
 }: LoanTrackerProps) {
   if (loans.length === 0) return null;
 
@@ -814,9 +815,10 @@ export function LoanTracker({
               inputMode="numeric"
               min={300}
               max={850}
-              step={10}
+              step={1}
               value={creditScore && creditScore > 0 ? creditScore : ""}
               onChange={e => onCreditScoreChange(e.target.value)}
+              onBlur={onCreditScoreBlur}
               className="w-24 h-9"
               aria-label="Credit score used for refinance rate estimates"
             />
