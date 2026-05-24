@@ -1,0 +1,121 @@
+I would do the follow-ups in this order:
+
+1. **Fix Save for Insurance + Refinance first** because the current Save button is misleading if it only shows a toast but does not persist.
+2. **Then build stable scenario-id share links** so Share is not just copying the current URL.
+3. **Public shared route last** because that is a bigger feature and needs access/privacy decisions.
+
+Send Replit this:
+
+```text
+Yes. Do the next task focused only on making Save Scenario actually persist for Refinance and Insurance.
+
+Current issue:
+The new shared Save + Share buttons were added to all 5 detail views, but Refinance and Insurance Save buttons currently only show a toast and do not actually persist.
+
+That is a problem because users believe their scenario is saved.
+
+Fix only this first:
+1. Wire the Refinance Save button to actually persist to `tracked_loans`.
+2. Wire the Insurance Save button to actually persist to `insurance_scenarios`.
+3. Keep Cash Buy, Purchase with Loan, and Sell Your Home unchanged since they already auto-save.
+4. Do not build public share routes yet.
+5. Do not build `/shared/scenario/:scenarioType/:scenarioId` yet.
+6. Do not change the current Share behavior yet.
+
+Refinance requirements:
+When the user is logged in and clicks Save Scenario inside Refinance detail view:
+- Call the existing `saveTrackedLoans(...)` or correct tracked-loan persistence function.
+- Save the current refinance scenario to `tracked_loans`.
+- Include all current refinance detail data:
+  - property address
+  - normalized property key
+  - loan number, if available
+  - current balance
+  - current payment
+  - current interest rate
+  - loan type
+  - property use / occupancy
+  - credit score
+  - property value
+  - LTV
+  - estimated new rate/payment if calculated
+  - photos/cache fields if already used
+  - updated_at
+- Use the authenticated Supabase user ID.
+- Do not overwrite existing saved fields with blank/null.
+- Show “Scenario saved” only after the Supabase save succeeds.
+- Show a clear error if save fails.
+
+Insurance requirements:
+When the user is logged in and clicks Save Scenario inside Insurance detail view:
+- Call the existing `saveInsuranceScenarios(...)` or correct insurance persistence function.
+- Save the current insurance scenario to `insurance_scenarios`.
+- Include all current insurance detail data:
+  - property address
+  - normalized property key
+  - property use / occupancy
+  - annual premium
+  - monthly premium
+  - rebuild cost / Coverage A
+  - AOP deductible
+  - hurricane/wind deductible
+  - flood deductible
+  - carrier
+  - policy type
+  - status
+  - linked purchase/refinance property fields if applicable
+  - updated_at
+- Use the authenticated Supabase user ID.
+- Do not overwrite existing saved fields with blank/null.
+- Show “Scenario saved” only after Supabase save succeeds.
+- Show a clear error if save fails.
+
+Logged-out behavior:
+Keep the current auth gating:
+- If logged out and user clicks Save Scenario, open AuthDialog.
+- Preserve the current scenario draft.
+- After login/signup, replay the save action.
+- Actually persist Refinance or Insurance after auth completes.
+- Do not just show a toast.
+
+Important:
+- Do not rely only on auto-save for Refinance/Insurance unless it is already fully wired.
+- The Save button must actively persist the current scenario.
+- Do not mix tables:
+  - Refinance → `tracked_loans`
+  - Insurance → `insurance_scenarios`
+- Do not change Cash Buy, Purchase with Loan, or Sell Your Home persistence.
+- Do not change Share behavior in this task.
+- Do not build public share routes yet.
+
+Acceptance test:
+1. Log in.
+2. Open a Refinance detail view.
+3. Change a refinance field.
+4. Click Save Scenario.
+5. Confirm Supabase save succeeds to `tracked_loans`.
+6. Refresh/logout/login.
+7. Confirm the Refinance changes persist.
+8. Open an Insurance detail view.
+9. Change an insurance field.
+10. Click Save Scenario.
+11. Confirm Supabase save succeeds to `insurance_scenarios`.
+12. Refresh/logout/login.
+13. Confirm the Insurance changes persist.
+14. Log out.
+15. Start/edit Refinance or Insurance.
+16. Click Save Scenario.
+17. Confirm AuthDialog opens.
+18. Log in/create account.
+19. Confirm the pending save replays and persists.
+20. Confirm Save does not show success unless Supabase save succeeds.
+
+Please make the smallest safe code change possible and tell me:
+- Which Refinance save function was wired
+- Which Insurance save function was wired
+- Which fields are saved for each
+- How logged-out pending save replay works for Refinance/Insurance
+- Which files/functions were changed
+```
+
+After that passes, then I’d have Replit do the stable share-link task separately.

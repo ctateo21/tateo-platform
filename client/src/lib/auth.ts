@@ -922,10 +922,14 @@ export function getInsuranceScenarios(): InsuranceScenario[] {
   return _insuranceScenarios;
 }
 
-export function saveInsuranceScenarios(s: InsuranceScenario[]) {
+export function saveInsuranceScenarios(s: InsuranceScenario[]): Promise<void> {
   _insuranceScenarios = s;
   notify();
-  void persistInsuranceScenarios(s);
+  // Returns the persistence promise so callers (the new "Save
+  // Scenario" button) can await a real Supabase write and only
+  // show success after it finishes. Existing fire-and-forget
+  // callers still work because the return value is ignorable.
+  return persistInsuranceScenarios(s);
 }
 
 function persistInsuranceScenarios(s: InsuranceScenario[]) {
@@ -934,18 +938,31 @@ function persistInsuranceScenarios(s: InsuranceScenario[]) {
   return enqueueWrite("insurance_scenarios", async () => {
     if (_session?.id !== userId) return;
     const keep = new Set(s.map(x => x.id));
-    const { data: existing } = await supabase
+    const { data: existing, error: selErr } = await supabase
       .from("insurance_scenarios")
       .select("id")
       .eq("user_id", userId);
+    if (selErr) {
+      notifyError({ table: "insurance_scenarios", message: selErr.message });
+      throw new Error(selErr.message);
+    }
     const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
     if (toDelete.length > 0) {
-      await supabase.from("insurance_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+      const { error: delErr } = await supabase
+        .from("insurance_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+      if (delErr) {
+        notifyError({ table: "insurance_scenarios", message: delErr.message });
+        throw new Error(delErr.message);
+      }
     }
     if (s.length > 0) {
-      await supabase
+      const { error: upErr } = await supabase
         .from("insurance_scenarios")
         .upsert(s.map(x => insuranceToRow(x, userId)), { onConflict: "id" });
+      if (upErr) {
+        notifyError({ table: "insurance_scenarios", message: upErr.message });
+        throw new Error(upErr.message);
+      }
     }
   });
 }
@@ -1058,10 +1075,11 @@ export function getTrackedLoans(): TrackedLoan[] {
   return _trackedLoans;
 }
 
-export function saveTrackedLoans(loans: TrackedLoan[]) {
+export function saveTrackedLoans(loans: TrackedLoan[]): Promise<void> {
   _trackedLoans = loans;
   notify();
-  void persistTrackedLoans(loans);
+  // Returns the persistence promise — see saveInsuranceScenarios.
+  return persistTrackedLoans(loans);
 }
 
 function persistTrackedLoans(loans: TrackedLoan[]) {
@@ -1070,18 +1088,31 @@ function persistTrackedLoans(loans: TrackedLoan[]) {
   return enqueueWrite("tracked_loans", async () => {
     if (_session?.id !== userId) return;
     const keep = new Set(loans.map(l => l.id));
-    const { data: existing } = await supabase
+    const { data: existing, error: selErr } = await supabase
       .from("tracked_loans")
       .select("id")
       .eq("user_id", userId);
+    if (selErr) {
+      notifyError({ table: "tracked_loans", message: selErr.message });
+      throw new Error(selErr.message);
+    }
     const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
     if (toDelete.length > 0) {
-      await supabase.from("tracked_loans").delete().in("id", toDelete).eq("user_id", userId);
+      const { error: delErr } = await supabase
+        .from("tracked_loans").delete().in("id", toDelete).eq("user_id", userId);
+      if (delErr) {
+        notifyError({ table: "tracked_loans", message: delErr.message });
+        throw new Error(delErr.message);
+      }
     }
     if (loans.length > 0) {
-      await supabase
+      const { error: upErr } = await supabase
         .from("tracked_loans")
         .upsert(loans.map(l => trackedLoanToRow(l, userId)), { onConflict: "id" });
+      if (upErr) {
+        notifyError({ table: "tracked_loans", message: upErr.message });
+        throw new Error(upErr.message);
+      }
     }
   });
 }

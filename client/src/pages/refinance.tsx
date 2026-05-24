@@ -294,11 +294,28 @@ export default function Refinance() {
             <h1 className="text-lg font-semibold">Refinance Calculator</h1>
           </div>
           {address && <span className="text-sm text-muted-foreground hidden sm:block">· {address}</span>}
-          {/* Share + Save Scenario — auth-gated, draft state
-              preserved through the AuthDialog (same component used
-              by the other four flows). */}
+          {/* Share + Save Scenario — auth-gated. Save persists all
+              tracked loans for the current address into
+              `tracked_loans` and awaits the Supabase write so the
+              success toast only fires after the row(s) actually
+              save. (The page also auto-saves on edit via
+              updateLoans, but the explicit Save guarantees a
+              confirmed round-trip.) */}
           <div className="ml-auto">
-            <ScenarioActions scenarioType="refinance" />
+            <ScenarioActions
+              scenarioType="refinance"
+              onSave={async () => {
+                if (trackedLoans.length === 0) {
+                  throw new Error(
+                    "Upload your mortgage statement first to create a refinance scenario."
+                  );
+                }
+                // Persist the current full set — saveTrackedLoans
+                // mirrors auth.ts auto-save semantics (delete-then-
+                // upsert) and now throws on Supabase error.
+                await saveTrackedLoans(trackedLoans);
+              }}
+            />
           </div>
           {/* "Pull from Zillow" is now auto-run after a statement is
               tracked. Button stays available under ?debug=1 for QA. */}

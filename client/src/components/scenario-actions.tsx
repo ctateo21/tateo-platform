@@ -61,11 +61,20 @@ export default function ScenarioActions({
   /** Action the user wanted to take before being prompted to log in.
    *  Replayed automatically once `isAuthenticated` flips true. */
   const pendingActionRef = useRef<"save" | "share" | null>(null);
+  /** Snapshot of the `onSave` closure taken at click time, before
+   *  the auth dialog opens. Replaying this exact reference (instead
+   *  of the latest `onSave` prop) preserves the parent's pre-auth
+   *  draft state — important for flows like Refinance whose local
+   *  state is rehydrated from Supabase on login, which would
+   *  otherwise overwrite the user's unsaved edits before the
+   *  replayed save fires. */
+  const pendingSaveSnapshotRef = useRef<(() => void | Promise<void>) | null>(null);
 
-  async function doSave() {
+  async function doSave(saveFn?: (() => void | Promise<void>) | null) {
     setSaving(true);
     try {
-      if (onSave) await onSave();
+      const fn = saveFn ?? onSave;
+      if (fn) await fn();
       toast({
         title: "Scenario saved",
         description: `Your ${FLOW_LABEL[scenarioType]} scenario was saved to your dashboard.`,
@@ -110,7 +119,14 @@ export default function ScenarioActions({
     const pending = pendingActionRef.current;
     if (!pending) return;
     pendingActionRef.current = null;
-    if (pending === "save") void doSave();
+    if (pending === "save") {
+      // Use the snapshot captured at click time so we save the
+      // parent's pre-auth draft, not whatever state the parent
+      // hydrated post-login.
+      const snapshot = pendingSaveSnapshotRef.current;
+      pendingSaveSnapshotRef.current = null;
+      void doSave(snapshot);
+    }
     if (pending === "share") doShare();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
@@ -118,6 +134,10 @@ export default function ScenarioActions({
   function handleSave() {
     if (!isAuthenticated) {
       pendingActionRef.current = "save";
+      // Capture the current onSave closure so the replay after
+      // login uses the parent's pre-auth draft state, not the
+      // post-login hydrated state.
+      pendingSaveSnapshotRef.current = onSave ?? null;
       setAuthOpen(true);
       return;
     }
@@ -176,6 +196,7 @@ export default function ScenarioActions({
           // component is still mounted.
           if (!next && !isAuthenticated) {
             pendingActionRef.current = null;
+            pendingSaveSnapshotRef.current = null;
           }
           setAuthOpen(next);
         }}

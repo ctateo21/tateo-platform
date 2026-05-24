@@ -1,6 +1,9 @@
 import { useMemo, useState, useRef, useEffect } from "react";
 import { useSearch, useLocation } from "wouter";
 import ScenarioActions from "@/components/scenario-actions";
+import {
+  getInsuranceScenarios, saveInsuranceScenarios, type InsuranceScenario,
+} from "@/lib/auth";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -482,11 +485,34 @@ export default function InsuranceDashboard() {
             </div>
             <div className="flex items-center gap-2">
               {/* Standard Share + Save Scenario pair, identical to
-                  the other four detail views. Replaces the previous
-                  ad-hoc handlers (URL copy + toast-only save) so the
-                  auth gate + post-login replay behaves the same
-                  everywhere. */}
-              <ScenarioActions scenarioType="insurance" />
+                  the other four detail views. Save persists one row
+                  per address into `insurance_scenarios`; the call is
+                  awaited so the success toast only fires after the
+                  Supabase write returns OK. */}
+              <ScenarioActions
+                scenarioType="insurance"
+                onSave={async () => {
+                  if (!address || !address.trim()) {
+                    throw new Error("Enter an address before saving.");
+                  }
+                  const key = address.trim().toLowerCase();
+                  const existing = getInsuranceScenarios();
+                  const match = existing.find(
+                    s => s.address.trim().toLowerCase() === key
+                  );
+                  const updated: InsuranceScenario = {
+                    id: match?.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                    address,
+                    savedAt: new Date().toISOString(),
+                    annualPremium: Math.round(calc.mid),
+                    coverageType: region.name,
+                  };
+                  const next = match
+                    ? existing.map(s => (s.id === match.id ? updated : s))
+                    : [...existing, updated];
+                  await saveInsuranceScenarios(next);
+                }}
+              />
             </div>
           </div>
         </div>
