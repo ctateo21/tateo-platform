@@ -1401,12 +1401,18 @@ function CashBuyTab() {
 const VALID_TABS = ["purchase", "refinance", "insurance", "sellers", "cash_buy"] as const;
 type DashboardTabValue = typeof VALID_TABS[number];
 
+// Display labels only. Stable IDs (`purchase`, `refinance`, `insurance`,
+// `sellers`, `cash_buy`) are intentionally unchanged so saved
+// scenarios, deep links (`?tab=...`), drag-and-drop tab order in
+// localStorage, and the data layer all keep working through the
+// rename. The new labels match the logged-out service picker on
+// `/select-service` so users see the same names end-to-end.
 const TAB_META: Record<DashboardTabValue, { label: string; icon: typeof Home }> = {
-  purchase:  { label: "Purchase",  icon: Home },
-  refinance: { label: "Refinance", icon: RefreshCw },
-  insurance: { label: "Insurance", icon: Shield },
-  sellers:   { label: "For Sale",  icon: Tag },
-  cash_buy:  { label: "Cash Buy",  icon: Banknote },
+  purchase:  { label: "Purchase with Loan", icon: Home },
+  refinance: { label: "Refinance",          icon: RefreshCw },
+  insurance: { label: "Insurance",          icon: Shield },
+  sellers:   { label: "Sell Your Home",     icon: Tag },
+  cash_buy:  { label: "Purchase with Cash", icon: Banknote },
 };
 
 const TAB_CONTENT: Record<DashboardTabValue, () => JSX.Element> = {

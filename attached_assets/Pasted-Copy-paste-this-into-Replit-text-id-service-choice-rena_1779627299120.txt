@@ -1,0 +1,206 @@
+Copy/paste this into Replit:
+
+```text id="service-choice-rename-tabs-navigation"
+Update the service selection screen and dashboard tab labels/routing.
+
+Current behavior:
+When I am not logged in and type in an address, the next page asks something like:
+- All Services
+- Real Estate/Mortgage
+- Insurance
+
+I want to replace that screen with clearer service options.
+
+New service selection options:
+After a user enters/selects an address while not logged in, show these choices:
+
+1. All Services
+2. Purchase with Cash
+3. Purchase with Loan
+4. Refinance
+5. Insurance
+6. Sell Your Home
+
+Renaming dashboard tabs:
+Rename existing dashboard tabs as follows:
+
+Current:
+- Cash Buy
+
+Rename to:
+- Purchase with Cash
+
+Current:
+- Purchase
+
+Rename to:
+- Purchase with Loan
+
+Current:
+- For Sale
+
+Rename to:
+- Sell Your Home
+
+Keep:
+- Refinance
+- Insurance
+
+New dashboard tab labels should be:
+- Purchase with Loan
+- Refinance
+- Insurance
+- Sell Your Home
+- Purchase with Cash
+
+If the draggable tab order feature exists:
+- Keep stable tab IDs unchanged if possible.
+- Only change display labels.
+- Do not break saved user tab order.
+- If user tab order stores IDs, keep IDs:
+  - purchase = Purchase with Loan
+  - refinance = Refinance
+  - insurance = Insurance
+  - for_sale = Sell Your Home
+  - cash_buy = Purchase with Cash
+
+Important:
+Do not rename database tables unless absolutely necessary.
+This should mostly be a UI label/routing copy change.
+
+Service selection routing:
+When a non-logged-in user enters an address and chooses one of the six service options, route them to the correct next step:
+
+1. All Services
+- Take them into the existing all-services flow.
+- This should still allow the broader combined experience.
+
+2. Purchase with Cash
+- Route to the Cash Buy flow.
+- This is the same flow/tab currently known as Cash Buy.
+- Use the new label “Purchase with Cash.”
+
+3. Purchase with Loan
+- Route to the Purchase flow.
+- This is the same flow/tab currently known as Purchase.
+- Use the new label “Purchase with Loan.”
+
+4. Refinance
+- Route to the Refinance flow.
+
+5. Insurance
+- Route to the Insurance flow.
+
+6. Sell Your Home
+- Route to the For Sale/Seller flow.
+- This is the same flow/tab currently known as For Sale.
+- Use the new label “Sell Your Home.”
+
+Back button behavior:
+If the user is not logged in:
+- If they are inside one of these service flows and hit Back, take them back to the service selection screen with the six options:
+  1. All Services
+  2. Purchase with Cash
+  3. Purchase with Loan
+  4. Refinance
+  5. Insurance
+  6. Sell Your Home
+- Preserve the property address they entered.
+- Do not send them to the logged-in dashboard.
+
+If the user is logged in:
+- If they are inside a saved scenario/detail view and hit Back, take them back to the main dashboard overview.
+- The dashboard should show the top tabs with the new labels:
+  - Purchase with Loan
+  - Refinance
+  - Insurance
+  - Sell Your Home
+  - Purchase with Cash
+- Preserve the user’s selected/custom tab order if they reordered tabs.
+
+Important routing distinction:
+Logged-out user:
+- Back goes to prior service choice screen.
+
+Logged-in user:
+- Back goes to dashboard tab overview.
+
+Do not confuse these two behaviors.
+
+Address preservation:
+When the user enters an address before selecting the service:
+- Carry that address into the chosen flow.
+- The selected flow should start with that address already populated.
+- If Zillow/property cache lookup already started, reuse that data.
+- Do not make the user re-enter the address.
+
+Label updates throughout UI:
+Update visible labels/copy where appropriate:
+- “Cash Buy” → “Purchase with Cash”
+- “Purchase” tab → “Purchase with Loan”
+- “For Sale” → “Sell Your Home”
+
+But be careful:
+- Keep internal stable IDs if they are used for routing/data.
+- Keep database table names unless Replit determines a label-only rename is insufficient.
+- Keep API field names stable unless required.
+
+Examples:
+- `cash_buy` can remain the internal ID, but display label should be “Purchase with Cash.”
+- `purchase` can remain the internal ID, but display label should be “Purchase with Loan.”
+- `for_sale` or `seller` can remain the internal ID, but display label should be “Sell Your Home.”
+
+Do not break:
+- saved scenarios
+- dashboard tab drag-and-drop order
+- Purchase with Loan save/load
+- Purchase with Cash save/load
+- Refinance save/load
+- Insurance save/load
+- Sell Your Home save/load
+- Zillow/property cache
+- alert bells
+- market analysis
+- back navigation for logged-in dashboard users
+
+Acceptance test:
+1. Log out.
+2. Enter/select a property address.
+3. Confirm the next screen shows exactly these six options:
+   - All Services
+   - Purchase with Cash
+   - Purchase with Loan
+   - Refinance
+   - Insurance
+   - Sell Your Home
+4. Click Purchase with Cash.
+5. Confirm it routes into the Cash Buy flow with the address populated.
+6. Hit Back.
+7. Confirm it returns to the six-option service selection screen.
+8. Click Purchase with Loan.
+9. Confirm it routes into the Purchase flow with the address populated.
+10. Hit Back.
+11. Confirm it returns to the six-option service selection screen.
+12. Repeat for Refinance, Insurance, and Sell Your Home.
+13. Log in.
+14. Confirm dashboard tabs show:
+   - Purchase with Loan
+   - Refinance
+   - Insurance
+   - Sell Your Home
+   - Purchase with Cash
+15. Open a saved scenario.
+16. Hit Back.
+17. Confirm it returns to the dashboard overview, not the six-option logged-out screen.
+18. Confirm saved dashboard tab order still works.
+19. Confirm records remain under the correct renamed tabs.
+
+Please make the smallest safe code change possible and tell me:
+- Which service selection component was changed
+- Which dashboard tab labels were renamed
+- Whether stable tab IDs were preserved
+- How logged-out Back behavior works
+- How logged-in Back behavior works
+- How the entered address is preserved into the selected flow
+- Which files/functions were changed
+```
