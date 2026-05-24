@@ -1,0 +1,175 @@
+Copy/paste this into Replit:
+
+```text id="student-loans-monthly-debt-sync"
+Fix deferred student loan DTI so the calculated student loan payment is added to the monthly debt amount shown on Page 1 Borrower Details and used in DTI.
+
+Current issue:
+When I enter a total deferred student loan balance, the app calculates the monthly DTI payment, but it does not update the monthly debt amount shown on Page 1 Borrower Details.
+
+Expected behavior:
+The monthly debts shown on Page 1 should include:
+1. the user’s manually entered monthly debts
+2. plus the calculated deferred student loan monthly payment
+
+Examples:
+
+Example 1:
+- User-entered monthly debts = $0
+- Deferred student loan balance = $10,000
+- Loan type = Conventional
+- Conventional uses 1%
+- $10,000 × 1% = $100
+- Page 1 Borrower Details monthly debts should show $100
+
+Example 2:
+- User-entered monthly debts = $250
+- Deferred student loan balance = $10,000
+- Loan type = Conventional
+- Conventional uses 1%
+- $10,000 × 1% = $100
+- Page 1 Borrower Details monthly debts should show $350
+
+Example 3:
+- User-entered monthly debts = $250
+- Deferred student loan balance = $10,000
+- Loan type = FHA / VA / USDA
+- FHA/VA/USDA use 0.5%
+- $10,000 × 0.5% = $50
+- Page 1 Borrower Details monthly debts should show $300
+
+Important:
+Do not overwrite the user’s original manually entered monthly debt amount.
+
+The app needs to track two separate values:
+1. Base monthly debts entered by the user
+2. Deferred student loan calculated monthly payment
+
+Then display/use:
+
+Total monthly debts = base monthly debts + deferred student loan monthly payment
+
+Suggested fields:
+- `base_monthly_debts`
+- `deferred_student_loan_monthly_dti_payment`
+- `total_monthly_debts`
+
+If the app already has a field called `monthly_debts`, decide whether that should become:
+- the displayed total monthly debts, or
+- the base manually entered monthly debts
+
+Preferred structure:
+- Keep the user-entered amount separately as `base_monthly_debts`
+- Show `total_monthly_debts` in Page 1
+- Use `total_monthly_debts` for DTI
+
+Page 1 Borrower Details behavior:
+When Page 1 shows Monthly Debts:
+- Display the total monthly debts including deferred student loan payment.
+- If there is a deferred student loan adjustment, show a small helper line:
+  “Includes $100/mo estimated deferred student loan payment.”
+- If the user edits monthly debts manually on Page 1, update only the base monthly debt amount, then recalculate the total.
+
+Preferred UI:
+Show three lines if possible:
+- Monthly debts entered: editable input
+- Deferred student loan estimate: read-only
+- Total monthly debts used for DTI: calculated
+
+If keeping one main display:
+- Monthly Debts should show the total
+- Small note should show the deferred student loan amount included
+
+Avoid double-counting:
+Do not do this:
+- user monthly debts already includes $100 student loan adjustment
+- then add the $100 again for DTI
+
+Rules:
+1. User-entered monthly debts are the base amount.
+2. Deferred student loan calculated payment is separate.
+3. DTI uses base monthly debts + deferred student loan calculated payment.
+4. Page 1 should clearly show that total.
+5. Changing student loan balance updates Page 1 monthly debt total.
+6. Changing loan type updates the student loan percentage and monthly debt total.
+7. Changing user-entered base debts updates the total.
+8. If user answers No to deferred student loans, student loan calculated payment becomes $0 and total monthly debts returns to base monthly debts.
+
+Loan type factors:
+- Conventional = 1.00% of deferred student loan balance
+- Bank Statement, if DTI is used = 1.00% unless the app has better logic
+- FHA = 0.50%
+- VA = 0.50%
+- USDA = 0.50%
+- DSCR = do not force into DTI if DSCR does not use traditional DTI
+
+Supabase / persistence:
+Save/load the separate values:
+- base monthly debts
+- has deferred student loans
+- deferred student loan balance
+- deferred student loan monthly DTI payment
+- total monthly debts if stored, or calculate on load
+
+If the purchase_scenarios table needs fields, give me SQL like:
+
+alter table public.purchase_scenarios
+add column if not exists base_monthly_debts numeric default 0,
+add column if not exists total_monthly_debts numeric default 0;
+
+Do not lose existing monthly debt data.
+
+If there is an existing `monthly_debts` field:
+- existing `monthly_debts` should initialize `base_monthly_debts` if base is empty
+- total should be calculated from base + student loan estimate
+- do not overwrite the user’s manually entered base debts with the calculated total
+
+Calculation example:
+const baseMonthlyDebts = Number(scenario.base_monthly_debts ?? scenario.monthly_debts ?? 0);
+
+const deferredPayment = calculateDeferredStudentLoanPayment({
+  balance: scenario.deferred_student_loan_balance,
+  loanType: scenario.loan_type
+});
+
+const totalMonthlyDebts = baseMonthlyDebts + deferredPayment;
+
+Use `totalMonthlyDebts` for DTI.
+
+DTI:
+- Page 4 / See My Estimate should use `totalMonthlyDebts`, not only the manually entered base debts.
+- Dashboard summary/qualification should also use `totalMonthlyDebts`.
+- Do not double-count the deferred student loan payment in DTI.
+
+Acceptance test:
+1. Go to Purchase Page 1 Borrower Details.
+2. Enter monthly debts = $0.
+3. Go to Page 2 Additional Questions.
+4. Select deferred student loans = Yes.
+5. Enter student loan balance = $10,000.
+6. Select Conventional.
+7. Confirm calculated student loan payment = $100/mo.
+8. Go back to Page 1.
+9. Confirm monthly debts now show $100 total, not $0.
+10. Change base monthly debts to $250.
+11. Confirm total monthly debts show $350.
+12. Change loan type to FHA.
+13. Confirm student loan payment changes to $50 and total monthly debts show $300.
+14. Change loan type to VA.
+15. Confirm student loan payment remains $50 and total monthly debts show $300.
+16. Change loan type to USDA.
+17. Confirm student loan payment remains $50 and total monthly debts show $300.
+18. Change deferred student loans to No.
+19. Confirm total monthly debts return to $250.
+20. Confirm Page 4 DTI uses the total monthly debts.
+21. Refresh/logout/login and confirm the values persist correctly.
+22. Confirm no double-counting occurs.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 1 Borrower Details component was changed
+- How base monthly debts are stored separately from deferred student loan payment
+- Which value is displayed on Page 1
+- Which value is used for DTI
+- Whether a Supabase migration is needed
+- How double-counting is avoided
+- Which files/functions were changed
+```

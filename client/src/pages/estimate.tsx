@@ -1499,7 +1499,13 @@ export default function Estimate() {
     row("Total DTI", fmtPct(calc.dti), tDTIMax);
     row("Required Reserves (1-3 mo PITI)", fmt(calc.requiredReserves));
     row("Available Reserves", fmt(calc.availableReserves));
-    row("Monthly Debts", fmt(inputs.monthlyDebts));
+    row(
+      "Monthly Debts",
+      fmt(calc.totalMonthlyDebts),
+      calc.deferredStudentLoanMonthly > 0
+        ? `Incl. ${fmt(calc.deferredStudentLoanMonthly)}/mo deferred student loan`
+        : undefined,
+    );
 
     // ── Footer ─────────────────────────────────────────────────────────────
     const totalPages = (doc as any).internal.getNumberOfPages();
@@ -2364,6 +2370,15 @@ export default function Estimate() {
       closingCosts, cashToClose, housingDTI, dti, maxHousingDti, maxTotalDti, maxDti, requiredIncome, requiredReserves, availableReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
       rentalIncomeQualifying, qualifyingIncome,
+      // Deferred-student-loan DTI add-on (derived). `baseMonthlyDebts`
+      // is what the user typed on Page 1 and is the only persisted
+      // figure; `totalMonthlyDebts` is what DTI uses + what the UI
+      // surfaces on Page 1 / Page 4 so the user sees the full picture
+      // without us ever overwriting their typed value.
+      deferredStudentLoanMonthly,
+      deferredStudentLoanFactor: deferredStudentLoanFactorVal,
+      baseMonthlyDebts: monthlyDebts,
+      totalMonthlyDebts: effectiveMonthlyDebts,
     };
   }, [inputs]);
 
@@ -2530,16 +2545,21 @@ export default function Estimate() {
     );
   }
 
-  function SummaryRow({ label, value, onEdit }: { label: string; value: string; onEdit: () => void }) {
+  function SummaryRow({ label, value, onEdit, sub }: { label: string; value: string; onEdit: () => void; sub?: string }) {
     return (
-      <div className="flex justify-between items-center py-1.5 border-b border-border/30 last:border-0 gap-2">
-        <span className="text-xs text-muted-foreground shrink-0">{label}</span>
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-xs font-medium text-right truncate">{value}</span>
-          <button onClick={onEdit} className="text-primary/50 hover:text-primary transition-colors shrink-0" title="Edit">
-            <Pencil className="h-2.5 w-2.5" />
-          </button>
+      <div className="py-1.5 border-b border-border/30 last:border-0">
+        <div className="flex justify-between items-center gap-2">
+          <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-xs font-medium text-right truncate">{value}</span>
+            <button onClick={onEdit} className="text-primary/50 hover:text-primary transition-colors shrink-0" title="Edit">
+              <Pencil className="h-2.5 w-2.5" />
+            </button>
+          </div>
         </div>
+        {sub && (
+          <p className="text-[10px] text-muted-foreground italic mt-0.5 leading-tight">{sub}</p>
+        )}
       </div>
     );
   }
@@ -2930,13 +2950,39 @@ export default function Estimate() {
                       </p>
                     )}
                   </div>
-                  <SliderInput
-                    label="Monthly Debts (mortgage, auto, cards, etc.)"
-                    value={inputs.monthlyDebts}
-                    onChange={(v) => set("monthlyDebts", v)}
-                    min={0} max={10000} step={50}
-                    prefix="$"
-                  />
+                  <div className="space-y-1">
+                    <SliderInput
+                      label="Monthly Debts (mortgage, auto, cards, etc.)"
+                      value={inputs.monthlyDebts}
+                      onChange={(v) => set("monthlyDebts", v)}
+                      min={0} max={10000} step={50}
+                      prefix="$"
+                    />
+                    {/* When the borrower has reported deferred student
+                        loans on Page 2, the lender-assumed monthly
+                        payment is layered on top of the typed amount
+                        and the *total* is what DTI uses. We show both
+                        lines so the user understands their typed value
+                        is preserved while DTI reflects the full debt
+                        picture. The slider above remains the user's
+                        editable base — only the helper text + total
+                        below change as Page 2 / loan type changes. */}
+                    {calc.deferredStudentLoanMonthly > 0 && (
+                      <div className="text-[11px] leading-tight space-y-0.5 pt-0.5">
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Deferred student loan estimate</span>
+                          <span>+{fmt(calc.deferredStudentLoanMonthly)}/mo</span>
+                        </div>
+                        <div className="flex justify-between font-semibold border-t border-border/40 pt-0.5 text-foreground">
+                          <span>Total monthly debts (used for DTI)</span>
+                          <span data-testid="text-total-monthly-debts">{fmt(calc.totalMonthlyDebts)}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground italic pt-0.5">
+                          Includes {fmt(calc.deferredStudentLoanMonthly)}/mo estimated deferred student loan payment.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                   <SliderInput
                     label="Available Reserves / Savings"
                     value={inputs.reserves}
@@ -3674,7 +3720,16 @@ export default function Estimate() {
                         <SummaryRow label="Property Use" value={inputs.occupancy === "primary" ? "Primary" : inputs.occupancy === "secondary" ? "Secondary" : "Investment"} onEdit={() => setEditingPage(1)} />
                         <SummaryRow label="Credit Score" value={String(inputs.creditScore)} onEdit={() => setEditingPage(1)} />
                         <SummaryRow label="Monthly Income" value={fmt(inputs.monthlyIncome)} onEdit={() => setEditingPage(1)} />
-                        <SummaryRow label="Monthly Debts" value={fmt(inputs.monthlyDebts)} onEdit={() => setEditingPage(1)} />
+                        <SummaryRow
+                          label="Monthly Debts"
+                          value={fmt(calc.totalMonthlyDebts)}
+                          onEdit={() => setEditingPage(1)}
+                          sub={
+                            calc.deferredStudentLoanMonthly > 0
+                              ? `Includes ${fmt(calc.deferredStudentLoanMonthly)}/mo estimated deferred student loan payment`
+                              : undefined
+                          }
+                        />
                         <SummaryRow label="Reserves" value={fmt(inputs.reserves)} onEdit={() => setEditingPage(1)} />
                       </div>
                       <div>
@@ -3718,7 +3773,12 @@ export default function Estimate() {
                     </div>
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground mb-1">Assumed Debts</p>
-                      <p className="text-2xl font-bold text-primary">{fmt(inputs.monthlyDebts)}</p>
+                      <p className="text-2xl font-bold text-primary">{fmt(calc.totalMonthlyDebts)}</p>
+                      {calc.deferredStudentLoanMonthly > 0 && (
+                        <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+                          Includes {fmt(calc.deferredStudentLoanMonthly)}/mo deferred student loan
+                        </p>
+                      )}
                     </div>
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground mb-1">Monthly Income Needed</p>
