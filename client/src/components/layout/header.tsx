@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  Menu, Home, Building2, Briefcase, HelpCircle, ChevronDown,
+  Menu, Home, Briefcase, HelpCircle, ChevronDown,
   LayoutDashboard, LogIn, LogOut, User, Settings as SettingsIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -37,7 +37,6 @@ export default function Header() {
       ],
     },
     { href: "/review", label: "REVIEWS", icon: <HelpCircle className="mr-2 h-4 w-4" /> },
-    { href: "/#about", label: "ABOUT", icon: <Building2 className="mr-2 h-4 w-4" /> },
   ];
 
   async function handleLogout() {
