@@ -1107,6 +1107,20 @@ export function saveTrackedLoans(loans: TrackedLoan[]): Promise<void> {
   return persistTrackedLoans(loans);
 }
 
+// Columns we know are "optional" on tracked_loans — some Supabase
+// instances may not have run the latest migration yet. If PostgREST
+// reports any of these as missing, we strip them from every row and
+// retry the upsert once so the save still succeeds on older schemas.
+const TRACKED_LOAN_OPTIONAL_COLUMNS = [
+  "loan_number", "credit_score", "loan_type", "balance_as_of",
+] as const;
+
+function extractMissingColumn(message: string): string | null {
+  // PostgREST: "Could not find the 'foo' column of 'tracked_loans' in the schema cache"
+  const m = message.match(/Could not find the '([^']+)' column/i);
+  return m ? m[1] : null;
+}
+
 function persistTrackedLoans(loans: TrackedLoan[]) {
   const userId = _session?.id;
   if (!userId) return Promise.resolve();
@@ -1119,7 +1133,8 @@ function persistTrackedLoans(loans: TrackedLoan[]) {
       .eq("user_id", userId);
     if (selErr) {
       notifyError({ table: "tracked_loans", message: selErr.message });
-      throw new Error(selErr.message);
+      throw new Error(selErr.message); // awaited callers see the failure;
+                                       // fire-and-forget callers wrap in .catch().
     }
     const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
     if (toDelete.length > 0) {
@@ -1131,12 +1146,33 @@ function persistTrackedLoans(loans: TrackedLoan[]) {
       }
     }
     if (loans.length > 0) {
-      const { error: upErr } = await supabase
-        .from("tracked_loans")
-        .upsert(loans.map(l => trackedLoanToRow(l, userId)), { onConflict: "id" });
-      if (upErr) {
-        notifyError({ table: "tracked_loans", message: upErr.message });
-        throw new Error(upErr.message);
+      const stripped = new Set<string>();
+      const buildRows = () => loans.map(l => {
+        const row: Record<string, any> = trackedLoanToRow(l, userId);
+        for (const col of stripped) delete row[col];
+        return row;
+      });
+      // Try up to 1 + N attempts where N is the number of optional cols
+      // — each retry strips one more missing column and retries.
+      let lastErr: string | null = null;
+      for (let attempt = 0; attempt <= TRACKED_LOAN_OPTIONAL_COLUMNS.length; attempt++) {
+        const { error: upErr } = await supabase
+          .from("tracked_loans")
+          .upsert(buildRows(), { onConflict: "id" });
+        if (!upErr) { lastErr = null; break; }
+        const missing = extractMissingColumn(upErr.message);
+        if (missing && (TRACKED_LOAN_OPTIONAL_COLUMNS as readonly string[]).includes(missing) && !stripped.has(missing)) {
+          // Older schema — strip the missing optional column and retry.
+          console.warn(`[tracked_loans] retrying without missing column '${missing}'`);
+          stripped.add(missing);
+          continue;
+        }
+        lastErr = upErr.message;
+        break;
+      }
+      if (lastErr) {
+        notifyError({ table: "tracked_loans", message: lastErr });
+        throw new Error(lastErr); // awaited callers (handlePropertyTypeSelect, Save button) catch this
       }
     }
   });

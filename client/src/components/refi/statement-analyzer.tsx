@@ -1,10 +1,9 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Progress } from "@/components/ui/progress";
-import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle, Sparkles, X, UserCheck, Lock } from "lucide-react";
+import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle, Sparkles, X } from "lucide-react";
 import { formatCurrency } from "@/lib/refi-calculations";
 import { cn } from "@/lib/utils";
 import type { MortgageAnalysis } from "./loan-tracker";
@@ -14,19 +13,13 @@ interface StatementAnalyzerProps {
   onAnalyzed?: (analysis: MortgageAnalysis) => void;
   trackedLoanCount?: number;
   maxLoans?: number;
-  onSavePromptAnswer?: (accepted: boolean, analysis: MortgageAnalysis) => void;
-  locked?: boolean;
 }
-
-const SAVE_DELAY_MS = 15_000;
 
 export function StatementAnalyzer({
   onAnalysisComplete,
   onAnalyzed,
   trackedLoanCount = 0,
   maxLoans = 10,
-  onSavePromptAnswer,
-  locked = false,
 }: StatementAnalyzerProps) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,29 +27,6 @@ export function StatementAnalyzer({
   const [dragActive, setDragActive] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const [savePromptVisible, setSavePromptVisible] = useState(false);
-  const [saveCountdown, setSaveCountdown] = useState(0);
-  const [saveAnswered, setSaveAnswered] = useState(false);
-  const [isLocked, setIsLocked] = useState(locked);
-
-  useEffect(() => { setIsLocked(locked); }, [locked]);
-
-  useEffect(() => {
-    if (!analysis || saveAnswered) return;
-    setSaveCountdown(SAVE_DELAY_MS / 1000);
-    const tick = setInterval(() => {
-      setSaveCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(tick);
-          setSavePromptVisible(true);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(tick);
-  }, [analysis, saveAnswered]);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault(); e.stopPropagation();
@@ -100,52 +70,34 @@ export function StatementAnalyzer({
     }
   };
 
-  const handleSaveAnswer = (accepted: boolean) => {
-    setSaveAnswered(true);
-    setSavePromptVisible(false);
-    if (!accepted) setIsLocked(true);
-    if (analysis) onSavePromptAnswer?.(accepted, analysis);
-  };
-
   const uploadZone = (
     <div
       className={cn(
-        "border-2 border-dashed rounded-md p-6 text-center transition-colors",
-        isLocked
-          ? "opacity-50 cursor-not-allowed border-border"
-          : "cursor-pointer " + (dragActive ? "border-primary bg-accent" : "border-border hover:border-primary/50 hover:bg-accent/30"),
-        uploadedFile && !isLocked && "border-green-500 bg-green-50"
+        "border-2 border-dashed rounded-md p-6 text-center transition-colors cursor-pointer",
+        dragActive ? "border-primary bg-accent" : "border-border hover:border-primary/50 hover:bg-accent/30",
+        uploadedFile && "border-green-500 bg-green-50"
       )}
-      onDragEnter={isLocked ? undefined : handleDrag}
-      onDragLeave={isLocked ? undefined : handleDrag}
-      onDragOver={isLocked ? undefined : handleDrag}
-      onDrop={isLocked ? undefined : handleDrop}
-      onClick={() => !uploadedFile && !isLocked && fileInputRef.current?.click()}
+      onDragEnter={handleDrag}
+      onDragLeave={handleDrag}
+      onDragOver={handleDrag}
+      onDrop={handleDrop}
+      onClick={() => !uploadedFile && fileInputRef.current?.click()}
     >
       <input
         ref={fileInputRef}
         type="file"
         accept=".pdf,.txt"
-        onChange={e => e.target.files?.[0] && !isLocked && handleFile(e.target.files[0])}
+        onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
         className="hidden"
-        disabled={isLocked}
       />
       {uploadedFile ? (
         <div className="flex items-center justify-center gap-2">
           <FileText className="h-5 w-5 text-green-600" />
           <span className="font-medium text-sm">{uploadedFile.name}</span>
-          {!isLocked && (
-            <Button variant="ghost" size="icon" className="h-6 w-6" onClick={e => { e.stopPropagation(); setUploadedFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}>
-              <X className="h-3 w-3" />
-            </Button>
-          )}
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={e => { e.stopPropagation(); setUploadedFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}>
+            <X className="h-3 w-3" />
+          </Button>
         </div>
-      ) : isLocked ? (
-        <>
-          <Lock className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-          <p className="text-sm font-medium">Additional uploads disabled</p>
-          <p className="text-xs text-muted-foreground mt-1">Save to your profile to analyze more statements</p>
-        </>
       ) : (
         <>
           <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
@@ -177,7 +129,7 @@ export function StatementAnalyzer({
           </Alert>
         )}
 
-        <Button onClick={analyzeStatement} disabled={isAnalyzing || !uploadedFile || isLocked} className="w-full">
+        <Button onClick={analyzeStatement} disabled={isAnalyzing || !uploadedFile} className="w-full">
           {isAnalyzing
             ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Analyzing...</>
             : <><Sparkles className="h-4 w-4 mr-2" />Analyze Statement</>}
@@ -211,33 +163,6 @@ export function StatementAnalyzer({
               </div>
             </div>
 
-            {/* 15-second countdown bar */}
-            {!saveAnswered && !savePromptVisible && saveCountdown > 0 && (
-              <Progress value={((SAVE_DELAY_MS / 1000 - saveCountdown) / (SAVE_DELAY_MS / 1000)) * 100} className="h-1" />
-            )}
-
-            {/* Save-to-profile prompt */}
-            {savePromptVisible && !saveAnswered && (
-              <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-3">
-                <div className="flex items-start gap-2">
-                  <UserCheck className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                  <div>
-                    <p className="font-semibold text-sm">Save this to your profile?</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">We'll store your loan details so you can track refinance opportunities over time.</p>
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" className="flex-1" onClick={() => handleSaveAnswer(true)}>Yes, save it</Button>
-                  <Button size="sm" variant="outline" className="flex-1" onClick={() => handleSaveAnswer(false)}>No thanks</Button>
-                </div>
-              </div>
-            )}
-
-            {saveAnswered && !isLocked && (
-              <p className="text-xs text-green-600 flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3" /> Saving your profile — complete the form below.
-              </p>
-            )}
           </div>
         )}
       </CardContent>

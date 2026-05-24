@@ -9,9 +9,7 @@ import { Button } from "@/components/ui/button";
 import { LiveRatesCard } from "@/components/refi/live-rates-card";
 import { StatementAnalyzer } from "@/components/refi/statement-analyzer";
 import { LoanTracker, type MortgageAnalysis, type LiveRate, type PropertyType } from "@/components/refi/loan-tracker";
-import { formatCurrency } from "@/lib/refi-calculations";
 import { useQuery } from "@tanstack/react-query";
-import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import {
   getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
   getSellerScenarios, saveSellerScenarios,
@@ -53,23 +51,6 @@ function analysisToTrackedLoan(
     loanNumber,
     creditScore,
   };
-}
-
-function buildScenarioDetails(analysis: MortgageAnalysis): string {
-  const parts = [
-    `Refinance Analysis`,
-    `Property: ${analysis.propertyAddress || "Unknown"}`,
-    `Lender: ${analysis.lender || "Unknown"}`,
-    `Loan Balance: ${formatCurrency(analysis.loanBalance)}`,
-    `Interest Rate: ${Number(analysis.interestRate).toFixed(3)}%`,
-    `Monthly P&I: ${formatCurrency(analysis.principalAndInterest)}`,
-    `Est. Home Value: ${formatCurrency(analysis.estimatedHomeValue)}`,
-    `Remaining Term: ${analysis.estimatedRemainingYears} years`,
-  ];
-  if (analysis.potentialSavings > 0) {
-    parts.push(`Potential Monthly Savings: ${formatCurrency(analysis.potentialSavings)}`);
-  }
-  return parts.join(" | ");
 }
 
 const PROPERTY_OPTIONS: { type: PropertyType; label: string; description: string; icon: React.ReactNode }[] = [
@@ -124,15 +105,16 @@ export default function Refinance() {
   function updateLoans(updater: TrackedLoan[] | ((prev: TrackedLoan[]) => TrackedLoan[])) {
     setTrackedLoansState(prev => {
       const next = typeof updater === "function" ? (updater as (p: TrackedLoan[]) => TrackedLoan[])(prev) : updater;
-      saveTrackedLoans(next);
+      // Fire-and-forget auto-save. Errors are surfaced via the
+      // persistence-error toast subscriber in dashboard.tsx, so we
+      // swallow the rejection here to prevent the dev runtime overlay.
+      saveTrackedLoans(next).catch(() => {});
       return next;
     });
   }
 
   const { toast } = useToast();
-  const [analyzerLocked, setAnalyzerLocked] = useState(false);
   const [showZillowLookup, setShowZillowLookup] = useState(false);
-  const [showLeadDialog, setShowLeadDialog] = useState(false);
 
   // Refinance only needs estimatedHomeValue from Zillow — the rest of the
   // tracked loan (rate, P&I, balance) still comes from the user's statement.
@@ -159,8 +141,6 @@ export default function Refinance() {
     ));
     toast({ title: "Home value updated", description: `${matchCount} loan${matchCount > 1 ? "s" : ""} updated to $${homeValue.toLocaleString()}.` });
   }
-  const [analysisForSave, setAnalysisForSave] = useState<MortgageAnalysis | null>(null);
-
   // Property type dialog state
   const [pendingAnalysis, setPendingAnalysis] = useState<MortgageAnalysis | null>(null);
   const [showPropertyTypeDialog, setShowPropertyTypeDialog] = useState(false);
@@ -245,24 +225,41 @@ export default function Refinance() {
     setShowPropertyTypeDialog(true);
   };
 
-  const handlePropertyTypeSelect = (propertyType: PropertyType) => {
+  const handlePropertyTypeSelect = async (propertyType: PropertyType) => {
     if (!pendingAnalysis) return;
     const newLoan = analysisToTrackedLoan(pendingAnalysis, propertyType, creditScore || DEFAULT_CREDIT_SCORE);
-    updateLoans(prev => [newLoan, ...prev]);
+    const next = [newLoan, ...trackedLoans];
+    // Update local state immediately so the loan card renders without
+    // waiting for Supabase. We don't go through updateLoans() here
+    // because we want to await the save and surface a success/error
+    // toast — updateLoans is fire-and-forget.
+    setTrackedLoansState(next);
     setPendingAnalysis(null);
     setShowPropertyTypeDialog(false);
+    // Persist to tracked_loans FIRST. The schema-safe upsert in auth.ts
+    // strips any missing optional columns automatically. We only mirror
+    // into Sell-Your-Home and trigger Zillow AFTER the refi save
+    // succeeds — otherwise a transient Supabase failure leaves the
+    // user with an orphan seller draft and no matching refi row.
+    try {
+      await saveTrackedLoans(next);
+      toast({ title: "Loan saved to your refinance dashboard." });
+    } catch (e: any) {
+      toast({
+        title: "Couldn't save your loan",
+        description: e?.message || "Please try again in a moment.",
+        variant: "destructive",
+      });
+      return;
+    }
     // Mirror the freshly tracked loan into a Sell-Your-Home draft so
-    // the same property shows up in both dashboard tabs immediately.
-    // Photos arrive later via autoPullZillowForLoan; the helper's
-    // blank-only fill rule means that call backfills photos without
-    // overwriting anything the user has already touched.
+    // the same property shows up in both dashboard tabs. Helper's
+    // source-based merge rule + normalizedPropertyKey dedup guarantee
+    // no duplicate seller_scenarios row.
     syncSellerFromRefinance(newLoan);
-    // Auto-pull Zillow for the newly tracked address so the user doesn't
-    // need to click a separate "Pull from Zillow" button. We update the
-    // loan's estimatedHomeValue (the only field refinance actually uses
-    // from Zillow) and only overwrite if the Zillow value is meaningful.
-    // Failures are silent — the loan is still tracked with the statement
-    // value as a fallback.
+    // Auto-pull Zillow for the newly tracked address. Failures are
+    // silent — the loan is still tracked with the statement value as
+    // a fallback.
     autoPullZillowForLoan(newLoan).catch(err => {
       console.warn("[refinance] auto Zillow lookup failed:", err?.message || err);
     });
@@ -346,20 +343,6 @@ export default function Refinance() {
       propertyPhotos: photos.length > 0 ? photos.slice(0, 8) : undefined,
     });
   }
-
-  const handleSavePromptAnswer = (accepted: boolean, analysis: MortgageAnalysis) => {
-    if (accepted) {
-      setAnalysisForSave(analysis);
-      setShowLeadDialog(true);
-    } else {
-      setAnalyzerLocked(true);
-    }
-  };
-
-  const handleLeadSuccess = () => {
-    setShowLeadDialog(false);
-    setAnalyzerLocked(true);
-  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -470,8 +453,6 @@ export default function Refinance() {
               onAnalyzed={handleAnalyzed}
               trackedLoanCount={trackedLoans.length}
               maxLoans={MAX_TRACKED_LOANS}
-              onSavePromptAnswer={handleSavePromptAnswer}
-              locked={analyzerLocked}
             />
           </div>
           <LiveRatesCard
@@ -547,15 +528,6 @@ export default function Refinance() {
         </DialogContent>
       </Dialog>
 
-      {/* Save-to-profile lead capture dialog */}
-      <LeadCaptureDialog
-        open={showLeadDialog}
-        onOpenChange={open => { if (!open) { setShowLeadDialog(false); setAnalyzerLocked(true); } }}
-        action="save"
-        address={analysisForSave?.propertyAddress || address}
-        scenarioDetails={analysisForSave ? buildScenarioDetails(analysisForSave) : undefined}
-        onSuccess={handleLeadSuccess}
-      />
     </div>
   );
 }
