@@ -319,9 +319,25 @@ export default function SellerEstimatePage() {
             variant="ghost"
             size="sm"
             className="gap-2 -ml-2"
-            onClick={() => setLocation("/dashboard?tab=sellers")}
+            onClick={() => {
+              // Logged-in users came from the dashboard's Sell Your
+              // Home tab. Logged-out users came through the
+              // six-option service picker after entering an address —
+              // send them back there with the address preserved
+              // (not to the dashboard, which would force login).
+              if (isAuthenticated) {
+                setLocation("/dashboard?tab=sellers");
+              } else {
+                setLocation(
+                  scenario.address
+                    ? `/select-service?address=${encodeURIComponent(scenario.address)}`
+                    : "/select-service",
+                );
+              }
+            }}
           >
-            <ArrowLeft className="h-4 w-4" /> Back to Sellers
+            <ArrowLeft className="h-4 w-4" />{" "}
+            {isAuthenticated ? "Back to Sellers" : "Back to Services"}
           </Button>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {saveStatus === "saving" && (<><Loader2 className="h-3 w-3 animate-spin" /> Saving…</>)}

@@ -1,0 +1,99 @@
+Copy/paste this into Replit:
+
+```text id="all-services-back-button-fix"
+Fix the logged-out Back button behavior after selecting “All Services.”
+
+Current issue:
+When I am logged out:
+1. I enter/select an address.
+2. I reach the service selection screen.
+3. I choose “All Services.”
+4. I go into the All Services flow.
+5. When I hit Back, it takes me back to the address entry page.
+
+That is wrong.
+
+Expected behavior:
+When I am logged out and I hit Back from any selected service flow, it should take me back to the service selection screen, not the address entry page.
+
+This already works correctly for:
+- Refinance
+- Insurance
+
+It does NOT work correctly for:
+- All Services
+- and possibly the other options besides Refinance/Insurance
+
+Please make All Services use the same back-navigation behavior that Refinance and Insurance already use.
+
+Correct logged-out flow:
+1. Address entry page
+2. Service selection page:
+   - All Services
+   - Purchase with Cash
+   - Purchase with Loan
+   - Refinance
+   - Insurance
+   - Sell Your Home
+3. User chooses a service
+4. User enters that service flow
+5. User hits Back
+6. User returns to the service selection page from step 2
+7. The previously entered address is preserved
+
+Do not send the user back to the address entry page unless they hit Back from the service selection page itself.
+
+Specific bug:
+“All Services” appears to be losing or bypassing the prior service-selection route/state, so its Back button goes to the address page instead of the six-option service screen.
+
+Fix requirements:
+1. Inspect the navigation/back handler for Refinance and Insurance, since those work correctly.
+2. Apply the same back behavior to All Services.
+3. Also verify these options:
+   - Purchase with Cash
+   - Purchase with Loan
+   - Sell Your Home
+4. The service flow should carry a `returnToServiceSelection` or equivalent state so Back knows where to go.
+5. Preserve the entered address when returning to service selection.
+6. Do not clear Zillow/property cache data when going back.
+7. Do not reset the selected address.
+8. Do not break logged-in back behavior.
+
+Logged-in behavior:
+If the user is logged in and inside a saved scenario/detail view:
+- Back should take them to the dashboard overview with the renamed tabs.
+- It should NOT take them to the logged-out six-option service selection screen.
+
+Logged-out behavior:
+If the user is not logged in and came from the six-option service selection screen:
+- Back should return to that six-option screen.
+
+Acceptance test:
+1. Log out.
+2. Enter/select an address.
+3. Confirm the six service options appear.
+4. Click All Services.
+5. Hit Back.
+6. Confirm it returns to the six-option service selection screen, not the address page.
+7. Confirm the entered address is still preserved.
+8. Click Refinance.
+9. Hit Back.
+10. Confirm Refinance still returns to service selection.
+11. Click Insurance.
+12. Hit Back.
+13. Confirm Insurance still returns to service selection.
+14. Test Purchase with Cash, Purchase with Loan, and Sell Your Home.
+15. Confirm all service options return to service selection when logged out.
+16. Log in.
+17. Open a saved scenario/detail view.
+18. Hit Back.
+19. Confirm it returns to the dashboard overview, not the service selection screen.
+
+Please make the smallest safe code change possible and tell me:
+- Why All Services was routing back to address entry
+- Which working Refinance/Insurance back behavior was reused
+- Which service routes now preserve return-to-service-selection state
+- How the entered address is preserved
+- How logged-in vs logged-out Back behavior is separated
+- Which files/functions were changed
+```

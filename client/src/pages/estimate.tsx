@@ -2712,9 +2712,25 @@ export default function Estimate() {
           <div className="container mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div className="flex items-center gap-3">
               <button
-                onClick={() => setLocation(fromDashboard ? "/dashboard" : "/")}
+                onClick={() => {
+                  // Logged-in users who arrived from the dashboard go
+                  // back to the dashboard overview. Everyone else (the
+                  // logged-out flow that came through the address →
+                  // service picker) goes back to the six-option picker
+                  // with their address preserved — never to the bare
+                  // home page, which would force re-typing the address.
+                  if (fromDashboard) {
+                    setLocation("/dashboard");
+                  } else {
+                    setLocation(
+                      address
+                        ? `/select-service?address=${encodeURIComponent(address)}`
+                        : "/select-service",
+                    );
+                  }
+                }}
                 className="text-muted-foreground hover:text-primary transition-colors"
-                title={fromDashboard ? "Back to Dashboard" : "Back"}
+                title={fromDashboard ? "Back to Dashboard" : "Back to Services"}
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>

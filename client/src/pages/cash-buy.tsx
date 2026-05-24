@@ -529,9 +529,25 @@ export default function CashBuyPage() {
             variant="ghost"
             size="sm"
             className="gap-2 -ml-2"
-            onClick={() => setLocation("/dashboard?tab=cash_buy")}
+            onClick={() => {
+              // Logged-in users came from the dashboard's Cash Buy
+              // tab. Logged-out users came through the six-option
+              // service picker after entering an address — send them
+              // back there with the address preserved (not to the
+              // dashboard, which would bounce them to login).
+              if (isAuthenticated) {
+                setLocation("/dashboard?tab=cash_buy");
+              } else {
+                setLocation(
+                  scenario.address
+                    ? `/select-service?address=${encodeURIComponent(scenario.address)}`
+                    : "/select-service",
+                );
+              }
+            }}
           >
-            <ArrowLeft className="h-4 w-4" /> Back to Cash Buy
+            <ArrowLeft className="h-4 w-4" />{" "}
+            {isAuthenticated ? "Back to Cash Buy" : "Back to Services"}
           </Button>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             {!isAuthenticated && (
