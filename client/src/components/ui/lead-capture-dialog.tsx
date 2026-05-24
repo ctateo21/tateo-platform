@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mail, Phone, KeyRound, CheckCircle2, Loader2, User, Users } from "lucide-react";
+import { getStoredReferralSource } from "@/components/referral-source-dialog";
 
 // ─── Agent config ──────────────────────────────────────────────────────────
 
@@ -141,6 +142,7 @@ export default function LeadCaptureDialog({
             address,
             agent: agentName,
             scenarioDetails,
+            referral: getStoredReferralSource() ?? undefined,
           }),
         });
         const verifyData = await verifyRes.json();
@@ -196,6 +198,7 @@ export default function LeadCaptureDialog({
           code, address,
           agent: agentName,
           scenarioDetails,
+          referral: getStoredReferralSource() ?? undefined,
         }),
       });
       const data = await res.json();

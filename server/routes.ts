@@ -937,7 +937,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // POST /api/leads/verify
   app.post("/api/leads/verify", async (req, res) => {
     try {
-      const { firstName, lastName, email, phone, code, address, agent, scenarioDetails } = z.object({
+      const { firstName, lastName, email, phone, code, address, agent, scenarioDetails, referral } = z.object({
         firstName: z.string().min(1),
         lastName: z.string().min(1),
         email: z.string().email(),
@@ -946,6 +946,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         address: z.string().optional(),
         agent: z.string().optional(),
         scenarioDetails: z.string().optional(),
+        referral: referralSchema,
       }).parse(req.body);
       const digits = phone.replace(/\D/g, "");
       const e164 = digits.startsWith("1") ? `+${digits}` : `+1${digits}`;
@@ -965,7 +966,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Create contact in FollowUpBoss (non-blocking — don't fail the verify if FUB errors)
-      createFollowUpBossContact({ firstName, lastName, email, phone: e164, address, agent, scenarioDetails }).catch(err =>
+      createFollowUpBossContact({ firstName, lastName, email, phone: e164, address, agent, scenarioDetails, referral }).catch(err =>
         console.error("[FUB] Failed to create contact:", err.message)
       );
 
@@ -1081,10 +1082,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }
 
+  // Human-readable label per referral source kind. Kept in sync with the
+  // ReferralSourceDialog options on the client.
+  const REFERRAL_SOURCE_LABELS: Record<string, string> = {
+    licensed_professional: "Licensed Professional",
+    social_media:          "Social Media",
+    word_of_mouth:         "Word of Mouth",
+  };
+  const REFERRAL_PLATFORM_LABELS: Record<string, string> = {
+    instagram: "Instagram",
+    facebook:  "Facebook",
+    tiktok:    "TikTok",
+    youtube:   "YouTube",
+    linkedin:  "LinkedIn",
+    google:    "Google",
+    other:     "Other",
+  };
+
+  // Zod schema for the optional referral block. Accepted by every endpoint
+  // that may create a FUB contact so the answer to "How did you hear from
+  // us?" follows the lead all the way into Follow Up Boss.
+  const referralSchema = z.object({
+    referral_source: z.enum(["licensed_professional", "social_media", "word_of_mouth"]),
+    referral_name: z.string().optional(),
+    referral_platform: z.enum(["instagram","facebook","tiktok","youtube","linkedin","google","other"]).optional(),
+    referral_notes: z.string().optional(),
+  }).optional();
+  type ReferralPayload = z.infer<typeof referralSchema>;
+
+  function formatReferralBlock(r: ReferralPayload): string | null {
+    if (!r) return null;
+    const lines = ["How they heard from us:"];
+    lines.push(`Source: ${REFERRAL_SOURCE_LABELS[r.referral_source] ?? r.referral_source}`);
+    if (r.referral_source === "licensed_professional" && r.referral_name?.trim()) {
+      lines.push(`Referral Name: ${r.referral_name.trim()}`);
+    }
+    if (r.referral_source === "social_media" && r.referral_platform) {
+      lines.push(`Platform: ${REFERRAL_PLATFORM_LABELS[r.referral_platform] ?? r.referral_platform}`);
+    }
+    if (r.referral_source === "word_of_mouth" && r.referral_name?.trim()) {
+      lines.push(`Referral Name: ${r.referral_name.trim()}`);
+    }
+    if (r.referral_notes?.trim()) lines.push(`Notes: ${r.referral_notes.trim()}`);
+    return lines.join("\n");
+  }
+
   async function createFollowUpBossContact(params: {
     firstName: string; lastName: string; email: string;
     phone: string; address?: string; agent?: string; scenarioDetails?: string;
     messageHeader?: string;
+    referral?: ReferralPayload;
   }) {
     const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
     if (!apiKey) {
@@ -1102,6 +1149,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       `Agent: ${agentName}`,
     ];
     if (params.scenarioDetails) messageParts.push(params.scenarioDetails);
+    const referralBlock = formatReferralBlock(params.referral);
+    if (referralBlock) messageParts.push(referralBlock);
     const noteBody = messageParts.join("\n");
 
     // Step 1: look up existing contact by email to avoid creating duplicates
@@ -1215,7 +1264,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (notifyRateLimited(ip)) {
         return res.status(429).json({ error: "Too many notifications. Please wait a moment." });
       }
-      const { firstName, lastName, email, phone, agent, address, scenarioDetails } = z.object({
+      const { firstName, lastName, email, phone, agent, address, scenarioDetails, referral } = z.object({
         firstName: z.string().min(1),
         lastName: z.string().min(1),
         email: z.string().email(),
@@ -1223,6 +1272,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         agent: z.string().optional(),
         address: z.string().min(1),
         scenarioDetails: z.string().optional(),
+        referral: referralSchema,
       }).parse(req.body);
 
       console.log(`[LEAD] New property scenario: ${email} → ${address} (agent: ${agent || "Team"})`);
@@ -1236,6 +1286,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         address,
         agent,
         scenarioDetails,
+        referral,
         messageHeader: `Customer added another property to their dashboard: ${address}`,
       }).catch(err => console.error("[FUB] notify-new-scenario failed:", err.message));
 

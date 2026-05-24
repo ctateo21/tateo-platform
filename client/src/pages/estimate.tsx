@@ -64,6 +64,7 @@ import {
   Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext,
 } from "@/components/ui/carousel";
 import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
+import { getStoredReferralSource } from "@/components/referral-source-dialog";
 import { useAuth } from "@/context/auth-context";
 import { apiRequest } from "@/lib/queryClient";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
@@ -1337,6 +1338,7 @@ export default function Estimate() {
           agent: sessionUser.agent || "Team",
           address: addr,
           scenarioDetails: buildScenarioDetails(),
+          referral: getStoredReferralSource() ?? undefined,
         }),
       }).catch(err => console.warn("Failed to notify agent of new scenario:", err));
     }

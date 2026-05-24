@@ -1,0 +1,97 @@
+Copy/paste this into Replit:
+
+```text id="schedule-call-referral-fub-details"
+Update the Schedule a Call referral popup so the answer pulls into Follow Up Boss/FUB lead notifications.
+
+Current request:
+When someone clicks Schedule a Call, they answer:
+
+“How did you hear from us?”
+
+Options:
+- Licensed Professional → enter their name
+- Social Media → choose which platform
+- Word of Mouth → optional name
+
+Now make sure whatever they answer is included in the FUB lead notification/details.
+
+Required behavior:
+When a Schedule a Call lead is created or sent to FUB, include the referral source details in the FUB payload/email/body.
+
+FUB lead notification should include:
+
+How did you hear from us?
+- Source: Licensed Professional / Social Media / Word of Mouth
+- Licensed Professional Name: [name entered], if applicable
+- Social Media Platform: [platform selected], if applicable
+- Word of Mouth Name: [name entered], if applicable
+
+If the user selected Licensed Professional:
+- Require name before continuing.
+- Send the name to FUB.
+
+If the user selected Social Media:
+- Require platform before continuing.
+- Send the platform to FUB.
+
+If the user selected Word of Mouth:
+- Name can be optional.
+- Send the answer to FUB either way.
+
+Suggested fields:
+- `referral_source`
+- `referral_source_label`
+- `referral_name`
+- `referral_platform`
+- `referral_notes`
+
+FUB/email body example:
+How they heard from us:
+Source: Licensed Professional
+Referral Name: John Smith
+
+or:
+
+How they heard from us:
+Source: Social Media
+Platform: Instagram
+
+or:
+
+How they heard from us:
+Source: Word of Mouth
+Referral Name: Sarah Jones
+
+Important:
+- Do not only store this in frontend state.
+- Pass the referral data into the same backend function/API route that creates the Schedule a Call lead or sends the FUB notification.
+- Include it in the FUB notification body/details.
+- If the app uses an inbound FUB email parser, include the referral information clearly in the subject/body.
+- If the app uses a FUB API integration, map these fields into notes/custom fields if available.
+- Do not break the existing Schedule a Call flow.
+- Do not break existing FUB lead notifications.
+- Do not require account creation.
+
+Acceptance test:
+1. Click Schedule a Call.
+2. Select Licensed Professional.
+3. Enter “John Smith.”
+4. Continue to scheduling/lead creation.
+5. Confirm FUB notification includes:
+   Source: Licensed Professional
+   Referral Name: John Smith
+6. Repeat with Social Media → Instagram.
+7. Confirm FUB notification includes:
+   Source: Social Media
+   Platform: Instagram
+8. Repeat with Word of Mouth.
+9. Confirm FUB notification includes:
+   Source: Word of Mouth
+10. Confirm existing lead details like name, email, phone, address, and service type still send correctly.
+
+Please make the smallest safe code change possible and tell me:
+- Which referral fields are captured
+- Which Schedule a Call lead/FUB function was updated
+- Whether FUB receives the details by email body, notes, or API fields
+- Which files/functions were changed
+```
