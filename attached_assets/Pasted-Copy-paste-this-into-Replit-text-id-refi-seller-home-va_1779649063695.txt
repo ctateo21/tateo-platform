@@ -1,0 +1,168 @@
+Copy/paste this into Replit:
+
+```text id="refi-seller-home-value-sync"
+Sync home value estimates between Refinance and Sell Your Home for the same property.
+
+Current issue:
+A property can exist in both:
+- Dashboard → Refinance
+- Dashboard → Sell Your Home
+
+But if the user changes the home value estimate in one place, the matching value in the other tab does not update.
+
+Requested behavior:
+If the same property/address exists in both Refinance and Sell Your Home, changing the home value estimate in either place should update the other one and save to the correct Supabase table.
+
+Sync rule:
+Match properties by:
+- user_id
+- normalized_property_key
+
+Do not rely on raw address text only.
+
+Field mapping:
+Refinance home value field:
+- Use the exact field that powers the visible “Estimated Home Value” in the Refinance tab.
+
+Sell Your Home estimated sale price field:
+- `seller_scenarios.estimated_sale_price`
+
+When Refinance value changes:
+1. User changes Estimated Home Value in Refinance.
+2. Save the new value to `tracked_loans`.
+3. Find matching Sell Your Home scenario by `user_id + normalized_property_key`.
+4. Update `seller_scenarios.estimated_sale_price` to the new Refinance home value.
+5. Recalculate Sell Your Home:
+   - realtor commission
+   - seller closing costs if percent-based
+   - net proceeds
+6. Save the updated values to `seller_scenarios`.
+
+When Sell Your Home value changes:
+1. User changes Estimated Sale Price in Sell Your Home.
+2. Save the new value to `seller_scenarios`.
+3. Find matching Refinance record by `user_id + normalized_property_key`.
+4. Update the Refinance estimated home value field to the same amount.
+5. Recalculate refinance values that depend on home value:
+   - LTV
+   - rate/payment if applicable
+   - dashboard summary values
+6. Save the updated values to `tracked_loans`.
+
+Important:
+- Both directions must work.
+- Refinance → Sell Your Home
+- Sell Your Home → Refinance
+
+Manual override:
+For this specific field, the latest user-entered value should win.
+
+If the user changes the value manually in either Refinance or Sell Your Home, treat that as the new shared home value estimate for that property.
+
+Do not block the update because one side was previously “manual.”
+
+Source tracking:
+If source fields exist, update them:
+- Refinance home value source = `manual`
+- Sell Your Home estimated_sale_price_source = `manual`
+- shared source reason = `synced_from_refinance` or `synced_from_seller`
+
+If source fields do not exist, use the smallest safe approach and tell me what was done.
+
+Do not create duplicates:
+- If a matching record exists, update it.
+- Do not create a duplicate Refinance record.
+- Do not create a duplicate Sell Your Home record.
+- Only create a missing matching Sell Your Home scenario from Refinance if that is already existing app behavior.
+- Do not create a new Refinance record from Sell Your Home unless the app already supports that. If no matching Refinance exists, just save Sell Your Home.
+
+Supabase persistence:
+Make sure the updated value saves in the correct table:
+
+Refinance:
+- `tracked_loans`
+
+Sell Your Home:
+- `seller_scenarios`
+
+Both should persist after:
+- refresh
+- logout/login
+- navigating away and back
+
+Recalculation details:
+When Sell Your Home estimated sale price changes:
+- realtor_commission should remain percent-based if it is currently percent-based
+- seller_closing_costs should remain percent-based if it is currently percent-based
+- net_proceeds should update immediately
+
+When Refinance estimated home value changes:
+- LTV should update
+- refinance rate/payment should update if the app uses value/LTV in pricing
+- dashboard row should update
+
+Market Analysis:
+Do not run Market Analysis just because the home value syncs.
+Market Analysis should still only run when Sell Your Home status is:
+- ready_to_list
+- listed
+
+If status is Draft, do not call Anthropic, web search, Realtor.com scraper, or market analysis generation.
+
+UI behavior:
+- If user edits Refinance Estimated Home Value, show the updated value if they switch to Sell Your Home.
+- If user edits Sell Your Home Estimated Sale Price, show the updated value if they switch to Refinance.
+- Optional small helper text:
+  “This value is synced with your Refinance estimate for the same property.”
+
+Debounce:
+Autosave/sync should happen after value change.
+Use debounce if needed to avoid saving on every keystroke.
+Do not save NaN or blank values.
+
+Validation:
+- Value must be numeric.
+- Do not allow negative home value.
+- If blank while typing, do not crash.
+- On blur, either keep prior valid value or show validation.
+
+Debug logs:
+Add temporary logs:
+- `[home-value-sync] source tab`
+- `[home-value-sync] normalized property key`
+- `[home-value-sync] new value`
+- `[home-value-sync] matching refinance found true/false`
+- `[home-value-sync] matching seller found true/false`
+- `[home-value-sync] saved to tracked_loans`
+- `[home-value-sync] saved to seller_scenarios`
+- `[home-value-sync] recalculated seller net proceeds`
+- `[home-value-sync] recalculated refinance LTV`
+
+Acceptance test:
+1. Log in.
+2. Have the same address in Refinance and Sell Your Home.
+3. Open Refinance detail view.
+4. Change Estimated Home Value to $386,000.
+5. Confirm Refinance saves to `tracked_loans`.
+6. Go to Sell Your Home for the same address.
+7. Confirm Estimated Sale Price is $386,000.
+8. Confirm seller commission, seller closing costs, and net proceeds update.
+9. Change Sell Your Home Estimated Sale Price to $400,000.
+10. Confirm Sell Your Home saves to `seller_scenarios`.
+11. Go back to Refinance.
+12. Confirm Estimated Home Value is $400,000.
+13. Confirm refinance LTV/payment/rate summary updates if applicable.
+14. Refresh/logout/login.
+15. Confirm both tabs still show $400,000.
+16. Confirm no duplicate rows were created.
+17. Confirm Market Analysis does not run if Sell Your Home status is Draft.
+
+Please make the smallest safe code change possible and tell me:
+- Which Refinance field stores the visible Estimated Home Value
+- Which Sell Your Home field was synced
+- How matching by normalized property key works
+- How both Supabase tables are updated
+- How recalculations are triggered on both sides
+- How duplicate records are prevented
+- Which files/functions were changed
+```

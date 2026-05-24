@@ -21,9 +21,11 @@ import {
 import { useAuth } from "@/context/auth-context";
 import {
   getSellerScenarios, saveSellerScenarios, isAuthHydrated, subscribeAuthChange,
+  getTrackedLoans, saveTrackedLoans,
   type SellerScenario, type SellerScenarioStatus,
 } from "@/lib/auth";
 import { normalizePropertyKey } from "@/lib/property-key";
+import { applySellerSalePriceToRefinance } from "@/lib/refinance-from-seller";
 import { apiRequest } from "@/lib/queryClient";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -204,6 +206,12 @@ export default function SellerEstimatePage() {
           // Replace local state with the persisted row so autosave
           // doesn't clobber it with the placeholder defaults.
           setScenario(persisted);
+          // Seed the reverse-sync gate from the persisted value so
+          // the first post-hydration autosave doesn't fire seller→refi
+          // unless the user actually edits estimatedSalePrice.
+          if (typeof persisted.estimatedSalePrice === "number") {
+            lastSyncedSalePriceRef.current = persisted.estimatedSalePrice;
+          }
         }
       }
       hydratedRef.current = true;
@@ -292,6 +300,10 @@ export default function SellerEstimatePage() {
   //      Otherwise landing on `/seller` with no query params would silently
   //      pollute the dashboard with an unnamed row.
   const firstRenderRef = useRef(true);
+  // Tracks the last estimatedSalePrice we mirrored over to
+  // tracked_loans so the reverse sync only fires when the value
+  // actually changes (not on every unrelated autosave).
+  const lastSyncedSalePriceRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (firstRenderRef.current) { firstRenderRef.current = false; return; }
     if (!isAuthenticated) return;
@@ -317,6 +329,49 @@ export default function SellerEstimatePage() {
           ? all.map(s => s.id === stamped.id ? stamped : s)
           : [stamped, ...all];
         saveSellerScenarios(next);
+        // Mirror the seller estimated_sale_price into the matching
+        // refinance tracked_loan.estimated_home_value when it
+        // changed since the last save. Smallest-safe two-way sync:
+        // never creates a Refinance row, never blocks on prior
+        // "manual" state — the latest user value wins per spec.
+        try {
+          const prevSalePrice = lastSyncedSalePriceRef.current;
+          const newSalePrice = stamped.estimatedSalePrice;
+          if (
+            typeof newSalePrice === "number" &&
+            Number.isFinite(newSalePrice) &&
+            newSalePrice > 0 &&
+            newSalePrice !== prevSalePrice
+          ) {
+            const loans = getTrackedLoans();
+            const result = applySellerSalePriceToRefinance({
+              sellerScenario: stamped,
+              loans,
+            });
+            console.log("[home-value-sync] source tab", { tab: "seller" });
+            console.log("[home-value-sync] normalized property key", {
+              key: stamped.normalizedPropertyKey ?? null,
+            });
+            console.log("[home-value-sync] new value", { value: newSalePrice });
+            console.log("[home-value-sync] matching refinance found true/false", {
+              found: result.matchedLoanIds.length > 0,
+              ids: result.matchedLoanIds,
+            });
+            if (result.changed) {
+              saveTrackedLoans(result.loans);
+              console.log("[home-value-sync] saved to tracked_loans", {
+                count: result.matchedLoanIds.length,
+                value: newSalePrice,
+              });
+              console.log("[home-value-sync] recalculated refinance LTV", {
+                note: "LTV recomputes from estimatedHomeValue at render-time in LoanTracker",
+              });
+            }
+            lastSyncedSalePriceRef.current = newSalePrice;
+          }
+        } catch (syncErr) {
+          console.warn("[home-value-sync] seller→refinance failed:", syncErr);
+        }
         if (isMountedRef.current) {
           setSaveStatus("saved");
           window.setTimeout(() => {

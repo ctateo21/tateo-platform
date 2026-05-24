@@ -45,6 +45,7 @@ import {
   type TrackedLoan, type LiveRate, type BestOption,
 } from "@/components/refi/loan-tracker";
 import { calculateRefinance, calculateMonthlyPayment, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
+import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-refinance";
 import { AlertBell } from "@/components/dashboard/alert-bell";
 
 interface LiveRatesResponse { rates: LiveRate[]; source: string; disclaimer: string; asOf: string; }
@@ -270,9 +271,43 @@ function RefiTab() {
   }
 
   function updateHomeValue(id: string, newValue: number) {
+    if (typeof newValue !== "number" || !Number.isFinite(newValue) || newValue < 0) return;
     const updated = loans.map(l => l.id === id ? { ...l, estimatedHomeValue: newValue } : l);
     setLoans(updated);
     saveTrackedLoans(updated);
+    // Mirror refinance → seller: when the user edits Est. Home
+    // Value from the dashboard, push the new value into the
+    // matching seller_scenarios row (same property by normalized
+    // key). Source-based merge protects manual seller edits.
+    try {
+      const editedLoan = updated.find(l => l.id === id);
+      if (!editedLoan) return;
+      const result = createOrUpdateSellerScenarioFromRefinance({
+        trackedLoan: editedLoan,
+        scenarios: getSellerScenarios(),
+      });
+      console.log("[home-value-sync] source tab", { tab: "refinance" });
+      console.log("[home-value-sync] new value", { value: newValue });
+      console.log("[home-value-sync] matching seller found true/false", {
+        found:
+          result?.action === "updated" ||
+          result?.action === "noop" ||
+          result?.action === "created",
+        action: result?.action ?? "skipped",
+      });
+      if (result?.changed) {
+        saveSellerScenarios(result.scenarios);
+        console.log("[home-value-sync] saved to seller_scenarios", {
+          scenarioId: result.scenarioId,
+          action: result.action,
+        });
+        console.log("[home-value-sync] recalculated seller net proceeds", {
+          scenarioId: result.scenarioId,
+        });
+      }
+    } catch (err) {
+      console.warn("[home-value-sync] refinance→seller failed:", err);
+    }
   }
 
   function getRecDetails(loan: TrackedLoan): RecDetails {
