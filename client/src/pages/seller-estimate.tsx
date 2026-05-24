@@ -618,7 +618,7 @@ export default function SellerEstimatePage() {
                   prefix="$"
                 />
                 <NumRow
-                  label="Repair Budget"
+                  label="Post Inspection Credits / Repair Costs"
                   hint="Pre-list repairs or post-inspection credits."
                   value={scenario.repairBudget ?? 0}
                   onChange={v => update("repairBudget", v)}
@@ -652,7 +652,7 @@ export default function SellerEstimatePage() {
                   <Row label={`Realtor Commission (${commissionPct.toFixed(1)}%)`} value={`− ${formatCurrency(commissionDollars)}`} />
                   <Row label={`Seller Closing Costs (${closingPct.toFixed(2)}%)`} value={`− ${formatCurrency(closingDollars)}`} />
                   <Row label="Buyer Concessions"      value={`− ${formatCurrency(scenario.buyerConcessions ?? 0)}`} />
-                  <Row label="Repair Budget"          value={`− ${formatCurrency(scenario.repairBudget ?? 0)}`} />
+                  <Row label="Post Inspection Credits / Repair Costs" value={`− ${formatCurrency(scenario.repairBudget ?? 0)}`} />
                   <Row label="Other Selling Costs"    value={`− ${formatCurrency(scenario.otherSellingCosts ?? 0)}`} />
                   <div className="flex items-center justify-between py-2 font-semibold">
                     <span>Estimated Net Proceeds</span>
