@@ -21,9 +21,7 @@ export interface IStorage {
   getIntegrationRequestsBySubmissionId(submissionId: number): Promise<IntegrationRequest[]>;
   
   // Questionnaire response operations
-  saveQuestionnaireResponse(response: InsertQuestionnaireResponse): Promise<QuestionnaireResponse>;
   getQuestionnaireResponse(sessionId: string, serviceType: string, stepName: string): Promise<QuestionnaireResponse | undefined>;
-  getQuestionnaireResponsesBySession(sessionId: string): Promise<QuestionnaireResponse[]>;
   updateQuestionnaireResponse(sessionId: string, serviceType: string, stepName: string, responseData: any, isCompleted?: boolean): Promise<QuestionnaireResponse | undefined>;
 }
 
@@ -134,30 +132,9 @@ export class MemStorage implements IStorage {
   }
 
   // Questionnaire response operations
-  async saveQuestionnaireResponse(response: InsertQuestionnaireResponse): Promise<QuestionnaireResponse> {
-    const id = this.questionnaireResponseIdCounter++;
-    const createdAt = new Date();
-    const questionnaireResponse: QuestionnaireResponse = { 
-      ...response, 
-      id, 
-      createdAt,
-      updatedAt: createdAt
-    };
-    
-    const key = `${response.sessionId}-${response.serviceType}-${response.stepName}`;
-    this.questionnaireResponses.set(key, questionnaireResponse);
-    return questionnaireResponse;
-  }
-
   async getQuestionnaireResponse(sessionId: string, serviceType: string, stepName: string): Promise<QuestionnaireResponse | undefined> {
     const key = `${sessionId}-${serviceType}-${stepName}`;
     return this.questionnaireResponses.get(key);
-  }
-
-  async getQuestionnaireResponsesBySession(sessionId: string): Promise<QuestionnaireResponse[]> {
-    return Array.from(this.questionnaireResponses.values()).filter(
-      (response) => response.sessionId === sessionId,
-    );
   }
 
   async updateQuestionnaireResponse(
@@ -273,22 +250,6 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Questionnaire response operations
-  async saveQuestionnaireResponse(response: InsertQuestionnaireResponse): Promise<QuestionnaireResponse> {
-    const [saved] = await db
-      .insert(questionnaireResponses)
-      .values(response)
-      .onConflictDoUpdate({
-        target: [questionnaireResponses.sessionId, questionnaireResponses.serviceType, questionnaireResponses.stepName],
-        set: {
-          responseData: response.responseData,
-          isCompleted: response.isCompleted,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    return saved;
-  }
-
   async getQuestionnaireResponse(sessionId: string, serviceType: string, stepName: string): Promise<QuestionnaireResponse | undefined> {
     const [result] = await db
       .select()
@@ -301,15 +262,6 @@ export class DatabaseStorage implements IStorage {
         )
       );
     return result;
-  }
-
-  async getQuestionnaireResponsesBySession(sessionId: string): Promise<QuestionnaireResponse[]> {
-    const results = await db
-      .select()
-      .from(questionnaireResponses)
-      .where(eq(questionnaireResponses.sessionId, sessionId))
-      .orderBy(questionnaireResponses.createdAt);
-    return results;
   }
 
   async updateQuestionnaireResponse(sessionId: string, serviceType: string, stepName: string, responseData: any, isCompleted?: boolean): Promise<QuestionnaireResponse | undefined> {

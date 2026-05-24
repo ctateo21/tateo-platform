@@ -29,8 +29,12 @@ export default function ServiceSelector() {
       return;
     }
     
-    // Navigate to the new sequential service questionnaire
-    navigate("/service-questionnaire");
+    // The legacy /service-questionnaire flow has been removed.
+    // Send users to the per-service selection screen instead so
+    // they can pick the right detail flow (estimate, refinance,
+    // insurance, cash-buy, seller-estimate) for their selected
+    // services.
+    navigate("/select-service");
   };
 
   return (

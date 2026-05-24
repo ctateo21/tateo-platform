@@ -1,0 +1,75 @@
+Follow-up cleanup pass based on the previous 
+deletion session. Clean up the four dangling 
+references that were flagged. Do each one carefully.
+
+1. In client/src/components/services/service-selector.tsx
+   Find the navigation call that goes to 
+   /service-questionnaire and remove it or 
+   redirect it to /select-service instead.
+   Do not delete the file — just fix the 
+   dead link.
+
+2. Delete this file entirely:
+   client/src/hooks/use-questionnaire-storage.ts
+   It only calls the removed questionnaire API 
+   endpoints and is now non-functional.
+   After deleting, search the entire codebase 
+   for any imports of use-questionnaire-storage 
+   and remove those import lines.
+
+3. In the database storage layer (likely 
+   server/storage.ts or similar), find and 
+   remove these two methods:
+   - saveQuestionnaireResponse
+   - getQuestionnaireResponsesBySession
+   Also remove the corresponding database 
+   queries or table references if they exist 
+   only for these methods.
+   Do NOT touch any other storage methods.
+
+4. In client/src/components/questionnaire/ — 
+   delete these remaining files that are 
+   now orphaned with no parent page to 
+   render them:
+   - address-input.tsx
+   - address-input-fixed.tsx
+   - simple-address-input.tsx
+   - contact-form.tsx
+   - currency-input.tsx
+   - number-input.tsx
+   - questionnaire-form.tsx
+   - buy-type-form.tsx
+   - cash-purchase-form.tsx
+   - construction-form.tsx
+   - home-services-form.tsx
+   - insurance-form.tsx
+   - mortgage-financing-form.tsx
+   - mortgage-form.tsx
+   - mortgage-income-form.tsx
+   - mortgage-payment-form.tsx
+   - mortgage-property-type-form.tsx
+   - mortgage-type-form.tsx
+   - property-location-form.tsx
+   - property-management-form.tsx
+   - property-ownership-form.tsx
+   - property-taxes-insurance.tsx
+   - purchase-method-form.tsx
+   - real-estate-form.tsx
+   - real-estate-initial-form.tsx
+   - refinance-property-taxes-insurance.tsx
+   - reviews-section.tsx
+   - sell-property-form.tsx
+   - sell-type-form.tsx
+
+   Before deleting each file, confirm it is 
+   NOT imported anywhere outside of the 
+   questionnaire pages already deleted. 
+   If any file IS imported elsewhere in 
+   a live page, skip it and flag it.
+
+5. After all deletions:
+   - Run npx tsc --noEmit
+   - Fix any new import errors
+   - Confirm the app still builds
+   - Report what was deleted and what 
+     was skipped and why
