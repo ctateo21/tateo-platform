@@ -325,6 +325,24 @@ function RefiTab() {
 
   return (
     <div className="space-y-3">
+      {/* Header: Loan Dashboard count + Analyze Another trigger (moved from bottom) */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold">Loan Dashboard</h3>
+          <Badge variant="secondary">{loans.length}/10</Badge>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="gap-2"
+          onClick={() => setLocation("/refinance")}
+          data-testid="analyze-another-mortgage-statement"
+        >
+          <RefreshCw className="h-4 w-4" />
+          <span>Analyze Another Mortgage Statement</span>
+        </Button>
+      </div>
+
       {loans.map(loan => {
         const details = getRecDetails(loan);
         const { rec } = details;
@@ -450,15 +468,6 @@ function RefiTab() {
           </Card>
         );
       })}
-
-      {/* Add more CTA */}
-      <button
-        onClick={() => setLocation("/refinance")}
-        className="w-full border-2 border-dashed border-border rounded-lg p-4 flex items-center justify-center gap-2 text-muted-foreground hover:border-primary hover:text-primary transition-colors"
-      >
-        <RefreshCw className="h-5 w-5" />
-        <span className="text-sm font-medium">Analyze another loan</span>
-      </button>
     </div>
   );
 }
