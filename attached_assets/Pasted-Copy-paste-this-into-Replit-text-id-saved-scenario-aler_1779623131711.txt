@@ -1,0 +1,282 @@
+Copy/paste this into Replit:
+
+```text id="saved-scenario-alert-bell"
+Add a notification bell subscription feature to saved scenarios.
+
+Current dashboard behavior:
+Users with accounts can save scenarios/properties and see View/Edit Estimate buttons.
+
+Requested feature:
+For users who have created an account and have saved scenarios, add a bell icon next to the View/Edit Estimate button.
+
+When the user clicks the bell, allow them to subscribe to alerts for:
+1. Interest rate drops
+2. Price drops on the home they are viewing
+
+The goal:
+Users can watch a saved property/scenario and get notified if:
+- mortgage rates fall to a target rate they choose
+- Zillow scraper detects a price drop on that specific home
+
+Where to show the bell:
+Add a bell icon next to View/Edit Estimate on saved property rows/cards in relevant tabs:
+- Purchase
+- Refinance, for rate-drop alerts
+- Cash Buy, for price-drop alerts
+- For Sale, if useful for price monitoring
+- Do not add to Insurance unless there is a clear insurance alert use case later
+
+Bell UI behavior:
+1. If user is logged in and scenario is saved, show a bell icon next to View/Edit Estimate.
+2. If no alert is active, show an outline bell.
+3. If alert is active, show a filled/active bell or small badge.
+4. Clicking the bell opens a small modal/popover.
+
+Modal/popover options:
+Title:
+“Set alerts for this property”
+
+Options:
+- Interest Rate Drop Alert
+- Price Drop Alert
+
+Interest rate drop alert:
+If user selects Interest Rate Drop Alert:
+- Let user enter a target interest rate.
+- Label:
+  “Notify me when rates drop to”
+- Input example:
+  6.250%
+- Store as numeric rate with 3 decimal display.
+- Use the relevant loan type for the scenario if available:
+  - Conventional
+  - FHA
+  - VA
+  - USDA
+  - DSCR
+  - Bank Statement
+- Use the scenario’s credit score, loan type, occupancy, LTV, and term if available.
+- If some inputs are missing, still allow the alert but use the closest available rate logic and show a note.
+
+Example:
+User sets target rate = 6.250%.
+If the calculated rate for their scenario drops to 6.250% or lower, notify them.
+
+Price drop alert:
+If user selects Price Drop Alert:
+- Subscribe them to price drops for that property.
+- Use the Zillow scraper/property cache to check for price changes.
+- Only send a price-drop alert if the Zillow scraper detects the current Zillow/listing price has dropped below the previously stored price.
+- Do not send repeated alerts for the same unchanged price.
+- Store last seen price and last alerted price.
+
+Price drop logic:
+1. Store initial watched price when alert is created:
+   - current Zillow list price if available
+   - otherwise Zestimate/estimated value if that is the only value available, but prefer listing price
+2. On future Zillow scrape/check:
+   - compare new listing price to last seen watched price
+   - if new price < last seen price:
+     - create/send notification
+     - update last alerted price
+     - update last seen price
+   - if new price is same or higher:
+     - update last seen price if needed
+     - do not notify
+3. Do not use rent Zestimate as purchase/list price.
+4. If Zillow scraper cannot find current listing price, do not send price-drop alert.
+
+Notification storage:
+Create a Supabase table for alert subscriptions.
+
+Suggested table:
+`property_alert_subscriptions`
+
+Suggested fields:
+- `id`
+- `user_id`
+- `scenario_id`
+- `scenario_type`
+- `normalized_property_key`
+- `property_address`
+- `zpid`
+- `zillow_url`
+- `alert_type`: `"rate_drop" | "price_drop"`
+- `is_active`
+- `target_rate`
+- `loan_type`
+- `loan_term_years`
+- `occupancy_type`
+- `credit_score`
+- `ltv`
+- `initial_watched_price`
+- `last_seen_price`
+- `last_alerted_price`
+- `last_checked_at`
+- `last_notified_at`
+- `notification_channel`: `"email"` initially
+- `created_at`
+- `updated_at`
+
+If a similar notification/settings table already exists, reuse it instead of creating a duplicate.
+
+RLS:
+Authenticated users should only select/insert/update/delete their own alert subscriptions:
+`user_id = auth.uid()`
+
+Notification delivery:
+For now, use email if the app already has email functionality.
+If email sending is not configured yet:
+- Store the alert event in Supabase.
+- Add a placeholder backend function for sending email later.
+- Tell me what email provider/integration is needed.
+
+Suggested alert events table:
+`property_alert_events`
+
+Fields:
+- `id`
+- `subscription_id`
+- `user_id`
+- `event_type`
+- `property_address`
+- `old_value`
+- `new_value`
+- `message`
+- `status`: `"pending" | "sent" | "failed"`
+- `created_at`
+- `sent_at`
+
+Interest rate check schedule:
+Check interest rate drop alerts on a schedule.
+
+Suggested:
+- Once per day
+- Or whenever rates are refreshed from the app’s existing rate source
+
+Rate check behavior:
+1. Load active `rate_drop` subscriptions.
+2. Recalculate the current rate using the same shared pricing engine as Purchase/Refinance.
+3. Compare current calculated rate to target_rate.
+4. If current rate <= target_rate and no alert has already been sent for that target/current cycle:
+   - create/send notification
+   - update `last_notified_at`
+5. Do not repeatedly notify every time the job runs if the user was already notified for the same threshold.
+
+Price drop check schedule:
+Check price drop alerts through the Zillow scraper/property cache.
+
+Suggested:
+- Once daily
+- Or during the existing Zillow/property cache refresh cycle
+- Do not scrape every property every time a user opens the dashboard
+
+Price check behavior:
+1. Load active `price_drop` subscriptions.
+2. Check property cache first.
+3. If cache is stale, run Zillow scraper according to existing cache rules.
+4. Compare latest listing price to last_seen_price.
+5. If latest price is lower:
+   - create/send notification
+   - update last_seen_price
+   - update last_alerted_price
+   - update last_notified_at
+6. If no price drop:
+   - update last_checked_at
+   - do not notify
+
+Important:
+- Use server-side jobs/API routes only.
+- Do not expose Zillow/Apify tokens to frontend.
+- Do not expose rate-source API keys to frontend.
+- Do not let the frontend directly trigger unlimited Zillow scrapes.
+- Do not let users spam-check alerts manually.
+
+Bell modal details:
+Show current subscription status:
+- Rate alert active: “Rate alert active at 6.250%”
+- Price alert active: “Price drop alert active”
+- Allow user to turn alerts off.
+- Allow user to update target rate.
+- Allow user to subscribe/unsubscribe separately for rate drops and price drops.
+
+Scenarios/tabs:
+For Purchase:
+- Allow rate drop and price drop alerts.
+- Use loan type/credit score/LTV/down payment from saved scenario.
+- Use Zillow property price for price drop.
+
+For Refinance:
+- Allow rate drop alerts.
+- Price drop alert optional only if property has a Zillow price/listing being watched. If not, hide price-drop option.
+- Use refinance loan type/credit score/LTV/current balance.
+
+For Cash Buy:
+- Allow price drop alerts.
+- Hide rate-drop alert because no mortgage is involved.
+
+For For Sale:
+- Allow price drop alert if the seller wants to track competing/listed price changes for their own home, but default can be disabled unless useful.
+- If implemented, use current listing price from Zillow/property cache.
+
+Do not include Insurance for now.
+
+UI placement:
+- Next to View/Edit Estimate button on saved scenario/property rows/cards.
+- Keep spacing clean.
+- Tooltip:
+  “Set alerts”
+
+Persistence:
+- Alert subscriptions must persist after refresh/logout/login.
+- Bell active state should load from Supabase.
+- If an alert exists for the scenario, show the bell as active.
+
+Scheduled job / backend:
+Create or update backend jobs:
+- `checkRateDropAlerts()`
+- `checkPriceDropAlerts()`
+
+If Replit Scheduler is available:
+- Add endpoints/scripts for scheduled checks.
+If not:
+- Build the backend functions and tell me exactly how to schedule them later.
+
+Suggested schedules:
+- Rate alerts: daily at 8:00 AM Eastern
+- Price alerts: daily at 9:00 AM Eastern
+or align with existing cache refresh jobs if preferred.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard.
+3. Confirm saved Purchase/Reﬁnance/Cash Buy/For Sale rows show a bell icon next to View/Edit Estimate where applicable.
+4. Click bell on a Purchase scenario.
+5. Subscribe to a rate drop alert at 6.250%.
+6. Confirm alert saves to Supabase.
+7. Refresh/logout/login.
+8. Confirm bell shows active.
+9. Open bell again and confirm target rate is still saved.
+10. Subscribe to price drop alert.
+11. Confirm initial watched price saves.
+12. Simulate Zillow scraper returning a lower listing price.
+13. Confirm a price drop alert event is created/sent.
+14. Simulate rate engine returning rate at or below target.
+15. Confirm a rate drop alert event is created/sent.
+16. Confirm repeated jobs do not duplicate alerts for the same unchanged rate/price.
+17. Confirm Cash Buy shows price-drop alert but not rate-drop alert.
+18. Confirm Insurance does not show this bell.
+19. Confirm normal users cannot force unlimited scrapes or rate checks.
+
+Please make the smallest safe code change possible and tell me:
+- Which dashboard row/card components were updated with the bell
+- Which Supabase table stores alert subscriptions
+- Which Supabase table stores alert events
+- Whether SQL migrations are needed
+- How rate-drop alerts are checked
+- How price-drop alerts are checked through Zillow/cache
+- How duplicate alerts are prevented
+- How users unsubscribe/update alerts
+- Whether email sending is implemented or only alert events are stored
+- Which files/functions were changed
+```
