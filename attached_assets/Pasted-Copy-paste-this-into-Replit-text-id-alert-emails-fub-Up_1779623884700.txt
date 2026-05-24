@@ -1,0 +1,156 @@
+Copy/paste this into Replit:
+
+```text id="alert-emails-fub"
+Update the property alert system so alerts are emailed to the user and also sent to my Follow Up Boss/FUB account.
+
+Current alert types:
+- Interest rate drop alerts
+- Property price drop alerts
+
+Requested behavior:
+When an alert is triggered:
+1. Send an email to the user who subscribed to the alert.
+2. Send the same alert/lead notification into my Follow Up Boss account at the same time.
+3. Store the alert event in Supabase.
+
+Important:
+The FUB notification should happen every time an alert event is created/sent so I am notified at the same time as the user.
+
+Email delivery:
+Use email sending if already configured.
+If no email provider is configured yet, add support for Resend or SendGrid and tell me which API key I need to add.
+
+Preferred environment variables:
+- RESEND_API_KEY or SENDGRID_API_KEY
+- ALERT_FROM_EMAIL
+- FUB_ALERT_EMAIL
+
+FUB behavior:
+Follow Up Boss can receive lead/activity alerts through an inbound email address or lead parsing email. Send alert emails to the FUB email address stored in:
+
+FUB_ALERT_EMAIL
+
+If the app already has a FUB lead alert email integration, reuse that same destination and format.
+
+Alert event flow:
+When rate/price alert condition is met:
+1. Create a `property_alert_events` row.
+2. Send email to the subscribed user.
+3. Send alert email to `FUB_ALERT_EMAIL`.
+4. Update event status:
+   - user_email_status
+   - fub_email_status
+   - sent_at
+   - error_message if failed
+
+If email fails:
+- Do not crash the job.
+- Save the failure on the alert event.
+- Allow retry later.
+
+Suggested new/updated fields on `property_alert_events`:
+- user_email
+- fub_email
+- user_email_status: "pending" | "sent" | "failed"
+- fub_email_status: "pending" | "sent" | "failed"
+- user_email_sent_at
+- fub_email_sent_at
+- email_error_message
+- fub_error_message
+
+Email content:
+For user email subject:
+- Rate drop:
+  “Rate Alert: [Property Address] hit [Current Rate]%”
+- Price drop:
+  “Price Drop Alert: [Property Address] dropped to $[New Price]”
+
+For FUB email subject:
+- Rate drop:
+  “Rate Alert from [User Name or Email] / [Property Address]”
+- Price drop:
+  “Price Drop Alert from [User Name or Email] / [Property Address]”
+
+FUB email body should include:
+- User name, if available
+- User email
+- User phone, if available
+- Property address
+- Scenario type: Purchase / Refinance / Cash Buy / For Sale
+- Alert type: Rate Drop or Price Drop
+- Target rate, if rate alert
+- Current rate, if rate alert
+- Prior price, if price alert
+- New price, if price alert
+- Loan type, if available
+- Credit score, if available
+- Occupancy/property use, if available
+- Link to the saved scenario/property detail if available
+- Time alert triggered
+
+User email body should include:
+- Property address
+- Alert type
+- Why they are receiving the alert
+- Target rate/current rate or old price/new price
+- Clear call-to-action to review their saved estimate/property
+- Simple disclaimer that rates/prices can change and should be verified
+
+Do not expose:
+- Supabase service role key
+- Apify token
+- rate-source API keys
+- email provider API keys
+
+Backend-only:
+All email sending must happen server-side.
+
+Duplicate alert protection:
+Keep duplicate prevention:
+- Do not send repeated rate alerts for the same unchanged threshold.
+- Do not send repeated price alerts for the same unchanged price drop.
+- If the event already exists and email was sent, do not resend unless retrying a failed email.
+
+Admin/manual endpoints:
+When manual admin-only “Run rate check” or “Run price check” creates an alert event, it should also send:
+- user email
+- FUB email
+
+Scheduled future behavior:
+When scheduler is added later, it should reuse the same send function so user and FUB emails go out together.
+
+Suggested helper:
+Create a shared function like:
+
+sendPropertyAlertEmails(alertEvent, subscription, user)
+
+This should:
+1. Build user email.
+2. Build FUB email.
+3. Send both.
+4. Update Supabase statuses.
+
+Acceptance test:
+1. Create a rate-drop alert subscription.
+2. Run admin-only rate check manually with current rate at/below target.
+3. Confirm `property_alert_events` row is created.
+4. Confirm email is sent to the user.
+5. Confirm email is sent to `FUB_ALERT_EMAIL`.
+6. Confirm FUB email subject includes user/name and property address.
+7. Confirm event stores user/FUB email statuses.
+8. Create a price-drop alert subscription.
+9. Simulate Zillow price drop.
+10. Confirm user and FUB emails both send.
+11. Run the check again without a new price/rate change.
+12. Confirm duplicate emails are not sent.
+13. Confirm failed email attempts store errors without breaking the alert job.
+
+Please make the smallest safe code change possible and tell me:
+- Which email provider is used
+- Which environment variables I need to add
+- Which FUB email address/env var is used
+- Which alert event fields were added
+- Which helper sends user + FUB emails
+- How duplicate email sends are prevented
+- Which files/functions were changed
+```

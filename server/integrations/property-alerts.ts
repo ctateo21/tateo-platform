@@ -14,6 +14,7 @@ import {
   fetchZillowProperty,
   type PropertyScenario,
 } from "./apify-zillow";
+import { loadUserContact, sendPropertyAlertEmails } from "./property-alert-emails";
 
 export type AlertType = "rate_drop" | "price_drop";
 export type ScenarioType = "purchase" | "refinance" | "cash_buy" | "seller";
@@ -159,7 +160,7 @@ export async function runRateDropChecks(): Promise<{
         (picked.approximated ? " — approximated for this loan program" : "") +
         ` for ${sub.property_address ?? "your saved scenario"}.`;
 
-      const { error: evErr } = await supabaseAdmin
+      const { data: evRow, error: evErr } = await supabaseAdmin
         .from("property_alert_events")
         .insert({
           subscription_id: sub.id,
@@ -170,10 +171,21 @@ export async function runRateDropChecks(): Promise<{
           new_value: currentRate,
           message,
           status: "pending",
-        });
-      if (evErr) {
-        errors.push(`event insert ${sub.id}: ${evErr.message}`);
+        })
+        .select("id, event_type, property_address, old_value, new_value")
+        .single();
+      if (evErr || !evRow) {
+        errors.push(`event insert ${sub.id}: ${evErr?.message ?? "no row"}`);
         continue;
+      }
+
+      // Fire-and-store user + FUB emails. Failures land on the event row;
+      // we still bump dedupe fields so the same threshold doesn't repeat.
+      try {
+        const user = await loadUserContact(sub.user_id);
+        await sendPropertyAlertEmails(evRow as any, sub, user);
+      } catch (e: any) {
+        errors.push(`email send ${sub.id}: ${e?.message ?? e}`);
       }
 
       await supabaseAdmin
@@ -354,7 +366,7 @@ export async function runPriceDropChecks(): Promise<{
         `Listing price dropped from $${Math.round(baseline).toLocaleString()} to $${Math.round(currentPrice).toLocaleString()} ` +
         `for ${sub.property_address ?? "your saved property"}.`;
 
-      const { error: evErr } = await supabaseAdmin
+      const { data: evRow, error: evErr } = await supabaseAdmin
         .from("property_alert_events")
         .insert({
           subscription_id: sub.id,
@@ -365,10 +377,19 @@ export async function runPriceDropChecks(): Promise<{
           new_value: currentPrice,
           message,
           status: "pending",
-        });
-      if (evErr) {
-        errors.push(`event insert ${sub.id}: ${evErr.message}`);
+        })
+        .select("id, event_type, property_address, old_value, new_value")
+        .single();
+      if (evErr || !evRow) {
+        errors.push(`event insert ${sub.id}: ${evErr?.message ?? "no row"}`);
         continue;
+      }
+
+      try {
+        const user = await loadUserContact(sub.user_id);
+        await sendPropertyAlertEmails(evRow as any, sub, user);
+      } catch (e: any) {
+        errors.push(`email send ${sub.id}: ${e?.message ?? e}`);
       }
 
       await supabaseAdmin
