@@ -1,0 +1,95 @@
+Copy/paste this into Replit:
+
+```text
+Add delete functionality to Insurance estimates in the Insurance tab.
+
+Current issue:
+In the Insurance tab, users can view/edit insurance estimates, but they cannot delete an insurance estimate/address like they can in the other dashboard tabs.
+
+Requested behavior:
+Allow users to delete an Insurance estimate from Dashboard → Insurance.
+
+Expected behavior:
+1. In the Insurance tab overview, each insurance property row should have a delete option.
+2. The delete behavior should match the delete behavior used in the other tabs:
+   - Purchase with Loan
+   - Purchase with Cash
+   - Refinance
+   - Sell Your Home
+3. When user clicks delete, show a confirmation prompt before deleting.
+4. If confirmed, delete the insurance estimate from `insurance_scenarios`.
+5. Remove the deleted row from the Insurance dashboard immediately.
+6. Persist deletion after refresh/logout/login.
+
+UI:
+Add a delete icon/button to each Insurance row, similar to other tabs.
+
+Suggested label/icon:
+- Trash icon
+- “Delete”
+- Confirmation text:
+  “Delete this insurance estimate?”
+  “This will remove this property from your Insurance tab. This cannot be undone.”
+
+Important:
+- Only delete the Insurance scenario.
+- Do not delete the matching Purchase, Cash Buy, Refinance, or Sell Your Home records.
+- Do not delete the shared property/Zillow cache.
+- Do not delete the address from other tabs.
+- Do not delete linked/correlated records.
+- If the Insurance estimate was auto-created from Purchase/Refinance/Cash Buy, deleting it should only remove it from Insurance.
+- If the same address is later re-added or re-saved from Purchase/Refinance/Cash Buy, the app may auto-create a new Insurance scenario again according to existing auto-create logic.
+
+Supabase:
+Delete from:
+
+`insurance_scenarios`
+
+using:
+- scenario id
+- authenticated user_id
+
+RLS/security:
+- User should only be able to delete their own insurance scenario.
+- Do not allow deleting another user’s records.
+
+Implementation requirements:
+1. Find the Insurance dashboard overview row/list component.
+2. Add a delete action matching the style used by other tabs.
+3. Reuse existing delete confirmation component/modal if available.
+4. Add or reuse a function like:
+   `deleteInsuranceScenario(id)`
+5. Call Supabase delete:
+   `from("insurance_scenarios").delete().eq("id", id).eq("user_id", userId)`
+6. Update local state after successful delete.
+7. Show success toast:
+   “Insurance estimate deleted.”
+8. Show error toast if delete fails.
+9. Do not show success until Supabase confirms deletion.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Insurance.
+3. Confirm each insurance estimate row has a delete option.
+4. Click delete on an insurance estimate.
+5. Confirm a confirmation prompt appears.
+6. Cancel deletion.
+7. Confirm the row remains.
+8. Click delete again.
+9. Confirm deletion.
+10. Confirm the row disappears from the Insurance tab.
+11. Refresh the page.
+12. Confirm the deleted insurance estimate does not return.
+13. Log out and log back in.
+14. Confirm it still does not return.
+15. Confirm matching Purchase/Refinance/Cash Buy/Sell Your Home records for the same address were not deleted.
+16. Confirm shared Zillow/property cache was not deleted.
+
+Please make the smallest safe code change possible and tell me:
+- Which Insurance dashboard component was changed
+- Which delete function was added or reused
+- How deletion is confirmed
+- How Supabase deletion is performed
+- How linked records are preserved
+- Which files/functions were changed
+```

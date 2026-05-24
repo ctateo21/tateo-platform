@@ -966,6 +966,40 @@ function InsuranceTab() {
   const [overrideBump, setOverrideBump] = useState(0);
   const [showAddSearch, setShowAddSearch] = useState(false);
 
+  // Delete an Insurance estimate by id. Only removes from
+  // `insurance_scenarios` — matching Purchase/Cash/Refi/Seller rows
+  // and the shared property_cache row are intentionally left alone
+  // (correlation will simply re-resolve on the next render). If the
+  // user later re-saves the same address from one of the source
+  // flows, the auto-create path will recreate an Insurance row.
+  async function handleDeleteInsurance(id: string, address: string) {
+    // Snapshot the pre-delete list so we can roll back the Supabase
+    // state if the delete fails. The UI itself updates optimistically
+    // via the shared auth cache (matching the Purchase / Refi / Seller
+    // delete patterns elsewhere in this file); the rollback re-persists
+    // and re-notifies so the row reappears on failure.
+    const prev = insurance;
+    const next = prev.filter(s => s.id !== id);
+    try {
+      await saveInsuranceScenarios(next);
+      setInsurance(next);
+      toast({
+        title: "Insurance estimate deleted.",
+        description: `${address.split(",")[0]} was removed from your Insurance tab.`,
+      });
+    } catch (err: any) {
+      // Restore the deleted row in both cache and Supabase so the UI
+      // doesn't lie about a delete that didn't actually persist.
+      try { await saveInsuranceScenarios(prev); } catch { /* surfaced below */ }
+      setInsurance(prev);
+      toast({
+        title: "Couldn't delete insurance estimate",
+        description: err?.message ?? "Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
   useEffect(() => {
     function sync() {
       setInsurance(getInsuranceScenarios());
@@ -1071,6 +1105,11 @@ function InsuranceTab() {
             row={row}
             onOccupancyChange={next => handleOccupancyChange(row.key, next)}
             onOpen={() => setLocation(`/insurance?address=${encodeURIComponent(row.address)}`)}
+            onDelete={
+              row.insurance
+                ? () => handleDeleteInsurance(row.insurance!.id, row.address)
+                : undefined
+            }
           />
         ))}
       </div>
@@ -1079,11 +1118,15 @@ function InsuranceTab() {
 }
 
 function InsuranceRowCard({
-  row, onOccupancyChange, onOpen,
+  row, onOccupancyChange, onOpen, onDelete,
 }: {
   row: InsuranceRow;
   onOccupancyChange: (next: OccupancyType) => void;
   onOpen: () => void;
+  /** Omitted when there's no `insurance_scenarios` row to delete
+   *  (purely Purchase/Refi-only correlation rows have nothing to
+   *  remove from the Insurance table). */
+  onDelete?: () => void;
 }) {
   const ins = row.insurance;
   const annual = ins?.annualPremium;
@@ -1170,6 +1213,42 @@ function InsuranceRowCard({
             <Button size="sm" className="gap-2" onClick={onOpen}>
               {ins ? "View / Edit" : "Get Quote"} <ExternalLink className="h-3.5 w-3.5" />
             </Button>
+            {onDelete && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive px-2"
+                    onClick={e => e.stopPropagation()}
+                    aria-label="Delete insurance estimate"
+                    data-testid={`delete-insurance-${row.key}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent onClick={e => e.stopPropagation()}>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this insurance estimate?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will remove {row.address.split(",")[0]} from your
+                      Insurance tab. This cannot be undone. Matching records
+                      in Purchase, Refinance, Cash Buy, and Sell Your Home
+                      will not be affected.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={onDelete}
+                      className="bg-destructive hover:bg-destructive/90"
+                    >
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
         </div>
       </CardContent>
