@@ -45,6 +45,7 @@ import {
   type TrackedLoan, type LiveRate, type BestOption,
 } from "@/components/refi/loan-tracker";
 import { calculateRefinance, calculateMonthlyPayment, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
+import { AlertBell } from "@/components/dashboard/alert-bell";
 
 interface LiveRatesResponse { rates: LiveRate[]; source: string; disclaimer: string; asOf: string; }
 
@@ -388,6 +389,16 @@ function RefiTab() {
                   >
                     Open <ExternalLink className="h-3 w-3" />
                   </Button>
+                  <AlertBell
+                    scenarioId={loan.id}
+                    scenarioType="refinance"
+                    availableAlertTypes={["rate_drop"]}
+                    propertyAddress={loan.propertyAddress}
+                    loanType={loan.loanType}
+                    loanTermYears={30}
+                    occupancyType={loan.propertyType}
+                    creditScore={loan.creditScore}
+                  />
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
@@ -677,7 +688,7 @@ function PurchaseTab() {
                   )}
 
                   {/* Actions */}
-                  <div className="flex gap-2 lg:shrink-0">
+                  <div className="flex gap-2 lg:shrink-0 items-center">
                     <Button
                       size="sm"
                       className="gap-2"
@@ -685,6 +696,15 @@ function PurchaseTab() {
                     >
                       View Full Estimate <ExternalLink className="h-3.5 w-3.5" />
                     </Button>
+                    <AlertBell
+                      scenarioId={s.id}
+                      scenarioType="purchase"
+                      availableAlertTypes={["rate_drop", "price_drop"]}
+                      propertyAddress={s.address}
+                      loanType={s.loanType}
+                      loanTermYears={30}
+                      currentPrice={s.price}
+                    />
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -1307,7 +1327,7 @@ function CashBuyTab() {
                     )}
                   </div>
 
-                  <div className="flex gap-2 lg:shrink-0">
+                  <div className="flex gap-2 lg:shrink-0 items-center">
                     <Button
                       size="sm"
                       className="gap-2"
@@ -1315,6 +1335,15 @@ function CashBuyTab() {
                     >
                       View / Edit <ExternalLink className="h-3.5 w-3.5" />
                     </Button>
+                    <AlertBell
+                      scenarioId={s.id}
+                      scenarioType="cash_buy"
+                      availableAlertTypes={["price_drop"]}
+                      propertyAddress={s.address}
+                      currentPrice={s.purchasePrice}
+                      normalizedPropertyKey={s.normalizedPropertyKey}
+                      zillowUrl={s.zillowCacheKey?.startsWith("url:") ? s.zillowCacheKey.slice(4) : undefined}
+                    />
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -1791,7 +1820,7 @@ function SellersTab() {
                     </div>
                   </div>
 
-                  <div className="flex gap-2 lg:shrink-0">
+                  <div className="flex gap-2 lg:shrink-0 items-center">
                     <Button
                       size="sm"
                       className="gap-2"
@@ -1799,6 +1828,14 @@ function SellersTab() {
                     >
                       View / Edit <ExternalLink className="h-3.5 w-3.5" />
                     </Button>
+                    <AlertBell
+                      scenarioId={s.id}
+                      scenarioType="seller"
+                      availableAlertTypes={["price_drop"]}
+                      propertyAddress={s.address}
+                      currentPrice={s.estimatedSalePrice}
+                      normalizedPropertyKey={s.normalizedPropertyKey}
+                    />
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button

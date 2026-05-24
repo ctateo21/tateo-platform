@@ -1723,6 +1723,197 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── Property alert subscriptions (Phase 1: CRUD + admin manual checks) ─
+  // The bell on dashboard saved scenarios writes here. Auth: Bearer token →
+  // derive user from server-side verification (never trust body user_id).
+  // RLS is also enabled on the table; this server still uses the service-
+  // role client and enforces user_id manually.
+  async function requireUser(req: any, res: any) {
+    if (!supabaseAdmin) {
+      res.status(503).json({ error: "Auth backend not configured" });
+      return null;
+    }
+    const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || "");
+    if (!m) {
+      res.status(401).json({ error: "Missing bearer token" });
+      return null;
+    }
+    const { data, error } = await supabaseAdmin.auth.getUser(m[1]);
+    if (error || !data?.user?.id) {
+      res.status(401).json({ error: "Invalid or expired session" });
+      return null;
+    }
+    return data.user;
+  }
+
+  function isAdminEmail(email: string | null | undefined): boolean {
+    const adminEmails = (process.env.MARKET_ANALYSIS_ADMIN_EMAILS || "")
+      .split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+    return adminEmails.length > 0 && adminEmails.includes((email || "").toLowerCase());
+  }
+
+  const VALID_SCENARIO_TYPES = ["purchase", "refinance", "cash_buy", "seller"] as const;
+  const VALID_ALERT_TYPES = ["rate_drop", "price_drop"] as const;
+
+  // GET /api/property-alerts?scenarioId=&scenarioType= — list this user's
+  // subscriptions (optionally scoped to one scenario, used by the bell to
+  // hydrate active state).
+  app.get("/api/property-alerts", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const scenarioId = (req.query.scenarioId as string | undefined)?.trim();
+    const scenarioType = (req.query.scenarioType as string | undefined)?.trim();
+    let q = supabaseAdmin!
+      .from("property_alert_subscriptions")
+      .select("*")
+      .eq("user_id", user.id);
+    if (scenarioId) q = q.eq("scenario_id", scenarioId);
+    if (scenarioType) q = q.eq("scenario_type", scenarioType);
+    const { data, error } = await q;
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ subscriptions: data ?? [] });
+  });
+
+  // POST /api/property-alerts — upsert one subscription (insert or update).
+  // Body shape (server enforces user_id from the verified session):
+  //   scenarioId, scenarioType, alertType, isActive (default true),
+  //   targetRate, loanType, loanTermYears, occupancyType, creditScore, ltv,
+  //   initialWatchedPrice, propertyAddress, normalizedPropertyKey,
+  //   zpid, zillowUrl
+  app.post("/api/property-alerts", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const b = (req.body ?? {}) as any;
+    const scenarioId = String(b.scenarioId ?? "").trim();
+    const scenarioType = String(b.scenarioType ?? "").trim();
+    const alertType = String(b.alertType ?? "").trim();
+    if (!scenarioId || !VALID_SCENARIO_TYPES.includes(scenarioType as any)) {
+      return res.status(400).json({ error: "Invalid scenarioId/scenarioType" });
+    }
+    if (!VALID_ALERT_TYPES.includes(alertType as any)) {
+      return res.status(400).json({ error: "Invalid alertType" });
+    }
+    if (alertType === "rate_drop") {
+      const tr = Number(b.targetRate);
+      if (!Number.isFinite(tr) || tr <= 0 || tr > 25) {
+        return res.status(400).json({ error: "targetRate must be a positive number <= 25" });
+      }
+    }
+
+    // Look up existing subscription so we can preserve immutable fields
+    // (initial_watched_price, last_alerted_*).
+    const { data: existing } = await supabaseAdmin!
+      .from("property_alert_subscriptions")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("scenario_id", scenarioId)
+      .eq("scenario_type", scenarioType)
+      .eq("alert_type", alertType)
+      .maybeSingle();
+
+    const nowIso = new Date().toISOString();
+    const isActive = b.isActive !== false; // default true
+
+    const initialPrice = typeof b.initialWatchedPrice === "number" && b.initialWatchedPrice > 0
+      ? b.initialWatchedPrice : null;
+
+    const row: any = {
+      user_id: user.id,
+      scenario_id: scenarioId,
+      scenario_type: scenarioType,
+      alert_type: alertType,
+      is_active: isActive,
+      normalized_property_key: b.normalizedPropertyKey ?? existing?.normalized_property_key ?? null,
+      property_address: b.propertyAddress ?? existing?.property_address ?? null,
+      zpid: b.zpid ?? existing?.zpid ?? null,
+      zillow_url: b.zillowUrl ?? existing?.zillow_url ?? null,
+      target_rate: alertType === "rate_drop" ? Number(b.targetRate) : existing?.target_rate ?? null,
+      loan_type: b.loanType ?? existing?.loan_type ?? null,
+      loan_term_years: b.loanTermYears ?? existing?.loan_term_years ?? null,
+      occupancy_type: b.occupancyType ?? existing?.occupancy_type ?? null,
+      credit_score: b.creditScore ?? existing?.credit_score ?? null,
+      ltv: b.ltv ?? existing?.ltv ?? null,
+      // Preserve dedupe state across reactivation; only reset
+      // last_alerted_rate when target rate is raised above prior threshold.
+      last_alerted_rate: existing?.last_alerted_rate ?? null,
+      initial_watched_price: existing?.initial_watched_price ?? initialPrice,
+      last_seen_price: existing?.last_seen_price ?? initialPrice,
+      last_alerted_price: existing?.last_alerted_price ?? null,
+      notification_channel: existing?.notification_channel ?? "email",
+      updated_at: nowIso,
+    };
+
+    // If the user raised their target above last_alerted_rate, clear the
+    // dedupe marker so a fresh notification can fire on the next check.
+    if (
+      alertType === "rate_drop" &&
+      existing?.last_alerted_rate != null &&
+      row.target_rate != null &&
+      row.target_rate > existing.last_alerted_rate
+    ) {
+      row.last_alerted_rate = null;
+    }
+
+    // Atomic upsert keyed by the unique index
+    // (user_id, scenario_id, scenario_type, alert_type). Avoids a race
+    // between SELECT and INSERT when the user double-clicks Save.
+    const upsertRow = existing ? row : { ...row, created_at: nowIso };
+    const { data, error } = await supabaseAdmin!
+      .from("property_alert_subscriptions")
+      .upsert(upsertRow, {
+        onConflict: "user_id,scenario_id,scenario_type,alert_type",
+      })
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ subscription: data });
+  });
+
+  // DELETE /api/property-alerts/:id — soft delete (is_active=false). Hard
+  // delete would lose dedupe history if the user re-subscribes immediately.
+  app.delete("/api/property-alerts/:id", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const id = req.params.id;
+    const { error } = await supabaseAdmin!
+      .from("property_alert_subscriptions")
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("user_id", user.id);
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ ok: true });
+  });
+
+  // POST /api/admin/property-alerts/check-rates — admin manual trigger.
+  app.post("/api/admin/property-alerts/check-rates", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    if (!isAdminEmail(user.email)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { runRateDropChecks } = await import("./integrations/property-alerts");
+      const result = await runRateDropChecks();
+      return res.json(result);
+    } catch (e: any) {
+      return res.status(500).json({ error: e?.message ?? "Unknown error" });
+    }
+  });
+
+  // POST /api/admin/property-alerts/check-prices — admin manual trigger.
+  // May call Apify when watched-property caches are stale; rate-limited
+  // implicitly by the small number of active subscriptions.
+  app.post("/api/admin/property-alerts/check-prices", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    if (!isAdminEmail(user.email)) return res.status(403).json({ error: "Admin only" });
+    try {
+      const { runPriceDropChecks } = await import("./integrations/property-alerts");
+      const result = await runPriceDropChecks();
+      return res.json(result);
+    } catch (e: any) {
+      return res.status(500).json({ error: e?.message ?? "Unknown error" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
