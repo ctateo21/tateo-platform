@@ -723,7 +723,7 @@ export default function Mortgage() {
                   </div>
                 </div>
               </div>
-            )}
+            </div>
           </div>
         </div>
       </section>
