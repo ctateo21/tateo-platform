@@ -1,0 +1,133 @@
+Copy/paste this into Replit:
+
+```text id="student-loan-deferred-dti-page2"
+Update Purchase Property Estimate → Page 2 Additional Questions to account for deferred student loans in DTI.
+
+Location:
+Purchase tab questionnaire → Page 2 → Additional Questions
+
+Current issue:
+The app asks for monthly debts on the prior page, but it does not ask whether the user has deferred student loans. Deferred student loans still need to be counted in DTI.
+
+Requested change:
+On Page 2 Additional Questions, add a question:
+
+“Do you have any deferred student loans right now?”
+
+Answer options:
+- Yes
+- No
+
+If the user answers Yes, show a follow-up field:
+
+“What is the total balance of your deferred student loans?”
+
+This should be a dollar input.
+
+Footnote:
+Directly below the deferred student loan balance question, add this small footnote:
+
+“Conventional assumes 1% of the total deferred student loan balance as a monthly DTI payment. FHA, VA, and USDA assume 0.5% of the total deferred student loan balance.”
+
+DTI calculation:
+If the user enters a deferred student loan balance, calculate the monthly debt amount and add it to the user’s monthly debts from the prior page.
+
+Rules by loan type:
+- Conventional: monthly student loan DTI payment = deferred student loan balance × 1.00%
+- FHA: monthly student loan DTI payment = deferred student loan balance × 0.50%
+- VA: monthly student loan DTI payment = deferred student loan balance × 0.50%
+- USDA: monthly student loan DTI payment = deferred student loan balance × 0.50%
+
+Example:
+Deferred student loan balance = $20,000
+
+Conventional:
+$20,000 × 1.00% = $200/month added to monthly debts
+
+FHA / VA / USDA:
+$20,000 × 0.50% = $100/month added to monthly debts
+
+For DSCR and Bank Statement:
+- If these loan types do not currently use traditional DTI, do not force this into DSCR qualification.
+- If Bank Statement uses DTI in the app, apply the Conventional 1% assumption unless there is already specific Bank Statement logic.
+- If unsure, preserve current non-QM logic and only apply this to loan types where DTI is calculated.
+
+Important DTI behavior:
+1. Add the calculated deferred student loan monthly payment to total monthly debts.
+2. Do not overwrite the user’s manually entered monthly debts from the prior page.
+3. Do not double-count if the user already entered student loan payments manually.
+4. Add a helper note if needed:
+   “Only enter the deferred balance here if the payment is not already included in your monthly debts.”
+5. If user answers No:
+   - deferred student loan balance should be cleared or ignored
+   - monthly deferred student loan DTI payment should be $0
+6. If user changes loan type later:
+   - recalculate deferred student loan monthly payment using the selected loan type rule
+7. If user changes deferred student loan balance:
+   - recalculate DTI immediately
+8. If user changes from Conventional to FHA/VA/USDA:
+   - reduce the assumed payment from 1.00% to 0.50%
+9. If user changes from FHA/VA/USDA to Conventional:
+   - increase the assumed payment from 0.50% to 1.00%
+
+Suggested fields:
+- `has_deferred_student_loans`: boolean
+- `deferred_student_loan_balance`: number
+- `deferred_student_loan_monthly_dti_payment`: number
+- `deferred_student_loan_dti_factor`: number
+
+Save/load:
+- Save these fields to the purchase scenario.
+- Persist after refresh/logout/login.
+- Page 4 / See My Estimate should use the deferred student loan DTI payment in DTI calculations.
+
+Supabase:
+If `purchase_scenarios` needs fields, give me SQL like:
+
+alter table public.purchase_scenarios
+add column if not exists has_deferred_student_loans boolean default false,
+add column if not exists deferred_student_loan_balance numeric default 0,
+add column if not exists deferred_student_loan_monthly_dti_payment numeric default 0,
+add column if not exists deferred_student_loan_dti_factor numeric default 0;
+
+UI requirements:
+- Put the deferred student loan question in Page 2 Additional Questions.
+- Only show the balance field if the user selects Yes.
+- Format balance as currency.
+- Keep the footnote small and readable.
+- Keep mobile layout clean.
+
+Acceptance test:
+1. Go to Purchase Property Estimate.
+2. Enter monthly debts on the prior page.
+3. Go to Page 2 Additional Questions.
+4. Confirm the question appears:
+   “Do you have any deferred student loans right now?”
+5. Select No.
+6. Confirm no student loan balance field appears and DTI is unchanged.
+7. Select Yes.
+8. Confirm the balance field appears.
+9. Enter $20,000.
+10. Select Conventional.
+11. Confirm $200/month is added to monthly debts for DTI.
+12. Select FHA.
+13. Confirm $100/month is added to monthly debts for DTI.
+14. Select VA.
+15. Confirm $100/month is added to monthly debts for DTI.
+16. Select USDA.
+17. Confirm $100/month is added to monthly debts for DTI.
+18. Go to Page 4 / See My Estimate.
+19. Confirm DTI includes the calculated deferred student loan monthly payment.
+20. Refresh/logout/login.
+21. Confirm the deferred student loan answers persist.
+22. Confirm changing loan type updates the DTI assumption.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 2 Additional Questions component was changed
+- Which fields store the deferred student loan data
+- Whether a Supabase migration is needed
+- How the monthly DTI payment is calculated by loan type
+- How the calculated student loan payment is added to monthly debts
+- How double-counting is avoided
+- Which files/functions were changed
+```

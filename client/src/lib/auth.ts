@@ -69,6 +69,15 @@ export interface PurchaseScenario {
   /** Where `propertyType` came from. "manual" means the user picked it
    *  on Page 3 and Zillow refreshes must not overwrite it. */
   propertyTypeSource?: "manual" | "zillow" | "default";
+  /** Page-2 Additional Info: does the borrower have deferred student
+   *  loans? When true, `deferredStudentLoanBalance` is used to compute
+   *  an assumed monthly DTI payment via a loan-type-specific factor
+   *  (1.0% conventional, 0.5% FHA/VA/USDA). Saved here so the answer
+   *  persists across refresh / logout / login. */
+  hasDeferredStudentLoans?: boolean;
+  /** Total deferred student loan balance in dollars. Only meaningful
+   *  when `hasDeferredStudentLoans === true`. */
+  deferredStudentLoanBalance?: number;
 }
 
 export interface InsuranceScenario {
@@ -289,6 +298,15 @@ function rowToPurchase(row: any): PurchaseScenario {
       row.property_type_source === "default"
         ? row.property_type_source
         : undefined,
+    hasDeferredStudentLoans:
+      typeof row.has_deferred_student_loans === "boolean"
+        ? row.has_deferred_student_loans
+        : undefined,
+    deferredStudentLoanBalance:
+      row.deferred_student_loan_balance != null &&
+      Number.isFinite(Number(row.deferred_student_loan_balance))
+        ? Number(row.deferred_student_loan_balance)
+        : undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -318,6 +336,12 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
       : {}),
     ...(s.propertyType ? { property_type: s.propertyType } : {}),
     ...(s.propertyTypeSource ? { property_type_source: s.propertyTypeSource } : {}),
+    ...(typeof s.hasDeferredStudentLoans === "boolean"
+      ? { has_deferred_student_loans: s.hasDeferredStudentLoans }
+      : {}),
+    ...(typeof s.deferredStudentLoanBalance === "number"
+      ? { deferred_student_loan_balance: s.deferredStudentLoanBalance }
+      : {}),
   };
 }
 function rowToInsurance(row: any): InsuranceScenario {

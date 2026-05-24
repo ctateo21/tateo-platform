@@ -296,6 +296,36 @@ interface Inputs {
   /** Where `propertyType` came from. Once "manual", a later Zillow
    *  scrape must NOT overwrite it. */
   propertyTypeSource?: "manual" | "zillow" | "default";
+  /** Page-2 Additional Info: does the borrower have deferred student
+   *  loans? When true, the balance below feeds an assumed monthly DTI
+   *  payment. Defaults to false (controlled Yes/No buttons). */
+  hasDeferredStudentLoans?: boolean;
+  /** Total deferred student loan balance in dollars (Page 2). Used to
+   *  derive a monthly DTI add-on via `deferredStudentLoanFactor(loanType)`.
+   *  Preserved when the user toggles "No" so they can flip back without
+   *  retyping; the calc only uses it when `hasDeferredStudentLoans === true`. */
+  deferredStudentLoanBalance?: number;
+}
+
+/** Lender-side DTI assumption for deferred student loans. Conventional
+ *  (and Bank Statement, when it uses DTI) assumes 1% of the deferred
+ *  balance per month; FHA/VA/USDA assume 0.5%. DSCR is income-less so
+ *  the add-on is skipped entirely. */
+function deferredStudentLoanFactor(
+  loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement",
+): number {
+  switch (loanType) {
+    case "conventional":
+    case "bank_statement":
+      return 0.01;
+    case "fha":
+    case "va":
+    case "usda":
+      return 0.005;
+    case "dscr":
+    default:
+      return 0;
+  }
 }
 
 // Canonical Page-3 Property Type dropdown options + Zillow normalizer.
@@ -385,6 +415,7 @@ function makeDefaultInputs(price = 350000): Inputs {
   return {
     occupancy: "primary", purchasePrice: price, purchasePriceSource: "default", downPaymentPct: 5, downPaymentMode: "percent", downPaymentAmount: Math.round(price * 0.05), sellerConcessions: 0, sellerConcessionsMode: "percent",
     propertyType: "Single Family Residence", propertyTypeSource: "default",
+    hasDeferredStudentLoans: false, deferredStudentLoanBalance: 0,
     loanType: "conventional", creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
@@ -1685,6 +1716,16 @@ export default function Estimate() {
         saved.propertyTypeSource === "default"
           ? saved.propertyTypeSource
           : base.propertyTypeSource,
+      // Deferred student loans: restore the Yes/No answer and the
+      // entered balance so DTI math is consistent after refresh.
+      hasDeferredStudentLoans:
+        typeof saved.hasDeferredStudentLoans === "boolean"
+          ? saved.hasDeferredStudentLoans
+          : base.hasDeferredStudentLoans,
+      deferredStudentLoanBalance:
+        typeof saved.deferredStudentLoanBalance === "number"
+          ? saved.deferredStudentLoanBalance
+          : base.deferredStudentLoanBalance,
     };
   }
 
@@ -2226,7 +2267,23 @@ export default function Estimate() {
     const { purchasePrice, downPaymentPct, loanType, creditScore, interestRate,
       annualTaxes, hoaMonthly, cddAnnual, annualHOIns, annualFloodIns,
       monthlyDebts, monthlyIncome, monthlyRentalIncome, reserves, impactWindows, roofAttachment, swr,
-      vaDisability, vaLoanUse } = inputs;
+      vaDisability, vaLoanUse, hasDeferredStudentLoans, deferredStudentLoanBalance } = inputs;
+
+    // Deferred-student-loan DTI add-on. Computed every time loanType
+    // or balance changes so flipping conventional <-> FHA/VA/USDA
+    // automatically retunes the assumed payment (1% vs 0.5%). When
+    // the user has answered "No" we contribute $0 regardless of any
+    // stale balance — the form preserves the balance value but the
+    // calc treats it as if cleared.
+    const deferredStudentLoanFactorVal = deferredStudentLoanFactor(loanType);
+    const deferredStudentLoanMonthly =
+      hasDeferredStudentLoans === true && (deferredStudentLoanBalance ?? 0) > 0
+        ? Math.round((deferredStudentLoanBalance ?? 0) * deferredStudentLoanFactorVal)
+        : 0;
+    // `monthlyDebts` from Page 1 stays the user's source of truth and
+    // is never mutated. We layer the deferred-SL payment on top only
+    // for DTI math so changing loan type recomputes DTI instantly.
+    const effectiveMonthlyDebts = monthlyDebts + deferredStudentLoanMonthly;
 
     const downPaymentAmt = purchasePrice * (downPaymentPct / 100);
     const baseLoanAmount = purchasePrice - downPaymentAmt;
@@ -2261,10 +2318,10 @@ export default function Estimate() {
     const qualifyingIncome = monthlyIncome + rentalIncomeQualifying;
 
     const housingDTI = qualifyingIncome > 0 ? totalHousing / qualifyingIncome : 0;
-    const dti = qualifyingIncome > 0 ? (totalHousing + monthlyDebts) / qualifyingIncome : 0;
+    const dti = qualifyingIncome > 0 ? (totalHousing + effectiveMonthlyDebts) / qualifyingIncome : 0;
     const { housingMax: maxHousingDti, totalMax: maxTotalDti } = getDTILimits(loanType);
     const maxDti = maxTotalDti; // keep for backward compat in recs
-    const requiredIncome = maxTotalDti === Infinity ? 0 : Math.round((totalHousing + monthlyDebts) / maxTotalDti);
+    const requiredIncome = maxTotalDti === Infinity ? 0 : Math.round((totalHousing + effectiveMonthlyDebts) / maxTotalDti);
     const requiredReserves = Math.round(totalHousing * 2);
     const availableReserves = Math.max(0, reserves - cashToClose);
     const housingDTIPass = maxHousingDti === Infinity || housingDTI <= maxHousingDti;
@@ -2348,6 +2405,8 @@ export default function Estimate() {
           loanType: inputs.loanType,
           propertyType: inputs.propertyType,
           propertyTypeSource: inputs.propertyTypeSource,
+          hasDeferredStudentLoans: inputs.hasDeferredStudentLoans ?? false,
+          deferredStudentLoanBalance: inputs.deferredStudentLoanBalance ?? 0,
         };
         if (idx >= 0) {
           // Only write if something actually changed (avoid noisy storage writes)
@@ -2364,6 +2423,8 @@ export default function Estimate() {
             && cur.loanType === next.loanType
             && (cur.propertyType ?? undefined) === next.propertyType
             && (cur.propertyTypeSource ?? undefined) === next.propertyTypeSource
+            && (cur.hasDeferredStudentLoans ?? false) === next.hasDeferredStudentLoans
+            && (cur.deferredStudentLoanBalance ?? 0) === next.deferredStudentLoanBalance
             && cur.address === address;
           if (!same) {
             const updated = [...existing];
@@ -3162,6 +3223,75 @@ export default function Estimate() {
                       )}
                     </div>
                   )}
+
+                  {/* Deferred student loans — DTI add-on. Even when a
+                      borrower's student loans are in deferment, lenders
+                      assume a monthly payment for DTI purposes. The
+                      assumed percentage of the deferred balance varies
+                      by loan program (see `deferredStudentLoanFactor`).
+                      Saved per-scenario so the answer + balance persist
+                      across refresh / logout / login, and the calc
+                      automatically retunes when the user changes loan
+                      type on Page 3. */}
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-2">
+                        Do you have any deferred student loans right now?
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          data-testid="btn-deferred-sl-yes"
+                          onClick={() =>
+                            setInputs((p) => ({ ...p, hasDeferredStudentLoans: true }))
+                          }
+                          className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasDeferredStudentLoans === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                        >
+                          Yes
+                        </button>
+                        <button
+                          data-testid="btn-deferred-sl-no"
+                          onClick={() =>
+                            // "No" clears the balance to $0 so DTI ignores
+                            // any previously-entered amount.
+                            setInputs((p) => ({
+                              ...p,
+                              hasDeferredStudentLoans: false,
+                              deferredStudentLoanBalance: 0,
+                            }))
+                          }
+                          className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.hasDeferredStudentLoans === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                        >
+                          No
+                        </button>
+                      </div>
+                    </div>
+
+                    {inputs.hasDeferredStudentLoans === true && (
+                      <div className="animate-in fade-in slide-in-from-top-2 duration-200 space-y-1.5">
+                        <SliderInput
+                          label="What is the total balance of your deferred student loans?"
+                          value={inputs.deferredStudentLoanBalance ?? 0}
+                          onChange={(v) => set("deferredStudentLoanBalance", v)}
+                          min={0}
+                          max={300000}
+                          step={1000}
+                          prefix="$"
+                        />
+                        <p className="text-[10px] text-muted-foreground leading-snug">
+                          Conventional assumes 1% of the total deferred student loan balance as a monthly DTI payment.
+                          FHA, VA, and USDA assume 0.5% of the total deferred student loan balance.
+                        </p>
+                        <p className="text-[10px] text-muted-foreground leading-snug">
+                          Only enter the deferred balance here if the payment is not already included in your monthly debts.
+                        </p>
+                        {(inputs.deferredStudentLoanBalance ?? 0) > 0 && (
+                          <p className="text-[11px] text-emerald-700 font-medium">
+                            +{fmt(Math.round((inputs.deferredStudentLoanBalance ?? 0) * deferredStudentLoanFactor(inputs.loanType)))}/mo added to DTI ({inputs.loanType === "conventional" || inputs.loanType === "bank_statement" ? "1.0%" : inputs.loanType === "dscr" ? "0%" : "0.5%"} of balance for {inputs.loanType.toUpperCase()})
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
               </StepEditWrapper>
