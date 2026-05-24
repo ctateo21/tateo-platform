@@ -3745,6 +3745,45 @@ export default function Estimate() {
                       suffix="%"
                       decimals={3}
                     />
+                    {/* AMI-based Conventional rate discount note.
+                        Only rendered for Primary + Conventional;
+                        helper short-circuits to discountPercent=0
+                        for every other flow so this block is a
+                        no-op there. The exact same helper feeds
+                        `fullRate`, so the badge and the displayed
+                        rate can never disagree. */}
+                    {inputs.loanType === "conventional" && inputs.occupancy === "primary" && (() => {
+                      const ami = getConventionalAmiRateDiscount({
+                        monthlyIncome: inputs.monthlyIncome,
+                        annualAMI: amiData?.annualAMI,
+                        loanType: inputs.loanType,
+                        occupancy: inputs.occupancy,
+                      });
+                      if (ami.eligible) {
+                        return (
+                          <p
+                            className="text-[11px] text-emerald-700 font-medium pt-1"
+                            data-testid="note-ami-discount-applied"
+                          >
+                            AMI Conventional Rate Discount: −{ami.discountPercent.toFixed(3)}%
+                            <span className="text-muted-foreground font-normal ml-1">
+                              ({ami.reason.toLowerCase()})
+                            </span>
+                          </p>
+                        );
+                      }
+                      if (!amiData?.annualAMI && address && address !== "Unknown Address") {
+                        return (
+                          <p
+                            className="text-[11px] text-muted-foreground pt-1"
+                            data-testid="note-ami-discount-unavailable"
+                          >
+                            AMI discount unavailable because county AMI could not be determined.
+                          </p>
+                        );
+                      }
+                      return null;
+                    })()}
                     {inputs.occupancy !== "primary" && (() => {
                       const baseConv = (rates as any).conventional ?? FALLBACK_RATES.conventional;
                       const baseWithCredit = adjustedRate(baseConv, inputs.creditScore);

@@ -1,0 +1,113 @@
+Copy/paste this into Replit:
+
+```text id="my-dashboard-button-detail-views"
+Add a “MY DASHBOARD” button inside every detailed scenario view.
+
+Current issue:
+When users are inside a detailed property/scenario view, they need a clear way to return to the main dashboard at any time.
+
+Requested behavior:
+Inside each detailed view for each dashboard tab, add a button labeled:
+
+MY DASHBOARD
+
+Placement:
+Put the MY DASHBOARD button to the left of the Share button.
+
+Button order should be:
+
+MY DASHBOARD | Share | Save Scenario
+
+Apply to all detailed views:
+- Purchase with Loan detail / See My Estimate
+- Purchase with Cash detail
+- Refinance detail
+- Insurance detail
+- Sell Your Home detail
+
+Expected behavior:
+When clicked:
+- Take the user back to the main dashboard overview.
+- Keep the correct dashboard tab context if possible.
+
+Preferred routes:
+- Purchase with Loan → `/dashboard?tab=purchase`
+- Purchase with Cash → `/dashboard?tab=cash_buy`
+- Refinance → `/dashboard?tab=refinance`
+- Insurance → `/dashboard?tab=insurance`
+- Sell Your Home → `/dashboard?tab=for_sale`
+
+If the dashboard tab labels are renamed, keep using stable tab IDs:
+- `purchase` = Purchase with Loan
+- `cash_buy` = Purchase with Cash
+- `refinance` = Refinance
+- `insurance` = Insurance
+- `for_sale` = Sell Your Home
+
+Important:
+- Do not rely only on browser history.
+- This button should always navigate directly to the dashboard.
+- Do not send logged-in users to the six-service selection screen.
+- Do not send users to the address entry screen.
+- Preserve saved dashboard tab order.
+- Do not break the existing Back button behavior.
+- Do not break Share or Save Scenario behavior.
+
+Logged-in behavior:
+If the user is logged in:
+- MY DASHBOARD should take them to the dashboard overview with tabs.
+
+Logged-out behavior:
+If the user is not logged in:
+- If the dashboard requires login, show login/create account prompt.
+- After login, take them to the dashboard.
+- If there is a temporary dashboard view allowed for logged-out users, use the existing app behavior.
+
+Implementation suggestion:
+The app already has a shared component:
+
+`client/src/components/scenario-actions.tsx`
+
+It currently renders Share + Save Scenario.
+
+Update this shared component to optionally render MY DASHBOARD to the left of Share.
+
+Suggested props:
+- `showDashboardButton`
+- `dashboardTab`
+- `onDashboardClick`
+
+If easier, add it directly to each detailed view, but preferred is updating the shared scenario actions component so all 5 views stay consistent.
+
+UI requirements:
+- Use consistent styling with Share and Save Scenario buttons.
+- Keep mobile clean:
+  - stack or wrap buttons if needed
+- Label must be:
+  `MY DASHBOARD`
+- Place it to the left of Share.
+
+Acceptance test:
+1. Open Purchase with Loan detail view.
+2. Confirm MY DASHBOARD appears left of Share.
+3. Click MY DASHBOARD.
+4. Confirm it goes to Dashboard → Purchase with Loan.
+5. Open Purchase with Cash detail view.
+6. Confirm MY DASHBOARD goes to Dashboard → Purchase with Cash.
+7. Open Refinance detail view.
+8. Confirm MY DASHBOARD goes to Dashboard → Refinance.
+9. Open Insurance detail view.
+10. Confirm MY DASHBOARD goes to Dashboard → Insurance.
+11. Open Sell Your Home detail view.
+12. Confirm MY DASHBOARD goes to Dashboard → Sell Your Home.
+13. Confirm Share and Save Scenario still work.
+14. Confirm Back button behavior is unchanged.
+15. Confirm mobile layout remains clean.
+
+Please make the smallest safe code change possible and tell me:
+- Whether `scenario-actions.tsx` was updated
+- Which detailed views now pass dashboard tab IDs
+- How MY DASHBOARD navigation works
+- How logged-out behavior is handled
+- Which files/functions were changed
+```

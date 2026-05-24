@@ -1,9 +1,27 @@
 import { useEffect, useRef, useState } from "react";
-import { Share2, Save, Loader2 } from "lucide-react";
+import { useLocation } from "wouter";
+import { Share2, Save, Loader2, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import AuthDialog from "@/components/ui/auth-dialog";
 import { useAuth } from "@/context/auth-context";
 import { useToast } from "@/hooks/use-toast";
+
+// Maps each detail-view flow to the stable dashboard tab ID the
+// MY DASHBOARD button should land on. These IDs come from
+// dashboard.tsx's VALID_TABS list (purchase | refinance | insurance
+// | sellers | cash_buy). Per spec we route on stable IDs, not
+// display labels, so a future tab rename does not break this map.
+// Note: the seller flow uses dashboard tab ID "sellers" (not
+// "for_sale" as some product copy suggests) because that's the ID
+// the dashboard URL parser accepts. "purchase" is the default tab
+// and is reachable without a ?tab= param.
+const DASHBOARD_TAB_FOR_FLOW: Record<ScenarioActionsProps["scenarioType"], string> = {
+  cash_buy: "cash_buy",
+  purchase: "purchase",
+  refinance: "refinance",
+  insurance: "insurance",
+  seller: "sellers",
+};
 
 /**
  * Reusable Save + Share button pair for the five detail views
@@ -56,8 +74,13 @@ export default function ScenarioActions({
   const { user } = useAuth();
   const isAuthenticated = !!user;
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [authOpen, setAuthOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  /** Tracks whether the pending post-auth replay should also navigate
+   *  to the dashboard. Set when a logged-out user clicks MY DASHBOARD
+   *  on a detail view that requires auth to view the dashboard. */
+  const pendingDashboardRef = useRef(false);
   /** Action the user wanted to take before being prompted to log in.
    *  Replayed automatically once `isAuthenticated` flips true. */
   const pendingActionRef = useRef<"save" | "share" | null>(null);
@@ -131,6 +154,41 @@ export default function ScenarioActions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
+  // Replay a pending MY DASHBOARD navigation after the user signs
+  // in. Kept separate from the save/share replay above because the
+  // dashboard nav doesn't go through the AuthDialog's success path
+  // — it just needs `isAuthenticated` to flip true.
+  useEffect(() => {
+    if (!isAuthenticated || !pendingDashboardRef.current) return;
+    pendingDashboardRef.current = false;
+    goToDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  /** Build the dashboard URL for this flow and navigate to it.
+   *  "purchase" is the default tab and is reachable without any
+   *  query string — match dashboard.tsx's own URL writer which
+   *  drops the ?tab= for purchase to keep the URL clean. */
+  function goToDashboard() {
+    const tab = DASHBOARD_TAB_FOR_FLOW[scenarioType];
+    const url = tab === "purchase" ? "/dashboard" : `/dashboard?tab=${tab}`;
+    navigate(url);
+  }
+
+  function handleDashboard() {
+    // Logged-out users see the same AuthDialog as Save/Share. The
+    // post-auth effect above replays the nav so the user lands on
+    // their dashboard automatically. We deliberately do NOT fall
+    // back to history.back() — per spec, this button always
+    // navigates directly to the dashboard.
+    if (!isAuthenticated) {
+      pendingDashboardRef.current = true;
+      setAuthOpen(true);
+      return;
+    }
+    goToDashboard();
+  }
+
   function handleSave() {
     if (!isAuthenticated) {
       pendingActionRef.current = "save";
@@ -159,7 +217,18 @@ export default function ScenarioActions({
 
   return (
     <>
-      <div className="flex items-center gap-1.5 sm:gap-2">
+      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5 h-8 sm:h-9"
+          onClick={handleDashboard}
+          data-testid={`button-dashboard-${scenarioType}`}
+          title="Back to my dashboard"
+        >
+          <LayoutDashboard className="h-3.5 w-3.5" />
+          <span className={compact ? "hidden sm:inline" : ""}>MY DASHBOARD</span>
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -197,6 +266,7 @@ export default function ScenarioActions({
           if (!next && !isAuthenticated) {
             pendingActionRef.current = null;
             pendingSaveSnapshotRef.current = null;
+            pendingDashboardRef.current = false;
           }
           setAuthOpen(next);
         }}
