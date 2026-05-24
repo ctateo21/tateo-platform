@@ -20,8 +20,6 @@ import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-ref
 import { useAuth } from "@/context/auth-context";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
 const MAX_TRACKED_LOANS = 10;
 const DEFAULT_CREDIT_SCORE = 740;
@@ -110,6 +108,10 @@ export default function Refinance() {
   // save, so the user sees their FHA/VA selection "revert" to
   // Conventional after refresh with no explanation.
   const warnedMissingRef = useRef(new Set<string>());
+  // Wraps the StatementAnalyzer + LiveRates row so the inline
+  // "Analyze Another Mortgage Statement" button in the Loan Dashboard
+  // header can scroll it into view.
+  const analyzerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const unsub = subscribePersistenceError(e => {
       if (e.table !== "tracked_loans") return;
@@ -464,33 +466,15 @@ export default function Refinance() {
       </header>
 
       <main className="container mx-auto px-4 py-6 max-w-7xl">
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold mb-2">Calculate Your Mortgage Refinance</h2>
-            <p className="text-muted-foreground">Upload your mortgage statement to analyze your loan and track refinance opportunities.</p>
-          </div>
-          {/* Refinance-wide Credit Score input — used by the shared
-              rate engine for every loan type on every tracked loan. */}
-          <div className="flex items-center gap-2" data-testid="input-credit-score-wrap">
-            <Label htmlFor="refi-credit-score" className="text-sm whitespace-nowrap">Credit Score</Label>
-            <Input
-              id="refi-credit-score"
-              data-testid="input-credit-score"
-              type="number"
-              inputMode="numeric"
-              min={300}
-              max={850}
-              step={10}
-              value={creditScore > 0 ? creditScore : ""}
-              onChange={e => handleCreditScoreChange(e.target.value)}
-              className="w-24 h-9"
-              aria-label="Credit score used for refinance rate estimates"
-            />
-          </div>
+        <div className="mb-6">
+          <h2 className="text-2xl font-bold mb-2">Calculate Your Mortgage Refinance</h2>
+          <p className="text-muted-foreground">Upload your mortgage statement to analyze your loan and track refinance opportunities.</p>
         </div>
 
-        {/* Top row: Analyzer + Rates */}
-        <div className="grid lg:grid-cols-3 gap-6 items-stretch mb-6">
+        {/* Top row: Analyzer + Rates. The analyzer card is scrolled
+            into view by the "Analyze Another Mortgage Statement" button
+            in the Loan Dashboard header below. */}
+        <div ref={analyzerRef} className="grid lg:grid-cols-3 gap-6 items-stretch mb-6">
           <div className="lg:col-span-2">
             <StatementAnalyzer
               onAnalysisComplete={handleAnalysisComplete}
@@ -506,10 +490,17 @@ export default function Refinance() {
           />
         </div>
 
-        {/* Loan Tracker */}
+        {/* Loan Tracker — the Credit Score input and Analyze-Another
+            trigger now live inline in this header (used to be in the
+            top-right of the page header). */}
         <LoanTracker
           loans={trackedLoans}
           liveRates={ratesData?.rates ?? []}
+          creditScore={creditScore}
+          onCreditScoreChange={handleCreditScoreChange}
+          onAnalyzeAnotherClick={() => {
+            analyzerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }}
           onRemove={id => updateLoans(prev => prev.filter(l => l.id !== id))}
           onUpdate={(id, updates) => {
             updateLoans(prev => {

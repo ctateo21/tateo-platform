@@ -1,0 +1,60 @@
+Copy/paste this into Replit:
+
+```text id="refi-header-controls-placement"
+Update the Refinance tab header layout.
+
+Current issue:
+On the Refinance tab, the Credit Score control and “Analyze another mortgage statement” button are currently positioned at the top right.
+
+Requested change:
+Move both of these controls next to the Loan Dashboard title/count.
+
+Current title area:
+`Loan Dashboard (X/10)`
+
+New layout:
+Place these items together in the same header row:
+
+`Loan Dashboard (X/10)`  [Credit Score]  [Analyze Another Mortgage Statement]
+
+Requirements:
+1. Move the Credit Score input/control from the top-right area to directly next to `Loan Dashboard (X/10)`.
+2. Move the “Analyze another mortgage statement” button from the top-right area to directly next to `Loan Dashboard (X/10)`.
+3. Keep the controls aligned cleanly on desktop.
+4. On mobile, stack/wrap cleanly under the Loan Dashboard title.
+5. Do not duplicate the controls.
+6. Remove the old top-right placement.
+7. Keep the existing Credit Score functionality unchanged.
+8. Keep the existing Analyze Another Mortgage Statement functionality unchanged.
+9. Do not change Refinance save/load logic.
+10. Do not change mortgage statement analysis.
+11. Do not change tracked loan calculations.
+
+Suggested desktop layout:
+- Left side header row:
+  - Loan Dashboard (X/10)
+  - Credit Score input
+  - Analyze Another Mortgage Statement button
+
+Suggested mobile layout:
+- Loan Dashboard (X/10)
+- Credit Score input
+- Analyze Another Mortgage Statement button
+
+Acceptance test:
+1. Go to Dashboard → Refinance.
+2. Confirm `Loan Dashboard (X/10)` appears.
+3. Confirm Credit Score is directly next to it.
+4. Confirm Analyze Another Mortgage Statement is directly next to it.
+5. Confirm the old top-right controls are gone.
+6. Confirm changing Credit Score still updates/refinance calculations.
+7. Confirm clicking Analyze Another Mortgage Statement still opens the upload/analyzer flow.
+8. Confirm mobile layout is readable.
+
+Please make the smallest safe code change possible and tell me:
+- Which Refinance dashboard/header component was changed
+- Where Credit Score was moved
+- Where Analyze Another Mortgage Statement was moved
+- How desktop/mobile layout works
+- Which files/functions were changed
+```

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -9,7 +10,7 @@ import { Slider } from "@/components/ui/slider";
 import {
   ChevronDown, ChevronUp, Trash2, MapPin, TrendingDown, TrendingUp,
   Minus, Clock, DollarSign, AlertCircle, Wallet, ArrowLeftRight,
-  Banknote, Pencil, Check, X, Info, Landmark, Home, Building2,
+  Banknote, Pencil, Check, X, Info, Landmark, Home, Building2, Sparkles,
 } from "lucide-react";
 import { calculateRefinance, calculateMonthlyPayment, formatCurrency, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
 import { priceLoan } from "@/lib/mortgage-pricing";
@@ -776,15 +777,63 @@ interface LoanTrackerProps {
   onRemove: (id: string) => void;
   onUpdate: (id: string, updates: Partial<TrackedLoan>) => void;
   maxLoans?: number;
+  /** Refinance-wide credit score input — rendered inline with the
+   *  "Loan Dashboard" title. The page owns the state and the
+   *  fan-out-to-all-loans logic; we just render the control. */
+  creditScore?: number;
+  onCreditScoreChange?: (raw: string) => void;
+  /** Triggered by the inline "Analyze Another Mortgage Statement"
+   *  button — the page scrolls the existing analyzer card into view
+   *  (or opens it). Kept as a callback so analyzer logic is unchanged. */
+  onAnalyzeAnotherClick?: () => void;
 }
 
-export function LoanTracker({ loans, liveRates, onRemove, onUpdate, maxLoans = 10 }: LoanTrackerProps) {
+export function LoanTracker({
+  loans, liveRates, onRemove, onUpdate, maxLoans = 10,
+  creditScore, onCreditScoreChange, onAnalyzeAnotherClick,
+}: LoanTrackerProps) {
   if (loans.length === 0) return null;
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold flex items-center gap-2"><DollarSign className="h-5 w-5 text-primary" />Loan Dashboard <Badge variant="secondary">{loans.length}/{maxLoans}</Badge></h3>
+      {/* Header row: title + Credit Score + Analyze-Another trigger.
+          Wraps cleanly under the title on narrow viewports. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          <DollarSign className="h-5 w-5 text-primary" />
+          Loan Dashboard
+          <Badge variant="secondary">{loans.length}/{maxLoans}</Badge>
+        </h3>
+        {onCreditScoreChange && (
+          <div className="flex items-center gap-2" data-testid="input-credit-score-wrap">
+            <Label htmlFor="refi-credit-score" className="text-sm whitespace-nowrap">Credit Score</Label>
+            <Input
+              id="refi-credit-score"
+              data-testid="input-credit-score"
+              type="number"
+              inputMode="numeric"
+              min={300}
+              max={850}
+              step={10}
+              value={creditScore && creditScore > 0 ? creditScore : ""}
+              onChange={e => onCreditScoreChange(e.target.value)}
+              className="w-24 h-9"
+              aria-label="Credit score used for refinance rate estimates"
+            />
+          </div>
+        )}
+        {onAnalyzeAnotherClick && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={onAnalyzeAnotherClick}
+            data-testid="button-analyze-another"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Analyze Another Mortgage Statement
+          </Button>
+        )}
       </div>
       <div className="space-y-3">
         {loans.map(loan => (
