@@ -1,6 +1,7 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import ScenarioActions from "@/components/scenario-actions";
 import { estimateAnnualTax, getCountyTaxLink, getCountyName } from "@/lib/county-tax-estimator";
+import { getConventionalAmiRateDiscount } from "@/lib/ami-discount";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
@@ -498,7 +499,15 @@ function occupancyRateAdj(occupancy: "primary" | "secondary" | "investment", dow
   return 0;
 }
 
-function fullRate(base: number, score: number, occupancy: "primary" | "secondary" | "investment", downPct: number, loanType?: string): number {
+function fullRate(
+  base: number,
+  score: number,
+  occupancy: "primary" | "secondary" | "investment",
+  downPct: number,
+  loanType?: string,
+  monthlyIncome?: number | null,
+  annualAMI?: number | null,
+): number {
   const adj = (loanType === "fha" || loanType === "va") ? fhaCreditAdjustment(score) : creditAdjustment(score);
   let rate = base + adj + occupancyRateAdj(occupancy, downPct);
   // Conventional pricing concession: drop the final rate by 10 bps
@@ -510,9 +519,26 @@ function fullRate(base: number, score: number, occupancy: "primary" | "secondary
   // that recalculates `inputs.interestRate`, so it can never be
   // double-applied.
   if (loanType === "conventional" || loanType === "dscr") rate -= 0.1;
+  // AMI-based Conventional rate discount (Primary + Conventional
+  // only). Applied AFTER the -0.100% concession per spec. The
+  // helper itself gates on loanType / occupancy / AMI presence, so
+  // FHA/VA/USDA/DSCR/BankStmt/Secondary/Investment all receive
+  // discountPercent === 0. Because every code path that writes
+  // `interestRate` goes through this single function, the discount
+  // is applied exactly once — Page 3 and Page 4 always agree.
+  const amiDiscount = getConventionalAmiRateDiscount({
+    monthlyIncome: monthlyIncome ?? undefined,
+    annualAMI: annualAMI ?? undefined,
+    loanType,
+    occupancy,
+  });
+  rate -= amiDiscount.discountPercent;
   if (loanType === "dscr") {
     console.debug("[dscr-pricing] conventional rate used", base);
     console.debug("[dscr-pricing] final DSCR rate", Math.round((rate) * 1000) / 1000);
+  }
+  if (amiDiscount.eligible) {
+    console.debug("[ami-discount] applied", amiDiscount.discountPercent, "incomePctOfAMI=", amiDiscount.incomePercentOfAmi);
   }
   // Round once at the engine boundary so both the payment math and
   // the displayed rate use the same 3-decimal value (avoids
@@ -1831,9 +1857,27 @@ export default function Estimate() {
   useEffect(() => {
     if (liveRates && !ratesLoadedRef.current) {
       ratesLoadedRef.current = true;
-      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType) }));
+      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI) }));
     }
   }, [liveRates]);
+
+  // Recompute the rate whenever the monthly income or the resolved
+  // county AMI changes. These two values feed the Conventional AMI
+  // discount but are NOT inputs to the existing setLoanType /
+  // setOccupancy / setCreditScore / setDownPayment handlers, so
+  // without this effect a user typing a new income on Page 3/4 (or
+  // the async /api/ami response arriving) would leave the rate
+  // stale. Guarded on loanType === "conventional" && primary so it's
+  // a no-op for every other flow (FHA, VA, USDA, DSCR, Bank
+  // Statement, Secondary, Investment) and can never double-apply.
+  useEffect(() => {
+    if (inputs.loanType !== "conventional" || inputs.occupancy !== "primary") return;
+    setInputs((p) => {
+      const baseRate = (rates as any)[p.loanType] ?? rates.conventional;
+      const next = fullRate(baseRate, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI);
+      return next === p.interestRate ? p : { ...p, interestRate: next };
+    });
+  }, [inputs.monthlyIncome, amiData?.annualAMI, inputs.loanType, inputs.occupancy]);
 
   // Auto-recalculate property taxes whenever the address changes
   const taxAddressRef = useRef<string>("");
@@ -1887,7 +1931,7 @@ export default function Estimate() {
       return {
         ...p,
         loanType: lt,
-        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, lt),
+        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, lt, p.monthlyIncome, amiData?.annualAMI),
         downPaymentPct: newDown,
       };
     });
@@ -1922,7 +1966,7 @@ export default function Estimate() {
         ...p,
         occupancy: occ,
         loanType: forcedLoan,
-        interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan),
+        interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan, p.monthlyIncome, amiData?.annualAMI),
         downPaymentPct: newDown,
         rentalType: occ === "investment" ? p.rentalType : null,
         annualTaxes: computePropertyTax(address, p.purchasePrice, occ, p.vaDisabilityRating100),
@@ -1960,7 +2004,7 @@ export default function Estimate() {
         ...p,
         creditScore: score,
         loanType: autoLoanType,
-        interestRate: fullRate(baseRate, score, p.occupancy, p.downPaymentPct, autoLoanType),
+        interestRate: fullRate(baseRate, score, p.occupancy, p.downPaymentPct, autoLoanType, p.monthlyIncome, amiData?.annualAMI),
       };
     });
   }
@@ -2032,7 +2076,7 @@ export default function Estimate() {
         downPaymentPct: newDown,
         downPaymentAmount: Math.round(p.purchasePrice * (newDown / 100)),
         downPaymentMode: "percent",
-        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, rec),
+        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, rec, p.monthlyIncome, amiData?.annualAMI),
       };
     });
     // NOTE: No FHA-DPA / `uses_dpa` / `dpa_type` fields exist in the
@@ -2061,7 +2105,7 @@ export default function Estimate() {
         downPaymentPct: newDown,
         downPaymentMode: "percent",
         downPaymentAmount: newAmt,
-        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown, p.loanType),
+        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown, p.loanType, p.monthlyIncome, amiData?.annualAMI),
       };
     });
   }
@@ -2087,7 +2131,7 @@ export default function Estimate() {
         downPaymentAmount: finalAmt,
         downPaymentPct: finalPct,
         downPaymentMode: "amount",
-        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, finalPct, p.loanType),
+        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, finalPct, p.loanType, p.monthlyIncome, amiData?.annualAMI),
       };
     });
   }

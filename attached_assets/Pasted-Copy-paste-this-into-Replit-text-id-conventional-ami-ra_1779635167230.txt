@@ -1,0 +1,195 @@
+Copy/paste this into Replit:
+
+```text id="conventional-ami-rate-discount"
+Add AMI-based Conventional rate discounts for Purchase with Loan.
+
+Location:
+Purchase with Loan flow
+
+Applies only when:
+- Property Use = Primary Residence
+- Loan Type = Conventional
+
+Requested rule:
+If the user’s monthly income is between 80% and 100% of AMI for that county:
+- Drop the Conventional interest rate by 0.250%
+
+If the user’s monthly income is less than 80% of AMI for that county:
+- Drop the Conventional interest rate by 0.500%
+
+This should only apply to Conventional loans for Primary Residence purchase scenarios.
+
+Do not apply this discount to:
+- FHA
+- VA
+- USDA
+- DSCR
+- Bank Statement
+- Investment Property
+- Secondary Home
+- Refinance
+- Cash Buy
+- Insurance
+- Sell Your Home
+
+AMI comparison:
+The user enters monthly income.
+Convert to annual income:
+
+annual_income = monthly_income * 12
+
+Compare annual income to the county AMI.
+
+Rules:
+1. If annual income < 80% of county AMI:
+   - conventional_ami_discount = 0.500%
+2. If annual income >= 80% of county AMI and annual income <= 100% of county AMI:
+   - conventional_ami_discount = 0.250%
+3. If annual income > 100% of county AMI:
+   - no AMI discount
+4. If county AMI is missing:
+   - no AMI discount
+   - show small note if needed: “AMI discount unavailable because county AMI could not be determined.”
+
+Rate calculation:
+Apply the discount after the normal Conventional rate is calculated.
+
+Example:
+Normal Conventional rate = 6.775%
+AMI discount = 0.250%
+Final Conventional rate = 6.525%
+
+Example:
+Normal Conventional rate = 6.775%
+AMI discount = 0.500%
+Final Conventional rate = 6.275%
+
+Important:
+- Apply the AMI discount only once.
+- Do not double-apply it when Page 3 and Page 4 both recalculate.
+- Do not apply it before other pricing parameters unless the existing rate engine is designed that way.
+- Final displayed rate should still round to 3 decimals.
+- This should stack with the existing Conventional -0.100% adjustment if that adjustment is already part of the Conventional final rate.
+
+Suggested rate flow:
+1. Start with Conventional base rate.
+2. Apply normal Conventional credit/LTV/occupancy/pricing adjustments.
+3. Apply existing Conventional -0.100% adjustment.
+4. Apply AMI discount if eligible.
+5. Round final rate to 3 decimals.
+
+Data needed:
+Use:
+- property address / county
+- user monthly income
+- selected property use
+- selected loan type
+- county AMI
+
+County/AMI source:
+Use the app’s existing county/AMI data source if one exists.
+
+If no AMI data source exists yet:
+- add a small AMI lookup table or config keyed by county/state
+- or create a placeholder helper that can be wired to HUD AMI data later
+- tell me exactly what data source/table needs to be added
+
+Suggested helper:
+create or update:
+
+getConventionalAmiRateDiscount({
+  monthlyIncome,
+  county,
+  state,
+  ami
+})
+
+Return:
+{
+  eligible: boolean,
+  discountPercent: 0 | 0.25 | 0.5,
+  incomePercentOfAmi: number | null,
+  reason: string
+}
+
+Suggested fields:
+- `county_ami`
+- `annual_income`
+- `income_percent_of_ami`
+- `conventional_ami_discount_percent`
+- `conventional_ami_discount_amount`
+- `ami_discount_applied`
+
+UI display:
+On Page 4 / See My Estimate → Mortgage card, show the AMI discount if applied.
+
+Example:
+“AMI Conventional Rate Discount: -0.250%”
+
+or:
+“AMI Discount Applied: -0.500% because income is below 80% of county AMI.”
+
+If no discount:
+- Do not show anything, or show a small neutral note only if useful.
+
+Page 3 / Page 4 sync:
+- If the user changes monthly income, recalculate the AMI discount.
+- If the user changes property address/county, recalculate the AMI discount.
+- If the user changes loan type away from Conventional, remove the AMI discount.
+- If the user changes property use away from Primary, remove the AMI discount.
+- If the user changes back to Primary + Conventional, recalculate the AMI discount.
+- Page 3 and Page 4 should use the same final rate.
+
+Persistence:
+Save these fields to the purchase scenario if useful:
+- county_ami
+- income_percent_of_ami
+- conventional_ami_discount_percent
+- ami_discount_applied
+
+If the purchase_scenarios table needs fields, give me SQL migration.
+
+Important:
+- Do not apply AMI discount to FHA/VA/USDA/DSCR/Bank Statement.
+- Do not apply AMI discount to secondary homes or investment properties.
+- Do not break the Primary + Veteran → VA rule.
+- Do not break the Primary + credit score below 720 → FHA rule.
+- If the user manually changes loan type to Conventional and qualifies by AMI, apply the discount.
+- Do not break existing Conventional pricing, PMI, DTI, or cash-to-close calculations.
+
+Acceptance test:
+1. Start Purchase with Loan.
+2. Select Property Use = Primary Residence.
+3. Select Loan Type = Conventional.
+4. Enter a county/address with known AMI.
+5. Enter monthly income that equals less than 80% of county AMI annually.
+6. Confirm Conventional rate is reduced by 0.500%.
+7. Enter monthly income between 80% and 100% of county AMI annually.
+8. Confirm Conventional rate is reduced by 0.250%.
+9. Enter monthly income above 100% of AMI.
+10. Confirm no AMI discount applies.
+11. Change loan type to FHA.
+12. Confirm AMI discount is removed.
+13. Change loan type to VA.
+14. Confirm AMI discount is removed.
+15. Change loan type to USDA.
+16. Confirm AMI discount is removed.
+17. Change property use to Secondary.
+18. Confirm AMI discount is removed.
+19. Change property use to Investment.
+20. Confirm AMI discount is removed.
+21. Go to Page 4 / See My Estimate.
+22. Confirm Mortgage card shows the discounted rate and AMI discount note when eligible.
+23. Confirm displayed rate is rounded to 3 decimals.
+24. Refresh/logout/login and confirm scenario recalculates consistently.
+
+Please make the smallest safe code change possible and tell me:
+- Which AMI data source/table/helper is used
+- How county is determined from the property address
+- Which Conventional rate function was changed
+- Where the AMI discount is applied in the rate flow
+- How double-application is prevented
+- Which UI shows the AMI discount
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```
