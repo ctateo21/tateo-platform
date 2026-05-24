@@ -3782,45 +3782,151 @@ export default function Estimate() {
                     </span>
                     {answersOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                   </button>
-                  {answersOpen && (
-                    <div className="border-t border-border px-4 py-4 grid grid-cols-1 sm:grid-cols-3 gap-6">
-                      <div>
-                        <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 1 — Borrower</p>
-                        <SummaryRow label="Property Use" value={inputs.occupancy === "primary" ? "Primary" : inputs.occupancy === "secondary" ? "Secondary" : "Investment"} onEdit={() => setEditingPage(1)} />
-                        <SummaryRow label="Credit Score" value={String(inputs.creditScore)} onEdit={() => setEditingPage(1)} />
-                        <SummaryRow label="Monthly Income" value={fmt(inputs.monthlyIncome)} onEdit={() => setEditingPage(1)} />
-                        <SummaryRow
-                          label="Monthly Debts"
-                          value={fmt(calc.totalMonthlyDebts)}
-                          onEdit={() => setEditingPage(1)}
-                          sub={
-                            calc.deferredStudentLoanMonthly > 0
-                              ? `Includes ${fmt(calc.deferredStudentLoanMonthly)}/mo estimated deferred student loan payment`
-                              : undefined
-                          }
-                        />
-                        <SummaryRow label="Reserves" value={fmt(inputs.reserves)} onEdit={() => setEditingPage(1)} />
+                  {answersOpen && (() => {
+                    // All rows read from `inputs` / `calc` / `address`
+                    // — the same source of truth every estimate
+                    // calculation uses — so the summary can never drift
+                    // out of sync. Each pencil opens the matching page
+                    // via `setEditingPage(N)` (inline edit dialog,
+                    // never a jump back to step 1), and edits flow
+                    // straight back into `inputs` so the See My
+                    // Estimate numbers and this summary both update
+                    // immediately on close.
+                    const occupancyLabel =
+                      inputs.occupancy === "primary" ? "Primary Residence"
+                      : inputs.occupancy === "secondary" ? "Secondary Home"
+                      : "Investment Property";
+                    const loanTypeLabel: Record<typeof inputs.loanType, string> = {
+                      conventional: "Conventional",
+                      fha: "FHA",
+                      va: "VA",
+                      usda: "USDA",
+                      dscr: "DSCR",
+                      bank_statement: "Bank Statement",
+                    };
+                    const dpMode = inputs.downPaymentMode ?? "percent";
+                    const dpAmt =
+                      inputs.downPaymentAmount ??
+                      Math.round(inputs.purchasePrice * (inputs.downPaymentPct / 100));
+                    const scMode = inputs.sellerConcessionsMode ?? "percent";
+                    const scPct = inputs.purchasePrice > 0
+                      ? (inputs.sellerConcessions / inputs.purchasePrice) * 100
+                      : 0;
+                    const yesNo = (v: boolean | null | undefined): string =>
+                      v === true ? "Yes" : v === false ? "No" : "—";
+                    return (
+                      <div className="border-t border-border px-4 py-4 grid grid-cols-1 sm:grid-cols-3 gap-6">
+                        {/* ── Page 1 — Borrower Details ── */}
+                        <div>
+                          <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 1 — Borrower</p>
+                          <SummaryRow label="Property Use" value={occupancyLabel} onEdit={() => setEditingPage(1)} />
+                          <SummaryRow label="Monthly Income" value={fmt(inputs.monthlyIncome)} onEdit={() => setEditingPage(1)} />
+                          <SummaryRow label="Base Monthly Debts" value={fmt(inputs.monthlyDebts)} onEdit={() => setEditingPage(1)} />
+                          {calc.deferredStudentLoanMonthly > 0 && (
+                            <SummaryRow
+                              label="Deferred Student Loan Adj."
+                              value={`+${fmt(calc.deferredStudentLoanMonthly)}/mo`}
+                              onEdit={() => setEditingPage(2)}
+                              sub={`Assumes ${(calc.deferredStudentLoanFactor * 100).toFixed(1)}% of ${fmt(inputs.deferredStudentLoanBalance ?? 0)} balance (${loanTypeLabel[inputs.loanType]})`}
+                            />
+                          )}
+                          <SummaryRow
+                            label="Total Monthly Debts (DTI)"
+                            value={fmt(calc.totalMonthlyDebts)}
+                            onEdit={() => setEditingPage(1)}
+                          />
+                          <SummaryRow label="Credit Score" value={String(inputs.creditScore)} onEdit={() => setEditingPage(1)} />
+                          <SummaryRow label="Available Reserves" value={fmt(inputs.reserves)} onEdit={() => setEditingPage(1)} />
+                        </div>
+
+                        {/* ── Page 2 — Additional Questions ── */}
+                        <div>
+                          <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 2 — Additional</p>
+                          <SummaryRow label="Has Current Mortgage?" value={yesNo(inputs.hasMortgage)} onEdit={() => setEditingPage(2)} />
+                          {inputs.hasMortgage === true && (
+                            <SummaryRow label="Current Loan FHA?" value={yesNo(inputs.currentLoanFHA)} onEdit={() => setEditingPage(2)} />
+                          )}
+                          {inputs.hasMortgage === true && (
+                            <SummaryRow label="Rental Income?" value={yesNo(inputs.hasRentalIncome)} onEdit={() => setEditingPage(2)} />
+                          )}
+                          {inputs.hasRentalIncome === true && (
+                            <SummaryRow label="Monthly Rental Income" value={`${fmt(inputs.monthlyRentalIncome)}/mo`} onEdit={() => setEditingPage(2)} />
+                          )}
+                          {inputs.occupancy === "primary" && (
+                            <SummaryRow label="Veteran / VA Eligible?" value={yesNo(inputs.isVeteran)} onEdit={() => setEditingPage(2)} />
+                          )}
+                          {inputs.isVeteran === true && (
+                            <SummaryRow label="Receives VA Disability?" value={yesNo(inputs.vaDisability)} onEdit={() => setEditingPage(2)} />
+                          )}
+                          {inputs.isVeteran === true && inputs.vaDisability === true && (
+                            <SummaryRow label="VA Disability Rating 100%?" value={yesNo(inputs.vaDisabilityRating100)} onEdit={() => setEditingPage(2)} />
+                          )}
+                          {inputs.isVeteran === true && inputs.vaDisability === false && (
+                            <SummaryRow label="VA Loan Use" value={inputs.vaLoanUse === "first" ? "First (2.15%)" : inputs.vaLoanUse === "second" ? "Second (3.30%)" : "—"} onEdit={() => setEditingPage(2)} />
+                          )}
+                          <SummaryRow label="Deferred Student Loans?" value={yesNo(inputs.hasDeferredStudentLoans)} onEdit={() => setEditingPage(2)} />
+                          {inputs.hasDeferredStudentLoans === true && (
+                            <SummaryRow
+                              label="Deferred SL Balance"
+                              value={fmt(inputs.deferredStudentLoanBalance ?? 0)}
+                              onEdit={() => setEditingPage(2)}
+                              sub={
+                                calc.deferredStudentLoanMonthly > 0
+                                  ? `Adds ${fmt(calc.deferredStudentLoanMonthly)}/mo to DTI`
+                                  : undefined
+                              }
+                            />
+                          )}
+                        </div>
+
+                        {/* ── Page 3 — Purchase Details ── */}
+                        <div>
+                          <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 3 — Purchase</p>
+                          <SummaryRow
+                            label="Address"
+                            value={address && address !== "Unknown Address" ? address : "—"}
+                            onEdit={() => setEditingPage(3)}
+                          />
+                          <SummaryRow label="Purchase Price" value={fmt(inputs.purchasePrice)} onEdit={() => setEditingPage(3)} />
+                          <SummaryRow label="Property Type" value={inputs.propertyType ?? "Single Family Residence"} onEdit={() => setEditingPage(3)} />
+                          <SummaryRow label="Loan Type" value={loanTypeLabel[inputs.loanType]} onEdit={() => setEditingPage(3)} />
+                          <SummaryRow
+                            label={dpMode === "amount" ? "Down Payment ($)" : "Down Payment (%)"}
+                            value={
+                              dpMode === "amount"
+                                ? `${fmt(dpAmt)} (${Number(inputs.downPaymentPct).toFixed(2)}%)`
+                                : `${Number(inputs.downPaymentPct).toFixed(2)}% (${fmt(dpAmt)})`
+                            }
+                            onEdit={() => setEditingPage(3)}
+                          />
+                          <SummaryRow label="Loan Amount" value={fmt(calc.loanAmount)} onEdit={() => setEditingPage(3)} sub="Calculated" />
+                          <SummaryRow
+                            label={scMode === "amount" ? "Seller Concessions ($)" : "Seller Concessions (%)"}
+                            value={
+                              inputs.sellerConcessions > 0
+                                ? (scMode === "amount"
+                                    ? `${fmt(inputs.sellerConcessions)} (${scPct.toFixed(2)}%)`
+                                    : `${scPct.toFixed(2)}% (${fmt(inputs.sellerConcessions)})`)
+                                : "None"
+                            }
+                            onEdit={() => setEditingPage(3)}
+                          />
+                          <SummaryRow label="Estimated Closing Costs" value={fmt(calc.closingCosts)} onEdit={() => setEditingPage(3)} />
+                          <SummaryRow label="Annual Property Taxes" value={`${fmt(inputs.annualTaxes)}/yr`} onEdit={() => setEditingPage(3)} />
+                          <SummaryRow label="Homeowners Insurance" value={`${fmt(inputs.annualHOIns)}/yr`} onEdit={() => setEditingPage(3)} />
+                          {inputs.annualFloodIns > 0 && (
+                            <SummaryRow label="Flood Insurance" value={`${fmt(inputs.annualFloodIns)}/yr`} onEdit={() => setEditingPage(3)} />
+                          )}
+                          <SummaryRow label="HOA / Condo Fees" value={inputs.hoaMonthly > 0 ? `${fmt(inputs.hoaMonthly)}/mo` : "None"} onEdit={() => setEditingPage(3)} />
+                          {inputs.cddAnnual > 0 && (
+                            <SummaryRow label="CDD" value={`${fmt(inputs.cddAnnual)}/yr`} onEdit={() => setEditingPage(3)} />
+                          )}
+                          <SummaryRow label="Interest Rate" value={`${inputs.interestRate.toFixed(3)}%`} onEdit={() => setEditingPage(3)} />
+                          <SummaryRow label="Loan Term" value="30 yr fixed" onEdit={() => setEditingPage(3)} />
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 2 — Additional</p>
-                        <SummaryRow label="Has Mortgage?" value={inputs.hasMortgage === true ? "Yes" : inputs.hasMortgage === false ? "No" : "—"} onEdit={() => setEditingPage(2)} />
-                        {inputs.hasMortgage === true && <SummaryRow label="Current FHA?" value={inputs.currentLoanFHA === true ? "Yes" : inputs.currentLoanFHA === false ? "No" : "—"} onEdit={() => setEditingPage(2)} />}
-                        {inputs.hasRentalIncome === true && <SummaryRow label="Rental Income" value={fmt(inputs.monthlyRentalIncome) + "/mo"} onEdit={() => setEditingPage(2)} />}
-                        <SummaryRow label="Veteran?" value={inputs.isVeteran === true ? "Yes" : inputs.isVeteran === false ? "No" : "—"} onEdit={() => setEditingPage(2)} />
-                        {inputs.isVeteran === true && <SummaryRow label="VA Disability?" value={inputs.vaDisability === true ? "Yes" : inputs.vaDisability === false ? "No" : "—"} onEdit={() => setEditingPage(2)} />}
-                        {inputs.isVeteran === true && inputs.vaDisability === true && <SummaryRow label="VA Rating 100%?" value={inputs.vaDisabilityRating100 === true ? "Yes" : inputs.vaDisabilityRating100 === false ? "No" : "—"} onEdit={() => setEditingPage(2)} />}
-                        {inputs.isVeteran === true && inputs.vaDisability === false && <SummaryRow label="VA Loan Use" value={inputs.vaLoanUse === "first" ? "First (2.15%)" : inputs.vaLoanUse === "second" ? "Second (3.30%)" : "—"} onEdit={() => setEditingPage(2)} />}
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-2">Page 3 — Purchase</p>
-                        <SummaryRow label="Purchase Price" value={fmt(inputs.purchasePrice)} onEdit={() => setEditingPage(3)} />
-                        <SummaryRow label="Loan Type" value={inputs.loanType.toUpperCase()} onEdit={() => setEditingPage(3)} />
-                        <SummaryRow label="Down Payment" value={`${Number(inputs.downPaymentPct).toFixed(1)}%`} onEdit={() => setEditingPage(3)} />
-                        {inputs.sellerConcessions > 0 && <SummaryRow label="Seller Concessions" value={fmt(inputs.sellerConcessions)} onEdit={() => setEditingPage(3)} />}
-                        <SummaryRow label="Interest Rate" value={`${inputs.interestRate.toFixed(3)}%`} onEdit={() => setEditingPage(3)} />
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                 </div>
 
               {/* Summary Banner */}

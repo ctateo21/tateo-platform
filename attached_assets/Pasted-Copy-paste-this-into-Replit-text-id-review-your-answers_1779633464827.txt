@@ -1,0 +1,218 @@
+Copy/paste this into Replit:
+
+```text id="review-your-answers-complete-page1-3"
+Fix the “Review Your Answers” dropdown on Purchase with Loan → See My Estimate.
+
+Current issue:
+Inside the Purchase with Loan property estimate, there are 3 pages before the See My Estimate page.
+
+On the See My Estimate page, there is a dropdown/accordion labeled:
+
+“Review Your Answers (Pages 1–3)”
+
+It shows an overview of the answers from Pages 1–3 with pencil icons next to items the user may want to edit.
+
+The issue:
+Not all questions/items from Pages 1–3 are showing in Review Your Answers.
+
+Goal:
+Make “Review Your Answers (Pages 1–3)” show a complete summary of all important answers from the first 3 pages of the Purchase with Loan estimate.
+
+Location:
+Purchase with Loan flow → Page 4 / See My Estimate → Review Your Answers dropdown/accordion
+
+Expected behavior:
+The Review Your Answers section should include all important user-entered or auto-populated fields from:
+
+Page 1 — Borrower Details
+Page 2 — Additional Questions
+Page 3 — Purchase Details
+
+Each row should:
+- show the field label
+- show the current answer/value
+- have a pencil/edit icon
+- clicking the pencil should let the user edit that answer without losing progress
+- after editing, returning to See My Estimate should show the updated answer
+
+Important:
+Do not make the pencil send the user back to the beginning of the questionnaire unless absolutely necessary.
+If inline edit already exists, use inline edit.
+If the current pattern is jump-to-section, make sure it returns cleanly to See My Estimate after update.
+
+Required Page 1 fields to show:
+- Name, if collected
+- Email, if collected
+- Phone, if collected
+- Annual income
+- Monthly debts entered/base monthly debts
+- Deferred student loan monthly debt adjustment, if applicable
+- Total monthly debts used for DTI
+- Credit score
+- Available assets / cash available, if collected
+- Employment/income type, if collected
+- Veteran / VA eligibility, if collected
+- Who they are working with / selected rep, if applicable
+
+Required Page 2 fields to show:
+- Property use / occupancy:
+  - Primary Residence
+  - Secondary Home
+  - Investment Property
+- Whether they are a veteran / VA eligible, if asked here instead of Page 1
+- Whether they have 100% VA disability, if applicable
+- Deferred student loans:
+  - Yes / No
+  - Total deferred student loan balance, if Yes
+  - Calculated monthly DTI payment from deferred student loans
+- Any additional qualifying questions currently asked on Page 2
+- Any yes/no answers that impact loan type, taxes, DTI, eligibility, or payment
+
+Required Page 3 fields to show:
+- Property address
+- Purchase price
+- Property type:
+  - Single Family Residence
+  - Townhouse
+  - Condominium
+  - etc.
+- Loan type:
+  - Conventional
+  - FHA
+  - VA
+  - USDA
+  - DSCR
+  - Bank Statement
+- Down payment mode:
+  - Percentage or Dollar Amount
+- Down payment percentage
+- Down payment dollar amount
+- Loan amount, read-only/calculated
+- Seller concessions mode:
+  - Percentage or Dollar Amount
+- Seller concessions percentage
+- Seller concessions dollar amount
+- Estimated closing costs
+- Annual property taxes
+- Homeowners insurance estimate
+- HOA / condo fees
+- FHA DPA selection, if FHA DPA is selected:
+  - 0% down
+  - Repayable or forgivable
+  - DPA second payment if repayable
+  - discount points/closing cost impact if forgivable
+- Loan term/amortization:
+  - 30-year or 15-year if applicable
+- Interest rate, if already calculated on Page 3
+- Any other Page 3 field currently used in the mortgage/payment/cash-to-close calculation
+
+Display formatting:
+- Money values should be formatted as currency.
+  Example: `$500,000`
+- Percent values should show clean decimals.
+  Example: `3.50%`
+- Interest rates should show 3 decimals.
+  Example: `6.775%`
+- Empty values should show:
+  `Not entered`
+  or `—`
+- Do not hide a field just because it is empty if the field affects the estimate.
+
+Grouping:
+Inside Review Your Answers, group by page or topic:
+
+Borrower Details
+- Income
+- Credit score
+- Monthly debts
+- Student loan adjustment
+- Assets
+
+Additional Questions
+- Property use
+- Veteran/VA eligibility
+- VA disability
+- Deferred student loans
+
+Purchase Details
+- Address
+- Purchase price
+- Property type
+- Loan type
+- Down payment
+- Seller concessions
+- Closing costs
+- Taxes
+- Insurance
+- HOA
+- Loan term
+
+Pencil/edit behavior:
+Each important row should have a pencil icon.
+
+When clicked:
+- For Page 1 items, allow editing Page 1 borrower details.
+- For Page 2 items, allow editing Page 2 additional questions.
+- For Page 3 items, allow editing Page 3 purchase details.
+- Edits should update the same scenario state used by See My Estimate.
+- After editing, See My Estimate should recalculate immediately.
+- Do not lose the selected address or Zillow/cache data.
+- Do not reset loan type/down payment/seller concession selections unless the edited field requires recalculation.
+
+Important state rules:
+- Review Your Answers should read from the same source of truth as the estimate calculations.
+- Do not duplicate separate review-only state.
+- If a value affects calculations, the review section should show the same value used in calculations.
+- If Page 3 and Page 4 fields are synced, the review section should show the synced value.
+- Do not show stale values.
+
+Specific issue to inspect:
+The current Review Your Answers section may have a hardcoded list that was not updated after new fields were added.
+
+Please inspect and add missing fields related to:
+- property type
+- down payment percent/dollar mode
+- seller concessions percent/dollar mode
+- deferred student loans
+- total monthly debts
+- FHA DPA
+- 15-year/30-year amortization
+- loan type dropdown
+- USDA
+- DSCR
+- HOA
+- insurance
+- property taxes
+
+Acceptance test:
+1. Start Purchase with Loan estimate.
+2. Complete Page 1 Borrower Details.
+3. Complete Page 2 Additional Questions.
+4. Complete Page 3 Purchase Details.
+5. Go to Page 4 / See My Estimate.
+6. Open Review Your Answers.
+7. Confirm all important fields from Pages 1–3 are visible.
+8. Confirm deferred student loans show if entered.
+9. Confirm property type shows.
+10. Confirm loan type shows.
+11. Confirm down payment mode, percent, and amount show.
+12. Confirm seller concessions mode, percent, and amount show.
+13. Confirm taxes, insurance, HOA, and closing costs show.
+14. Confirm FHA DPA details show when applicable.
+15. Confirm each editable row has a pencil icon.
+16. Click pencil on a Page 1 item and edit it.
+17. Confirm estimate recalculates and Review Your Answers updates.
+18. Click pencil on a Page 2 item and edit it.
+19. Confirm estimate recalculates and Review Your Answers updates.
+20. Click pencil on a Page 3 item and edit it.
+21. Confirm estimate recalculates and Review Your Answers updates.
+22. Refresh/logout/login and confirm saved scenario values still show correctly.
+
+Please make the smallest safe code change possible and tell me:
+- Which Review Your Answers component was changed
+- Which missing fields were added
+- How values are grouped by Page 1, Page 2, and Page 3
+- How pencil/edit behavior works for each group
+- How the review section avoids stale state
+- Which files/functions were changed
+```
