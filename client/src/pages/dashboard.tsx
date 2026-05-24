@@ -46,6 +46,10 @@ import {
 } from "@/components/refi/loan-tracker";
 import { calculateRefinance, calculateMonthlyPayment, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
 import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-refinance";
+import {
+  ensureInsuranceForAddresses,
+  type BulkAddress,
+} from "@/lib/insurance-from-property";
 import { AlertBell } from "@/components/dashboard/alert-bell";
 
 interface LiveRatesResponse { rates: LiveRate[]; source: string; disclaimer: string; asOf: string; }
@@ -1001,13 +1005,74 @@ function InsuranceTab() {
   }
 
   useEffect(() => {
-    function sync() {
-      setInsurance(getInsuranceScenarios());
-      setPurchases(getPurchaseScenarios());
-      setLoans(getTrackedLoans() as TrackedLoan[]);
+    async function sync() {
+      const ins = getInsuranceScenarios();
+      const pur = getPurchaseScenarios();
+      const cb = getCashBuyScenarios();
+      const tl = getTrackedLoans() as TrackedLoan[];
+      setInsurance(ins);
+      setPurchases(pur);
+      setLoans(tl);
+      // Backfill: ensure every Purchase / Cash-Buy / Refi property
+      // has a real `insurance_scenarios` row. Older scenarios saved
+      // before the auto-create wiring existed had no insurance row,
+      // so they rendered as derived (no stable insurance id → no
+      // trash icon). The helper is idempotent — `changed=false` when
+      // every address already has a matching row — so this never
+      // creates duplicates and never overwrites manual edits.
+      const addresses: BulkAddress[] = [
+        ...pur
+          .filter(p => p.address && p.address.trim().length > 0)
+          .map(p => ({
+            sourceType: "purchase" as const,
+            sourceScenarioId: p.id,
+            address: p.address,
+          })),
+        ...cb
+          .filter(c => c.address && c.address.trim().length > 0)
+          .map(c => ({
+            sourceType: "cash_buy" as const,
+            sourceScenarioId: c.id,
+            address: c.address,
+          })),
+        ...tl
+          .filter(l => l.propertyAddress && l.propertyAddress.trim().length > 0)
+          .map(l => ({
+            sourceType: "refinance" as const,
+            sourceScenarioId: l.id,
+            address: l.propertyAddress,
+          })),
+      ];
+      if (addresses.length === 0) return;
+      const { scenarios, changed } = ensureInsuranceForAddresses(addresses, ins);
+      if (!changed) return;
+      // Reflect locally so the trash icon appears immediately, before
+      // the next notify cycle round-trips through Supabase.
+      setInsurance(scenarios);
+      try {
+        // saveInsuranceScenarios notifies subscribers, which fires
+        // this sync() again. On that pass `changed` will be false
+        // (helper is idempotent), so no infinite loop.
+        await saveInsuranceScenarios(scenarios);
+      } catch (err: any) {
+        console.warn("[insurance-auto-create] backfill save failed", {
+          error: err?.message ?? String(err),
+        });
+        // Roll back the optimistic backfill so the UI doesn't show
+        // delete-enabled rows that aren't actually persisted.
+        setInsurance(ins);
+        toast({
+          title: "Couldn't sync insurance estimates",
+          description:
+            "Some insurance rows for your existing properties couldn't be saved. Refresh to retry.",
+          variant: "destructive",
+        });
+      }
     }
-    sync();
-    return subscribeAuthChange(sync);
+    void sync();
+    return subscribeAuthChange(() => {
+      void sync();
+    });
   }, []);
 
   const rows = buildInsuranceRows(insurance, purchases, loans);

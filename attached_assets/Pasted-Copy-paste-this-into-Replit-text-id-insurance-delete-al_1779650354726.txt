@@ -1,0 +1,138 @@
+Copy/paste this into Replit:
+
+```text id="insurance-delete-all-rows"
+Fix Insurance tab delete behavior so every Insurance property row can be deleted.
+
+Current issue:
+On Dashboard → Insurance, only some rows show the trash/delete icon.
+
+From the screenshot:
+- Some Insurance rows have a red trash icon and can be deleted.
+- Other rows do not show a trash icon.
+- The rows without trash icons appear to be insurance-related rows that may have originated from Purchase with Loan, Purchase with Cash, or Refinance.
+
+Requested behavior:
+Every property shown in the Insurance tab should be deletable from the Insurance tab.
+
+Important:
+If a property appears in the Insurance tab, it must have an actual saved `insurance_scenarios` row in Supabase.
+
+Do not render “virtual” Insurance rows from Purchase/Cash Buy/Refinance unless they have first been saved into `insurance_scenarios`.
+
+Expected behavior:
+1. Every row in Dashboard → Insurance should come from `insurance_scenarios`.
+2. Every row should have a stable `insurance_scenarios.id`.
+3. Every row should show a trash/delete icon.
+4. Clicking delete should delete only that Insurance scenario from `insurance_scenarios`.
+5. Deleting from Insurance should not delete the matching Purchase, Cash Buy, Refinance, or Sell Your Home record.
+6. Deleting from Insurance should not delete Zillow/property cache data.
+7. Deletion should persist after refresh/logout/login.
+
+Likely issue:
+Some Insurance rows may currently be rendered as “auto-attached” or “derived” rows from:
+- purchase_scenarios
+- cash_buy_scenarios
+- tracked_loans
+
+Those rows do not have an `insurance_scenarios.id`, so the UI does not show delete.
+
+Fix:
+Before showing any auto-correlated property in the Insurance tab, ensure it is persisted to `insurance_scenarios`.
+
+Implementation requirements:
+1. Inspect the Insurance tab overview row source.
+2. Identify why some rows have delete icons and some do not.
+3. Make sure the Insurance overview displays only normalized Insurance scenario records with stable IDs.
+4. If a related property from Purchase/Cash Buy/Refinance does not yet have an `insurance_scenarios` record:
+   - create one in `insurance_scenarios`
+   - then render that saved row
+5. Once saved, show the delete icon on that row.
+6. Do not create duplicate insurance rows.
+7. Match existing insurance scenarios by:
+   - `user_id`
+   - `normalized_property_key`
+8. If normalized key is missing, generate it consistently from address before saving.
+9. If the row came from another table, save these minimum fields to `insurance_scenarios`:
+   - id
+   - user_id
+   - full_address
+   - normalized_property_key
+   - occupancy_type, if available
+   - source/correlation fields if available
+   - status = estimate or draft
+   - created_at
+   - updated_at
+
+Delete behavior:
+For every Insurance row:
+- Show a trash icon.
+- On click, confirm:
+  “Delete this insurance estimate?”
+- If confirmed:
+  delete from `insurance_scenarios`
+  where id = insurance scenario id
+  and user_id = authenticated user id
+- Remove row from UI after delete succeeds.
+- Show success toast:
+  “Insurance estimate deleted.”
+- Show error toast if delete fails.
+
+Important:
+Do not show the delete icon only when `source === "manual"` or only when the row originated directly inside Insurance.
+
+All Insurance rows should be deletable, regardless of source:
+- manual insurance property
+- auto-created from Purchase with Loan
+- auto-created from Purchase with Cash
+- auto-created from Refinance
+- auto-correlated property
+
+Auto-create helper:
+Use or update the existing helper:
+
+`createOrUpdateInsuranceScenarioForProperty(...)`
+
+Make sure it runs for any property that is about to appear in the Insurance tab but is missing an `insurance_scenarios` row.
+
+Manual override protection:
+If an Insurance scenario already exists:
+- do not overwrite manually entered premium/deductible/carrier data
+- do not overwrite manual occupancy changes
+- only update missing correlation/source fields
+
+Duplicate protection:
+Do not create duplicate rows for the same:
+- user_id
+- normalized_property_key
+
+If duplicate rows already exist:
+- do not try to merge them in this task unless necessary
+- just make sure each visible row has a delete option
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Insurance.
+3. Confirm every visible Insurance property row has a trash/delete icon.
+4. Delete a row that was manually added in Insurance.
+5. Confirm it deletes and stays deleted after refresh.
+6. Delete a row that came from Purchase with Loan.
+7. Confirm it deletes from Insurance only.
+8. Confirm the Purchase with Loan row still exists.
+9. Delete a row that came from Purchase with Cash.
+10. Confirm it deletes from Insurance only.
+11. Delete a row that came from Refinance.
+12. Confirm it deletes from Insurance only.
+13. Refresh/logout/login.
+14. Confirm deleted Insurance rows do not reappear unless the source scenario is newly saved again and intentionally auto-creates a new Insurance scenario.
+15. Confirm no duplicate Insurance rows are created.
+16. Confirm all remaining Insurance rows still open View/Edit correctly.
+
+Please make the smallest safe code change possible and tell me:
+- Why some Insurance rows were missing the trash icon
+- Which Insurance overview data source was changed
+- How rows from other tabs are persisted into `insurance_scenarios`
+- Which delete function is used
+- How linked Purchase/Cash Buy/Refinance rows are preserved
+- How duplicate Insurance records are prevented
+- Which files/functions were changed
+```
