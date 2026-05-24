@@ -35,6 +35,13 @@ interface LeadCaptureDialogProps {
 
 type Step = "agent" | "info" | "verify" | "done";
 
+// Agent picker step is hidden for now — every lead defaults to the
+// FUB-routed "Team" assignment (server maps "Team" → Christian
+// Tateo → FUB_AGENT_IDS[1]). The AGENTS list and "agent" step are
+// kept in the component so we can re-enable the picker later
+// without rewriting the flow.
+const DEFAULT_AGENT_NAME = "Team";
+
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export default function LeadCaptureDialog({
@@ -45,7 +52,7 @@ export default function LeadCaptureDialog({
   scenarioDetails,
   onSuccess,
 }: LeadCaptureDialogProps) {
-  const [step, setStep] = useState<Step>("agent");
+  const [step, setStep] = useState<Step>("info");
   const [agentId, setAgentId] = useState<AgentId | null>(null);
 
   const [firstName, setFirstName] = useState("");
@@ -66,7 +73,8 @@ export default function LeadCaptureDialog({
   // Reset on open
   useEffect(() => {
     if (open) {
-      setStep("agent");
+      // Skip the agent picker — leads default to "Team" / FUB.
+      setStep("info");
       setAgentId(null);
       setFirstName(""); setLastName(""); setEmail(""); setPhone("");
       setCode(""); setDevCode(null); setError(""); setCountdown(0);
@@ -122,7 +130,7 @@ export default function LeadCaptureDialog({
 
       if (!data.smsEnabled && data.autoCode) {
         // Twilio not configured — auto-verify silently, skip the verify step
-        const agentName = AGENTS.find(a => a.id === agentId)?.name ?? "";
+        const agentName = AGENTS.find(a => a.id === agentId)?.name ?? DEFAULT_AGENT_NAME;
         const verifyRes = await fetch("/api/leads/verify", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -178,7 +186,7 @@ export default function LeadCaptureDialog({
     if (code.length !== 6) return setError("Please enter the 6-digit code.");
     setVerifying(true);
     try {
-      const agentName = AGENTS.find(a => a.id === agentId)?.name ?? "";
+      const agentName = AGENTS.find(a => a.id === agentId)?.name ?? DEFAULT_AGENT_NAME;
       const res = await fetch("/api/leads/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -217,7 +225,8 @@ export default function LeadCaptureDialog({
 
   // ── Step indicator labels ────────────────────────────────────────────────
 
-  const STEPS: Step[] = ["agent", "info", "verify"];
+  // Agent step removed from the indicator — users now start at "Your Info".
+  const STEPS: Step[] = ["info", "verify"];
   const stepLabels: Record<Step, string> = {
     agent: "Agent", info: "Your Info", verify: "Verify", done: "Done",
   };
@@ -280,27 +289,11 @@ export default function LeadCaptureDialog({
           </div>
         )}
 
-        {/* ── Step 2: Personal info + phone ── */}
+        {/* ── Step 2: Personal info + phone ──
+            Agent step is hidden for now; the "Working with …" banner
+            and Back-to-agent control are intentionally omitted. */}
         {step === "info" && (
           <div className="space-y-4">
-            {/* Selected agent reminder */}
-            {agentId && (
-              <div className="flex items-center gap-2 bg-primary/5 border border-primary/20 rounded-lg px-3 py-2">
-                <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-white shrink-0">
-                  {AGENTS.find(a => a.id === agentId)?.initials}
-                </div>
-                <span className="text-sm text-foreground">
-                  Working with <strong>{AGENTS.find(a => a.id === agentId)?.name}</strong>
-                </span>
-                <button
-                  onClick={() => { setStep("agent"); setError(""); }}
-                  className="ml-auto text-xs text-primary hover:underline"
-                >
-                  Change
-                </button>
-              </div>
-            )}
-
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="lc-first" className="text-sm">First Name</Label>
@@ -351,15 +344,12 @@ export default function LeadCaptureDialog({
 
             {error && <p className="text-xs text-destructive">{error}</p>}
 
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => { setError(""); setStep("agent"); }}>
-                Back
-              </Button>
-              <Button className="flex-1" onClick={handleInfoNext} disabled={sending}>
-                {sending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
-                {sending ? "Sending…" : "Send Code"}
-              </Button>
-            </div>
+            {/* "Back to agent" button removed — the agent step is
+                hidden, so there's nowhere to go back to. */}
+            <Button className="w-full" onClick={handleInfoNext} disabled={sending}>
+              {sending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+              {sending ? "Sending…" : "Send Code"}
+            </Button>
           </div>
         )}
 

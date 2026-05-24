@@ -1,0 +1,116 @@
+Copy/paste this into Replit:
+
+```text
+Remove the “choose an agent / who are you working with” requirement from account creation, Save Scenario, and Share flows.
+
+Current issue:
+When a user creates an account, clicks Save Scenario, or clicks Share, the app sometimes asks them to choose which agent/rep they are working with.
+
+I do not want that right now.
+
+Requested behavior:
+For now, do not ask users to pick an agent/rep at any point.
+
+This applies to:
+- account creation
+- login/signup after clicking Save Scenario
+- login/signup after clicking Share
+- saving a scenario
+- sharing a scenario
+- lead capture
+- dashboard entry
+- any flow where the app currently asks “who are you working with?”
+
+Instead:
+Push everyone to my Follow Up Boss/FUB account by default.
+
+Expected behavior:
+1. User creates an account.
+2. App does not ask them to choose an agent.
+3. User clicks Save Scenario while logged out.
+4. Auth dialog opens.
+5. User logs in/signs up.
+6. Scenario saves automatically.
+7. App does not ask them to choose an agent.
+8. User clicks Share while logged out.
+9. Auth dialog opens.
+10. User logs in/signs up.
+11. Scenario saves/shares automatically.
+12. App does not ask them to choose an agent.
+13. Any lead alert generated should go to my FUB account by default.
+
+FUB default routing:
+All users/leads/scenarios should route to the default FUB destination already configured in the app.
+
+If there is an environment variable for FUB, use it, such as:
+- FUB_ALERT_EMAIL
+- FUB_LEAD_EMAIL
+- FOLLOW_UP_BOSS_EMAIL
+- or the existing FUB destination already used in the app
+
+If no default FUB destination exists, tell me what env var needs to be added.
+
+Important:
+- Do not remove the agent/rep selection code permanently if it may be useful later.
+- Hide or bypass it for now.
+- Default all leads to my FUB account.
+- Do not block save/share/account creation on agent selection.
+- Do not require `assignedAgent`, `selectedRep`, `workingWith`, or similar fields to be filled before saving.
+- Do not show a blank required field error for agent/rep.
+- Do not break existing scenario saves.
+- Do not break lead alerts.
+- Do not break FUB email formatting.
+
+Implementation requirements:
+1. Find all places where the app asks:
+   - who are you working with?
+   - select an agent
+   - choose a representative
+   - selected rep
+   - assigned agent
+   - workingWith
+2. Remove/hide/bypass that step from normal user flows.
+3. If backend validation requires an agent/rep field, change it so it is optional or auto-filled with the default FUB routing value.
+4. Make sure Save Scenario and Share continue after login/signup without agent selection.
+5. Make sure account creation completes without agent selection.
+6. Make sure lead alerts still send to FUB.
+7. Make sure existing users who already selected an agent are not broken.
+8. Make sure future users default to FUB.
+
+Suggested fallback values:
+If a field is still required internally, use:
+- assigned_agent = "default"
+- assigned_agent_name = "Tateo & Co"
+- assigned_agent_email = value from FUB env var
+- lead_destination = "fub_default"
+
+But prefer making agent selection optional rather than forcing fake data.
+
+Acceptance test:
+1. Log out.
+2. Start a new scenario.
+3. Click Save Scenario.
+4. Create an account.
+5. Confirm no “choose agent / who are you working with” screen appears.
+6. Confirm the scenario saves successfully.
+7. Log out again.
+8. Start a scenario.
+9. Click Share.
+10. Create/log into account.
+11. Confirm no agent selection appears.
+12. Confirm share action continues.
+13. Create a brand-new account from the normal signup path.
+14. Confirm no agent selection appears.
+15. Confirm lead alert still goes to my FUB destination.
+16. Confirm dashboard still loads.
+17. Confirm existing saved scenarios still work.
+18. Confirm no required-field errors occur because agent/rep is missing.
+
+Please make the smallest safe code change possible and tell me:
+- Which agent/rep selection components or checks were bypassed
+- Which save/share/auth flows were updated
+- How everyone is routed to FUB by default
+- Which FUB env var or destination is used
+- Whether any backend validation was changed
+- Which files/functions were changed
+```

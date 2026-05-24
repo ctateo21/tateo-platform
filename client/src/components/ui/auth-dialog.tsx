@@ -7,9 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { login, register, AGENTS, type AgentId } from "@/lib/auth";
+import { login, register } from "@/lib/auth";
 import { useAuth } from "@/context/auth-context";
-import { Users } from "lucide-react";
+
+// Default agent assigned to every newly-registered user. Routed to
+// Christian Tateo's FUB account by the server (see
+// createFollowUpBossContact in server/routes.ts, which maps "Team"
+// → Christian → FUB_AGENT_IDS[1]). The full agent-picker UI is
+// hidden for now per product decision; this single default keeps
+// all new leads flowing into the same FUB destination.
+const DEFAULT_AGENT_NAME = "Team";
 
 interface AuthDialogProps {
   open: boolean;
@@ -32,7 +39,6 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
   const [regPhone, setRegPhone] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regConfirm, setRegConfirm] = useState("");
-  const [regAgent, setRegAgent] = useState<AgentId | null>(null);
   const [regError, setRegError] = useState("");
   const [regLoading, setRegLoading] = useState(false);
 
@@ -64,16 +70,16 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     if (phoneDigits.length < 10) { setRegError("Please enter a valid 10-digit cell number."); return; }
     if (regPassword.length < 6) { setRegError("Password must be at least 6 characters."); return; }
     if (regPassword !== regConfirm) { setRegError("Passwords do not match."); return; }
-    if (!regAgent) { setRegError("Please pick the agent you want to work with."); return; }
-    const agentName = AGENTS.find(a => a.id === regAgent)?.name ?? "Team";
+    // Agent picker hidden for now — all new accounts default to the
+    // FUB-routed "Team" assignment. See DEFAULT_AGENT_NAME above.
     setRegLoading(true);
-    const result = await register(regName, regEmail, regPassword, { phone: phoneDigits, agent: agentName });
+    const result = await register(regName, regEmail, regPassword, { phone: phoneDigits, agent: DEFAULT_AGENT_NAME });
     setRegLoading(false);
     if (!result.ok) { setRegError(result.error || "Registration failed."); return; }
     refresh();
     onOpenChange(false);
     // reset
-    setRegName(""); setRegEmail(""); setRegPhone(""); setRegPassword(""); setRegConfirm(""); setRegAgent(null);
+    setRegName(""); setRegEmail(""); setRegPhone(""); setRegPassword(""); setRegConfirm("");
   }
 
   return (
@@ -193,34 +199,12 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
                   autoComplete="new-password"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>Which agent would you like to work with?</Label>
-                <p className="text-xs text-muted-foreground">You'll be assigned to them — we won't ask again.</p>
-                <div className="grid grid-cols-4 gap-2 pt-1">
-                  {AGENTS.map(agent => (
-                    <button
-                      key={agent.id}
-                      type="button"
-                      onClick={() => setRegAgent(agent.id)}
-                      className={`flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-all ${
-                        regAgent === agent.id
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                    >
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold text-white ${
-                        agent.id === "team" ? "bg-secondary" : "bg-primary"
-                      }`}>
-                        {agent.id === "team"
-                          ? <Users className="h-4 w-4" />
-                          : <span>{agent.initials}</span>
-                        }
-                      </div>
-                      <span className="text-[10px] font-medium text-center leading-tight">{agent.name.split(" ")[0]}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+              {/* Agent picker intentionally hidden for now — every
+                  new account is auto-assigned to the FUB-routed
+                  "Team" default. The picker UI and AGENTS list are
+                  kept in source for future re-enablement; users can
+                  also change their assigned agent later from
+                  /settings, which is left untouched. */}
               {regError && (
                 <Alert variant="destructive" className="py-2">
                   <AlertDescription>{regError}</AlertDescription>
