@@ -1,27 +1,31 @@
-// Auto-populates a Sell Your Home (`seller_scenarios`) draft from a
+// Auto-populates a Sell-Your-Home (`seller_scenarios`) draft from a
 // refinance `TrackedLoan` whenever the user uploads a mortgage
-// statement in the Refinance tab.
+// statement OR edits the estimated home value / loan balance in the
+// Refinance tab.
 //
-// Match key: `normalized_property_key` (with a case-insensitive
-// `full_address` fallback for older rows that pre-date the
-// normalized key column). Matching is scoped to the current user
-// implicitly via `saveSellerScenarios`, which only ever persists
-// rows for `_session.id`.
+// Match key: `normalized_property_key` first (durable across
+// formatting changes), case-insensitive `full_address` as fallback.
+// Matching is scoped to the current user implicitly via
+// `saveSellerScenarios`, which only ever persists rows for
+// `_session.id`.
 //
-// Manual-override protection without a schema migration:
-//   - For a brand-new scenario we fill every refinance-derived
-//     field (estimated_sale_price, mortgage_payoff, the 5%/1%
-//     defaults, and the four zero-valued cost fields).
-//   - For an existing scenario we only fill a field if the user
-//     hasn't touched it yet (current value is `undefined`/`null`).
-//     A value of 0 is treated as a deliberate user edit and is
-//     preserved — same convention the seller-estimate UI uses when
-//     it persists "user cleared this to zero" intent.
+// Manual-override protection is now provenance-based via the
+// `*_source` columns added by 2026_05_24_seller_scenario_sources.sql.
+// For each refinance-derived field we overwrite ONLY when the
+// existing row's source is NOT `"manual"`. NULL/undefined source is
+// treated as "auto" (overridable) — legacy rows that pre-date the
+// migration still get refreshed from the latest refinance values.
 //
-// We intentionally do NOT add `*_source` columns to the table; the
-// "only fill when blank" rule covers every acceptance test below
-// without a migration, and a future migration can layer real source
-// tracking on top of this helper without changing the call sites.
+// Priority order for `estimated_sale_price` (matches the user's spec):
+//   1. Manual seller edit       (source = "manual"          → never overwritten)
+//   2. Refinance UI value       (source = "refinance"       → wins over Zillow)
+//   3. Zillow / property cache  (source = "zillow"          → fallback)
+//   4. blank/undefined          (source = NULL              → fillable by anyone)
+//
+// This module never triggers Market Analysis. Auto-created scenarios
+// are always status="draft"; Market Analysis is gated to
+// "ready_to_list" | "listed" elsewhere (seller-estimate page,
+// /api/listing-market-analysis route, weekly scheduler).
 
 import {
   type SellerScenario,
@@ -47,8 +51,7 @@ export interface SyncSellerFromRefinanceResult {
   scenarios: SellerScenario[];
   scenarioId: string;
   /** True when the matched/created scenario actually changed and the
-   *  caller should persist via `saveSellerScenarios`. False when the
-   *  existing scenario already had all user-set values (no-op). */
+   *  caller should persist via `saveSellerScenarios`. */
   changed: boolean;
   action: "created" | "updated" | "noop";
 }
@@ -70,8 +73,8 @@ function pickPositive(...vals: Array<number | undefined | null>): number | undef
   return undefined;
 }
 
-/** Net proceeds = sale price − payoff − commission$ − closing − concessions − repairs − other.
- *  Mirrors the formula the seller-estimate page uses for its UI display. */
+/** Net proceeds = price − payoff − commission$ − closing − concessions − repairs − other.
+ *  Mirrors the formula the seller-estimate page uses for display. */
 function computeNetProceeds(s: Pick<SellerScenario,
   | "estimatedSalePrice" | "mortgagePayoff" | "realtorCommissionPct"
   | "sellerClosingCosts" | "buyerConcessions" | "repairBudget" | "otherSellingCosts"
@@ -88,17 +91,16 @@ function computeNetProceeds(s: Pick<SellerScenario,
   return Math.round(price - payoff - commissionDollars - closing - concessions - repairs - other);
 }
 
-/** "Blank" = field has never been set by the user. We deliberately
- *  treat 0 as a real user edit (cleared default) so we never bounce
- *  a hand-cleared commission/closing-costs back to the 5%/1% seeds. */
-function isBlank(v: number | undefined | null): boolean {
-  return v === undefined || v === null;
+/** True when this field can be safely overwritten by refinance. A
+ *  field is locked only when its source is explicitly "manual". Any
+ *  other value (refinance/zillow/default/NULL) is overridable so
+ *  fresh refinance data always beats stale Zillow/cache values. */
+function isOverridable(source: string | undefined | null): boolean {
+  return source !== "manual";
 }
 
 /** Builds the canonical seller-scenario shape from a refinance tracked
- *  loan + (optionally) a previously-existing scenario. Returns the next
- *  scenario object (always a new reference when anything changed) and
- *  whether anything actually changed. */
+ *  loan + (optionally) a previously-existing scenario. */
 function mergeFromRefinance(
   existing: SellerScenario | null,
   trackedLoan: TrackedLoan,
@@ -111,12 +113,24 @@ function mergeFromRefinance(
   const refPayoff = pickPositive(trackedLoan.loanBalance);
   const now = new Date().toISOString();
 
+  // ── Debug logs (kept terse; user explicitly asked for these) ──
+  console.log("[refi-to-seller] refinance estimated home value field", {
+    field: "TrackedLoan.estimatedHomeValue",
+    value: trackedLoan.estimatedHomeValue,
+  });
+  console.log("[refi-to-seller] refinance value used", { refSalePrice, refPayoff });
+  console.log("[refi-to-seller] existing seller value", {
+    estimatedSalePrice: existing?.estimatedSalePrice,
+    estimatedSalePriceSource: existing?.estimatedSalePriceSource,
+    mortgagePayoff: existing?.mortgagePayoff,
+    mortgagePayoffSource: existing?.mortgagePayoffSource,
+  });
+
   if (!existing) {
-    // Brand-new scenario: seed every refinance-derived field. Costs
-    // that have no refinance signal default to 0 so net_proceeds is
-    // immediately computable and the UI shows a real number.
+    // Brand-new scenario: seed every refinance-derived field and
+    // stamp provenance so subsequent edits in seller-estimate can
+    // be detected as manual overrides.
     const salePrice = refSalePrice;
-    const commissionPct = DEFAULT_REALTOR_COMMISSION_PCT;
     const sellerClosingCosts = salePrice
       ? Math.round(salePrice * DEFAULT_SELLER_CLOSING_COSTS_PCT)
       : undefined;
@@ -127,9 +141,13 @@ function mergeFromRefinance(
       savedAt: now,
       updatedAt: now,
       estimatedSalePrice: salePrice,
+      estimatedSalePriceSource: salePrice != null ? "refinance" : undefined,
       mortgagePayoff: refPayoff,
-      realtorCommissionPct: commissionPct,
+      mortgagePayoffSource: refPayoff != null ? "refinance_statement" : undefined,
+      realtorCommissionPct: DEFAULT_REALTOR_COMMISSION_PCT,
+      realtorCommissionSource: "default_5_percent",
       sellerClosingCosts,
+      sellerClosingCostsSource: sellerClosingCosts != null ? "default_1_percent" : undefined,
       buyerConcessions: 0,
       repairBudget: 0,
       otherSellingCosts: 0,
@@ -138,39 +156,79 @@ function mergeFromRefinance(
       propertyPhotos: photos?.propertyPhotos,
     };
     draft.netProceeds = computeNetProceeds(draft);
+    console.log("[refi-to-seller] manual override true/false", { false: true });
+    console.log("[refi-to-seller] final seller estimated sale price", { value: draft.estimatedSalePrice });
+    console.log("[refi-to-seller] seller status", { status: draft.status });
     return { next: draft, changed: true };
   }
 
-  // Existing scenario: fill only blank fields. A 0 is treated as a
-  // user edit and preserved (see isBlank()).
+  // Existing scenario: overwrite ONLY fields whose source is not
+  // "manual". Legacy rows (source == null/undefined) are treated as
+  // overridable so refinance data still wins until the user touches
+  // the field in seller-estimate.
   const next: SellerScenario = { ...existing };
   let changed = false;
+  let manualOverrideAny = false;
 
-  // Backfill normalized key on legacy rows that don't have one.
   if (!next.normalizedPropertyKey && normalizedKey) {
     next.normalizedPropertyKey = normalizedKey;
     changed = true;
   }
 
-  if (isBlank(next.estimatedSalePrice) && typeof refSalePrice === "number") {
-    next.estimatedSalePrice = refSalePrice;
-    changed = true;
+  // ESTIMATED SALE PRICE — refinance UI value wins over Zillow.
+  if (typeof refSalePrice === "number" && isOverridable(next.estimatedSalePriceSource)) {
+    if (next.estimatedSalePrice !== refSalePrice) {
+      next.estimatedSalePrice = refSalePrice;
+      next.estimatedSalePriceSource = "refinance";
+      changed = true;
+    }
+  } else if (!isOverridable(next.estimatedSalePriceSource)) {
+    manualOverrideAny = true;
   }
-  if (isBlank(next.mortgagePayoff) && typeof refPayoff === "number") {
-    next.mortgagePayoff = refPayoff;
-    changed = true;
+
+  // MORTGAGE PAYOFF — refresh from latest statement unless user-locked.
+  if (typeof refPayoff === "number" && isOverridable(next.mortgagePayoffSource)) {
+    if (next.mortgagePayoff !== refPayoff) {
+      next.mortgagePayoff = refPayoff;
+      next.mortgagePayoffSource = "refinance_statement";
+      changed = true;
+    }
+  } else if (!isOverridable(next.mortgagePayoffSource)) {
+    manualOverrideAny = true;
   }
-  if (isBlank(next.realtorCommissionPct)) {
-    next.realtorCommissionPct = DEFAULT_REALTOR_COMMISSION_PCT;
-    changed = true;
+
+  // REALTOR COMMISSION — re-apply 5% default only if user hasn't
+  // touched it. We don't re-derive from a changing sale price; the
+  // commission is a percent, not a dollar amount.
+  if (isOverridable(next.realtorCommissionSource)) {
+    if (next.realtorCommissionPct !== DEFAULT_REALTOR_COMMISSION_PCT) {
+      next.realtorCommissionPct = DEFAULT_REALTOR_COMMISSION_PCT;
+      next.realtorCommissionSource = "default_5_percent";
+      changed = true;
+    }
+  } else {
+    manualOverrideAny = true;
   }
-  if (isBlank(next.sellerClosingCosts) && typeof next.estimatedSalePrice === "number") {
-    next.sellerClosingCosts = Math.round(next.estimatedSalePrice * DEFAULT_SELLER_CLOSING_COSTS_PCT);
-    changed = true;
+
+  // SELLER CLOSING COSTS — re-derive 1% of the current sale price
+  // whenever the sale price changed and the user hasn't locked it.
+  if (isOverridable(next.sellerClosingCostsSource) && typeof next.estimatedSalePrice === "number") {
+    const newClosing = Math.round(next.estimatedSalePrice * DEFAULT_SELLER_CLOSING_COSTS_PCT);
+    if (next.sellerClosingCosts !== newClosing) {
+      next.sellerClosingCosts = newClosing;
+      next.sellerClosingCostsSource = "default_1_percent";
+      changed = true;
+    }
+  } else if (!isOverridable(next.sellerClosingCostsSource)) {
+    manualOverrideAny = true;
   }
-  if (isBlank(next.buyerConcessions)) { next.buyerConcessions = 0; changed = true; }
-  if (isBlank(next.repairBudget))     { next.repairBudget = 0;     changed = true; }
-  if (isBlank(next.otherSellingCosts)){ next.otherSellingCosts = 0; changed = true; }
+
+  // The remaining cost buckets default to 0 only when blank. We never
+  // overwrite a non-undefined value here — the helper has no signal
+  // about user intent for these and the existing zero is fine.
+  if (next.buyerConcessions == null)  { next.buyerConcessions = 0;  changed = true; }
+  if (next.repairBudget == null)      { next.repairBudget = 0;      changed = true; }
+  if (next.otherSellingCosts == null) { next.otherSellingCosts = 0; changed = true; }
 
   // Photos: backfill empty slots only, never overwrite user choices.
   if (!next.primaryPhotoUrl && photos?.primaryPhotoUrl) {
@@ -186,16 +244,16 @@ function mergeFromRefinance(
     next.netProceeds = computeNetProceeds(next);
     next.updatedAt = now;
     // Status is preserved — never auto-advance past whatever the
-    // user picked (draft/reviewing/ready_to_list/listed/sold).
+    // user picked. This is also what keeps Market Analysis safe:
+    // an auto-update from refinance never bumps status above draft.
     next.status = (existing.status ?? "draft") as SellerScenarioStatus;
   }
+  console.log("[refi-to-seller] manual override true/false", { hasManual: manualOverrideAny });
+  console.log("[refi-to-seller] final seller estimated sale price", { value: next.estimatedSalePrice });
+  console.log("[refi-to-seller] seller status", { status: next.status });
   return { next, changed };
 }
 
-/** Find an existing seller scenario for the given tracked-loan address.
- *  Prefers the normalized property key (durable across formatting
- *  changes) and falls back to a case-insensitive full-address match
- *  for older rows persisted before normalization shipped. */
 function findExistingScenario(
   scenarios: SellerScenario[],
   trackedLoan: TrackedLoan,
@@ -215,9 +273,9 @@ function findExistingScenario(
  * array unchanged when there was nothing to do) plus the id of the
  * matched/created seller scenario.
  *
- * The caller is responsible for persisting via `saveSellerScenarios`
- * when `changed === true`. We keep persistence out of this module so
- * it stays pure and trivially testable.
+ * The caller persists via `saveSellerScenarios` when
+ * `changed === true`. Persistence is kept out of this module so the
+ * merge stays pure and trivially testable.
  */
 export function createOrUpdateSellerScenarioFromRefinance(
   input: SyncSellerFromRefinanceInput,

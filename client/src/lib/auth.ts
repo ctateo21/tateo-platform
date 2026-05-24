@@ -95,6 +95,16 @@ export type SellerScenarioStatus =
   | "listed"
   | "sold";
 
+/** Provenance for refinance-derived seller fields. "manual" means the
+ *  user edited the value in the Sell-Your-Home detail view and must
+ *  never be overwritten by a subsequent refinance upload. NULL/undefined
+ *  is treated as "auto / overridable" by the seller-from-refinance helper.
+ *  See supabase/migrations/2026_05_24_seller_scenario_sources.sql. */
+export type SellerEstimatedSalePriceSource = "refinance" | "zillow" | "manual";
+export type SellerMortgagePayoffSource = "refinance_statement" | "manual";
+export type SellerRealtorCommissionSource = "default_5_percent" | "manual";
+export type SellerClosingCostsSource = "default_1_percent" | "manual";
+
 export interface SellerScenario {
   id: string;
   address: string;
@@ -114,6 +124,11 @@ export interface SellerScenario {
   status: SellerScenarioStatus;
   primaryPhotoUrl?: string;
   propertyPhotos?: string[];
+  // Provenance for refinance-derived fields. See the type aliases above.
+  estimatedSalePriceSource?: SellerEstimatedSalePriceSource;
+  mortgagePayoffSource?: SellerMortgagePayoffSource;
+  realtorCommissionSource?: SellerRealtorCommissionSource;
+  sellerClosingCostsSource?: SellerClosingCostsSource;
 }
 
 export type CashBuyOccupancyType = "primary" | "secondary" | "investment";
@@ -396,6 +411,12 @@ function rowToSeller(row: any): SellerScenario {
     status,
     primaryPhotoUrl: row.primary_photo_url ?? undefined,
     propertyPhotos: photos,
+    // Provenance — null/undefined means "auto / overridable" (legacy
+    // rows pre-date the 2026_05_24 migration that added these columns).
+    estimatedSalePriceSource: (row.estimated_sale_price_source ?? undefined) as SellerEstimatedSalePriceSource | undefined,
+    mortgagePayoffSource:     (row.mortgage_payoff_source      ?? undefined) as SellerMortgagePayoffSource | undefined,
+    realtorCommissionSource:  (row.realtor_commission_source   ?? undefined) as SellerRealtorCommissionSource | undefined,
+    sellerClosingCostsSource: (row.seller_closing_costs_source ?? undefined) as SellerClosingCostsSource | undefined,
   };
 }
 function sellerToRow(s: SellerScenario, userId: string) {
@@ -417,6 +438,10 @@ function sellerToRow(s: SellerScenario, userId: string) {
     status: s.status ?? "draft",
     primary_photo_url: s.primaryPhotoUrl ?? null,
     property_photos: s.propertyPhotos ?? null,
+    estimated_sale_price_source: s.estimatedSalePriceSource ?? null,
+    mortgage_payoff_source:      s.mortgagePayoffSource ?? null,
+    realtor_commission_source:   s.realtorCommissionSource ?? null,
+    seller_closing_costs_source: s.sellerClosingCostsSource ?? null,
   };
 }
 // Maps a Supabase `cash_buy_scenarios` row to the in-memory shape used

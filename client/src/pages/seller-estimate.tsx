@@ -297,7 +297,17 @@ export default function SellerEstimatePage() {
   }, [scenario, isAuthenticated]);
 
   function update<K extends keyof SellerScenario>(field: K, value: SellerScenario[K]) {
-    setScenario(prev => ({ ...prev, [field]: value }));
+    setScenario(prev => {
+      const next: SellerScenario = { ...prev, [field]: value };
+      // Stamp provenance when the user edits one of the four
+      // refinance-derived fields so a future refinance upload won't
+      // overwrite their manual entry. See seller-from-refinance.ts.
+      if (field === "estimatedSalePrice")   next.estimatedSalePriceSource = "manual";
+      else if (field === "mortgagePayoff")  next.mortgagePayoffSource = "manual";
+      else if (field === "realtorCommissionPct") next.realtorCommissionSource = "manual";
+      else if (field === "sellerClosingCosts")   next.sellerClosingCostsSource = "manual";
+      return next;
+    });
   }
 
   const sale = scenario.estimatedSalePrice ?? 0;
@@ -789,11 +799,25 @@ function MarketAnalysisSection({
     }
   }
 
-  // Fire once per (listingId, userId) pair on mount. Only re-fires if the
-  // user switches to a different listing.
+  // Market Analysis gating: only auto-fetch when the seller scenario
+  // is actually being marketed. Draft/blank scenarios get a clean
+  // placeholder and never trigger Anthropic / web search / scraper /
+  // weekly job. Allowed statuses match the spec exactly.
+  const marketAnalysisAllowed = scenario.status === "ready_to_list" || scenario.status === "listed";
+
+  // Fire once per (listingId, userId, status-gate) on mount. Re-fires
+  // if the user switches listings OR flips status into an allowed
+  // state (so promoting Draft → Ready to List loads/generates the
+  // analysis immediately).
   useEffect(() => {
     if (!userId) return;
-    const key = `${scenario.id}::${userId}`;
+    if (!marketAnalysisAllowed) {
+      console.log("[market-analysis] skipped because seller status is draft", {
+        scenarioId: scenario.id, status: scenario.status,
+      });
+      return;
+    }
+    const key = `${scenario.id}::${userId}::${scenario.status}`;
     if (requestedRef.current === key) return;
     requestedRef.current = key;
     fetchAnalysis(false);
@@ -801,7 +825,7 @@ function MarketAnalysisSection({
       if (pollTimerRef.current) { clearTimeout(pollTimerRef.current); pollTimerRef.current = null; }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenario.id, userId]);
+  }, [scenario.id, userId, marketAnalysisAllowed]);
 
   // While Supabase hydration is in flight we don't yet know whether the user
   // is signed in — show a loader instead of flashing a sign-in CTA.
@@ -818,6 +842,26 @@ function MarketAnalysisSection({
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading market analysis…
           </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Status-gated placeholder. Shown BEFORE the auth check would
+  // otherwise hide it — a logged-in user with a Draft scenario sees
+  // this clean message instead of the loading/empty/error variants.
+  if (userId && !marketAnalysisAllowed) {
+    return (
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" /> Market Analysis
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">
+            This market analysis will run when the property is marked Ready to List or Listed.
+          </p>
         </CardContent>
       </Card>
     );

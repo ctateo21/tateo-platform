@@ -1,0 +1,170 @@
+Copy/paste this into Replit:
+
+```text id="ivycbb"
+Fix the Refinance → Sell Your Home auto-create mapping and stop Market Analysis from running for Draft seller scenarios.
+
+Current issue 1:
+When I upload a mortgage statement in the Refinance tab, it correctly creates a Sell Your Home scenario for the same address.
+
+But the estimated sale price is wrong.
+
+Example:
+- Refinance tab estimated home value: $386,000
+- Auto-created Sell Your Home estimated sale price: $375,000
+
+Expected behavior:
+The Sell Your Home estimated sale price must use the estimated home value from the Refinance tab.
+
+Mapping rule:
+When creating/updating the Sell Your Home scenario from Refinance:
+
+seller_scenarios.estimated_sale_price = tracked_loans.estimated_home_value
+
+or whatever exact field the Refinance UI is using/displaying as the home value.
+
+Do not use:
+- Zillow Zestimate if the Refinance tab has a user-entered/refinance-displayed estimated home value
+- old cached property value
+- rent estimate
+- prior seller scenario value unless manually overridden
+- fallback value when refinance value exists
+
+Priority order for Sell Your Home estimated sale price:
+1. Manual Sell Your Home estimated sale price, if user manually edited it
+2. Refinance tab estimated home value / estimated property value
+3. Zillow/property cache home value
+4. blank/0 only if no value is available
+
+Important:
+If the Refinance tab shows $386,000, Sell Your Home must show $386,000 unless the Sell Your Home field was manually edited.
+
+Please inspect the exact field used by the Refinance UI for “Est. Home Value” and use that same field in the auto-create mapping.
+
+Current issue 2:
+When the Sell Your Home scenario is auto-created from a refinance upload, the app also created/ran Market Analysis.
+
+That should not happen.
+
+Expected behavior:
+Auto-created Sell Your Home scenarios from Refinance should be created with:
+
+status = "draft"
+
+Market Analysis should NOT run for Draft status.
+
+Only run full Market Analysis when Sell Your Home status is:
+- ready_to_list
+- listed
+
+Do not run Market Analysis when status is:
+- draft
+- estimate
+- inactive
+- blank/null
+
+Market Analysis gating rule:
+Before running or queuing any market analysis, check seller scenario status.
+
+Allowed:
+status === "ready_to_list" || status === "listed"
+
+Blocked:
+status === "draft" || !status
+
+If blocked, the Sell Your Home detail view should show a clean placeholder:
+“This market analysis will run when the property is marked Ready to List or Listed.”
+
+Do not call:
+- Anthropic
+- Anthropic web search
+- Realtor.com scraper
+- market analysis weekly job
+- market analysis cache generation
+
+for Draft seller scenarios.
+
+Weekly Market Analysis job:
+Update the weekly Friday 8:00 AM Market Analysis job so it only processes seller scenarios where status is:
+- ready_to_list
+- listed
+
+It should skip Draft scenarios entirely.
+
+Auto-created Sell Your Home from Refinance:
+When creating the seller scenario:
+- full_address = refinance property address
+- normalized_property_key = refinance normalized property key
+- estimated_sale_price = Refinance estimated home value shown in UI
+- mortgage_payoff = Refinance loan balance/current unpaid principal balance
+- realtor_commission = estimated_sale_price × 5%
+- seller_closing_costs = estimated_sale_price × 1%
+- buyer_concessions = 0
+- repair_budget = 0
+- other_selling_costs = 0
+- net_proceeds = estimated_sale_price - mortgage_payoff - realtor_commission - seller_closing_costs
+- status = draft
+- do not trigger Market Analysis
+
+Manual override protection:
+If a matching Sell Your Home scenario already exists:
+- Do not overwrite manually edited estimated_sale_price.
+- Do not overwrite manually edited mortgage_payoff.
+- Do not overwrite manually edited realtor_commission.
+- Do not overwrite manually edited seller_closing_costs.
+- Do not overwrite a rich existing Market Analysis.
+- Do not reset status unless it is blank/null.
+
+If source fields exist, use them:
+- estimated_sale_price_source
+- mortgage_payoff_source
+- realtor_commission_source
+- seller_closing_costs_source
+
+If source fields do not exist, use the smallest safe manual-protection logic possible.
+
+Debug logs:
+Add temporary logs:
+- [refi-to-seller] refinance estimated home value field
+- [refi-to-seller] refinance value used
+- [refi-to-seller] existing seller value
+- [refi-to-seller] manual override true/false
+- [refi-to-seller] final seller estimated sale price
+- [refi-to-seller] seller status
+- [market-analysis] skipped because seller status is draft
+- [market-analysis-weekly] skipped draft seller scenario
+
+Acceptance test:
+1. Upload a mortgage statement in Refinance.
+2. Confirm Refinance shows estimated home value = $386,000.
+3. Go to Sell Your Home.
+4. Confirm the matching seller scenario exists.
+5. Open Sell Your Home detail view.
+6. Confirm estimated sale price = $386,000.
+7. Confirm mortgage payoff = refinance loan balance.
+8. Confirm realtor commission = 5% of $386,000.
+9. Confirm seller closing costs = 1% of $386,000.
+10. Confirm net proceeds calculates correctly.
+11. Confirm Sell Your Home status = Draft.
+12. Confirm Market Analysis does not run while status is Draft.
+13. Confirm no Anthropic/web search/Realtor.com scraper call occurs for Draft.
+14. Change status to Ready to List.
+15. Confirm Market Analysis can now run.
+16. Change status to Listed.
+17. Confirm Market Analysis can run.
+18. Upload another mortgage statement for the same address.
+19. Confirm no duplicate Sell Your Home scenario is created.
+20. Manually change Sell Your Home estimated sale price.
+21. Upload another refinance statement.
+22. Confirm manual Sell Your Home price is not overwritten.
+23. Confirm weekly Market Analysis job skips Draft seller scenarios.
+
+Please make the smallest safe code change possible and tell me:
+- Which Refinance home value field is now used for Sell Your Home estimated sale price
+- Why it previously used $375,000 instead of $386,000
+- Which helper creates/updates the seller scenario from refinance
+- How Market Analysis is blocked for Draft status
+- Which statuses allow Market Analysis
+- Whether the weekly job was updated to skip Draft scenarios
+- How manual overrides are protected
+- Which files/functions were changed
+```

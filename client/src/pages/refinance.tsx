@@ -315,18 +315,33 @@ export default function Refinance() {
     const homeValue = p.estimatedHomeValue ?? p.zestimate ?? p.listingPrice;
     if (!homeValue) return;
     const key = addr.trim().toLowerCase();
-    const updatedLoan: TrackedLoan = { ...loan, estimatedHomeValue: homeValue };
-    updateLoans(prev => prev.map(l =>
-      l.propertyAddress.trim().toLowerCase() === key
-        ? { ...l, estimatedHomeValue: homeValue }
-        : l
-    ));
-    // Backfill the matching seller scenario with the Zillow value and
-    // photos. The helper only fills blank fields, so a user who has
-    // already edited estimated_sale_price in Sell-Your-Home keeps
-    // their number; we just fill in the photos.
+    // Race guard: this lookup started with a snapshot of `loan`. If
+    // the user (or another flow) has edited the home value in the
+    // meantime, the Zillow value is stale and must NOT overwrite
+    // their edit — even though the seller helper's source rule would
+    // also block "manual" later, that protection doesn't apply when
+    // the value flowed through the refinance pencil (source stays
+    // "refinance"). So we gate on the snapshot here.
+    const originalHomeValue = loan.estimatedHomeValue;
     const photos = Array.isArray(p.photos) ? p.photos.filter(Boolean) : [];
-    syncSellerFromRefinance(updatedLoan, {
+    let appliedZillowValue = false;
+    updateLoans(prev => prev.map(l => {
+      if (l.propertyAddress.trim().toLowerCase() !== key) return l;
+      if (l.estimatedHomeValue !== originalHomeValue) {
+        // User edited between request start and response — keep theirs.
+        return l;
+      }
+      appliedZillowValue = true;
+      return { ...l, estimatedHomeValue: homeValue };
+    }));
+    // Pass the loan we actually settled on to the seller sync so the
+    // helper sees the right estimatedHomeValue. When we skipped the
+    // overwrite, we still want photos backfilled, so pass the
+    // user-edited home value through unchanged.
+    const loanForSeller: TrackedLoan = appliedZillowValue
+      ? { ...loan, estimatedHomeValue: homeValue }
+      : loan;
+    syncSellerFromRefinance(loanForSeller, {
       primaryPhotoUrl: photos[0],
       propertyPhotos: photos.length > 0 ? photos.slice(0, 8) : undefined,
     });
@@ -471,7 +486,20 @@ export default function Refinance() {
           loans={trackedLoans}
           liveRates={ratesData?.rates ?? []}
           onRemove={id => updateLoans(prev => prev.filter(l => l.id !== id))}
-          onUpdate={(id, updates) => updateLoans(prev => prev.map(l => l.id === id ? { ...l, ...updates } : l))}
+          onUpdate={(id, updates) => {
+            updateLoans(prev => {
+              const next = prev.map(l => l.id === id ? { ...l, ...updates } : l);
+              // If this edit touched a value that maps into Sell-Your-Home
+              // (home value / loan balance), mirror it to the matching
+              // seller scenario. The helper's source-based rule protects
+              // any manual seller edits.
+              if ("estimatedHomeValue" in updates || "loanBalance" in updates) {
+                const updatedLoan = next.find(l => l.id === id);
+                if (updatedLoan) syncSellerFromRefinance(updatedLoan);
+              }
+              return next;
+            });
+          }}
           maxLoans={MAX_TRACKED_LOANS}
         />
       </main>

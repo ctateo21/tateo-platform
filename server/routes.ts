@@ -1565,6 +1565,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       console.log("[market-analysis] seller scenario id", { listingId: body.listingId, userId: verifiedUserId });
 
+      // Status gate: Market Analysis only runs for scenarios that are
+      // actually being marketed. We trust the DB, not the client body,
+      // so a spoofed status can't bypass the gate. A Draft row gets a
+      // 200 with `skipped: true` so the client renders the clean
+      // placeholder instead of an error.
+      const { data: statusRow } = await supabaseAdmin
+        .from("seller_scenarios")
+        .select("status")
+        .eq("id", body.listingId)
+        .eq("user_id", verifiedUserId)
+        .maybeSingle();
+      const sellerStatus = (statusRow?.status ?? null) as string | null;
+      const allowedStatus = sellerStatus === "ready_to_list" || sellerStatus === "listed";
+      if (!allowedStatus) {
+        console.log("[market-analysis] skipped because seller status is draft", {
+          listingId: body.listingId, status: sellerStatus,
+        });
+        return res.json({ analysis: null, generating: false, skipped: true, reason: "draft_status" });
+      }
+
       // Server-side guardrail: the frontend cannot trigger Anthropic on
       // demand. `forceRefresh` is only honored for admin emails listed in
       // MARKET_ANALYSIS_ADMIN_EMAILS (comma-separated). Everyone else is

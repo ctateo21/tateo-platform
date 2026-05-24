@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -307,6 +307,17 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<"rate_term" | "cash_out" | "home_equity">("rate_term");
   const [homeValue, setHomeValue] = useState(loan.estimatedHomeValue);
+  // Persist user-edited estimated home value back to the TrackedLoan
+  // (and downstream: tracked_loans table + matching seller scenario).
+  // Previously the pencil edit only updated local state, which is why
+  // the user could see "$386K" in the UI while seller_scenarios still
+  // held the older Zillow value.
+  useEffect(() => {
+    if (homeValue !== loan.estimatedHomeValue && homeValue > 0) {
+      onUpdate({ estimatedHomeValue: homeValue });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homeValue]);
   const [propertyType, setPropertyType] = useState<PropertyType>(loan.propertyType);
   const [loanType, setLoanType] = useState<LoanType>(loan.loanType ?? "conventional");
   const [financeFees, setFinanceFees] = useState(true);

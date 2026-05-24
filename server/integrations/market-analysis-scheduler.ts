@@ -193,9 +193,13 @@ export async function precomputeWeeklyMarketAnalysesForAllSellerScenarios(): Pro
   const cur = currentWeekWindow();
   console.log("[market-analysis-weekly] current cycle", { weekOf: cur.weekOfStr });
 
+  // Spec: weekly job processes ONLY scenarios that are actually being
+  // marketed. Draft/blank/sold scenarios are skipped entirely so we
+  // never spend Anthropic/Realtor.com calls on inactive listings.
   const { data: scenarios, error } = await supabaseAdmin
     .from("seller_scenarios")
-    .select("id, user_id, full_address, normalized_property_key, estimated_sale_price, mortgage_payoff, seller_closing_costs, realtor_commission, net_proceeds, status, primary_photo_url, property_photos, updated_at");
+    .select("id, user_id, full_address, normalized_property_key, estimated_sale_price, mortgage_payoff, seller_closing_costs, realtor_commission, net_proceeds, status, primary_photo_url, property_photos, updated_at")
+    .in("status", ["ready_to_list", "listed"]);
   if (error) {
     console.warn("[market-analysis-weekly] failed to fetch seller_scenarios:", error.message);
     throw error;
@@ -206,6 +210,17 @@ export async function precomputeWeeklyMarketAnalysesForAllSellerScenarios(): Pro
   let generated = 0, skipped = 0, errors = 0;
   for (const row of rows as any[]) {
     try {
+      // Defense-in-depth: the `.in("status", ...)` filter above
+      // should make this unreachable, but if a Draft row slips
+      // through (e.g. concurrent status change mid-job) we still
+      // skip it and emit the debug log the spec requires.
+      if (row.status !== "ready_to_list" && row.status !== "listed") {
+        console.log("[market-analysis-weekly] skipped draft seller scenario", {
+          id: row.id, status: row.status,
+        });
+        skipped++;
+        continue;
+      }
       console.log("[market-analysis-weekly] processing sellerScenarioId", { id: row.id });
 
       // Check existing first to avoid unneeded enrichment work.
