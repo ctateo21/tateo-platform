@@ -12,7 +12,12 @@ import { LoanTracker, type MortgageAnalysis, type LiveRate, type PropertyType } 
 import { formatCurrency } from "@/lib/refi-calculations";
 import { useQuery } from "@tanstack/react-query";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
-import { getTrackedLoans, saveTrackedLoans, subscribeAuthChange, type TrackedLoan } from "@/lib/auth";
+import {
+  getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
+  getSellerScenarios, saveSellerScenarios,
+  type TrackedLoan,
+} from "@/lib/auth";
+import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-refinance";
 import { useAuth } from "@/context/auth-context";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -222,6 +227,17 @@ export default function Refinance() {
           description: `Updated saved loan number for ${duplicate.propertyAddress}.`,
         });
       }
+      // Re-uploading a statement for the same property: still try to
+      // backfill the matching seller scenario in case the statement
+      // carried a fresher loan balance / home value. The helper's
+      // blank-only rule guarantees we never clobber a user edit.
+      const refreshed: TrackedLoan = {
+        ...duplicate,
+        loanBalance: analysis.loanBalance || duplicate.loanBalance,
+        estimatedHomeValue: analysis.estimatedHomeValue || duplicate.estimatedHomeValue,
+        loanNumber: incomingLn || duplicate.loanNumber,
+      };
+      syncSellerFromRefinance(refreshed);
       return;
     }
     // Show property type dialog before adding to tracker
@@ -235,6 +251,12 @@ export default function Refinance() {
     updateLoans(prev => [newLoan, ...prev]);
     setPendingAnalysis(null);
     setShowPropertyTypeDialog(false);
+    // Mirror the freshly tracked loan into a Sell-Your-Home draft so
+    // the same property shows up in both dashboard tabs immediately.
+    // Photos arrive later via autoPullZillowForLoan; the helper's
+    // blank-only fill rule means that call backfills photos without
+    // overwriting anything the user has already touched.
+    syncSellerFromRefinance(newLoan);
     // Auto-pull Zillow for the newly tracked address so the user doesn't
     // need to click a separate "Pull from Zillow" button. We update the
     // loan's estimatedHomeValue (the only field refinance actually uses
@@ -245,6 +267,35 @@ export default function Refinance() {
       console.warn("[refinance] auto Zillow lookup failed:", err?.message || err);
     });
   };
+
+  // Bridge: pulls the latest seller scenarios from the auth cache,
+  // runs the pure merge helper, and persists only when something
+  // actually changed. Kept local so it picks up the freshest scenario
+  // list every call (the auth cache is mutated in place after a save).
+  function syncSellerFromRefinance(
+    loan: TrackedLoan,
+    photos?: { primaryPhotoUrl?: string; propertyPhotos?: string[] },
+  ) {
+    try {
+      const result = createOrUpdateSellerScenarioFromRefinance({
+        trackedLoan: loan,
+        scenarios: getSellerScenarios(),
+        photos,
+      });
+      if (result?.changed) {
+        saveSellerScenarios(result.scenarios);
+        console.log("[refinance→seller] sync", {
+          action: result.action,
+          scenarioId: result.scenarioId,
+          address: loan.propertyAddress,
+        });
+      }
+    } catch (err: any) {
+      // Never let a seller-sync failure break the refinance save —
+      // the refinance record is the source of truth and must persist.
+      console.warn("[refinance→seller] sync failed:", err?.message || err);
+    }
+  }
 
   // Background Zillow auto-pull for a freshly tracked loan. Keyed by
   // propertyAddress so it only updates the matching loan(s) regardless of
@@ -264,11 +315,21 @@ export default function Refinance() {
     const homeValue = p.estimatedHomeValue ?? p.zestimate ?? p.listingPrice;
     if (!homeValue) return;
     const key = addr.trim().toLowerCase();
+    const updatedLoan: TrackedLoan = { ...loan, estimatedHomeValue: homeValue };
     updateLoans(prev => prev.map(l =>
       l.propertyAddress.trim().toLowerCase() === key
         ? { ...l, estimatedHomeValue: homeValue }
         : l
     ));
+    // Backfill the matching seller scenario with the Zillow value and
+    // photos. The helper only fills blank fields, so a user who has
+    // already edited estimated_sale_price in Sell-Your-Home keeps
+    // their number; we just fill in the photos.
+    const photos = Array.isArray(p.photos) ? p.photos.filter(Boolean) : [];
+    syncSellerFromRefinance(updatedLoan, {
+      primaryPhotoUrl: photos[0],
+      propertyPhotos: photos.length > 0 ? photos.slice(0, 8) : undefined,
+    });
   }
 
   const handleSavePromptAnswer = (accepted: boolean, analysis: MortgageAnalysis) => {

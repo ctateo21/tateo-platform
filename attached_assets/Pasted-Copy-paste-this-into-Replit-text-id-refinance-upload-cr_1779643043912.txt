@@ -1,0 +1,162 @@
+Copy/paste this into Replit:
+
+```text id="refinance-upload-create-sell-your-home"
+When a user uploads a mortgage statement in the Refinance tab, automatically create or update a matching Sell Your Home estimate for the same property address.
+
+Current behavior:
+When a user uploads a mortgage statement to the Refinance tab, the app creates/saves a refinance/tracked loan record.
+
+New requirement:
+After the mortgage statement is analyzed and the refinance record is created/updated, automatically create a detailed Sell Your Home estimate for the same property address.
+
+Purpose:
+The user should immediately be able to see what they might make if they sold the home, using the data already entered/extracted in Refinance.
+
+Trigger:
+Anytime a mortgage statement is uploaded/analyzed in the Refinance tab and a property address is identified:
+1. Save/update the Refinance record as usual.
+2. Create or update a matching Sell Your Home scenario in `seller_scenarios`.
+
+Mapping from Refinance → Sell Your Home:
+Use the same property address and normalized property key.
+
+Set these Sell Your Home fields:
+
+- `full_address` = Refinance property address
+- `normalized_property_key` = Refinance normalized property key
+- `estimated_sale_price` = estimated home value entered or calculated in the Refinance tab
+- `mortgage_payoff` = loan balance/current unpaid principal balance from the mortgage statement/refinance record
+- `realtor_commission` = 5% of estimated sale price
+- `seller_closing_costs` = 1% of estimated sale price
+- `buyer_concessions` = 0 unless already known
+- `repair_budget` = 0 unless already known
+- `other_selling_costs` = 0 unless already known
+- `net_proceeds` = estimated sale price - mortgage payoff - realtor commission - seller closing costs - buyer concessions - repair budget - other selling costs
+- `status` = draft
+- `primary_photo_url` / `property_photos` = use Zillow/cache/refinance property photos if available
+- `created_at`
+- `updated_at`
+
+Example:
+Estimated home value in Refinance = $500,000
+Mortgage payoff/loan balance = $300,000
+Realtor commission = 5% = $25,000
+Seller closing costs = 1% = $5,000
+Net proceeds = $500,000 - $300,000 - $25,000 - $5,000 = $170,000
+
+Important:
+- Use the estimated home value the user enters in the Refinance tab as the Sell Your Home estimated sales price.
+- If the Refinance estimated value is blank, use Zillow/property cache estimated value if available.
+- If neither exists, still create the Sell Your Home scenario with the address and mortgage payoff, but leave estimated sale price blank or 0.
+- Do not use rent estimate as estimated sale price.
+
+Create vs update behavior:
+If there is no existing Sell Your Home scenario with the same user_id + normalized_property_key:
+- Create a new `seller_scenarios` row.
+
+If a matching Sell Your Home scenario already exists:
+- Update it with refinance-derived values only if those fields are blank/default or still system-generated.
+- Do not overwrite user-edited/manual Sell Your Home values.
+
+Manual override protection:
+Add or use source fields if needed:
+- `estimated_sale_price_source`: `"refinance" | "zillow" | "manual"`
+- `mortgage_payoff_source`: `"refinance_statement" | "manual"`
+- `realtor_commission_source`: `"default_5_percent" | "manual"`
+- `seller_closing_costs_source`: `"default_1_percent" | "manual"`
+
+Rules:
+- If user manually edits estimated sale price in Sell Your Home, do not overwrite it on future refinance uploads.
+- If user manually edits realtor commission, do not reset it back to 5%.
+- If user manually edits seller closing costs, do not reset it back to 1%.
+- If user manually edits mortgage payoff, do not overwrite unless the uploaded statement clearly has a newer balance and the current field is not manual.
+
+If adding source fields is too large, use the smallest safe manual-protection logic possible and tell me what was done.
+
+Dashboard behavior:
+After a mortgage statement upload:
+- The property should still appear under Refinance as usual.
+- The same property should also appear under Sell Your Home.
+- The Sell Your Home detail view should show the auto-created net proceeds estimate.
+- It should persist after refresh/logout/login.
+
+Do not create duplicates:
+- Use `user_id + normalized_property_key` to find existing seller scenario.
+- Do not create a new Sell Your Home scenario every time the user uploads another statement for the same property.
+- Update the existing one if appropriate.
+
+Supabase:
+Use existing table:
+`seller_scenarios`
+
+If source/protection columns are needed and missing, give me SQL migration.
+
+If `seller_scenarios` does not support these needed fields, add only the minimum fields needed.
+
+Integration point:
+Look for the mortgage statement upload/analyze flow that creates or updates `tracked_loans`.
+
+After that save succeeds, call a helper like:
+
+`createOrUpdateSellerScenarioFromRefinance(trackedLoan, userId)`
+
+This helper should:
+1. confirm user is authenticated
+2. confirm address exists
+3. normalize property key
+4. find existing seller scenario by user_id + normalized_property_key
+5. compute default seller values
+6. create/update seller scenario safely
+7. return the seller scenario id
+
+Calculations:
+- realtor_commission = estimated_sale_price × 0.05
+- seller_closing_costs = estimated_sale_price × 0.01
+- net_proceeds = estimated_sale_price - mortgage_payoff - realtor_commission - seller_closing_costs - buyer_concessions - repair_budget - other_selling_costs
+
+Formatting can remain UI-side, but save clean numeric values.
+
+Important:
+- Do not break mortgage statement upload.
+- Do not break loan number extraction.
+- Do not break Refinance save/load.
+- Do not break Sell Your Home market analysis.
+- Do not trigger Anthropic Market Analysis just because the Seller scenario was auto-created.
+- Do not overwrite existing rich Sell Your Home market analysis.
+- Do not call Zillow/Apify unnecessarily if the data is already in cache.
+- Use stable IDs, not array indexes.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Refinance.
+3. Upload a mortgage statement with property address and loan balance.
+4. Enter or confirm estimated home value in Refinance.
+5. Confirm Refinance record saves as usual.
+6. Go to Dashboard → Sell Your Home.
+7. Confirm a Sell Your Home scenario exists for the same address.
+8. Open Sell Your Home detail view.
+9. Confirm estimated sale price equals the Refinance estimated home value.
+10. Confirm mortgage payoff equals the uploaded statement loan balance.
+11. Confirm realtor commission equals 5% of estimated sale price.
+12. Confirm seller closing costs equal 1% of estimated sale price.
+13. Confirm net proceeds calculates correctly.
+14. Refresh/logout/login.
+15. Confirm both Refinance and Sell Your Home records remain.
+16. Upload another statement for the same address.
+17. Confirm no duplicate Sell Your Home scenario is created.
+18. Manually edit Sell Your Home estimated sale price.
+19. Upload another refinance statement.
+20. Confirm manual Sell Your Home sale price is not overwritten.
+21. Confirm Market Analysis is not regenerated unnecessarily.
+
+Please make the smallest safe code change possible and tell me:
+- Which mortgage statement upload/analyze function was changed
+- Which helper creates/updates the Sell Your Home scenario
+- How the matching by address/normalized key works
+- Which refinance fields map to seller scenario fields
+- How 5% commission and 1% seller closing costs are calculated
+- How manual overrides are protected
+- Which Supabase fields/tables were used
+- Whether a SQL migration is needed
+- Which files/functions were changed
+```
