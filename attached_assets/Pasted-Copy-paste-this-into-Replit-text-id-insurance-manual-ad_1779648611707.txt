@@ -1,0 +1,139 @@
+Copy/paste this into Replit:
+
+```text id="insurance-manual-add-property"
+Add manual property creation to the Insurance tab.
+
+Current issue:
+On the Insurance tab, users cannot manually add another property the same way they can in:
+- Sell Your Home
+- Purchase with Cash
+- Purchase with Loan
+
+Requested behavior:
+Inside Dashboard → Insurance, users should be able to manually add a new property/address.
+
+Expected UI:
+Add a button in the Insurance tab overview:
+
+“Add Property”
+
+or
+
+“Add Insurance Property”
+
+Place it in a similar location/style as the add-property button used in:
+- Purchase with Loan
+- Purchase with Cash
+- Sell Your Home
+
+When clicked:
+1. Open the same type of address entry/add-property flow used by the other tabs.
+2. Let the user enter/select an address.
+3. Create a new Insurance scenario for that address.
+4. Save it to `insurance_scenarios`.
+5. Show it immediately in the Insurance dashboard overview.
+6. Allow the user to click View/Edit to open the detailed insurance view.
+
+Insurance scenario default fields:
+When manually adding a property, create the record with:
+- `id`
+- `user_id`
+- `full_address`
+- `normalized_property_key`
+- `occupancy_type`, if known
+- `annual_premium`, blank/null
+- `monthly_premium`, blank/null
+- `rebuild_cost` / `coverage_a`, blank/null unless Zillow/cache has data
+- `aop_deductible`, blank/null
+- `hurricane_deductible`, blank/null
+- `flood_deductible`, blank/null
+- `carrier`, blank/null
+- `policy_type`, blank/null
+- `status` = `estimate` or `draft`
+- `created_at`
+- `updated_at`
+
+Address/property cache behavior:
+When the user enters/selects an Insurance address:
+1. Normalize the address.
+2. Check existing property/Zillow cache.
+3. If cached property data exists, use it where relevant.
+4. If property cache has useful data like property type, sqft, year built, rebuild-cost proxy, photos, HOA, etc., save/display what Insurance uses.
+5. Do not require Zillow photo display on Insurance unless already intentionally implemented.
+6. Do not run unnecessary scrapes if cache exists.
+
+Occupancy/property use correlation:
+If this Insurance address matches a property in:
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Sell Your Home
+
+then automatically carry over property use/occupancy if available:
+- Primary
+- Secondary
+- Investment
+
+But allow the user to change it in Insurance.
+
+If the user manually changes occupancy in Insurance:
+- Save the override.
+- Do not keep forcing the matched occupancy over it.
+
+Save/load:
+- Manually added Insurance properties must persist after refresh/logout/login.
+- They should load from `insurance_scenarios`.
+- They should not appear in Purchase, Refinance, Cash Buy, or Sell Your Home unless intentionally correlated.
+- Do not create duplicate Insurance scenarios for the same user + normalized property key unless the user intentionally creates a separate policy/scenario.
+
+Duplicate handling:
+If the user adds an address that already exists in Insurance:
+- Either open the existing Insurance scenario
+- Or show a message:
+  “This property already exists in your Insurance tab.”
+- Do not silently create duplicates.
+
+Detailed view:
+After adding the property:
+- Either take the user directly to the Insurance detailed view
+- Or keep them on the Insurance overview with the new row visible
+- Prefer matching the behavior used in Purchase with Loan / Purchase with Cash / Sell Your Home
+
+Important:
+- Do not break existing Insurance dashboard rows.
+- Do not break existing Insurance View/Edit behavior.
+- Do not break auto-correlation from Purchase/Refinance.
+- Do not break Insurance save/load.
+- Do not affect Purchase, Refinance, Sell Your Home, or Cash Buy.
+- Use stable IDs, not array indexes.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Insurance.
+3. Confirm there is an Add Property / Add Insurance Property button.
+4. Click it.
+5. Enter/select a new address.
+6. Confirm an Insurance scenario is created.
+7. Confirm it appears in the Insurance overview immediately.
+8. Open View/Edit.
+9. Confirm the detailed insurance view opens for that property.
+10. Refresh the page.
+11. Confirm the manually added Insurance property still appears.
+12. Log out and log back in.
+13. Confirm it still appears.
+14. Add an address already used in Purchase/Reﬁnance/Sell Your Home.
+15. Confirm occupancy/property use carries over if available.
+16. Manually change occupancy in Insurance.
+17. Confirm the manual change persists and is not overwritten.
+18. Try adding the same Insurance address again.
+19. Confirm the app does not create an unintended duplicate.
+
+Please make the smallest safe code change possible and tell me:
+- Which Insurance dashboard/overview component was changed
+- Which add-property flow was reused
+- How the Insurance scenario is created
+- Which fields are saved to `insurance_scenarios`
+- How duplicate addresses are handled
+- How occupancy/property use correlation works
+- Which files/functions were changed
+```

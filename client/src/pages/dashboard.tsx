@@ -20,7 +20,7 @@ import { useAuth } from "@/context/auth-context";
 import {
   getPurchaseScenarios, savePurchaseScenarios,
   getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
-  getInsuranceScenarios,
+  getInsuranceScenarios, saveInsuranceScenarios,
   getSellerScenarios, saveSellerScenarios, subscribePersistenceError,
   getCashBuyScenarios, saveCashBuyScenarios,
   type CashBuyScenario,
@@ -902,8 +902,16 @@ function buildInsuranceRows(
   return rows;
 }
 
+function makeInsuranceId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `ins_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
 function InsuranceTab() {
   const [, setLocation] = useLocation();
+  const { toast } = useToast();
 
   // Mirror auth caches into state so the tab re-renders when scenarios
   // load from Supabase or when other tabs update them.
@@ -912,6 +920,7 @@ function InsuranceTab() {
   const [loans, setLoans] = useState<TrackedLoan[]>([]);
   // Bump to re-resolve rows after a localStorage override change.
   const [overrideBump, setOverrideBump] = useState(0);
+  const [showAddSearch, setShowAddSearch] = useState(false);
 
   useEffect(() => {
     function sync() {
@@ -933,28 +942,94 @@ function InsuranceTab() {
     setOverrideBump(n => n + 1);
   }
 
-  if (rows.length === 0) {
+  // Manual "Add Insurance Property" — mirrors SellersTab.openOrCreate.
+  // Creates a draft insurance_scenarios row right away so the property
+  // shows up in the overview immediately, then navigates to the detail
+  // view. Duplicate addresses (same normalized property key OR exact
+  // address match) open the existing scenario instead of creating a
+  // second row. Occupancy/property use is NOT stored on the insurance
+  // scenario itself — buildInsuranceRows already correlates with
+  // Purchase/Refi via normalizedPropertyKey, and user overrides are
+  // saved in localStorage by setOccupancyOverride.
+  function addInsuranceProperty(addr: string) {
+    setShowAddSearch(false);
+    const trimmed = addr.trim();
+    if (!trimmed) return;
+    const incomingKey = normalizePropertyKey(trimmed).key;
+    const existing = insurance.find(s => {
+      if (s.address.toLowerCase().trim() === trimmed.toLowerCase()) return true;
+      if (!incomingKey) return false;
+      return normalizePropertyKey(s.address).key === incomingKey;
+    });
+    if (existing) {
+      toast({
+        title: "Already on your Insurance tab",
+        description: "Opening the existing insurance scenario for this property.",
+      });
+      setLocation(`/insurance?address=${encodeURIComponent(existing.address)}`);
+      return;
+    }
+    const fresh: InsuranceScenario = {
+      id: makeInsuranceId(),
+      address: trimmed,
+      savedAt: new Date().toISOString(),
+    };
+    const next = [fresh, ...insurance];
+    setInsurance(next);
+    saveInsuranceScenarios(next);
+    setLocation(`/insurance?address=${encodeURIComponent(fresh.address)}`);
+  }
+
+  if (rows.length === 0 && !showAddSearch) {
     return (
-      <EmptyState
-        icon={<Shield className="h-12 w-12" />}
-        title="No saved properties yet"
-        body="Once you search for a property, analyze a refinance, or get an insurance quote, the property will appear here."
-        cta="Search a Property"
-        href="/"
-      />
+      <div className="flex flex-col items-center justify-center py-12 px-4">
+        <div className="w-full max-w-xl text-center space-y-4">
+          <Shield className="h-10 w-10 mx-auto text-primary" />
+          <h2 className="text-2xl font-bold">No saved properties yet</h2>
+          <p className="text-muted-foreground">
+            Add a property to get an insurance estimate. Properties from
+            Purchase or Refinance will also appear here automatically.
+          </p>
+          <div className="pt-2">
+            <AddressSearchBar onNavigate={addInsuranceProperty} compact />
+            <p className="text-xs text-muted-foreground mt-2">
+              We'll save it to your dashboard so you can come back any time.
+            </p>
+          </div>
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-3">
-      {rows.map(row => (
-        <InsuranceRowCard
-          key={row.key}
-          row={row}
-          onOccupancyChange={next => handleOccupancyChange(row.key, next)}
-          onOpen={() => setLocation(`/insurance?address=${encodeURIComponent(row.address)}`)}
-        />
-      ))}
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setShowAddSearch(v => !v)}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed text-sm text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+          data-testid="add-insurance-property"
+        >
+          <Search className="h-3.5 w-3.5" /> Add Insurance Property
+        </button>
+      </div>
+
+      {showAddSearch && (
+        <div className="flex items-center gap-2">
+          <AddressSearchBar onNavigate={addInsuranceProperty} compact />
+          <Button variant="ghost" size="sm" className="h-10" onClick={() => setShowAddSearch(false)}>Cancel</Button>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {rows.map(row => (
+          <InsuranceRowCard
+            key={row.key}
+            row={row}
+            onOccupancyChange={next => handleOccupancyChange(row.key, next)}
+            onOpen={() => setLocation(`/insurance?address=${encodeURIComponent(row.address)}`)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
