@@ -1,0 +1,110 @@
+Copy/paste this into Replit:
+
+```text id="seller-closing-cost-percent-slider"
+Update the Sell Your Home seller closing costs control.
+
+Current issue:
+Seller Closing Costs is currently shown/edited as a dollar amount.
+
+Requested change:
+Make Seller Closing Costs a percentage-based slider instead.
+
+Default:
+- Seller Closing Costs should default to 1.85% of estimated sale price.
+- Display as `1.85%`.
+- Round/display percentage to 2 decimal places.
+
+Location:
+Dashboard → Sell Your Home → detailed property view → Sale & Costs section / Seller Closing Costs
+
+Expected behavior:
+1. Replace the current dollar-based Seller Closing Costs input/slider with a percent slider.
+2. Default value = 1.85%.
+3. Display the selected percentage with 2 decimals:
+   - `1.85%`
+   - `2.00%`
+   - `1.50%`
+4. Calculate the dollar amount from estimated sale price:
+   - seller_closing_costs = estimated_sale_price × seller_closing_costs_percent / 100
+5. Show the calculated dollar amount next to or under the percent if clean:
+   - `1.85% / $7,400`
+6. If estimated sale price changes, recalculate seller closing costs using the selected percentage.
+7. Net proceeds should update immediately.
+
+Example:
+Estimated sale price = $400,000  
+Seller closing costs percent = 1.85%  
+Seller closing costs amount = $7,400
+
+Slider behavior:
+- Use a smooth percent slider.
+- Suggested range: 0.00% to 5.00%.
+- Suggested step: 0.01%.
+- Always round/display to 2 decimal places.
+- Store a clean numeric value like `1.85`, not long floating decimals.
+
+Suggested fields:
+- `seller_closing_costs_percent`
+- `seller_closing_costs`
+- `seller_closing_costs_source`
+
+Default source:
+- `seller_closing_costs_source = "default_percent"`
+
+Manual/user change:
+- If user moves the slider, keep source as percent/user-selected:
+  - `seller_closing_costs_source = "percent_manual"` or similar
+- Continue recalculating dollar amount when estimated sale price changes.
+
+Important:
+- Do not use the old dollar input as the primary control anymore.
+- Do not remove seller_closing_costs dollar amount from calculations; it should still be calculated and stored.
+- Do not include realtor commission or mortgage payoff inside seller closing costs.
+- Do not double-count seller closing costs.
+- Do not trigger Market Analysis because seller closing costs changed.
+- Do not overwrite user-selected percent back to 1.85% unless user resets/defaults.
+- Keep realtor commission separate at 5% unless user changes it.
+
+Net proceeds formula remains:
+Estimated Sale Price
+- Mortgage Payoff
+- Realtor Commission
+- Seller Closing Costs
+- Buyer Concessions
+- Repair Budget
+- Other Selling Costs
+= Estimated Net Proceeds
+
+Supabase:
+If needed, add:
+
+alter table public.seller_scenarios
+add column if not exists seller_closing_costs_percent numeric default 1.85,
+add column if not exists seller_closing_costs_source text default 'default_percent';
+
+Update save/load mapping so:
+- percent persists after refresh/logout/login
+- calculated dollar amount persists or recalculates consistently
+
+Acceptance test:
+1. Open Dashboard → Sell Your Home detail view.
+2. Enter estimated sale price of $400,000.
+3. Confirm Seller Closing Costs defaults to `1.85%`.
+4. Confirm calculated amount shows `$7,400`.
+5. Move slider to `2.00%`.
+6. Confirm amount updates to `$8,000`.
+7. Confirm Net Proceeds updates immediately.
+8. Refresh/logout/login.
+9. Confirm selected percentage persists.
+10. Confirm seller closing costs amount recalculates correctly from sale price.
+11. Confirm realtor commission and mortgage payoff remain separate.
+
+Please make the smallest safe code change possible and tell me:
+- Which Sell Your Home component was changed
+- How the percent slider was implemented
+- How 1.85% default is set
+- How percent rounding/display works
+- How dollar seller closing costs are calculated
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```

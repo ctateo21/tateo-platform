@@ -43,6 +43,10 @@ function makeId(): string {
   return `seller_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Default percent for the Seller Closing Costs slider. Must mirror the
+ *  same constant in `seller-from-refinance.ts`. */
+const DEFAULT_SELLER_CLOSING_PCT = 1.85;
+
 const STATUS_OPTIONS: { value: SellerScenarioStatus; label: string }[] = [
   { value: "draft",         label: "Draft" },
   { value: "reviewing",     label: "Reviewing" },
@@ -337,14 +341,65 @@ export default function SellerEstimatePage() {
       else if (field === "mortgagePayoff")  next.mortgagePayoffSource = "manual";
       else if (field === "realtorCommissionPct") next.realtorCommissionSource = "manual";
       else if (field === "sellerClosingCosts")   next.sellerClosingCostsSource = "manual";
+      // When the sale price changes, recompute seller closing-costs
+      // dollars from the stored percent so the slider's chosen %
+      // continues to reflect the new sale price (legacy "manual"
+      // dollar edits stay locked).
+      if (field === "estimatedSalePrice" && next.sellerClosingCostsSource !== "manual") {
+        const pct = next.sellerClosingCostsPercent ?? DEFAULT_SELLER_CLOSING_PCT;
+        next.sellerClosingCosts = Math.round((value as number) * (pct / 100));
+      }
       return next;
     });
   }
 
+  // Move the seller-closing-costs percent slider. Stamps source as
+  // "percent_manual" so the refinance auto-sync preserves the user's
+  // chosen percent on future statement uploads.
+  function updateClosingPercent(rawPct: number) {
+    const pct = parseFloat(rawPct.toFixed(2));
+    setScenario(prev => {
+      const sale2 = prev.estimatedSalePrice ?? 0;
+      return {
+        ...prev,
+        sellerClosingCostsPercent: pct,
+        sellerClosingCosts: Math.round(sale2 * (pct / 100)),
+        sellerClosingCostsSource: "percent_manual",
+      };
+    });
+  }
+
+  // Normalize legacy rows on mount: rows saved before the percent slider
+  // existed have either no source or the old "default_1_percent" stamp
+  // and no `sellerClosingCostsPercent` value. Persist the 1.85% default
+  // so the slider matches the displayed dollar amount and the row gets
+  // an up-to-date source on the next autosave. We never touch a row
+  // that's been manually edited (source === "manual" | "percent_manual").
+  useEffect(() => {
+    const src = scenario.sellerClosingCostsSource;
+    const needsPercent = scenario.sellerClosingCostsPercent == null;
+    const isLegacyAuto = src == null || src === "default_1_percent" || src === "default_percent";
+    if (!needsPercent || !isLegacyAuto) return;
+    setScenario(prev => {
+      if (prev.sellerClosingCostsPercent != null) return prev;
+      const sale2 = prev.estimatedSalePrice ?? 0;
+      return {
+        ...prev,
+        sellerClosingCostsPercent: DEFAULT_SELLER_CLOSING_PCT,
+        sellerClosingCosts: Math.round(sale2 * (DEFAULT_SELLER_CLOSING_PCT / 100)),
+        sellerClosingCostsSource: "default_percent",
+      };
+    });
+  }, [scenario.id]);
+
   const sale = scenario.estimatedSalePrice ?? 0;
   const commissionPct = scenario.realtorCommissionPct ?? 0;
   const commissionDollars = Math.round(sale * (commissionPct / 100));
-  const net = netProceedsOf(scenario);
+  const closingPct = scenario.sellerClosingCostsPercent ?? DEFAULT_SELLER_CLOSING_PCT;
+  const closingDollars = scenario.sellerClosingCostsSource === "manual"
+    ? (scenario.sellerClosingCosts ?? 0)
+    : Math.round(sale * (closingPct / 100));
+  const net = netProceedsOf({ ...scenario, sellerClosingCosts: closingDollars });
 
   const sliderMax = Math.max(2_000_000, Math.round((sale || 500_000) * 2));
 
@@ -543,13 +598,14 @@ export default function SellerEstimatePage() {
                 />
                 <NumRow
                   label="Seller Closing Costs"
-                  hint="Title, escrow, transfer taxes, document fees."
-                  value={scenario.sellerClosingCosts ?? 0}
-                  onChange={v => update("sellerClosingCosts", v)}
+                  hint={`${formatCurrency(closingDollars)} at ${closingPct.toFixed(2)}% — title, escrow, transfer taxes, document fees.`}
+                  value={closingPct}
+                  onChange={updateClosingPercent}
                   min={0}
-                  max={50000}
-                  step={250}
-                  prefix="$"
+                  max={5}
+                  step={0.01}
+                  suffix="%"
+                  decimals={2}
                 />
                 <NumRow
                   label="Buyer Concessions"
@@ -594,7 +650,7 @@ export default function SellerEstimatePage() {
                   <Row label="Estimated Sale Price"   value={formatCurrency(sale)} positive />
                   <Row label="Mortgage Payoff"        value={`− ${formatCurrency(scenario.mortgagePayoff ?? 0)}`} />
                   <Row label={`Realtor Commission (${commissionPct.toFixed(1)}%)`} value={`− ${formatCurrency(commissionDollars)}`} />
-                  <Row label="Seller Closing Costs"   value={`− ${formatCurrency(scenario.sellerClosingCosts ?? 0)}`} />
+                  <Row label={`Seller Closing Costs (${closingPct.toFixed(2)}%)`} value={`− ${formatCurrency(closingDollars)}`} />
                   <Row label="Buyer Concessions"      value={`− ${formatCurrency(scenario.buyerConcessions ?? 0)}`} />
                   <Row label="Repair Budget"          value={`− ${formatCurrency(scenario.repairBudget ?? 0)}`} />
                   <Row label="Other Selling Costs"    value={`− ${formatCurrency(scenario.otherSellingCosts ?? 0)}`} />

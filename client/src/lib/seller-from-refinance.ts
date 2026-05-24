@@ -57,7 +57,9 @@ export interface SyncSellerFromRefinanceResult {
 }
 
 const DEFAULT_REALTOR_COMMISSION_PCT = 5;
-const DEFAULT_SELLER_CLOSING_COSTS_PCT = 0.01;
+/** Stored as a PERCENT, not a fraction (1.85 == 1.85%). The seller-estimate
+ *  page's percent slider uses the same default. */
+const DEFAULT_SELLER_CLOSING_COSTS_PCT = 1.85;
 
 function defaultMakeId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -131,8 +133,9 @@ function mergeFromRefinance(
     // stamp provenance so subsequent edits in seller-estimate can
     // be detected as manual overrides.
     const salePrice = refSalePrice;
+    const sellerClosingCostsPercent = DEFAULT_SELLER_CLOSING_COSTS_PCT;
     const sellerClosingCosts = salePrice
-      ? Math.round(salePrice * DEFAULT_SELLER_CLOSING_COSTS_PCT)
+      ? Math.round(salePrice * (sellerClosingCostsPercent / 100))
       : undefined;
     const draft: SellerScenario = {
       id: makeId(),
@@ -147,7 +150,8 @@ function mergeFromRefinance(
       realtorCommissionPct: DEFAULT_REALTOR_COMMISSION_PCT,
       realtorCommissionSource: "default_5_percent",
       sellerClosingCosts,
-      sellerClosingCostsSource: sellerClosingCosts != null ? "default_1_percent" : undefined,
+      sellerClosingCostsPercent,
+      sellerClosingCostsSource: sellerClosingCosts != null ? "default_percent" : undefined,
       buyerConcessions: 0,
       repairBudget: 0,
       otherSellingCosts: 0,
@@ -210,16 +214,31 @@ function mergeFromRefinance(
     manualOverrideAny = true;
   }
 
-  // SELLER CLOSING COSTS — re-derive 1% of the current sale price
-  // whenever the sale price changed and the user hasn't locked it.
-  if (isOverridable(next.sellerClosingCostsSource) && typeof next.estimatedSalePrice === "number") {
-    const newClosing = Math.round(next.estimatedSalePrice * DEFAULT_SELLER_CLOSING_COSTS_PCT);
+  // SELLER CLOSING COSTS — always derive dollars from
+  // (estimatedSalePrice × percent). The PERCENT itself is the
+  // user-controlled value via the slider; a dollar-typed legacy edit
+  // (source === "manual") fully locks the field.
+  if (next.sellerClosingCostsSource !== "manual" && typeof next.estimatedSalePrice === "number") {
+    const pct = typeof next.sellerClosingCostsPercent === "number"
+      ? next.sellerClosingCostsPercent
+      : DEFAULT_SELLER_CLOSING_COSTS_PCT;
+    const newClosing = Math.round(next.estimatedSalePrice * (pct / 100));
     if (next.sellerClosingCosts !== newClosing) {
       next.sellerClosingCosts = newClosing;
-      next.sellerClosingCostsSource = "default_1_percent";
       changed = true;
     }
-  } else if (!isOverridable(next.sellerClosingCostsSource)) {
+    if (next.sellerClosingCostsPercent !== pct) {
+      next.sellerClosingCostsPercent = pct;
+      changed = true;
+    }
+    // Only stamp the default source when nothing's been set yet —
+    // we must preserve "percent_manual" so a future refinance
+    // upload doesn't reset the user's chosen percent back to 1.85.
+    if (next.sellerClosingCostsSource == null) {
+      next.sellerClosingCostsSource = "default_percent";
+      changed = true;
+    }
+  } else if (next.sellerClosingCostsSource === "manual") {
     manualOverrideAny = true;
   }
 

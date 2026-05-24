@@ -103,7 +103,11 @@ export type SellerScenarioStatus =
 export type SellerEstimatedSalePriceSource = "refinance" | "zillow" | "manual";
 export type SellerMortgagePayoffSource = "refinance_statement" | "manual";
 export type SellerRealtorCommissionSource = "default_5_percent" | "manual";
-export type SellerClosingCostsSource = "default_1_percent" | "manual";
+export type SellerClosingCostsSource =
+  | "default_percent"     // current default (1.85% of sale price)
+  | "percent_manual"      // user moved the percent slider
+  | "manual"              // legacy: user typed a dollar amount pre-migration
+  | "default_1_percent";  // legacy: pre-1.85% default (still treated as overridable)
 
 export interface SellerScenario {
   id: string;
@@ -114,6 +118,10 @@ export interface SellerScenario {
   estimatedSalePrice?: number;
   mortgagePayoff?: number;
   sellerClosingCosts?: number;
+  /** Seller closing costs stored as a percent of sale price (e.g. 1.85 = 1.85%).
+   *  The dollar amount in `sellerClosingCosts` is always derived from
+   *  `estimatedSalePrice * sellerClosingCostsPercent / 100`. */
+  sellerClosingCostsPercent?: number;
   /** Realtor commission stored as a percent (e.g. 6 = 6%). */
   realtorCommissionPct?: number;
   buyerConcessions?: number;
@@ -398,6 +406,7 @@ function rowToSeller(row: any): SellerScenario {
     estimatedSalePrice: row.estimated_sale_price != null ? Number(row.estimated_sale_price) : undefined,
     mortgagePayoff: row.mortgage_payoff != null ? Number(row.mortgage_payoff) : undefined,
     sellerClosingCosts: row.seller_closing_costs != null ? Number(row.seller_closing_costs) : undefined,
+    sellerClosingCostsPercent: row.seller_closing_costs_percent != null ? Number(row.seller_closing_costs_percent) : undefined,
     // Schema column is `realtor_commission` (percentage). Fall back to the
     // pre-rename `realtor_commission_pct` column if a stale row is loaded.
     realtorCommissionPct:
@@ -430,6 +439,7 @@ function sellerToRow(s: SellerScenario, userId: string) {
     estimated_sale_price: s.estimatedSalePrice ?? null,
     mortgage_payoff: s.mortgagePayoff ?? null,
     seller_closing_costs: s.sellerClosingCosts ?? null,
+    seller_closing_costs_percent: s.sellerClosingCostsPercent ?? null,
     realtor_commission: s.realtorCommissionPct ?? null,
     buyer_concessions: s.buyerConcessions ?? null,
     repair_budget: s.repairBudget ?? null,
@@ -1036,23 +1046,61 @@ function persistSellerScenarios(s: SellerScenario[]) {
       }
     }
     if (s.length > 0) {
-      const payload = s.map(x => sellerToRow(x, userId));
+      // Older Supabase schemas may be missing some of the source/percent
+      // columns added in the 2026_05_24 migrations. Mirror the tracked_loans
+      // strip-and-retry pattern so a stale schema warns the user instead of
+      // dropping the whole save on the floor.
+      const SELLER_OPTIONAL_COLUMNS = [
+        "seller_closing_costs_percent",
+        "estimated_sale_price_source",
+        "mortgage_payoff_source",
+        "realtor_commission_source",
+        "seller_closing_costs_source",
+      ] as const;
+      const stripped = new Set<string>();
+      const buildPayload = () => s.map(x => {
+        const row: Record<string, any> = sellerToRow(x, userId);
+        for (const col of stripped) delete row[col];
+        return row;
+      });
       console.log("[seller-save] upsert", {
         table: "seller_scenarios",
         userId,
-        count: payload.length,
-        ids: payload.map((r: any) => r.id),
-        addresses: payload.map((r: any) => r.full_address),
+        count: s.length,
+        ids: s.map(x => x.id),
+        addresses: s.map(x => x.address),
       });
-      const { error: upErr, data: upData } = await supabase
-        .from("seller_scenarios")
-        .upsert(payload, { onConflict: "id" })
-        .select("id");
-      if (upErr) {
+      let lastErr: string | null = null;
+      let upDataCount = 0;
+      for (let attempt = 0; attempt <= SELLER_OPTIONAL_COLUMNS.length; attempt++) {
+        const payload = buildPayload();
+        const { error: upErr, data: upData } = await supabase
+          .from("seller_scenarios")
+          .upsert(payload, { onConflict: "id" })
+          .select("id");
+        if (!upErr) {
+          upDataCount = upData?.length ?? 0;
+          lastErr = null;
+          break;
+        }
+        const missing = extractMissingColumn(upErr.message);
+        if (missing && (SELLER_OPTIONAL_COLUMNS as readonly string[]).includes(missing) && !stripped.has(missing)) {
+          console.warn(`[seller-save] retrying without missing column '${missing}'`);
+          notifyError({
+            table: "seller_scenarios",
+            message: `Your Supabase seller_scenarios table is missing the '${missing}' column — re-apply supabase/schema.sql so this field can persist.`,
+          });
+          stripped.add(missing);
+          continue;
+        }
+        lastErr = upErr.message;
         console.error("[seller-save] upsert failed", { error: upErr, payload });
-        notifyError({ table: "seller_scenarios", message: upErr.message });
+        break;
+      }
+      if (lastErr) {
+        notifyError({ table: "seller_scenarios", message: lastErr });
       } else {
-        console.log("[seller-save] upsert ok", { saved: upData?.length ?? 0 });
+        console.log("[seller-save] upsert ok", { saved: upDataCount, stripped: Array.from(stripped) });
       }
     }
   });
@@ -1118,7 +1166,7 @@ const TRACKED_LOAN_OPTIONAL_COLUMNS = [
   "loan_number", "credit_score", "loan_type", "balance_as_of",
 ] as const;
 
-function extractMissingColumn(message: string): string | null {
+export function extractMissingColumn(message: string): string | null {
   // PostgREST: "Could not find the 'foo' column of 'tracked_loans' in the schema cache"
   const m = message.match(/Could not find the '([^']+)' column/i);
   return m ? m[1] : null;

@@ -190,12 +190,19 @@ create index if not exists seller_scenarios_user_idx on public.seller_scenarios(
 --   estimated_sale_price_source : 'refinance' | 'zillow' | 'manual'
 --   mortgage_payoff_source      : 'refinance_statement' | 'manual'
 --   realtor_commission_source   : 'default_5_percent' | 'manual'
---   seller_closing_costs_source : 'default_1_percent' | 'manual'
+--   seller_closing_costs_source : 'default_percent' | 'percent_manual' | 'manual'
+--                                  (legacy: 'default_1_percent')
 alter table public.seller_scenarios
   add column if not exists estimated_sale_price_source text,
   add column if not exists mortgage_payoff_source      text,
   add column if not exists realtor_commission_source   text,
   add column if not exists seller_closing_costs_source text;
+
+-- Seller closing costs are now slider-driven as a PERCENT of sale price
+-- (default 1.85%). The dollar amount stays in `seller_closing_costs` and
+-- is recomputed any time the sale price or this percent changes.
+alter table public.seller_scenarios
+  add column if not exists seller_closing_costs_percent numeric default 1.85;
 
 alter table public.seller_scenarios enable row level security;
 drop policy if exists "seller_scenarios_owner" on public.seller_scenarios;
