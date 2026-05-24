@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/context/auth-context";
 import {
-  getSellerScenarios, saveSellerScenarios,
+  getSellerScenarios, saveSellerScenarios, isAuthHydrated, subscribeAuthChange,
   type SellerScenario, type SellerScenarioStatus,
 } from "@/lib/auth";
 import { normalizePropertyKey } from "@/lib/property-key";
@@ -182,6 +182,33 @@ export default function SellerEstimatePage() {
   const isMountedRef = useRef(true);
   useEffect(() => () => { isMountedRef.current = false; }, []);
 
+  // ── Hydration sync ─────────────────────────────────────────────
+  // On a hard refresh of /seller?id=..., auth+scenarios usually load
+  // AFTER initial render — getSellerScenarios() returns []. Without a
+  // re-sync, the page seeds with default values and the autosave
+  // effect below would then upsert those defaults under the same id,
+  // wiping the user's saved row. We track hydration explicitly and
+  // gate autosave on it.
+  const hydratedRef = useRef<boolean>(isAuthHydrated());
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    const trySync = () => {
+      if (!isAuthHydrated()) return;
+      if (idFromUrl) {
+        const persisted = getSellerScenarios().find(s => s.id === idFromUrl);
+        if (persisted) {
+          // Replace local state with the persisted row so autosave
+          // doesn't clobber it with the placeholder defaults.
+          setScenario(persisted);
+        }
+      }
+      hydratedRef.current = true;
+    };
+    trySync();
+    const unsub = subscribeAuthChange(trySync);
+    return () => unsub();
+  }, [idFromUrl]);
+
   // If the user wasn't signed in when they came here, kick them home — the
   // seller dashboard is auth-gated like the other tabs.
   useEffect(() => {
@@ -264,6 +291,10 @@ export default function SellerEstimatePage() {
   useEffect(() => {
     if (firstRenderRef.current) { firstRenderRef.current = false; return; }
     if (!isAuthenticated) return;
+    // Don't autosave until hydration completes — otherwise on a hard
+    // refresh we'd write the placeholder defaults over the persisted row
+    // (race: render with empty cache → set defaults → cache loads → save).
+    if (!hydratedRef.current) return;
     if (!scenario.address || scenario.address === "Unknown Address") return;
     setSaveStatus("saving");
     const t = window.setTimeout(() => {
