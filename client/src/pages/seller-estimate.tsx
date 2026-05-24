@@ -935,8 +935,11 @@ function MarketAnalysisSection({
   }
 
   // Status-gated placeholder. Shown BEFORE the auth check would
-  // otherwise hide it — a logged-in user with a Draft scenario sees
-  // this clean message instead of the loading/empty/error variants.
+  // otherwise hide it — a logged-in user with a Draft/Estimate/blank
+  // scenario sees this highlighted banner instead of any loading,
+  // empty or error variant. Backend analysis is NOT called: the
+  // gating useEffect above bails out for any status that isn't
+  // "ready_to_list" / "listed".
   if (userId && !marketAnalysisAllowed) {
     return (
       <Card>
@@ -945,9 +948,17 @@ function MarketAnalysisSection({
             <Sparkles className="h-4 w-4 text-primary" /> Market Analysis
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            This market analysis will run when the property is marked Ready to List or Listed.
+        <CardContent className="space-y-2">
+          <div
+            data-testid="market-analysis-draft-banner"
+            className="rounded-md border border-primary/30 bg-primary/10 px-4 py-3"
+          >
+            <p className="text-sm font-semibold text-foreground">
+              Once your property is marked Ready to List or Listed, you’ll receive a weekly market analysis for this property every Friday at 8:00 AM EST.
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Market analysis is not generated while this estimate is in Draft status.
           </p>
         </CardContent>
       </Card>

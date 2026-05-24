@@ -1,0 +1,66 @@
+Copy/paste this into Replit:
+
+```text id="market-analysis-placeholder-highlight"
+Update the Market Analysis placeholder/message in Sell Your Home detailed listing views.
+
+Current behavior:
+At the bottom of the Sell Your Home detailed property view, Market Analysis appears only when applicable or shows a basic placeholder.
+
+Requested change:
+When a Sell Your Home property is in Draft status, show a bold, highlighted message where Market Analysis appears.
+
+Message should say:
+
+“Once your property is marked Ready to List or Listed, you’ll receive a weekly market analysis for this property every Friday at 8:00 AM EST.”
+
+Requirements:
+1. Put this message in the Market Analysis area at the bottom of the Sell Your Home detail view.
+2. Make the message visually stand out:
+   - bold text
+   - highlighted card/banner style
+   - clean spacing
+3. Show this when seller scenario status is:
+   - Draft
+   - Estimate
+   - blank/null
+   - any status that does not allow Market Analysis
+4. Once status changes to:
+   - Ready to List
+   - Listed
+   then Market Analysis should run/display according to the existing weekly Market Analysis logic.
+5. Do not run Market Analysis while status is Draft.
+6. Do not call Anthropic, Realtor.com scraper, Zillow scraper, or web search just to show this message.
+7. Keep the existing Friday 8:00 AM Market Analysis schedule logic.
+8. Do not change net proceeds calculations.
+9. Do not change seller scenario persistence.
+
+Suggested UI:
+A highlighted card under the Market Analysis heading:
+
+Market Analysis
+
+[Highlighted banner]
+“Once your property is marked Ready to List or Listed, you’ll receive a weekly market analysis for this property every Friday at 8:00 AM EST.”
+
+Optional small secondary line:
+“Market analysis is not generated while this estimate is in Draft status.”
+
+Acceptance test:
+1. Go to Dashboard → Sell Your Home.
+2. Open a Draft seller scenario.
+3. Scroll to the Market Analysis section.
+4. Confirm the bold highlighted message appears.
+5. Confirm Market Analysis does not run for Draft.
+6. Change status to Ready to List.
+7. Confirm the normal Market Analysis behavior becomes available.
+8. Change status to Listed.
+9. Confirm the normal Market Analysis behavior becomes available.
+10. Confirm no backend analysis call happens just to display the Draft placeholder.
+
+Please make the smallest safe code change possible and tell me:
+- Which Market Analysis UI component was changed
+- Which statuses show the highlighted placeholder
+- Which statuses allow full Market Analysis
+- How backend analysis calls are prevented for Draft
+- Which files/functions were changed
+```
