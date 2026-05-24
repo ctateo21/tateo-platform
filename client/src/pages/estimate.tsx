@@ -290,6 +290,47 @@ interface Inputs {
   hasRentalIncome: boolean | null;
   monthlyRentalIncome: number;
   rentalType: "annual" | "short-term" | null;
+  /** Page-3 "Property Type" dropdown value (e.g. "Single Family Residence",
+   *  "Townhouse", "Condominium"). Defaults to "Single Family Residence". */
+  propertyType?: string;
+  /** Where `propertyType` came from. Once "manual", a later Zillow
+   *  scrape must NOT overwrite it. */
+  propertyTypeSource?: "manual" | "zillow" | "default";
+}
+
+// Canonical Page-3 Property Type dropdown options + Zillow normalizer.
+// Kept local to this file since Page 3 is the only consumer for now.
+const PROPERTY_TYPE_OPTIONS = [
+  "Single Family Residence",
+  "Townhouse",
+  "Condominium",
+  "Villa",
+  "Manufactured Home",
+  "Multi-Family",
+  "Duplex",
+  "Triplex",
+  "Quadplex",
+  "Land",
+  "Other",
+] as const;
+
+function zillowToDropdownPropertyType(raw: unknown): string | null {
+  if (!raw) return null;
+  const s = String(raw).toUpperCase().replace(/[^A-Z]/g, "");
+  if (!s) return null;
+  if (s.includes("QUAD") || s.includes("FOURPLEX")) return "Quadplex";
+  if (s.includes("TRIPLEX")) return "Triplex";
+  if (s.includes("DUPLEX")) return "Duplex";
+  if (s.includes("MULTI")) return "Multi-Family";
+  if (s.includes("TOWN")) return "Townhouse";
+  if (s.includes("CONDO") || s === "APARTMENT") return "Condominium";
+  if (s.includes("VILLA")) return "Villa";
+  if (s.includes("MANUFACTURED") || s.includes("MOBILE")) return "Manufactured Home";
+  if (s.includes("LAND") || s.includes("LOT")) return "Land";
+  if (s.includes("SINGLE") || s.includes("SFR") || s.includes("HOUSE")) {
+    return "Single Family Residence";
+  }
+  return null;
 }
 
 const FALLBACK_RATES = { conventional: 6.82, fha: 6.17, va: 6.25, usda: 6.38, dscr: 6.82, bank_statement: 6.82 };
@@ -343,6 +384,7 @@ interface Scenario {
 function makeDefaultInputs(price = 350000): Inputs {
   return {
     occupancy: "primary", purchasePrice: price, purchasePriceSource: "default", downPaymentPct: 5, downPaymentMode: "percent", downPaymentAmount: Math.round(price * 0.05), sellerConcessions: 0, sellerConcessionsMode: "percent",
+    propertyType: "Single Family Residence", propertyTypeSource: "default",
     loanType: "conventional", creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
@@ -771,6 +813,7 @@ export default function Estimate() {
     zPrice: number | null,
     zHoa: number | null,
     priceSource: PurchasePriceSource | null = null,
+    zPropertyType: string | null = null,
   ): Inputs {
     const next: Inputs = { ...current };
     // Treat the field as user-edited if the source is "user" (explicit)
@@ -784,6 +827,16 @@ export default function Estimate() {
     }
     if (zHoa != null && (!baseline || current.hoaMonthly === baseline.hoaMonthly)) {
       next.hoaMonthly = zHoa;
+    }
+    // Property Type: apply Zillow value only when the user hasn't
+    // picked one manually. Mirrors the manual-vs-zillow rule used by
+    // purchasePrice above so a manual override survives refresh scrapes.
+    if (current.propertyTypeSource !== "manual") {
+      const mapped = zillowToDropdownPropertyType(zPropertyType);
+      if (mapped) {
+        next.propertyType = mapped;
+        next.propertyTypeSource = "zillow";
+      }
     }
     return next;
   }
@@ -868,7 +921,7 @@ export default function Estimate() {
               ...(nextPhotos ? { propertyPhotos: nextPhotos } : {}),
               ...(nextPrimary ? { primaryPhotoUrl: nextPrimary } : {}),
             };
-            const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa, priceSource);
+            const merged = mergeZillowIntoInputs(baseSnapshot, s.baselineInputs, zPrice, zHoa, priceSource, (p as any).propertyType ?? null);
             return {
               ...s,
               savedInputs: merged,
@@ -887,7 +940,7 @@ export default function Estimate() {
         // depend on React state timing or nest setter side effects.
         if (isActive) {
           const baseline = baselineByIdRef.current[scenarioId];
-          setInputs(curr => mergeZillowIntoInputs(curr, baseline, zPrice, zHoa, priceSource));
+          setInputs(curr => mergeZillowIntoInputs(curr, baseline, zPrice, zHoa, priceSource, (p as any).propertyType ?? null));
           if (zPrice != null) {
             toast({
               title: fromCache ? "Property data loaded from saved records" : "Zillow data applied",
@@ -1623,6 +1676,15 @@ export default function Estimate() {
       loanType,
       annualTaxes: Math.round(price * 0.015),
       annualHOIns: Math.round(price * 0.0075),
+      // Restore saved Property Type + provenance so a "manual" pick
+      // survives reload/login and Zillow refreshes can't overwrite it.
+      propertyType: saved.propertyType ?? base.propertyType,
+      propertyTypeSource:
+        saved.propertyTypeSource === "manual" ||
+        saved.propertyTypeSource === "zillow" ||
+        saved.propertyTypeSource === "default"
+          ? saved.propertyTypeSource
+          : base.propertyTypeSource,
     };
   }
 
@@ -2284,6 +2346,8 @@ export default function Estimate() {
             Math.round(inputs.purchasePrice * (inputs.downPaymentPct / 100)),
           interestRate: inputs.interestRate,
           loanType: inputs.loanType,
+          propertyType: inputs.propertyType,
+          propertyTypeSource: inputs.propertyTypeSource,
         };
         if (idx >= 0) {
           // Only write if something actually changed (avoid noisy storage writes)
@@ -2298,6 +2362,8 @@ export default function Estimate() {
             && cur.downPaymentAmount === next.downPaymentAmount
             && cur.interestRate === next.interestRate
             && cur.loanType === next.loanType
+            && (cur.propertyType ?? undefined) === next.propertyType
+            && (cur.propertyTypeSource ?? undefined) === next.propertyTypeSource
             && cur.address === address;
           if (!same) {
             const updated = [...existing];
@@ -3169,6 +3235,41 @@ export default function Estimate() {
                       </p>
                     );
                   })()}
+
+                  {/* Property Type — sits directly under Purchase Price
+                      per spec. Defaults to "Single Family Residence";
+                      auto-seeded from Zillow scraper unless the user has
+                      manually overridden it. Provenance is persisted to
+                      `purchase_scenarios.property_type_source` so a later
+                      Zillow refresh never clobbers a manual pick. */}
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1.5 block">Property Type</Label>
+                    <Select
+                      value={inputs.propertyType ?? "Single Family Residence"}
+                      onValueChange={(v) =>
+                        setInputs((p) => ({
+                          ...p,
+                          propertyType: v,
+                          propertyTypeSource: "manual",
+                        }))
+                      }
+                    >
+                      <SelectTrigger data-testid="select-property-type"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {PROPERTY_TYPE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                        ))}
+                        {/* Surface any saved value that's not in the
+                            canonical list (older row / alt Zillow label)
+                            so the user's stored pick never silently
+                            disappears. */}
+                        {inputs.propertyType &&
+                          !PROPERTY_TYPE_OPTIONS.includes(inputs.propertyType as any) && (
+                            <SelectItem value={inputs.propertyType}>{inputs.propertyType}</SelectItem>
+                          )}
+                      </SelectContent>
+                    </Select>
+                  </div>
 
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1.5 block">Loan Type</Label>

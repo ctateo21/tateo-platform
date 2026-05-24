@@ -1,0 +1,123 @@
+Copy/paste this into Replit:
+
+```text id="purchase-property-type-missing-page3"
+The Property Type dropdown is still not visible on Purchase Page 3.
+
+Current issue:
+I do not see the type of home/property type on:
+
+Dashboard → Purchase → Page 3 → Purchase Details
+
+I need this field visible on that exact screen.
+
+Correct location:
+Purchase tab questionnaire → Page 3 Purchase Details
+
+Likely file:
+pages/mortgage-new.tsx
+
+Placement:
+Inside the Page 3 Purchase Details section, put the Property Type dropdown directly under the Purchase Price field.
+
+The visible order should be:
+
+1. Purchase Price
+2. Property Type
+3. Down Payment
+4. Loan Amount
+5. Seller Concessions / other purchase details
+
+Do not put it only on:
+- Page 4 / See My Estimate
+- dashboard row
+- hidden state
+- another questionnaire screen
+- Cash Buy
+- For Sale
+
+This request is specifically for Purchase Page 3.
+
+UI requirement:
+Add a visible dropdown labeled:
+
+Property Type
+
+Options:
+- Single Family Residence
+- Townhouse
+- Condominium
+- Villa
+- Manufactured Home
+- Multi-Family
+- Duplex
+- Triplex
+- Quadplex
+- Land
+- Other
+
+Default:
+- Default to Single Family Residence if no Zillow data exists.
+- If Zillow/Apify property type is available, auto-populate from Zillow.
+- User can manually change it.
+
+Zillow behavior:
+When Zillow/property cache returns property type, populate the dropdown only if the user has not manually changed it.
+
+Inspect Zillow fields:
+- homeType
+- propertyType
+- home_type
+- property_type
+- buildingType
+- resoFacts.propertySubType
+- propertySubType
+- listingSubType
+
+Normalize examples:
+- SINGLE_FAMILY → Single Family Residence
+- SingleFamily → Single Family Residence
+- TOWNHOUSE → Townhouse
+- CONDO → Condominium
+- CONDOMINIUM → Condominium
+- MANUFACTURED → Manufactured Home
+- MULTI_FAMILY → Multi-Family
+- DUPLEX → Duplex
+- TRIPLEX → Triplex
+- QUADPLEX → Quadplex
+
+Manual override:
+If the user changes the dropdown:
+- set property_type_source = "manual"
+- do not overwrite it with future Zillow data
+
+Persistence:
+Save/load:
+- property_type
+- property_type_source
+
+If the Purchase table needs columns, give me the SQL migration:
+
+alter table public.purchase_scenarios
+add column if not exists property_type text default 'Single Family Residence',
+add column if not exists property_type_source text default 'default';
+
+Acceptance test:
+1. Go to Dashboard → Purchase.
+2. Open/create a Purchase scenario.
+3. Navigate to Page 3 Purchase Details.
+4. Confirm Property Type is visible directly under Purchase Price.
+5. Confirm it defaults to Single Family Residence if Zillow data is not available.
+6. Enter/select a property where Zillow returns property type.
+7. Confirm the dropdown populates from Zillow.
+8. Manually change Property Type.
+9. Confirm the manual value is not overwritten by Zillow.
+10. Refresh/logout/login and confirm Property Type persists.
+
+Please make the smallest safe code change possible and tell me:
+- Exactly which component/file was updated
+- Exactly where the dropdown was placed
+- Whether pages/mortgage-new.tsx was changed
+- Which field controls the visible value
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```
