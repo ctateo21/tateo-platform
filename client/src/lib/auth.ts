@@ -1,4 +1,8 @@
 import { supabase, supabaseReady } from "./supabase";
+import {
+  ensureInsuranceForAddresses,
+  type BulkAddress,
+} from "./insurance-from-property";
 
 const NOT_CONFIGURED = {
   ok: false as const,
@@ -928,6 +932,9 @@ export function savePurchaseScenarios(s: PurchaseScenario[]) {
   _purchaseScenarios = s;
   notify();
   void persistPurchaseScenarios(s);
+  autoCreateInsuranceFromAddresses(
+    s.map(p => ({ sourceType: "purchase" as const, sourceScenarioId: p.id, address: p.address })),
+  );
 }
 
 function persistPurchaseScenarios(s: PurchaseScenario[]) {
@@ -1115,6 +1122,9 @@ export function saveCashBuyScenarios(s: CashBuyScenario[]) {
   _cashBuyScenarios = s;
   notify();
   void persistCashBuyScenarios(s);
+  autoCreateInsuranceFromAddresses(
+    s.map(c => ({ sourceType: "cash_buy" as const, sourceScenarioId: c.id, address: c.address })),
+  );
 }
 
 function persistCashBuyScenarios(s: CashBuyScenario[]) {
@@ -1154,8 +1164,48 @@ export function getTrackedLoans(): TrackedLoan[] {
 export function saveTrackedLoans(loans: TrackedLoan[]): Promise<void> {
   _trackedLoans = loans;
   notify();
+  autoCreateInsuranceFromAddresses(
+    loans.map(l => ({
+      sourceType: "refinance" as const,
+      sourceScenarioId: l.id,
+      address: l.propertyAddress,
+    })),
+  );
   // Returns the persistence promise — see saveInsuranceScenarios.
   return persistTrackedLoans(loans);
+}
+
+// ── Auto-create Insurance from Purchase / Cash-Buy / Refi addresses ──
+//
+// Ensures every property the user saves in one of the three source
+// flows has a matching row in `insurance_scenarios` so the Insurance
+// tab shows it automatically. Dedupe + manual-override protection
+// live entirely inside `ensureInsuranceForAddresses` (matched by
+// address + normalizePropertyKey, never overwrites existing rows).
+//
+// Gated on an authenticated user — anonymous draft entry should not
+// leak into `insurance_scenarios`. The helper is fire-and-forget so
+// the calling save path isn't blocked on the insurance write.
+function autoCreateInsuranceFromAddresses(
+  addresses: BulkAddress[],
+): void {
+  if (!_session?.id) {
+    console.log("[insurance-auto-create] skipped reason", { reason: "no_auth" });
+    return;
+  }
+  if (addresses.length === 0) return;
+  const { scenarios, changed } = ensureInsuranceForAddresses(
+    addresses,
+    _insuranceScenarios,
+  );
+  if (!changed) return;
+  // Use the public saver so the in-memory cache, subscribers, and
+  // Supabase write all stay consistent with the manual-add path.
+  void saveInsuranceScenarios(scenarios).then(
+    () => console.log("[insurance-auto-create] save ok", { count: scenarios.length }),
+    (err: any) =>
+      console.warn("[insurance-auto-create] save failed", { error: err?.message ?? String(err) }),
+  );
 }
 
 // Columns we know are "optional" on tracked_loans — some Supabase

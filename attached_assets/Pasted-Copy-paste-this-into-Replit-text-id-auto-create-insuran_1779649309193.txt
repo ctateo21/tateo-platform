@@ -1,0 +1,231 @@
+Copy/paste this into Replit:
+
+```text id="auto-create-insurance-from-property-flows"
+Automatically create an Insurance scenario whenever an address is added to Purchase with Cash, Purchase with Loan, or Refinance.
+
+Current issue:
+Users may enter a property address in:
+- Purchase with Cash
+- Purchase with Loan
+- Refinance
+
+But the Insurance tab does not automatically get a matching property record.
+
+Requested behavior:
+Any time a user adds/saves an address in one of these flows:
+1. Purchase with Cash
+2. Purchase with Loan
+3. Refinance
+
+Automatically create or update a matching property in the Insurance tab and save it to `insurance_scenarios`.
+
+Purpose:
+This lets the user instantly get an insurance quote for the same home, and it ensures the address is saved in our database.
+
+Trigger points:
+Create/update Insurance scenario when:
+- A Purchase with Cash address is added/saved
+- A Purchase with Loan address is added/saved
+- A Refinance mortgage statement is uploaded/analyzed and address is saved
+- A Refinance address is manually added/saved, if supported
+
+Insurance scenario creation:
+When a matching Insurance record does not already exist, create a new row in `insurance_scenarios`.
+
+Use:
+- `user_id`
+- `full_address`
+- `normalized_property_key`
+- `occupancy_type`
+- `linkedPurchaseScenarioId`, if created from Purchase with Loan
+- `linkedCashBuyScenarioId`, if created from Purchase with Cash, if this field exists or can be added safely
+- `linkedRefinanceScenarioId`, if created from Refinance
+- `correlationSource = "auto_address_match"`
+- `occupancySource = "purchase" | "cash_buy" | "refinance" | "unknown"`
+- `status = "estimate"` or `"draft"`
+- `created_at`
+- `updated_at`
+
+If some of those linked/source fields do not exist yet, use the existing insurance correlation fields already in the app and tell me if a SQL migration is needed.
+
+Mapping by source flow:
+
+Purchase with Loan → Insurance:
+- `full_address` = purchase scenario address
+- `normalized_property_key` = purchase normalized property key
+- `occupancy_type` = purchase property use/occupancy:
+  - Primary
+  - Secondary
+  - Investment
+- use purchase property details if available:
+  - purchase price / value
+  - property type
+  - year built
+  - sqft
+  - roof/year if available
+  - Zillow/cache fields relevant to insurance
+  - rebuild cost estimate if available
+
+Purchase with Cash → Insurance:
+- `full_address` = cash buy scenario address
+- `normalized_property_key` = cash buy normalized property key
+- `occupancy_type` = cash buy property use/occupancy
+- use cash buy property details if available:
+  - purchase price / value
+  - property type
+  - year built
+  - sqft
+  - Zillow/cache fields relevant to insurance
+  - rebuild cost estimate if available
+
+Refinance → Insurance:
+- `full_address` = refinance property address
+- `normalized_property_key` = refinance normalized property key
+- `occupancy_type` = refinance property use/occupancy
+- use refinance/property details if available:
+  - estimated home value
+  - property type
+  - year built
+  - sqft
+  - Zillow/cache fields relevant to insurance
+  - rebuild cost estimate if available
+
+Default Insurance fields:
+If creating a new insurance scenario, default these fields:
+- `annual_premium` = null
+- `monthly_premium` = null
+- `rebuild_cost` / `coverage_a` = from cache if available, otherwise null
+- `aop_deductible` = null
+- `hurricane_deductible` = null
+- `flood_deductible` = null
+- `carrier` = null
+- `policy_type` = null
+- `status` = "estimate" or "draft"
+
+Duplicate protection:
+Do not create duplicate Insurance scenarios.
+
+Before creating, check for an existing insurance record by:
+- `user_id`
+- `normalized_property_key`
+
+If one exists:
+- update correlation/link fields only if missing
+- update occupancy only if the Insurance occupancy was not manually overridden
+- do not overwrite existing insurance quote data
+- do not overwrite carrier/premium/deductibles/rebuild cost with blank/null
+- do not create a duplicate row
+
+Manual override protection:
+If user manually changes occupancy/property use in Insurance:
+- preserve the manual override
+- do not keep forcing Purchase/Cash Buy/Refinance occupancy into Insurance
+
+If user manually enters insurance details:
+- do not overwrite those fields from source flows or cache
+
+Suggested source fields if available:
+- `occupancy_source`
+- `correlation_source`
+- `linked_purchase_scenario_id`
+- `linked_cash_buy_scenario_id`
+- `linked_refinance_scenario_id`
+- `insurance_data_source`
+
+If these fields are missing and needed, give me SQL migration.
+
+Function to add:
+Create a shared helper like:
+
+`createOrUpdateInsuranceScenarioForProperty({ userId, sourceType, sourceScenario })`
+
+This helper should:
+1. confirm user is authenticated
+2. require address and normalized property key
+3. look up existing `insurance_scenarios` row by `user_id + normalized_property_key`
+4. create if missing
+5. update only safe/link/correlation fields if existing
+6. preserve manual insurance edits
+7. save to Supabase
+8. return the insurance scenario id
+
+Call this helper from:
+- Purchase with Loan save/upsert flow
+- Purchase with Cash save/upsert flow
+- Refinance tracked loan save/upsert flow after mortgage statement upload/analyze
+
+Important:
+- Do not call this from Sell Your Home for now unless specifically added later.
+- Do not create Insurance scenarios for unrelated address lookups that are not saved scenarios.
+- Do not create insurance scenarios for logged-out users unless the scenario is being saved after login/signup.
+- Do not break existing Insurance manual add-property behavior.
+- Do not break existing Insurance correlation behavior.
+- Do not break Purchase, Cash Buy, or Refinance save/load.
+- Use stable scenario IDs and normalized property keys, not array indexes.
+
+Insurance dashboard behavior:
+After an address is added in Purchase with Cash, Purchase with Loan, or Refinance:
+- Go to Dashboard → Insurance
+- The same property should appear there automatically.
+- The user should be able to click View/Edit and get an insurance quote.
+- The Insurance row should show occupancy/property use if available.
+- The Insurance row should show placeholders for missing premium/rebuild/deductible data.
+
+Supabase:
+Use `insurance_scenarios`.
+
+If any required columns are missing, give me one complete SQL migration before trying to save them.
+
+Do not let missing optional columns crash the app.
+Make the Insurance create/update payload schema-safe.
+
+Debug logs:
+Add temporary logs:
+- `[insurance-auto-create] source type`
+- `[insurance-auto-create] source scenario id`
+- `[insurance-auto-create] address`
+- `[insurance-auto-create] normalized property key`
+- `[insurance-auto-create] existing insurance found true/false`
+- `[insurance-auto-create] creating new insurance scenario`
+- `[insurance-auto-create] updating existing insurance scenario`
+- `[insurance-auto-create] preserving manual insurance fields`
+- `[insurance-auto-create] save ok`
+- `[insurance-auto-create] skipped reason`
+
+Acceptance test:
+1. Log in.
+2. Go to Purchase with Loan.
+3. Add/save a new address.
+4. Go to Insurance tab.
+5. Confirm the same address appears automatically.
+6. Confirm occupancy carries over.
+7. Open View/Edit and confirm the Insurance detail view opens.
+8. Go to Purchase with Cash.
+9. Add/save a new address.
+10. Go to Insurance tab.
+11. Confirm the same address appears automatically.
+12. Go to Refinance.
+13. Upload/analyze a mortgage statement.
+14. Select Primary / Secondary / Investment.
+15. Confirm Refinance saves.
+16. Go to Insurance tab.
+17. Confirm the same address appears automatically.
+18. Add the same address again in Purchase/Refinance.
+19. Confirm no duplicate Insurance row is created.
+20. Manually edit Insurance occupancy/details.
+21. Change the source scenario again.
+22. Confirm manual Insurance edits are not overwritten.
+23. Refresh/logout/login.
+24. Confirm the auto-created Insurance scenarios persist.
+
+Please make the smallest safe code change possible and tell me:
+- Which helper creates/updates Insurance scenarios
+- Which flows call the helper
+- Which fields map from Purchase with Loan to Insurance
+- Which fields map from Purchase with Cash to Insurance
+- Which fields map from Refinance to Insurance
+- How duplicate Insurance records are prevented
+- How manual Insurance overrides are protected
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```
