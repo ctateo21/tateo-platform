@@ -1,0 +1,168 @@
+Copy/paste this into Replit:
+
+```text id="investment-loan-options-dscr-pricing"
+Update Purchase loan options and DSCR pricing for Investment Property scenarios.
+
+Current issue:
+When someone selects Investment for Property Use, the app still allows loan options that should not be available.
+
+Required behavior:
+If Property Use = Investment Property, only allow these loan types:
+- Conventional
+- DSCR
+
+Do not allow:
+- FHA
+- VA
+- USDA
+- Bank Statement
+
+Loan type rules by property use:
+
+Primary Residence:
+- Conventional
+- FHA
+- VA, if veteran/VA eligible
+- USDA, if eligible
+- Bank Statement, if supported
+- DSCR only if the app currently allows it, but DSCR is mainly for investment
+
+Secondary Home:
+- Conventional
+- Bank Statement, if supported
+- Do not allow FHA
+- Do not allow VA
+- Do not allow USDA
+- Do not allow DSCR unless the app intentionally supports it for second homes
+
+Investment Property:
+- Conventional
+- DSCR only
+
+If user changes Property Use to Investment:
+1. Recalculate allowed loan options.
+2. If current selected loan type is not Conventional or DSCR:
+   - automatically switch to Conventional as the default
+   - or DSCR if the prior selected type was investment-oriented
+3. Hide or disable all other loan types.
+4. Show a small helper note:
+   “Investment properties are limited to Conventional or DSCR in this estimate.”
+
+Locations to update:
+- Purchase Page 3 → Purchase Details loan type selector
+- Purchase Page 4 → See My Estimate → Mortgage card loan type dropdown
+- Any shared loan recommendation/default function
+- Any qualification/review logic
+- Dashboard saved purchase scenario summary if affected
+
+Page 3 / Page 4 sync:
+- If Investment is selected on Page 3, Page 4 should only allow Conventional or DSCR.
+- If loan type is changed on Page 4, Page 3 should reflect the same selected loan type.
+- Do not use stale loan type state.
+
+DSCR pricing requirement:
+For DSCR loans:
+1. Copy/use the same interest rate pricing parameters as Conventional.
+2. DSCR should use the same Conventional base rate and pricing adjustments.
+3. DSCR should remain a separate loan type in the UI.
+4. DSCR should not show FHA/VA/USDA-specific fees or mortgage insurance.
+5. DSCR should not use traditional DTI qualification if the app has DSCR-specific logic.
+
+DSCR closing cost requirement:
+Add 1.00% to closing costs for DSCR because of the origination charge.
+
+Example:
+- Purchase price = $500,000
+- Normal estimated closing costs = 2.00% = $10,000
+- DSCR origination add-on = 1.00% = $5,000
+- Total estimated closing costs for DSCR = 3.00% = $15,000
+
+Implementation:
+If loan type = DSCR:
+- estimated closing costs should increase by 1.00% of purchase price
+- show this as an origination charge if possible:
+  “DSCR Origination Charge: 1.00%”
+- cash to close should include this added amount
+- seller concessions should apply against eligible closing costs as currently implemented
+- do not double-count the 1.00% origination fee
+
+Suggested fields:
+- `dscr_origination_percent = 1.00`
+- `dscr_origination_amount = purchase_price * 0.01`
+- `closing_costs_base_amount`
+- `closing_costs_total_amount`
+- `closing_costs_total_percent`
+
+If the app currently has one `estimated_closing_costs` field:
+- make sure DSCR adds the 1.00% once
+- do not permanently overwrite the base closing cost value when switching away from DSCR
+
+Switching behavior:
+If user switches from Conventional to DSCR:
+- add 1.00% origination to closing costs
+- update cash to close immediately
+
+If user switches from DSCR back to Conventional:
+- remove the 1.00% DSCR origination add-on
+- do not leave the added charge in closing costs
+
+Rate behavior:
+When DSCR is selected:
+- use Conventional rate/pricing function
+- apply the same Conventional rate parameter changes already in the app, including the recent -0.100% Conventional adjustment if that adjustment is part of the shared Conventional final rate
+- round displayed rate to 3 decimal places like other loan types
+
+Important:
+- Do not allow FHA/VA/USDA when Investment is selected.
+- Do not let below-720 FHA default override Investment Property.
+- The below-720 FHA rule applies only to Primary Residence.
+- VA override applies only to Primary Residence + veteran/VA eligible.
+- USDA applies only to Primary Residence and 640+ credit score.
+- Do not break Primary Residence logic.
+- Do not break Secondary Home logic.
+- Do not break seller concessions.
+- Do not break down payment percent/dollar toggle.
+- Do not break cash-to-close calculations.
+
+Debug logs:
+Add temporary logs:
+- `[loan-options] property use`
+- `[loan-options] allowed loan types`
+- `[loan-options] selected loan type before`
+- `[loan-options] selected loan type after`
+- `[dscr-pricing] conventional rate used`
+- `[dscr-pricing] final DSCR rate`
+- `[dscr-costs] base closing costs`
+- `[dscr-costs] origination add-on`
+- `[dscr-costs] total closing costs`
+
+Acceptance test:
+1. Go to Purchase Page 3.
+2. Select Property Use = Investment.
+3. Confirm only Conventional and DSCR are available.
+4. Confirm FHA, VA, USDA, and Bank Statement are hidden or disabled.
+5. If loan type was FHA/VA/USDA/Bank Statement before selecting Investment, confirm it automatically switches to Conventional or DSCR.
+6. Go to Page 4 → See My Estimate.
+7. Confirm Mortgage card loan type dropdown only allows Conventional and DSCR for Investment.
+8. Select DSCR.
+9. Confirm DSCR uses the same interest rate/pricing parameters as Conventional.
+10. Confirm DSCR rate displays to 3 decimals.
+11. Confirm DSCR adds 1.00% to closing costs.
+12. Confirm cash to close increases by the 1.00% origination amount.
+13. Switch back to Conventional.
+14. Confirm the 1.00% DSCR origination add-on is removed.
+15. Change Property Use back to Primary.
+16. Confirm Primary loan options return to normal.
+17. Confirm below-720 FHA logic still works only for Primary.
+18. Confirm VA still overrides FHA only for Primary + veteran.
+19. Refresh/logout/login and confirm selected Property Use and valid Loan Type persist.
+
+Please make the smallest safe code change possible and tell me:
+- Which loan option filtering function/component was changed
+- How Investment is limited to Conventional and DSCR
+- Which Conventional pricing function DSCR now reuses
+- How the 1.00% DSCR origination closing cost is added
+- How the app prevents double-counting the DSCR origination charge
+- Which Page 3/Page 4 components were updated
+- Which files/functions were changed
+```

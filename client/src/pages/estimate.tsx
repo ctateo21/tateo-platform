@@ -500,12 +500,19 @@ function occupancyRateAdj(occupancy: "primary" | "secondary" | "investment", dow
 function fullRate(base: number, score: number, occupancy: "primary" | "secondary" | "investment", downPct: number, loanType?: string): number {
   const adj = (loanType === "fha" || loanType === "va") ? fhaCreditAdjustment(score) : creditAdjustment(score);
   let rate = base + adj + occupancyRateAdj(occupancy, downPct);
-  // Conventional-only pricing concession: drop the final Conventional
-  // rate by 10 bps (0.100%). Applied once here in the single rate
-  // engine used by Purchase Page 3, Page 4, and every effect that
-  // recalculates `inputs.interestRate`, so it can never be double-
-  // applied. FHA / VA / USDA / DSCR / Bank Statement are untouched.
-  if (loanType === "conventional") rate -= 0.1;
+  // Conventional pricing concession: drop the final rate by 10 bps
+  // (0.100%). DSCR shares Conventional's pricing engine per spec
+  // ("DSCR should use the same Conventional base rate and pricing
+  // adjustments"), so it gets the same -10 bps. FHA / VA / USDA /
+  // Bank Statement are untouched. Applied once here in the single
+  // rate engine used by Purchase Page 3, Page 4, and every effect
+  // that recalculates `inputs.interestRate`, so it can never be
+  // double-applied.
+  if (loanType === "conventional" || loanType === "dscr") rate -= 0.1;
+  if (loanType === "dscr") {
+    console.debug("[dscr-pricing] conventional rate used", base);
+    console.debug("[dscr-pricing] final DSCR rate", Math.round((rate) * 1000) / 1000);
+  }
   // Round once at the engine boundary so both the payment math and
   // the displayed rate use the same 3-decimal value (avoids
   // 6.774999% style float artifacts).
@@ -1458,7 +1465,11 @@ export default function Estimate() {
     row("Purchase Price", fmt(inputs.purchasePrice));
     row("Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`);
     row("Loan Amount", fmt(calc.loanAmount), inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}` : `LTV ${fmtPct(calc.ltv)}`);
-    row("Estimated Closing Costs (~3%)", fmt(calc.closingCosts));
+    row(
+      inputs.loanType === "dscr" ? "Estimated Closing Costs (~4%)" : "Estimated Closing Costs (~3%)",
+      fmt(calc.closingCosts),
+      inputs.loanType === "dscr" ? `Incl. DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})` : undefined,
+    );
     if (inputs.sellerConcessions > 0) row("Seller Concessions", `− ${fmt(inputs.sellerConcessions)}`);
     row("Estimated Cash to Close", fmt(calc.cashToClose));
 
@@ -1883,7 +1894,13 @@ export default function Estimate() {
 
   function setOccupancy(occ: "primary" | "secondary" | "investment") {
     setInputs((p) => {
-      const isAltInvestment = p.loanType === "dscr" || p.loanType === "bank_statement";
+      // Investment is limited to Conventional + DSCR (spec). Only
+      // DSCR survives the occupancy switch as an "alt" — a previously
+      // selected Bank Statement falls through and is replaced by
+      // Conventional (or DSCR if sub-620), matching the new selector.
+      const isAltInvestment = p.loanType === "dscr";
+      console.debug("[loan-options] property use", occ);
+      console.debug("[loan-options] selected loan type before", p.loanType);
       // Non-primary normally forces Conventional, but Conventional
       // requires 620+ FICO. For sub-620 investment, fall through to
       // DSCR (no FICO floor in the same way). For sub-620 secondary
@@ -1898,6 +1915,8 @@ export default function Estimate() {
       const newMin = getMinDown(forcedLoan, p.hasMortgage, occ);
       const newDown = clampDownPaymentPct(p.downPaymentPct, newMin);
       const baseRate = (forcedLoan === "dscr" || forcedLoan === "bank_statement") ? rates.conventional : ((rates as any)[forcedLoan] ?? rates.conventional);
+      console.debug("[loan-options] allowed loan types", occ === "investment" ? ["conventional", "dscr"] : occ === "secondary" ? ["conventional"] : ["conventional", "fha", "va", "usda"]);
+      console.debug("[loan-options] selected loan type after", forcedLoan);
       return {
         ...p,
         occupancy: occ,
@@ -1944,6 +1963,23 @@ export default function Estimate() {
       };
     });
   }
+
+  // Normalize saved/stale loan-type + occupancy combos that the
+  // current selectors no longer expose. Investment is now limited to
+  // Conventional + DSCR (spec), so a saved Investment + Bank
+  // Statement scenario would render an empty Select trigger. Snap it
+  // to DSCR (the closest alt-investment program) so Page 3 / Page 4
+  // stay in sync and the rate/closing-cost math re-derives cleanly.
+  useEffect(() => {
+    if (
+      inputs.occupancy === "investment" &&
+      inputs.loanType !== "conventional" &&
+      inputs.loanType !== "dscr"
+    ) {
+      console.debug("[loan-options] normalizing stale investment loan type", inputs.loanType, "→ dscr");
+      setLoanType("dscr");
+    }
+  }, [inputs.occupancy, inputs.loanType]);
 
   // Re-apply the Purchase loan-type priority rule whenever any input
   // it depends on changes, or whenever the user reaches Page 3. This
@@ -2310,7 +2346,19 @@ export default function Estimate() {
     const mortgageInsurance = pmi + mip;
 
     const totalHousing = pi + monthlyTax + monthlyHOIns + monthlyFlood + hoaMonthly + monthlyCDD + mortgageInsurance;
-    const closingCosts = Math.round(purchasePrice * 0.03);
+    // Base closing costs ≈ 3% of purchase price. DSCR adds a 1.00%
+    // origination charge on top per spec; the add-on is derived here
+    // and never written back into `inputs`, so switching loan types
+    // (DSCR → Conventional → DSCR) can never double-count it.
+    const baseClosingCosts = Math.round(purchasePrice * 0.03);
+    const dscrOriginationPercent = loanType === "dscr" ? 1.0 : 0;
+    const dscrOriginationAmount = loanType === "dscr" ? Math.round(purchasePrice * 0.01) : 0;
+    const closingCosts = baseClosingCosts + dscrOriginationAmount;
+    if (loanType === "dscr") {
+      console.debug("[dscr-costs] base closing costs", baseClosingCosts);
+      console.debug("[dscr-costs] origination add-on", dscrOriginationAmount);
+      console.debug("[dscr-costs] total closing costs", closingCosts);
+    }
     const sellerConcessions = inputs.sellerConcessions ?? 0;
     // Cap the seller-concession credit applied to cash-to-close at
     // eligible closing costs — concessions can't reduce down payment
@@ -2367,7 +2415,8 @@ export default function Estimate() {
     return {
       loanAmount, baseLoanAmount, fhaUFMIP, vaFundingFeeAmt, downPaymentAmt, pi, monthlyTax, monthlyHOIns, monthlyFlood,
       monthlyCDD, mortgageInsurance, pmi, mip, totalHousing,
-      closingCosts, cashToClose, housingDTI, dti, maxHousingDti, maxTotalDti, maxDti, requiredIncome, requiredReserves, availableReserves,
+      closingCosts, baseClosingCosts, dscrOriginationAmount, dscrOriginationPercent,
+      cashToClose, housingDTI, dti, maxHousingDti, maxTotalDti, maxDti, requiredIncome, requiredReserves, availableReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
       rentalIncomeQualifying, qualifyingIncome,
       // Deferred-student-loan DTI add-on (derived). `baseMonthlyDebts`
@@ -3467,12 +3516,16 @@ export default function Estimate() {
                         {inputs.occupancy === "primary" && <SelectItem value="va">VA</SelectItem>}
                         {inputs.occupancy === "primary" && <SelectItem value="usda">USDA</SelectItem>}
                         {inputs.occupancy === "investment" && <SelectItem value="dscr">DSCR</SelectItem>}
-                        {inputs.occupancy === "investment" && <SelectItem value="bank_statement">Bank Statement</SelectItem>}
                       </SelectContent>
                     </Select>
+                    {inputs.occupancy === "investment" && (
+                      <p className="text-[11px] mt-1.5 leading-tight text-muted-foreground" data-testid="text-investment-loan-note">
+                        Investment properties are limited to Conventional or DSCR in this estimate.
+                      </p>
+                    )}
                     {inputs.creditScore < CONVENTIONAL_MIN_FICO && inputs.occupancy !== "primary" && (
                       <p className="text-[11px] mt-1.5 leading-tight text-red-600 font-medium">
-                        Conventional is not available below a 620 credit score. {inputs.occupancy === "investment" ? "Consider DSCR or Bank Statement, which don't have the same FICO floor." : "Improve credit to 620+ to qualify for a secondary-home loan."}
+                        Conventional is not available below a 620 credit score. {inputs.occupancy === "investment" ? "Consider DSCR, which doesn't have the same FICO floor." : "Improve credit to 620+ to qualify for a secondary-home loan."}
                       </p>
                     )}
                     {inputs.creditScore < CONVENTIONAL_MIN_FICO && inputs.occupancy === "primary" && (
@@ -3480,11 +3533,11 @@ export default function Estimate() {
                         Conventional hidden — minimum 620 FICO required.
                       </p>
                     )}
-                    {inputs.occupancy !== "primary" ? (
+                    {inputs.occupancy === "secondary" ? (
                       <p className="text-[11px] mt-1.5 leading-tight text-muted-foreground">
-                        <span className="text-amber-600 font-medium">Only Conventional available for {inputs.occupancy} properties</span>
+                        <span className="text-amber-600 font-medium">Only Conventional available for secondary properties</span>
                       </p>
-                    ) : (
+                    ) : inputs.occupancy === "investment" ? null : (
                       <ul className="mt-1.5 space-y-0.5 text-[11px] leading-tight text-muted-foreground">
                         <li>Conventional — best if credit score &gt; 720</li>
                         <li>FHA — best if credit score &lt; 720</li>
@@ -3826,7 +3879,11 @@ export default function Estimate() {
                     : `LTV ${fmtPct(calc.ltv)}`
                   } />
                   <Separator />
-                  <Row label="Estimated Closing Costs (~3%)" value={fmt(calc.closingCosts)} />
+                  <Row
+                    label={inputs.loanType === "dscr" ? "Estimated Closing Costs (~4%)" : "Estimated Closing Costs (~3%)"}
+                    value={fmt(calc.closingCosts)}
+                    sub={inputs.loanType === "dscr" ? `Includes DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})` : undefined}
+                  />
                   {/* Seller Concessions — same control as Page 3,
                       writes the same `inputs.sellerConcessions` field
                       so the two pages stay synced automatically. Cash
@@ -3898,9 +3955,13 @@ export default function Estimate() {
                           {inputs.occupancy === "investment" && (
                             <SelectItem value="dscr">DSCR</SelectItem>
                           )}
-                          {inputs.occupancy === "investment" && (
-                            <SelectItem value="bank_statement">Bank Statement</SelectItem>
-                          )}
+                          {/* Bank Statement was previously offered for
+                              investment but the spec restricts
+                              investment to Conventional + DSCR only.
+                              If a saved scenario still carries
+                              `bank_statement` on investment, the
+                              normalization effect below snaps it to
+                              DSCR so the trigger never goes blank. */}
                         </SelectContent>
                       </Select>
                     </div>
