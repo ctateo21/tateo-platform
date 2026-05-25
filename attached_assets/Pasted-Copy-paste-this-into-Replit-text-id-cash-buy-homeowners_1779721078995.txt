@@ -1,0 +1,63 @@
+Copy/paste this into Replit:
+
+```text id="cash-buy-homeowners-insurance-sync"
+Fix Purchase with Cash homeowners insurance so the Ongoing Costs section uses the same value as the Homeowners Insurance Estimate section.
+
+Current issue:
+In Purchase with Cash:
+- The Homeowners Insurance Estimate section at the bottom shows the correct annual homeowners insurance estimate.
+- But in the Ongoing Costs section, the Homeowners Insurance field is blank.
+
+Requested behavior:
+The Ongoing Costs → Homeowners Insurance value should show the same homeowners insurance number as the Homeowners Insurance Estimate section below.
+
+Expected behavior:
+1. Purchase with Cash should use one shared homeowners insurance value.
+2. The Ongoing Costs section should display that shared value.
+3. The Homeowners Insurance Estimate section should display the same shared value.
+4. If the estimate is $3,750/year, Ongoing Costs should also show $3,750/year or the equivalent monthly amount, depending on the existing Ongoing Costs format.
+5. If the user manually changes the homeowners insurance estimate, Ongoing Costs should update immediately.
+6. If purchase price/value changes and homeowners insurance is default-based, both sections should update together.
+7. If the user manually overrides homeowners insurance, both sections should preserve and show the manual value.
+8. Persist after refresh/logout/login.
+
+Important:
+- Do not create two separate homeowners insurance states.
+- Do not let Ongoing Costs read from a blank/different field while the estimate section reads from the correct field.
+- Use the same shared homeowners insurance helper/value that now defaults to 0.75% internally.
+- Do not show any user-facing note saying the estimate is based on 0.75%.
+- Do not change the internal 0.75% default calculation.
+- Do not break Purchase with Loan, Insurance tab, or Refinance.
+
+Likely fix:
+Find the Purchase with Cash component and identify:
+- the value used by the Homeowners Insurance Estimate section
+- the value used by the Ongoing Costs → Homeowners Insurance row
+
+Then make Ongoing Costs use the same value/source as the estimate section.
+
+Use existing fields if available:
+- `homeowners_insurance`
+- `annual_insurance`
+- `annual_premium`
+- `monthly_insurance`
+- `monthly_premium`
+
+Acceptance test:
+1. Go to Purchase with Cash.
+2. Enter purchase price/value of $500,000.
+3. Confirm Homeowners Insurance Estimate shows $3,750/year.
+4. Confirm Ongoing Costs → Homeowners Insurance also shows $3,750/year or the matching monthly value.
+5. Manually change homeowners insurance to $5,000/year.
+6. Confirm Ongoing Costs updates to $5,000/year or matching monthly value.
+7. Refresh/logout/login.
+8. Confirm both sections still show the same saved homeowners insurance value.
+9. Confirm no visible 0.75% note appears.
+
+Please make the smallest safe code change possible and tell me:
+- Which Purchase with Cash component was changed
+- Which homeowners insurance value the bottom estimate section uses
+- Which Ongoing Costs field was previously blank
+- How both sections now share the same value
+- Which files/functions were changed
+```

@@ -524,8 +524,14 @@ export default function CashBuyPage() {
   //   2. Simulator-supplied `insurancePremiumAnnual` (only set after
   //      the user engages the simulator)
   //   3. Global 0.75%-of-purchase-price default
-  const insMidpoint = scenario.homeownersInsurance
-    ?? scenario.insurancePremiumAnnual
+  const manualIns = scenario.homeownersInsurance && scenario.homeownersInsurance > 0
+    ? scenario.homeownersInsurance
+    : undefined;
+  const simIns = scenario.insurancePremiumAnnual && scenario.insurancePremiumAnnual > 0
+    ? scenario.insurancePremiumAnnual
+    : undefined;
+  const insMidpoint = manualIns
+    ?? simIns
     ?? calculateDefaultHomeownersInsurance(price).annualInsurance;
 
   const priceSourceLabel: Record<NonNullable<CashBuyScenario["purchasePriceSource"]>, string> = {
@@ -773,7 +779,7 @@ export default function CashBuyPage() {
               <NumRow
                 label="Annual Homeowners Insurance"
                 hint="Synced from the insurance simulator midpoint below."
-                value={scenario.homeownersInsurance ?? insMidpoint}
+                value={insMidpoint}
                 onChange={v => update("homeownersInsurance", v)}
                 min={0} max={20_000} step={25} prefix="$"
               />
@@ -802,7 +808,7 @@ export default function CashBuyPage() {
                   {formatCurrency(
                     Math.round(
                       ((scenario.propertyTaxes ?? 0) / 12) +
-                      ((scenario.homeownersInsurance ?? insMidpoint) / 12) +
+                      (insMidpoint / 12) +
                       (scenario.hoaMonthly ?? 0),
                     ),
                   )}/mo
