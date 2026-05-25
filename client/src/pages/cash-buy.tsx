@@ -473,10 +473,21 @@ export default function CashBuyPage() {
     setScenario(prev => ({ ...prev, hoaMonthly: v, hoaSource: "manual" }));
   }
 
+  // Tracks whether the user has actively engaged the insurance
+  // simulator (changed region/roof/wind/etc). Until they do, we
+  // hold `homeownersInsurance` at the global 0.75%-of-price default
+  // (spec: insurance-default-075-percent). Once they touch the sim,
+  // the regional midpoint becomes the source of truth.
+  const userTouchedInsuranceSimRef = useRef(false);
   const handleInsuranceFactors = useCallback((factors: InsuranceFactors) => {
+    userTouchedInsuranceSimRef.current = true;
     setScenario(prev => ({ ...prev, insuranceFactors: factors as CashBuyInsuranceFactors }));
   }, []);
   const handleInsurancePremium = useCallback((annual: number) => {
+    // Don't auto-overwrite until the user has actively engaged the
+    // simulator. The 0.75% default already covers the no-touch case
+    // via `insMidpoint` below.
+    if (!userTouchedInsuranceSimRef.current) return;
     setScenario(prev =>
       prev.insurancePremiumAnnual === annual && prev.homeownersInsurance === annual
         ? prev
@@ -505,11 +516,16 @@ export default function CashBuyPage() {
     regionKey: getInsRegionFromAddress(scenario.address),
     ...DEFAULT_INSURANCE_FACTORS,
   };
-  // Insurance midpoint preview — used in the ongoing-costs summary even
-  // before the user scrolls down to the simulator.
+  // Insurance midpoint preview — used in the ongoing-costs summary
+  // even before the user scrolls down to the simulator. Order of
+  // precedence (spec: insurance-default-075-percent):
+  //   1. Manually entered `homeownersInsurance` (preserved)
+  //   2. Simulator-supplied `insurancePremiumAnnual` (only set after
+  //      the user engages the simulator)
+  //   3. Global 0.75%-of-purchase-price default
   const insMidpoint = scenario.homeownersInsurance
     ?? scenario.insurancePremiumAnnual
-    ?? calcInsurancePremium(price, effectiveFactors).mid;
+    ?? Math.round(price * 0.0075);
 
   const priceSourceLabel: Record<NonNullable<CashBuyScenario["purchasePriceSource"]>, string> = {
     default: "Default",

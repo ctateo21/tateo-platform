@@ -1,0 +1,114 @@
+Copy/paste this into Replit:
+
+```text id="insurance-default-075-percent"
+Update the default homeowners insurance estimate to 0.75% of the purchase price or estimated property value.
+
+Current issue:
+The home insurance estimate needs a consistent default when no actual quote/premium exists.
+
+Requested default:
+Annual homeowners insurance = 0.75% of purchase price or estimated home value.
+
+Example:
+Home purchase price/value = $500,000  
+Default annual insurance = $500,000 × 0.75% = $3,750/year  
+Monthly insurance = $3,750 / 12 = $312.50/month
+
+Where this should apply:
+Use this default anywhere the app estimates homeowners insurance, including:
+- Purchase with Loan
+- Purchase with Cash
+- Insurance tab
+- Refinance, if it estimates current/new homeowners insurance
+- dashboard summaries where estimated insurance is shown
+- any property detail view that uses estimated insurance
+
+Value source priority:
+Use the best available property value in this order:
+
+1. Purchase price, if in Purchase with Loan or Purchase with Cash
+2. Estimated home value, if in Refinance or Sell Your Home / property cache
+3. Zillow/property cache value, if no user-entered value exists
+4. Blank/null if no property value is available
+
+Formula:
+annual_homeowners_insurance = property_value × 0.0075
+
+monthly_homeowners_insurance = annual_homeowners_insurance / 12
+
+Formatting:
+- Annual: `$3,750/yr`
+- Monthly: `$313/mo` or `$312.50/mo`, matching existing app formatting
+- Store clean numeric values, not formatted strings
+
+Manual override protection:
+If the user manually changes the insurance estimate:
+- do not overwrite it with the 0.75% default
+- set a source field if available:
+  `insurance_source = "manual"`
+
+If the insurance estimate is auto/defaulted:
+- set source if available:
+  `insurance_source = "default_0_75_percent"`
+
+If Zillow/cache or a real quote later provides an insurance value:
+- real quote should override the default if no manual override exists
+- manual user value should remain protected
+
+Suggested fields:
+- `homeowners_insurance`
+- `annual_insurance`
+- `monthly_insurance`
+- `insurance_source`
+- `insurance_default_percent = 0.75`
+
+If fields already exist, reuse them instead of creating duplicates.
+
+Insurance tab:
+When an Insurance scenario is created from Purchase with Loan, Purchase with Cash, or Refinance:
+- default annual premium to 0.75% of purchase price/value if no premium exists
+- default monthly premium to annual premium / 12
+- preserve manually entered premium, carrier, deductibles, and coverage data
+
+Purchase with Loan / Purchase with Cash:
+When purchase price changes:
+- if insurance is default-based, recalculate annual insurance at 0.75%
+- if insurance was manually changed, preserve manual value
+
+Refinance:
+When estimated home value changes:
+- if insurance is default-based, recalculate at 0.75%
+- if insurance was manually changed, preserve manual value
+
+Important:
+- Do not overwrite actual carrier quote data.
+- Do not overwrite manual insurance entries.
+- Do not overwrite Insurance tab premiums with blanks.
+- Do not break insurance simulator logic.
+- Do not break cash-to-close or DTI calculations.
+- Do not double-count insurance in monthly payment or cash-to-close.
+- Do not create duplicate fields if usable fields already exist.
+
+Acceptance test:
+1. Purchase with Loan: enter purchase price $500,000.
+2. Confirm default homeowners insurance = $3,750/yr.
+3. Confirm monthly insurance = about $312.50/mo.
+4. Change purchase price to $600,000.
+5. Confirm default insurance updates to $4,500/yr unless manually overridden.
+6. Manually change insurance to $5,000/yr.
+7. Change purchase price again.
+8. Confirm manual $5,000/yr is preserved.
+9. Purchase with Cash: confirm same 0.75% default behavior.
+10. Refinance: enter estimated home value $500,000.
+11. Confirm default insurance = $3,750/yr.
+12. Insurance tab: confirm auto-created insurance scenarios use 0.75% annual premium if no quote exists.
+13. Refresh/logout/login and confirm values persist.
+
+Please make the smallest safe code change possible and tell me:
+- Which insurance estimate helper/function was changed or created
+- Which value source is used for the 0.75% calculation
+- Which flows now use the 0.75% default
+- How manual insurance overrides are protected
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```

@@ -1886,7 +1886,18 @@ export default function Estimate() {
   const [insYearIdx, setInsYearIdx] = useState(1);
   const [insClaimsIdx, setInsClaimsIdx] = useState(0);
 
-  // Auto-detect region whenever address changes
+  // Tracks whether the user has actively engaged the regional
+  // insurance simulator (region/roof/wind/hurricane-deductible/
+  // construction/year/claims). Until they do, we hold `annualHOIns`
+  // at the global 0.75%-of-price default (spec:
+  // insurance-default-075-percent). Once they touch the simulator,
+  // the simulator midpoint becomes the source of truth for the
+  // monthly-payment / cash-to-close calc.
+  const userTouchedInsuranceSimRef = useRef(false);
+  const markInsuranceSimTouched = () => { userTouchedInsuranceSimRef.current = true; };
+
+  // Auto-detect region whenever address changes (does NOT count as
+  // a user interaction — it's driven by the address field).
   useEffect(() => {
     if (address && address !== "Unknown Address") {
       setInsRegionKey(getInsRegionFromAddress(address));
@@ -1912,10 +1923,28 @@ export default function Estimate() {
     };
   }, [inputs.purchasePrice, insRegionKey, insRoofIdx, insWindIdx, insHurrIdx, insConstIdx, insYearIdx, insClaimsIdx]);
 
-  // Wire insurance midpoint into annualHOIns
+  // Wire insurance midpoint into annualHOIns — only after the user
+  // has actively engaged the simulator. Before that we keep the
+  // global 0.75%-of-purchase-price default so every property starts
+  // with the same consistent estimate (spec:
+  // insurance-default-075-percent). Once the user touches the sim,
+  // the regional midpoint becomes the source of truth.
   useEffect(() => {
+    if (!userTouchedInsuranceSimRef.current) return;
     setInputs(prev => ({ ...prev, annualHOIns: insPremiumCalc.mid }));
   }, [insPremiumCalc.mid]);
+
+  // Keep the 0.75%-of-price default in sync with `purchasePrice`
+  // until the user touches the simulator. Once they have, the
+  // simulator-midpoint wire-up above owns this field.
+  useEffect(() => {
+    if (userTouchedInsuranceSimRef.current) return;
+    setInputs(prev => {
+      const target = Math.round(prev.purchasePrice * 0.0075);
+      if (prev.annualHOIns === target) return prev;
+      return { ...prev, annualHOIns: target };
+    });
+  }, [inputs.purchasePrice]);
 
   // Re-derive the non-canonical down-payment field whenever the
   // purchase price changes. The user's chosen mode is the source of
@@ -4648,7 +4677,7 @@ export default function Estimate() {
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Region / Risk Tier</label>
                         <select
                           value={insRegionKey}
-                          onChange={e => setInsRegionKey(e.target.value as InsRegionKey)}
+                          onChange={e => { markInsuranceSimTouched(); setInsRegionKey(e.target.value as InsRegionKey); }}
                           className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
                         >
                           {(Object.entries(INS_REGIONS) as [InsRegionKey, typeof INS_REGIONS[InsRegionKey]][]).map(([key, r]) => (
@@ -4661,7 +4690,7 @@ export default function Estimate() {
                       {/* Roof Age */}
                       <div className="space-y-1">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Roof Age</label>
-                        <select value={insRoofIdx} onChange={e => setInsRoofIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                        <select value={insRoofIdx} onChange={e => { markInsuranceSimTouched(); setInsRoofIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
                           <option value={0}>Under 5 years</option>
                           <option value={1}>5–14 years — standard</option>
                           <option value={2}>15–20 years</option>
@@ -4672,7 +4701,7 @@ export default function Estimate() {
                       {/* Wind Mitigation */}
                       <div className="space-y-1">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Wind Mitigation</label>
-                        <select value={insWindIdx} onChange={e => setInsWindIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                        <select value={insWindIdx} onChange={e => { markInsuranceSimTouched(); setInsWindIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
                           <option value={0}>No inspection / no features</option>
                           <option value={1}>Basic inspection — standard</option>
                           <option value={2}>Full mitigation: hip roof, shutters, SWR</option>
@@ -4682,7 +4711,7 @@ export default function Estimate() {
                       {/* Hurricane Deductible */}
                       <div className="space-y-1">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Hurricane Deductible</label>
-                        <select value={insHurrIdx} onChange={e => setInsHurrIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                        <select value={insHurrIdx} onChange={e => { markInsuranceSimTouched(); setInsHurrIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
                           <option value={0}>2% of dwelling — standard</option>
                           <option value={1}>3% of dwelling</option>
                           <option value={2}>5% of dwelling</option>
@@ -4692,7 +4721,7 @@ export default function Estimate() {
                       {/* Construction */}
                       <div className="space-y-1">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Construction Type</label>
-                        <select value={insConstIdx} onChange={e => setInsConstIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                        <select value={insConstIdx} onChange={e => { markInsuranceSimTouched(); setInsConstIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
                           <option value={0}>Concrete block / CBS — preferred</option>
                           <option value={1}>Mixed / unknown — standard</option>
                           <option value={2}>Frame construction</option>
@@ -4702,7 +4731,7 @@ export default function Estimate() {
                       {/* Year Built */}
                       <div className="space-y-1">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Year Built</label>
-                        <select value={insYearIdx} onChange={e => setInsYearIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                        <select value={insYearIdx} onChange={e => { markInsuranceSimTouched(); setInsYearIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
                           <option value={0}>2002 or newer — Florida Building Code</option>
                           <option value={1}>1990–2001 — standard</option>
                           <option value={2}>1970–1989</option>
@@ -4713,7 +4742,7 @@ export default function Estimate() {
                       {/* Claims */}
                       <div className="space-y-1">
                         <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Claims History (5 yrs)</label>
-                        <select value={insClaimsIdx} onChange={e => setInsClaimsIdx(Number(e.target.value))} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
+                        <select value={insClaimsIdx} onChange={e => { markInsuranceSimTouched(); setInsClaimsIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
                           <option value={0}>No claims — clean history</option>
                           <option value={1}>1 claim filed</option>
                           <option value={2}>2 claims filed</option>
