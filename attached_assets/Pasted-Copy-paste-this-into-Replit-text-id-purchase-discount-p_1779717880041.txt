@@ -1,0 +1,306 @@
+Copy/paste this into Replit:
+
+```text id="purchase-discount-points-all-loan-types"
+Build Discount Points into the Purchase with Loan estimate for all loan options, using the correct buydown table by loan type.
+
+Location:
+Purchase with Loan → Page 4 / See My Estimate → Real Estate card
+
+Placement:
+Add Discount Points directly under the Seller Concessions row/control on the Real Estate card.
+
+The Real Estate card order should be:
+1. Purchase Price
+2. Down Payment
+3. Loan Amount
+4. Estimated Closing Costs
+5. Seller Concessions
+6. Discount Points
+7. Any other real estate cost items
+
+Purpose:
+Users should be able to buy down their interest rate by selecting discount points. This should also increase closing costs based on the selected point amount.
+
+Discount Points input:
+- Default = 0.0%
+- User should be able to select/type:
+  - 0.0%
+  - 0.5%
+  - 1.0%
+  - 1.5%
+  - 2.0%
+  - 2.5%
+  - 3.0%
+- Max = 3.0%
+- Step = 0.5%
+- Display cleanly:
+  - 0.0%
+  - 0.5%
+  - 1.0%
+  - 1.5%
+  - 2.0%
+  - 2.5%
+  - 3.0%
+
+Discount point cost calculation:
+Discount point cost is based on the loan amount.
+
+Formula:
+discount_points_cost = loan_amount × discount_points_percent / 100
+
+Example:
+Loan amount = $300,000
+Discount points = 1.0%
+Discount point cost = $3,000
+
+This amount should increase closing costs and cash to close.
+
+Important:
+- Discount points should increase buyer closing costs.
+- Discount points should increase cash to close.
+- Discount points should not reduce purchase price.
+- Discount points should not reduce down payment.
+- Discount points should not be double-counted.
+- Seller concessions can offset eligible closing costs if the current app already applies seller concessions that way.
+
+Discount point rate buydown logic:
+When user selects discount points:
+1. Start with the rate already calculated from all other parameters.
+2. Apply the discount point rate reduction based on the loan type group.
+3. Final displayed rate = base calculated rate - discount point buydown.
+4. Final displayed rate should still round to 3 decimals.
+5. Monthly payment should recalculate using the final bought-down rate.
+
+Loan type table mapping:
+Use the Conventional buydown table for:
+- Conventional
+- DSCR
+
+Use the FHA buydown table for:
+- FHA
+- VA
+- USDA
+
+Do not leave VA, USDA, or DSCR with a 0.000% rate reduction.
+
+Conventional / DSCR discount point rate reductions:
+Based off the rate already calculated from the other parameters:
+
+- 0.0% discount points = 0.000% rate reduction
+- 0.5% discount points = 0.240% rate reduction
+- 1.0% discount points = 0.340% rate reduction
+- 1.5% discount points = 0.420% rate reduction
+- 2.0% discount points = 0.500% rate reduction
+- 2.5% discount points = 0.710% rate reduction
+- 3.0% discount points = 0.810% rate reduction
+
+FHA / VA / USDA discount point rate reductions:
+Based off the rate already calculated from the other parameters:
+
+- 0.0% discount points = 0.000% rate reduction
+- 0.5% discount points = 0.094% rate reduction
+- 1.0% discount points = 0.184% rate reduction
+- 1.5% discount points = 0.264% rate reduction
+- 2.0% discount points = 0.364% rate reduction
+- 2.5% discount points = 0.478% rate reduction
+- 3.0% discount points = 0.562% rate reduction
+
+Loan types to support:
+- Conventional
+- FHA
+- VA
+- USDA
+- DSCR
+- Bank Statement
+
+Bank Statement behavior:
+If specific discount point buydown pricing is not yet provided for Bank Statement:
+- Add the discount point cost to closing costs the same way.
+- Use 0.000% rate reduction for Bank Statement for now unless existing app logic has a table.
+- Tell me where to add a Bank Statement buydown table later.
+
+Suggested fields:
+- `discount_points_percent`
+- `discount_points_cost`
+- `discount_points_rate_reduction`
+- `rate_before_discount_points`
+- `rate_after_discount_points`
+
+Default:
+- `discount_points_percent = 0.0`
+- `discount_points_cost = 0`
+- `discount_points_rate_reduction = 0`
+
+Rate calculation order:
+Use this order:
+
+1. Calculate base loan rate using existing pricing logic:
+   - loan type
+   - credit score
+   - LTV
+   - occupancy
+   - AMI discount if applicable
+   - existing Conventional -0.100% adjustment
+   - loan term
+   - all existing pricing parameters
+
+2. Store that as:
+   `rate_before_discount_points`
+
+3. Look up the discount point rate reduction based on loan type group:
+   - Conventional group: Conventional, DSCR
+   - FHA group: FHA, VA, USDA
+   - Bank Statement: 0.000% unless table exists
+
+4. Apply discount point buydown:
+   `rate_after_discount_points = rate_before_discount_points - discount_points_rate_reduction`
+
+5. Round final rate to 3 decimals.
+
+6. Use final rate for payment calculation.
+
+Important:
+- Do not apply discount point buydown more than once.
+- Do not apply it before the app finishes existing pricing adjustments.
+- Do not permanently mutate the base rate.
+- Recalculate if loan type changes.
+- Recalculate if discount points change.
+- Recalculate if loan amount changes.
+- Recalculate if down payment changes.
+- Recalculate if purchase price changes.
+
+Closing cost calculation:
+Discount point cost should be added to total closing costs.
+
+Example:
+Base estimated closing costs = $8,000
+Loan amount = $300,000
+Discount points = 1.0%
+Discount point cost = $3,000
+Total estimated closing costs = $11,000
+
+Display:
+In the Real Estate card, under Discount Points, show:
+- selected discount points percent
+- dollar cost
+- rate reduction
+- final bought-down rate, if clean
+
+Example:
+Discount Points: 1.0%
+Cost: $3,000
+Rate buydown: -0.340%
+Final rate: 6.435%
+
+Mortgage card:
+In the Mortgage card, show both if possible:
+- Base rate before discount points
+- Discount point reduction
+- Final interest rate
+
+Example:
+Base rate: 6.775%
+Discount points: -0.340%
+Final rate: 6.435%
+
+If that is too much UI, at minimum show final rate and a small line:
+“Includes 1.0 discount point buydown.”
+
+Page 3 / Page 4 sync:
+Discount points can be Page 4 only for now, but it must:
+- save to the purchase scenario
+- persist after refresh/logout/login
+- update Page 4 calculations immediately
+
+Persistence:
+Save discount point fields to purchase scenario:
+- discount_points_percent
+- discount_points_cost
+- discount_points_rate_reduction
+- rate_before_discount_points
+- rate_after_discount_points
+
+If `purchase_scenarios` needs columns, give me SQL migration like:
+
+alter table public.purchase_scenarios
+add column if not exists discount_points_percent numeric default 0,
+add column if not exists discount_points_cost numeric default 0,
+add column if not exists discount_points_rate_reduction numeric default 0,
+add column if not exists rate_before_discount_points numeric,
+add column if not exists rate_after_discount_points numeric;
+
+Validation:
+- Minimum discount points = 0.0%
+- Maximum discount points = 3.0%
+- Step = 0.5%
+- Do not allow negative points.
+- Do not allow more than 3.0 points.
+- If user types an unsupported amount like 0.7%, round to nearest valid 0.5 increment or show validation.
+- Do not save NaN.
+
+Calculations that must update:
+When discount points change, update:
+- final interest rate
+- principal and interest
+- monthly payment
+- DTI
+- cash to close
+- total closing costs
+- qualification/review status
+- dashboard summary values
+
+Important protections:
+- Do not break FHA DPA.
+- If FHA forgivable DPA already adds discount points/closing costs, make sure it does not double-count with this user-selected Discount Points field.
+- If FHA DPA has its own required points, either show those separately or combine carefully with user-selected discount points and explain the total.
+- Do not break VA 0% down.
+- Do not break USDA 0% down.
+- Do not break DSCR 1% origination charge.
+- DSCR origination charge and discount points are separate costs.
+- Do not break seller concessions cap logic.
+- Seller concessions should still reduce eligible closing costs if implemented.
+
+Acceptance test:
+1. Go to Purchase with Loan → Page 4 / See My Estimate.
+2. Confirm Discount Points appears under Seller Concessions in the Real Estate card.
+3. Confirm it defaults to 0.0%.
+4. Enter purchase price $500,000 and loan amount $300,000.
+5. Select Conventional.
+6. Set discount points to 1.0%.
+7. Confirm closing costs increase by $3,000.
+8. Confirm Conventional rate decreases by 0.340%.
+9. Confirm payment recalculates using the reduced rate.
+10. Select DSCR.
+11. Set discount points to 1.0%.
+12. Confirm DSCR rate decreases by 0.340%.
+13. Confirm DSCR 1.00% origination charge remains separate from discount points.
+14. Select FHA.
+15. Set discount points to 1.0%.
+16. Confirm FHA rate decreases by 0.184%.
+17. Select VA.
+18. Set discount points to 1.0%.
+19. Confirm VA rate decreases by 0.184%.
+20. Select USDA.
+21. Set discount points to 1.0%.
+22. Confirm USDA rate decreases by 0.184%.
+23. Select Bank Statement.
+24. Confirm discount point cost still increases closing costs.
+25. Confirm Bank Statement gets 0.000% rate reduction unless a table already exists.
+26. Confirm all final rates display to 3 decimals.
+27. Refresh/logout/login.
+28. Confirm selected discount points persist.
+29. Confirm no double-counting in closing costs or cash to close.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 4 Real Estate card component was changed
+- Which discount point fields were added
+- Whether a Supabase migration is needed
+- How discount point cost is calculated
+- Which loan types use the Conventional buydown table
+- Which loan types use the FHA buydown table
+- How Bank Statement is handled
+- How final rate is calculated and rounded
+- How closing costs and cash to close update
+- How double-counting is prevented
+- Which files/functions were changed
+```

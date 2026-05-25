@@ -82,6 +82,29 @@ export interface PurchaseScenario {
   /** Total deferred student loan balance in dollars. Only meaningful
    *  when `hasDeferredStudentLoans === true`. */
   deferredStudentLoanBalance?: number;
+  /** Page 4 Discount Points buydown (Real Estate card). Percent of
+   *  the base loan amount the buyer is paying up-front to reduce
+   *  the interest rate. Valid values: 0 / 0.5 / 1 / 1.5 / 2 / 2.5 /
+   *  3. Default 0 (no buydown). The runtime recomputes cost + rate
+   *  reduction from this single field every render — the persisted
+   *  derived fields below are written for dashboard / read-only
+   *  consumers, never read back to drive calculations (so flipping
+   *  loan type or loan amount can never double-count). */
+  discountPointsPct?: number;
+  /** Dollar cost of the selected discount points = base loan amount
+   *  × discountPointsPct / 100. Persisted for read-only display. */
+  discountPointsCost?: number;
+  /** Rate reduction (percentage points) applied for the selected
+   *  buydown, looked up from the loan-type buydown table. */
+  discountPointsRateReduction?: number;
+  /** Interest rate before the discount-point buydown is applied
+   *  (i.e. the priced rate from `fullRate(...)`). Stored separately
+   *  from `interestRate` so consumers can show "Base / Buydown /
+   *  Final" without recomputing. */
+  rateBeforeDiscountPoints?: number;
+  /** Final interest rate after the discount-point buydown,
+   *  rounded to 3 decimals. */
+  rateAfterDiscountPoints?: number;
 }
 
 export interface InsuranceScenario {
@@ -334,6 +357,31 @@ function rowToPurchase(row: any): PurchaseScenario {
       Number.isFinite(Number(row.deferred_student_loan_balance))
         ? Number(row.deferred_student_loan_balance)
         : undefined,
+    discountPointsPct:
+      row.discount_points_percent != null &&
+      Number.isFinite(Number(row.discount_points_percent))
+        ? Number(row.discount_points_percent)
+        : undefined,
+    discountPointsCost:
+      row.discount_points_cost != null &&
+      Number.isFinite(Number(row.discount_points_cost))
+        ? Number(row.discount_points_cost)
+        : undefined,
+    discountPointsRateReduction:
+      row.discount_points_rate_reduction != null &&
+      Number.isFinite(Number(row.discount_points_rate_reduction))
+        ? Number(row.discount_points_rate_reduction)
+        : undefined,
+    rateBeforeDiscountPoints:
+      row.rate_before_discount_points != null &&
+      Number.isFinite(Number(row.rate_before_discount_points))
+        ? Number(row.rate_before_discount_points)
+        : undefined,
+    rateAfterDiscountPoints:
+      row.rate_after_discount_points != null &&
+      Number.isFinite(Number(row.rate_after_discount_points))
+        ? Number(row.rate_after_discount_points)
+        : undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -368,6 +416,26 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
       : {}),
     ...(typeof s.deferredStudentLoanBalance === "number"
       ? { deferred_student_loan_balance: s.deferredStudentLoanBalance }
+      : {}),
+    // Discount Points buydown (Page 4 → Real Estate card). Always
+    // written when set so the read side restores the user's slider
+    // position. The rate-reduction / cost / before-after fields are
+    // derived snapshots — they're persisted for dashboard display
+    // only and never read back to drive the runtime calc.
+    ...(typeof s.discountPointsPct === "number"
+      ? { discount_points_percent: s.discountPointsPct }
+      : {}),
+    ...(typeof s.discountPointsCost === "number"
+      ? { discount_points_cost: s.discountPointsCost }
+      : {}),
+    ...(typeof s.discountPointsRateReduction === "number"
+      ? { discount_points_rate_reduction: s.discountPointsRateReduction }
+      : {}),
+    ...(typeof s.rateBeforeDiscountPoints === "number"
+      ? { rate_before_discount_points: s.rateBeforeDiscountPoints }
+      : {}),
+    ...(typeof s.rateAfterDiscountPoints === "number"
+      ? { rate_after_discount_points: s.rateAfterDiscountPoints }
       : {}),
   };
 }

@@ -308,6 +308,80 @@ interface Inputs {
    *  Preserved when the user toggles "No" so they can flip back without
    *  retyping; the calc only uses it when `hasDeferredStudentLoans === true`. */
   deferredStudentLoanBalance?: number;
+  /** Page 4 Discount Points buydown. Percent of the base loan amount
+   *  the buyer pays up-front to reduce the interest rate. Allowed
+   *  steps: 0 / 0.5 / 1 / 1.5 / 2 / 2.5 / 3. Default 0. Off-grid
+   *  values are snapped to the nearest 0.5 increment on write. */
+  discountPointsPct: number;
+}
+
+/** Allowed discount-point slider steps (% of base loan amount). */
+const DISCOUNT_POINTS_STEPS = [0, 0.5, 1, 1.5, 2, 2.5, 3] as const;
+const DISCOUNT_POINTS_MAX = 3;
+
+/** Rate buydown table (percentage-point reduction off the priced
+ *  base rate) for the Conventional pricing group. Used by:
+ *   - Conventional
+ *   - DSCR
+ *  Keys are stringified `discountPointsPct` for exact dictionary
+ *  lookup; off-grid values are snapped to the nearest step before
+ *  lookup so we never index a missing entry. */
+const DISCOUNT_BUYDOWN_CONVENTIONAL: Record<string, number> = {
+  "0": 0,
+  "0.5": 0.240,
+  "1": 0.340,
+  "1.5": 0.420,
+  "2": 0.500,
+  "2.5": 0.710,
+  "3": 0.810,
+};
+
+/** Rate buydown table for the FHA / VA / USDA pricing group. */
+const DISCOUNT_BUYDOWN_FHA: Record<string, number> = {
+  "0": 0,
+  "0.5": 0.094,
+  "1": 0.184,
+  "1.5": 0.264,
+  "2": 0.364,
+  "2.5": 0.478,
+  "3": 0.562,
+};
+
+/** Snap an arbitrary user input to the nearest valid 0.5 step,
+ *  clamped to [0, DISCOUNT_POINTS_MAX]. NaN / non-finite values
+ *  collapse to 0. */
+function snapDiscountPoints(raw: number): number {
+  if (!Number.isFinite(raw)) return 0;
+  const clamped = Math.max(0, Math.min(DISCOUNT_POINTS_MAX, raw));
+  return Math.round(clamped * 2) / 2;
+}
+
+/** Look up the rate-reduction (percentage points) for the given
+ *  buydown + loan type. Conventional + DSCR share the Conventional
+ *  table; FHA / VA / USDA share the FHA table. Bank Statement has
+ *  no published buydown table yet → 0 reduction (cost still
+ *  applies). See `DISCOUNT_BUYDOWN_CONVENTIONAL` / `_FHA` above. */
+function getDiscountPointsRateReduction(
+  pct: number,
+  loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement",
+): number {
+  const snapped = snapDiscountPoints(pct);
+  const key = String(snapped);
+  switch (loanType) {
+    case "conventional":
+    case "dscr":
+      return DISCOUNT_BUYDOWN_CONVENTIONAL[key] ?? 0;
+    case "fha":
+    case "va":
+    case "usda":
+      return DISCOUNT_BUYDOWN_FHA[key] ?? 0;
+    case "bank_statement":
+    default:
+      // No published Bank Statement buydown yet. Add a third entry
+      // (e.g. DISCOUNT_BUYDOWN_BANK_STATEMENT) here when pricing
+      // is provided and switch on it above.
+      return 0;
+  }
 }
 
 /** Lender-side DTI assumption for deferred student loans. Conventional
@@ -419,6 +493,7 @@ function makeDefaultInputs(price = 350000): Inputs {
     occupancy: "primary", purchasePrice: price, purchasePriceSource: "default", downPaymentPct: 5, downPaymentMode: "percent", downPaymentAmount: Math.round(price * 0.05), sellerConcessions: 0, sellerConcessionsMode: "percent",
     propertyType: "Single Family Residence", propertyTypeSource: "default",
     hasDeferredStudentLoans: false, deferredStudentLoanBalance: 0,
+    discountPointsPct: 0,
     loanType: "conventional", creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
@@ -1772,6 +1847,16 @@ export default function Estimate() {
         typeof saved.deferredStudentLoanBalance === "number"
           ? saved.deferredStudentLoanBalance
           : base.deferredStudentLoanBalance,
+      // Discount Points buydown: restore the user's slider position
+      // so the closing-cost / rate impact survives refresh/login.
+      // We re-derive cost + rate reduction every render from this
+      // single value, so the persisted derived fields (cost, rate
+      // reduction, before/after) are intentionally not read back.
+      discountPointsPct: snapDiscountPoints(
+        typeof saved.discountPointsPct === "number"
+          ? saved.discountPointsPct
+          : base.discountPointsPct,
+      ),
     };
   }
 
@@ -2379,8 +2464,36 @@ export default function Estimate() {
     const fhaUFMIP = loanType === "fha" ? Math.round(baseLoanAmount * 0.0175 * 100) / 100 : 0;
     const vaFundingFeeAmt = loanType === "va" ? calcVAFundingFeeAmt(baseLoanAmount, vaDisability, vaLoanUse) : 0;
     const loanAmount = baseLoanAmount + fhaUFMIP + vaFundingFeeAmt;
-    const rate = interestRate / 100;
     const ltv = baseLoanAmount / purchasePrice;
+
+    // ─── Discount Points buydown ────────────────────────────────────────────
+    // The priced rate from `fullRate(...)` already lives in
+    // `inputs.interestRate` and is treated as the BASE rate here
+    // (it has all existing pricing adjustments — credit/LTV/
+    // occupancy/AMI/loan-type LLPAs/Conventional -0.100% nudge —
+    // baked in). The discount-point buydown is applied AFTER, on
+    // top of that base, and is never written back into `inputs`
+    // so flipping loan type / loan amount / down payment can
+    // never double-count it. Cost is computed off the BASE loan
+    // amount (excluding financed FHA UFMIP / VA funding fee).
+    const discountPointsPctRaw = inputs.discountPointsPct ?? 0;
+    const discountPointsPctSnapped = snapDiscountPoints(discountPointsPctRaw);
+    const discountPointsRateReduction = getDiscountPointsRateReduction(
+      discountPointsPctSnapped,
+      loanType,
+    );
+    const rateBeforeDiscountPoints = interestRate;
+    // Round the final rate to 3 decimals as the spec requires.
+    // Floor at 0 so an extreme buydown can never produce a
+    // negative rate.
+    const rateAfterDiscountPoints =
+      Math.max(0, Math.round((rateBeforeDiscountPoints - discountPointsRateReduction) * 1000) / 1000);
+    const discountPointsCost = Math.round(
+      baseLoanAmount * (discountPointsPctSnapped / 100),
+    );
+    // Use the bought-down rate for P&I so monthly payment / DTI /
+    // qualification all reflect the buydown.
+    const rate = rateAfterDiscountPoints / 100;
 
     const pi = calcPI(loanAmount, rate);
     const monthlyTax = annualTaxes / 12;
@@ -2400,7 +2513,12 @@ export default function Estimate() {
     const baseClosingCosts = Math.round(purchasePrice * 0.03);
     const dscrOriginationPercent = loanType === "dscr" ? 1.0 : 0;
     const dscrOriginationAmount = loanType === "dscr" ? Math.round(purchasePrice * 0.01) : 0;
-    const closingCosts = baseClosingCosts + dscrOriginationAmount;
+    // Discount-point cost is added to closing costs (and therefore
+    // cash-to-close). It's strictly additive to the DSCR
+    // origination charge — the two are separate line items per
+    // spec — and is derived from `inputs.discountPointsPct` only,
+    // so re-renders / loan-type flips never double-count.
+    const closingCosts = baseClosingCosts + dscrOriginationAmount + discountPointsCost;
     if (loanType === "dscr") {
       console.debug("[dscr-costs] base closing costs", baseClosingCosts);
       console.debug("[dscr-costs] origination add-on", dscrOriginationAmount);
@@ -2463,6 +2581,15 @@ export default function Estimate() {
       loanAmount, baseLoanAmount, fhaUFMIP, vaFundingFeeAmt, downPaymentAmt, pi, monthlyTax, monthlyHOIns, monthlyFlood,
       monthlyCDD, mortgageInsurance, pmi, mip, totalHousing,
       closingCosts, baseClosingCosts, dscrOriginationAmount, dscrOriginationPercent,
+      // Discount Points buydown surface — read by the Real Estate
+      // card (cost / rate-reduction / final-rate display) and by
+      // the auto-save effect for persistence. Snapped/rounded
+      // values so what's saved is exactly what the UI shows.
+      discountPointsPct: discountPointsPctSnapped,
+      discountPointsCost,
+      discountPointsRateReduction,
+      rateBeforeDiscountPoints,
+      rateAfterDiscountPoints,
       cashToClose, housingDTI, dti, maxHousingDti, maxTotalDti, maxDti, requiredIncome, requiredReserves, availableReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
       rentalIncomeQualifying, qualifyingIncome,
@@ -2518,6 +2645,19 @@ export default function Estimate() {
           propertyTypeSource: inputs.propertyTypeSource,
           hasDeferredStudentLoans: inputs.hasDeferredStudentLoans ?? false,
           deferredStudentLoanBalance: inputs.deferredStudentLoanBalance ?? 0,
+          // Discount Points: persist the user's slider position so
+          // it restores on refresh/login, plus a snapshot of the
+          // derived cost / rate reduction / before/after rate for
+          // read-only consumers (e.g. dashboard). The derived
+          // snapshot is never read back to drive the runtime calc
+          // (see `inputsForAddress` — it restores `discountPointsPct`
+          // only) so loan-type or loan-amount changes can't double-
+          // count.
+          discountPointsPct: calc.discountPointsPct,
+          discountPointsCost: calc.discountPointsCost,
+          discountPointsRateReduction: calc.discountPointsRateReduction,
+          rateBeforeDiscountPoints: calc.rateBeforeDiscountPoints,
+          rateAfterDiscountPoints: calc.rateAfterDiscountPoints,
         };
         if (idx >= 0) {
           // Only write if something actually changed (avoid noisy storage writes)
@@ -2536,6 +2676,11 @@ export default function Estimate() {
             && (cur.propertyTypeSource ?? undefined) === next.propertyTypeSource
             && (cur.hasDeferredStudentLoans ?? false) === next.hasDeferredStudentLoans
             && (cur.deferredStudentLoanBalance ?? 0) === next.deferredStudentLoanBalance
+            && (cur.discountPointsPct ?? 0) === next.discountPointsPct
+            && (cur.discountPointsCost ?? 0) === next.discountPointsCost
+            && (cur.discountPointsRateReduction ?? 0) === next.discountPointsRateReduction
+            && (cur.rateBeforeDiscountPoints ?? null) === next.rateBeforeDiscountPoints
+            && (cur.rateAfterDiscountPoints ?? null) === next.rateAfterDiscountPoints
             && cur.address === address;
           if (!same) {
             const updated = [...existing];
@@ -4102,6 +4247,69 @@ export default function Estimate() {
                     {renderSellerConcessions()}
                   </div>
                   <Separator />
+                  {/* Discount Points — buydown control. Sits directly
+                      under Seller Concessions per spec. Cost is added
+                      to closing costs (and therefore cash-to-close)
+                      and the rate reduction is applied AFTER all
+                      existing pricing adjustments. Bank Statement
+                      shows the cost line only (no rate reduction
+                      until a buydown table is added). */}
+                  <div className="py-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between flex-wrap gap-1">
+                        <span className="text-xs text-muted-foreground">Discount Points</span>
+                        <Select
+                          value={String(calc.discountPointsPct)}
+                          onValueChange={(v) => {
+                            const next = snapDiscountPoints(parseFloat(v));
+                            setInputs((p) => ({ ...p, discountPointsPct: next }));
+                          }}
+                        >
+                          <SelectTrigger
+                            className="h-7 w-[110px] text-xs"
+                            data-testid="select-discount-points"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DISCOUNT_POINTS_STEPS.map((step) => (
+                              <SelectItem key={step} value={String(step)}>
+                                {step.toFixed(1)}%
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {calc.discountPointsPct > 0 ? (
+                        <div className="text-[10px] text-right text-muted-foreground space-y-0.5">
+                          <p>
+                            Cost: <span className="font-medium text-foreground">{fmt(calc.discountPointsCost)}</span>
+                            {" · "}
+                            Rate buydown:{" "}
+                            <span className="font-medium text-foreground">
+                              −{calc.discountPointsRateReduction.toFixed(3)}%
+                            </span>
+                          </p>
+                          <p>
+                            Final rate:{" "}
+                            <span className="font-medium text-primary">
+                              {calc.rateAfterDiscountPoints.toFixed(3)}%
+                            </span>
+                            {inputs.loanType === "bank_statement" && (
+                              <span className="ml-1 text-amber-600">
+                                (Bank Statement buydown table not yet published — cost applied, rate unchanged.)
+                              </span>
+                            )}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground text-right">
+                          Buy down your rate by paying points up-front.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Separator />
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm font-semibold">Estimated Cash to Close</span>
                     <span className="text-base font-bold text-primary">{fmt(calc.cashToClose)}</span>
@@ -4178,7 +4386,15 @@ export default function Estimate() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <Row label="Principal & Interest" value={fmt(calc.pi)} sub={`${inputs.interestRate.toFixed(3)}% / 30 yr`} />
+                  <Row
+                    label="Principal & Interest"
+                    value={fmt(calc.pi)}
+                    sub={
+                      calc.discountPointsPct > 0
+                        ? `${calc.rateAfterDiscountPoints.toFixed(3)}% / 30 yr · Includes ${calc.discountPointsPct.toFixed(1)} discount point buydown (base ${calc.rateBeforeDiscountPoints.toFixed(3)}%)`
+                        : `${inputs.interestRate.toFixed(3)}% / 30 yr`
+                    }
+                  />
                   <Row
                     label="Property Taxes"
                     value={`${fmt(calc.monthlyTax)}/mo`}
