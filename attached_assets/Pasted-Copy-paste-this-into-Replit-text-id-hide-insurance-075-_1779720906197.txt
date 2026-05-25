@@ -1,0 +1,54 @@
+Copy/paste this into Replit:
+
+```text id="hide-insurance-075-note"
+Remove the user-facing note that says the homeowners insurance estimate is based on 0.75%.
+
+Current issue:
+The homeowners insurance estimate now shows a note like:
+“Based on 0.75% of purchase price/value.”
+
+I do not want users to see that.
+
+Requested change:
+Keep the internal default calculation at 0.75% of purchase price/value, but remove any user-facing text/note/helper that references 0.75%.
+
+Requirements:
+1. Do not change the calculation.
+2. Continue using 0.75% internally as the default homeowners insurance estimate.
+3. Remove visible text such as:
+   - “Based on 0.75%”
+   - “Based on 0.75% of purchase price”
+   - “Based on 0.75% of estimated property value”
+4. Remove this note anywhere it appears, including:
+   - Purchase with Loan
+   - Purchase with Cash
+   - Homeowners Insurance Estimate Simulator
+   - Insurance tab
+   - Refinance, if shown there
+   - dashboard summaries/details
+5. Keep cleaner user-facing wording like:
+   - “Estimated Homeowners Insurance”
+   - “Homeowners Insurance Estimate”
+   - “Annual Estimate”
+   - “Monthly Estimate”
+
+Important:
+- Do not remove the estimate itself.
+- Do not remove annual/monthly insurance values.
+- Do not break manual override behavior.
+- Do not break actual quote/manual premium values.
+- Do not change save/load behavior.
+
+Acceptance test:
+1. Open Purchase with Loan and confirm homeowners insurance still calculates.
+2. Confirm no visible note references 0.75%.
+3. Open Purchase with Cash and confirm no visible note references 0.75%.
+4. Open the Homeowners Insurance Estimate Simulator and confirm no visible note references 0.75%.
+5. Open Insurance tab and confirm no visible note references 0.75%.
+6. Confirm calculations are unchanged.
+
+Please make the smallest safe code change possible and tell me:
+- Which user-facing 0.75% notes were removed
+- Confirmation that the internal 0.75% calculation remains unchanged
+- Which files/functions were changed
+```

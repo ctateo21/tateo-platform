@@ -195,14 +195,14 @@ export default function PropertyInsuranceSimulator({
           </Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          Based on 0.75% of property value. Adjust the factors below to refine the estimate for roof age, wind mitigation, construction, and claims history.
+          Adjust the factors below to refine the estimate for roof age, wind mitigation, construction, and claims history.
         </p>
       </CardHeader>
       <CardContent className="pt-4">
         {/* Premium hero */}
         <div className="bg-primary rounded-xl p-4 text-white mb-5">
           <div className="text-[10px] font-semibold text-white/60 uppercase tracking-widest mb-1">
-            Estimated Annual Premium · Based on 0.75% of property value
+            Estimated Annual Premium
           </div>
           <div className="grid grid-cols-3 gap-2 mt-2">
             <div className="bg-white/10 rounded-lg p-3 border border-white/10">
