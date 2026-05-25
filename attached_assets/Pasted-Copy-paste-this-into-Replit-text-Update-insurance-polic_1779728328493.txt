@@ -1,0 +1,223 @@
+Copy/paste this into Replit:
+
+```text
+Update insurance policy type defaults across the entire website/app.
+
+Important:
+I already ran the Supabase SQL for the Insurance policy type fields, so do not ask me to run SQL unless you find a different missing column.
+
+Assume these fields exist or verify them:
+- insurance_scenarios.policy_type
+- insurance_scenarios.policy_type_source
+
+Goal:
+Any time the app creates, displays, or estimates insurance for a property, automatically default the insurance policy type based on:
+
+1. Property use / occupancy
+2. Property type
+
+This should apply everywhere insurance appears:
+- Insurance tab
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Auto-created Insurance scenarios
+- Homeowners Insurance Estimate Simulator
+- Any dashboard/detail view showing insurance
+
+Default policy type rules:
+
+Primary Residence:
+- If property type is Single Family Residence, Villa, Manufactured Home, or similar non-condo property:
+  - default policy type = HO3
+- If property type is Condominium or Townhouse:
+  - default policy type = HO6
+
+Secondary Home:
+- If property type is Single Family Residence, Villa, Manufactured Home, or similar non-condo property:
+  - default policy type = HO3
+- If property type is Condominium or Townhouse:
+  - default policy type = HO6
+
+Investment Property:
+- If property type is Single Family Residence, Villa, Manufactured Home, or similar non-condo property:
+  - default policy type = DP3
+- If property type is Condominium or Townhouse:
+  - default policy type = HO6
+
+Short version:
+- Primary or Secondary → HO3 unless Condo/Townhouse → HO6
+- Investment → DP3 unless Condo/Townhouse → HO6
+
+Property type matching:
+Treat these as HO6:
+- Condominium
+- Condo
+- Townhouse
+- Townhome
+- Town House
+- Attached Condo
+- Condo Unit
+
+Treat these as HO3 or DP3 depending on occupancy:
+- Single Family Residence
+- Single Family
+- Detached
+- Villa
+- Manufactured Home
+- Multi-Family
+- Duplex
+- Triplex
+- Quadplex
+- Other residential property types unless clearly condo/townhouse
+
+Create or update a shared helper like:
+
+function getDefaultInsurancePolicyType({
+  occupancyType,
+  propertyUse,
+  propertyType,
+}): "HO3" | "HO6" | "DP3" | null {
+  const occupancy = normalizeOccupancy(occupancyType || propertyUse);
+  const type = normalizePropertyType(propertyType);
+
+  const isCondoOrTownhome =
+    type.includes("condo") ||
+    type.includes("condominium") ||
+    type.includes("townhouse") ||
+    type.includes("townhome");
+
+  if (isCondoOrTownhome) return "HO6";
+
+  if (occupancy === "investment") return "DP3";
+
+  if (occupancy === "primary" || occupancy === "secondary") return "HO3";
+
+  return null;
+}
+
+Use this helper everywhere instead of hardcoding policy type defaults in individual components.
+
+When to apply:
+Apply the default policy type when:
+1. A new Insurance scenario is created manually.
+2. An Insurance scenario is auto-created from Purchase with Loan.
+3. An Insurance scenario is auto-created from Purchase with Cash.
+4. An Insurance scenario is auto-created from Refinance.
+5. Property use / occupancy changes.
+6. Property type changes.
+7. Zillow/property cache returns property type.
+8. User selects Primary / Secondary / Investment.
+
+Manual override protection:
+If the user manually changes the policy type:
+- preserve their manual choice
+- do not overwrite it automatically when property type/occupancy changes unless the existing selected policy type becomes invalid
+- set:
+  policy_type_source = "manual"
+
+If policy type is auto-defaulted:
+- set:
+  policy_type_source = "default_rule"
+
+Policy type values:
+Use consistent stored values:
+- HO3
+- HO6
+- DP3
+
+Display labels can be:
+- HO3
+- HO6
+- DP3
+
+or, if the UI needs clearer labels:
+- HO3 – Homeowners
+- HO6 – Condo/Townhome
+- DP3 – Rental / Investment
+
+Supabase:
+Use existing fields:
+- insurance_scenarios.policy_type
+- insurance_scenarios.policy_type_source
+
+Do not create duplicate policy type fields.
+
+Auto-created Insurance scenarios:
+When creating Insurance from Purchase with Loan, Purchase with Cash, or Refinance:
+- copy over occupancy/property use
+- copy over property type if available
+- run the default policy type helper
+- save policy_type to insurance_scenarios
+- save policy_type_source = "default_rule" unless manually overridden
+
+Examples:
+1. Primary + Single Family Residence:
+   - policy_type = HO3
+
+2. Secondary + Single Family Residence:
+   - policy_type = HO3
+
+3. Primary + Condo:
+   - policy_type = HO6
+
+4. Secondary + Townhouse:
+   - policy_type = HO6
+
+5. Investment + Single Family Residence:
+   - policy_type = DP3
+
+6. Investment + Condo:
+   - policy_type = HO6
+
+7. Investment + Townhouse:
+   - policy_type = HO6
+
+UI behavior:
+Where insurance policy type is shown:
+- Show the auto-selected policy type.
+- Allow user to manually change it if the Insurance tab already supports editing.
+- If manually changed, preserve that value.
+- Persist after refresh/logout/login.
+
+Do not break:
+- annual premium default
+- monthly premium default
+- Coverage A / rebuild cost
+- homeowners insurance simulator
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Insurance save/load
+- insurance auto-create from other tabs
+- manual add-property in Insurance tab
+- existing saved Insurance scenarios
+
+Acceptance test:
+1. Purchase with Loan: Primary + Single Family → auto-created Insurance scenario shows HO3.
+2. Purchase with Loan: Secondary + Single Family → HO3.
+3. Purchase with Loan: Primary + Condo → HO6.
+4. Purchase with Loan: Primary + Townhouse → HO6.
+5. Purchase with Loan: Investment + Single Family → DP3.
+6. Purchase with Loan: Investment + Condo → HO6.
+7. Purchase with Loan: Investment + Townhouse → HO6.
+8. Purchase with Cash: repeat the same occupancy/property type tests.
+9. Refinance: repeat the same occupancy/property type tests.
+10. Insurance tab manual add-property: default policy type based on occupancy + property type.
+11. Manually change policy type.
+12. Refresh/logout/login.
+13. Confirm manual policy type persists.
+14. Change occupancy/property type and confirm auto-default only updates if policy type was not manually overridden.
+15. Confirm values save to insurance_scenarios.policy_type and insurance_scenarios.policy_type_source.
+
+Please make the smallest safe code change possible and tell me:
+- Which shared policy type helper was created or updated
+- Which flows now use the helper
+- How condo/townhouse detection works
+- How Primary/Secondary defaults to HO3
+- How Investment defaults to DP3
+- How Condo/Townhouse defaults to HO6 regardless of occupancy
+- How manual policy type overrides are protected
+- Confirmation that no new Supabase migration was needed because SQL was already run
+- Which files/functions were changed
+```

@@ -120,6 +120,24 @@ export interface InsuranceScenario {
   savedAt: string;
   annualPremium?: number;
   coverageType?: string;
+  /** Auto-defaulted from occupancy + property type via
+   *  `getDefaultInsurancePolicyType()`. Stored on
+   *  `insurance_scenarios.policy_type`. */
+  policyType?: "HO3" | "HO6" | "DP3";
+  /** Provenance for `policyType`. "manual" means the user explicitly
+   *  picked it and the default-rule must not overwrite it on later
+   *  property-type / occupancy changes. Persisted on
+   *  `insurance_scenarios.policy_type_source`. */
+  policyTypeSource?: "default_rule" | "manual";
+  /** Occupancy snapshot carried over from the source flow (purchase /
+   *  cash buy / refinance) so the policy-type rule can re-evaluate when
+   *  property type changes later. Not persisted as its own column —
+   *  derived from the linked source scenario at correlation time. */
+  occupancyType?: CashBuyOccupancyType;
+  /** Physical property type ("Single Family Residence", "Condo",
+   *  "Townhouse", ...) snapshot from the source flow. Same lifecycle
+   *  as `occupancyType` above. */
+  propertyType?: string;
 }
 
 export type SellerScenarioStatus =
@@ -458,12 +476,20 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
   };
 }
 function rowToInsurance(row: any): InsuranceScenario {
+  const pt = row.policy_type;
+  const policyType: InsuranceScenario["policyType"] =
+    pt === "HO3" || pt === "HO6" || pt === "DP3" ? pt : undefined;
+  const pts = row.policy_type_source;
+  const policyTypeSource: InsuranceScenario["policyTypeSource"] =
+    pts === "manual" || pts === "default_rule" ? pts : undefined;
   return {
     id: row.id,
     address: row.address,
     savedAt: row.saved_at,
     annualPremium: row.annual_premium ?? undefined,
     coverageType: row.coverage_type ?? undefined,
+    policyType,
+    policyTypeSource,
   };
 }
 function insuranceToRow(s: InsuranceScenario, userId: string) {
@@ -474,6 +500,13 @@ function insuranceToRow(s: InsuranceScenario, userId: string) {
     saved_at: s.savedAt,
     annual_premium: s.annualPremium ?? null,
     coverage_type: s.coverageType ?? null,
+    // The `policy_type` + `policy_type_source` columns were added by the
+    // user before this change went in (see spec). Omitted nulls preserve
+    // any value already on the row.
+    ...(s.policyType ? { policy_type: s.policyType } : { policy_type: null }),
+    ...(s.policyTypeSource
+      ? { policy_type_source: s.policyTypeSource }
+      : { policy_type_source: null }),
   };
 }
 function rowToSeller(row: any): SellerScenario {
@@ -1059,6 +1092,17 @@ export function savePurchaseScenarios(s: PurchaseScenario[]) {
       // Seed Insurance-tab annualPremium with 0.75% of purchase price
       // for newly-created rows (spec: insurance-default-075-percent).
       propertyValue: p.price ?? undefined,
+      // PurchaseScenario has no explicit occupancy field yet — the
+      // mortgage pricing engine treats Purchase-with-Loan as a primary
+      // residence by default. We surface that assumption to the
+      // policy-type helper so SFR purchases default to HO3 and
+      // condos/townhouses default to HO6. If we later add a per-purchase
+      // occupancy field, replace this with `p.occupancyType`; secondary/
+      // investment purchases would then auto-default to HO3 / DP3.
+      // Manual overrides in the Insurance tab still win
+      // (policyTypeSource = "manual").
+      occupancyType: "primary",
+      propertyType: p.propertyType,
     })),
   );
 }
@@ -1326,6 +1370,10 @@ export function saveCashBuyScenarios(s: CashBuyScenario[]) {
       // Seed Insurance-tab annualPremium with 0.75% of purchase price
       // for newly-created rows (spec: insurance-default-075-percent).
       propertyValue: c.purchasePrice ?? undefined,
+      occupancyType: c.occupancyType,
+      // CashBuyScenario does not store a separate physical property
+      // type yet — the helper falls back to occupancy-only defaults
+      // (HO3 for primary/secondary, DP3 for investment).
     })),
   );
 }
@@ -1375,6 +1423,9 @@ export function saveTrackedLoans(loans: TrackedLoan[]): Promise<void> {
       // Seed Insurance-tab annualPremium with 0.75% of estimated home
       // value for newly-created rows (spec: insurance-default-075-percent).
       propertyValue: l.estimatedHomeValue ?? undefined,
+      // TrackedLoan.propertyType holds occupancy (primary / secondary /
+      // investment) — name is historical, not the physical type.
+      occupancyType: l.propertyType,
     })),
   );
   // Returns the persistence promise — see saveInsuranceScenarios.

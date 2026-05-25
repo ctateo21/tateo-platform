@@ -8,6 +8,11 @@ import {
 import {
   DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
 } from "@/lib/insurance-default";
+import {
+  getDefaultInsurancePolicyType,
+  INSURANCE_POLICY_TYPE_LABELS,
+  type InsurancePolicyType,
+} from "@/lib/insurance-policy-type";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -241,6 +246,58 @@ export default function InsuranceDashboard() {
   // ── Settings state ───────────────────────────────────────────────────────
   const [regionKey, setRegionKey] = useState<RegionKey>(getRegionFromAddress(addressParam));
   const [rebuild, setRebuild] = useState(initialRebuild);
+
+  // ── Policy type (HO3 / HO6 / DP3) ────────────────────────────────────────
+  // Defaulted from occupancy + propertyType using the shared rule helper.
+  // Hydrates from a saved InsuranceScenario when present (so a manual
+  // override survives logout/login). When the user picks a value from
+  // the Select, we mark policyTypeSource = "manual" and persist on save.
+  function resolvePolicyTypeForAddress(addr: string): {
+    policyType: InsurancePolicyType | "";
+    source: "default_rule" | "manual" | null;
+  } {
+    if (!addr) return { policyType: "", source: null };
+    const key = addr.trim().toLowerCase();
+    const ins = getInsuranceScenarios().find(
+      s => (s.address ?? "").trim().toLowerCase() === key
+    );
+    if (ins?.policyType) {
+      return { policyType: ins.policyType, source: ins.policyTypeSource ?? "default_rule" };
+    }
+    // Fall back to deriving from a matching source scenario.
+    const purchase = getPurchaseScenarios().find(
+      p => (p.address ?? "").trim().toLowerCase() === key
+    );
+    const cash = getCashBuyScenarios().find(
+      c => (c.address ?? "").trim().toLowerCase() === key
+    );
+    const loan = getTrackedLoans().find(
+      l => (l.propertyAddress ?? "").trim().toLowerCase() === key
+    );
+    const occupancy =
+      cash?.occupancyType ?? (loan?.propertyType as any) ?? (purchase ? "primary" : undefined);
+    const propertyType = purchase?.propertyType;
+    const def = getDefaultInsurancePolicyType({ occupancyType: occupancy, propertyType });
+    return { policyType: def ?? "", source: def ? "default_rule" : null };
+  }
+  const initialPolicy = resolvePolicyTypeForAddress(addressParam);
+  const [policyType, setPolicyType] = useState<InsurancePolicyType | "">(initialPolicy.policyType);
+  const [policyTypeSource, setPolicyTypeSource] = useState<"default_rule" | "manual" | null>(
+    initialPolicy.source
+  );
+  // Re-hydrate from the new address's own saved/default state whenever
+  // the address changes. We do NOT carry over a previous address's
+  // manual override — that would leak Property A's manual HO6 onto
+  // Property B. `resolvePolicyTypeForAddress` reads the saved
+  // InsuranceScenario for this address (preserving manual overrides
+  // saved to Supabase) before falling back to the rule helper.
+  useEffect(() => {
+    const next = resolvePolicyTypeForAddress(addressParam);
+    setPolicyType(next.policyType);
+    setPolicyTypeSource(next.source);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressParam]);
+
   const [roofIdx, setRoofIdx] = useState(1);
   const [windIdx, setWindIdx] = useState(1);
   const [hurrIdx, setHurrIdx] = useState(0);
@@ -602,6 +659,14 @@ export default function InsuranceDashboard() {
                     savedAt: new Date().toISOString(),
                     annualPremium: Math.round(calc.mid),
                     coverageType: region.name,
+                    ...(policyType
+                      ? {
+                          policyType,
+                          policyTypeSource: policyTypeSource ?? "default_rule",
+                        }
+                      : {}),
+                    ...(match?.occupancyType ? { occupancyType: match.occupancyType } : {}),
+                    ...(match?.propertyType ? { propertyType: match.propertyType } : {}),
                   };
                   const next = match
                     ? existing.map(s => (s.id === match.id ? updated : s))
@@ -635,6 +700,37 @@ export default function InsuranceDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-5">
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
+                    Policy Type
+                    {policyTypeSource === "default_rule" && policyType && (
+                      <span className="ml-2 normal-case tracking-normal text-[10px] font-medium text-muted-foreground/80">
+                        auto-defaulted
+                      </span>
+                    )}
+                    {policyTypeSource === "manual" && (
+                      <span className="ml-2 normal-case tracking-normal text-[10px] font-medium text-primary">
+                        manual
+                      </span>
+                    )}
+                  </label>
+                  <select
+                    value={policyType}
+                    onChange={e => {
+                      const v = e.target.value as InsurancePolicyType | "";
+                      setPolicyType(v);
+                      setPolicyTypeSource(v ? "manual" : null);
+                    }}
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    data-testid="select-policy-type"
+                  >
+                    <option value="">— select —</option>
+                    {(["HO3", "HO6", "DP3"] as InsurancePolicyType[]).map(k => (
+                      <option key={k} value={k}>{INSURANCE_POLICY_TYPE_LABELS[k]}</option>
+                    ))}
+                  </select>
+                </div>
 
                 <SelectRow
                   label="Region / Risk Tier"
