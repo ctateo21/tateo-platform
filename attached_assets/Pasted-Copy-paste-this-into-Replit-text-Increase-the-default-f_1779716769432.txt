@@ -1,0 +1,86 @@
+Copy/paste this into Replit:
+
+```text
+Increase the default font size slightly across the website/app.
+
+Current issue:
+Text across the website feels slightly too small.
+
+Requested change:
+Make all general website/app text slightly larger while keeping the design clean and not oversized.
+
+Scope:
+Apply globally where possible:
+- Homepage/header/nav
+- Dashboard
+- Dashboard tabs
+- Scenario detail views
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Insurance
+- Sell Your Home
+- Forms
+- Labels
+- Inputs
+- Buttons
+- Cards
+- Tables/rows
+- Helper text
+
+Preferred implementation:
+Use the global CSS/theme layer rather than manually changing every component.
+
+Suggested approach:
+1. Inspect global CSS/theme files, likely:
+   - `client/src/index.css`
+   - `client/src/App.css`
+   - Tailwind config
+   - global typography/theme variables
+2. Increase the base body font size slightly.
+3. If current base is 14px, move to 15px.
+4. If current base is 16px, consider increasing common small text classes from 12/13px to 13/14px rather than making everything huge.
+5. Increase small/helper text slightly where needed.
+
+Target feel:
+- Slightly larger
+- More readable
+- Still professional
+- No major layout breakage
+
+Guidelines:
+- Body/default text should be slightly larger.
+- Labels should be easier to read.
+- Inputs and dropdowns should have readable text.
+- Dashboard row/card data should be readable.
+- Helper text can remain smaller, but not too tiny.
+- Do not make headings disproportionately large.
+- Do not break spacing/layout.
+- Do not make buttons oversized.
+- Keep mobile layout clean.
+
+Important:
+- Do not manually change hundreds of individual text classes unless necessary.
+- Prefer updating shared typography classes, CSS variables, Tailwind base styles, or reusable components.
+- If some components use hardcoded `text-xs`, consider changing the most-used ones to `text-sm` where appropriate.
+- Keep table/card rows from becoming too tall or cramped.
+- Check desktop and mobile.
+
+Acceptance test:
+1. Open homepage.
+2. Confirm text is slightly larger and still clean.
+3. Open Dashboard.
+4. Confirm tab labels, row/card text, and buttons are more readable.
+5. Open Purchase with Loan detail view.
+6. Confirm forms, labels, sliders, and estimate cards are readable.
+7. Open Refinance, Insurance, Purchase with Cash, and Sell Your Home.
+8. Confirm text size is consistent.
+9. Confirm no layout breaks on desktop.
+10. Confirm mobile layout still works.
+
+Please make the smallest safe code change possible and tell me:
+- Which global CSS/theme file was changed
+- Whether body/base font size was updated
+- Whether any common `text-xs`/`text-sm` classes were adjusted
+- Which files/functions were changed
+```
