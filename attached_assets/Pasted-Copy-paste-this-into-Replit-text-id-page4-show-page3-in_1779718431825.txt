@@ -1,0 +1,77 @@
+Copy/paste this into Replit:
+
+```text id="page4-show-page3-interest-rate"
+Show the interest rate from Page 3 of the Purchase with Loan questionnaire on Page 4 / See My Estimate.
+
+Current issue:
+On Purchase with Loan → Page 4 / See My Estimate, the Mortgage card shows Principal & Interest, but it does not clearly show the interest rate being used.
+
+Requested change:
+Show the interest rate from Page 3 under or next to the Principal & Interest line in the Mortgage card.
+
+Location:
+Purchase with Loan → Page 4 / See My Estimate → Mortgage card → under Principal & Interest
+
+Expected behavior:
+1. Page 3 Purchase Details calculates or stores the selected interest rate.
+2. Page 4 Mortgage card should display that same interest rate under the Principal & Interest section.
+3. The rate shown on Page 4 should match the actual rate used to calculate Principal & Interest.
+4. If discount points are selected, Page 4 should show the final bought-down rate used in the payment calculation.
+5. If no discount points are selected, show the normal calculated rate from Page 3.
+6. Display rate rounded to 3 decimal places.
+
+Example display:
+Principal & Interest: $2,145/mo
+Interest Rate: 6.775%
+
+If discount points apply:
+Principal & Interest: $2,045/mo
+Interest Rate: 6.435%
+Base Rate Before Points: 6.775%
+Discount Point Buydown: -0.340%
+
+If that is too much UI, at minimum show:
+Interest Rate: 6.435%
+Includes 1.0 discount point buydown
+
+Important:
+- Do not create a separate Page 4-only interest rate.
+- Page 4 should read from the same rate state/calculation used by Page 3 and by the payment calculation.
+- Do not show stale rates.
+- If user changes loan type, credit score, down payment, discount points, loan term, AMI eligibility, or occupancy, the displayed rate should update immediately.
+- Do not break the Mortgage card loan type dropdown.
+- Do not break discount points.
+- Do not break FHA/VA/USDA/DSCR/Bank Statement rate calculations.
+
+Fields to use if available:
+- `interest_rate`
+- `selectedRate`
+- `rate_before_discount_points`
+- `rate_after_discount_points`
+- `discount_points_rate_reduction`
+
+Display priority:
+1. If `rate_after_discount_points` exists, display it as Interest Rate.
+2. Else display the calculated final interest rate used for payment.
+3. If available, show `rate_before_discount_points` and `discount_points_rate_reduction` as supporting rows when discount points > 0.
+
+Acceptance test:
+1. Go to Purchase with Loan Page 3.
+2. Confirm the rate is calculated/shown there.
+3. Go to Page 4 / See My Estimate.
+4. Confirm the Mortgage card shows Interest Rate under Principal & Interest.
+5. Confirm the rate matches Page 3.
+6. Change loan type on Page 4.
+7. Confirm interest rate updates.
+8. Change discount points.
+9. Confirm interest rate updates to the bought-down rate.
+10. Confirm Principal & Interest uses the displayed rate.
+11. Confirm displayed rate uses 3 decimals.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 4 Mortgage card component was changed
+- Which Page 3/page scenario rate field is used
+- How discount point rates are displayed
+- How stale rate state is avoided
+- Which files/functions were changed
+```

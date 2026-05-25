@@ -4386,15 +4386,41 @@ export default function Estimate() {
                   </div>
                 </CardHeader>
                 <CardContent>
+                  <Row label="Principal & Interest" value={fmt(calc.pi)} sub="30 yr fixed" />
+                  {/* Interest Rate disclosure under P&I. Single source
+                      of truth: the rate already used by `calc.pi`.
+                      - No discount points → show the priced base rate
+                        from Page 3 (`inputs.interestRate`).
+                      - Discount points > 0 → show the bought-down
+                        rate that actually drove `calc.pi`, plus
+                        base + buydown reduction as supporting lines
+                        per spec. All values are derived inside the
+                        `calc` memo from `inputs.interestRate` +
+                        `inputs.discountPointsPct`, so loan-type /
+                        credit / down-payment / AMI / occupancy /
+                        discount-point changes update this row
+                        instantly — no stale state. */}
                   <Row
-                    label="Principal & Interest"
-                    value={fmt(calc.pi)}
+                    label="Interest Rate"
+                    value={`${calc.rateAfterDiscountPoints.toFixed(3)}%`}
                     sub={
                       calc.discountPointsPct > 0
-                        ? `${calc.rateAfterDiscountPoints.toFixed(3)}% / 30 yr · Includes ${calc.discountPointsPct.toFixed(1)} discount point buydown (base ${calc.rateBeforeDiscountPoints.toFixed(3)}%)`
-                        : `${inputs.interestRate.toFixed(3)}% / 30 yr`
+                        ? `Includes ${calc.discountPointsPct.toFixed(1)} discount point buydown`
+                        : undefined
                     }
                   />
+                  {calc.discountPointsPct > 0 && (
+                    <>
+                      <Row
+                        label="Base Rate Before Points"
+                        value={`${calc.rateBeforeDiscountPoints.toFixed(3)}%`}
+                      />
+                      <Row
+                        label="Discount Point Buydown"
+                        value={`−${calc.discountPointsRateReduction.toFixed(3)}%`}
+                      />
+                    </>
+                  )}
                   <Row
                     label="Property Taxes"
                     value={`${fmt(calc.monthlyTax)}/mo`}
