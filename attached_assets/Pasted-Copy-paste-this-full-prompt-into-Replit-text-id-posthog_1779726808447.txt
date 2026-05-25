@@ -1,0 +1,201 @@
+Copy/paste this full prompt into Replit:
+
+```text id="posthog-install-custom-events-full"
+Install PostHog analytics and add custom event tracking.
+
+Goal:
+Install PostHog using the official PostHog wizard, confirm it initializes in the correct React entry point, then add seven custom event captures.
+
+Step 1 — Run official PostHog wizard
+
+Run this command from the project root:
+
+npx -y @posthog/wizard@latest
+
+Wizard selections:
+- Platform: Web (Browser / JS)
+- Framework: React
+- PostHog API key:
+  - Use the value from `VITE_POSTHOG_KEY` in `.env`
+  - If `.env` does not have this yet, add:
+    `VITE_POSTHOG_KEY=`
+  - Leave it as a placeholder and tell me I need to fill in the real PostHog project API key
+- Host:
+  `https://us.i.posthog.com`
+- Allow the wizard to auto-instrument pageviews
+
+Step 2 — Verify correct initialization file
+
+After the wizard completes, verify PostHog was added to the correct app entry point.
+
+Correct entry point for this project:
+`client/src/main.tsx`
+
+Requirements:
+1. Confirm PostHog initializes in `client/src/main.tsx`.
+2. Confirm the app is wrapped with the PostHog provider if the wizard adds one.
+3. Confirm it uses:
+   - `import.meta.env.VITE_POSTHOG_KEY`
+   - host: `https://us.i.posthog.com`
+4. Do not initialize PostHog multiple times.
+5. Do not put the PostHog API key directly in source code.
+6. Do not expose any secret key. Only the public project API key should be used.
+
+Step 3 — Add custom event captures
+
+Use `posthog.capture()` directly.
+
+Important:
+- Do not use the React hook for these custom captures.
+- Import `posthog-js` directly where needed:
+  `import posthog from 'posthog-js';`
+- Avoid duplicate captures caused by rerenders.
+- If the event is in a render/results section, use a guard/ref/effect so it only fires once per scenario calculation or meaningful result display.
+- Do not fire events repeatedly on every render.
+
+Add these seven events:
+
+1. Purchase scenario calculated
+
+File:
+`client/src/pages/estimate.tsx`
+
+Find where the purchase estimate reaches/results show on Page 4.
+
+Add:
+`posthog.capture('scenario_calculated', { type: 'purchase' });`
+
+Trigger rule:
+Fire when the purchase estimate/results are shown, not on every render.
+
+2. Purchase scenario saved
+
+File:
+`client/src/pages/estimate.tsx`
+
+Find the Save Scenario function/action.
+
+Add:
+`posthog.capture('scenario_saved', { type: 'purchase' });`
+
+Trigger rule:
+Fire only after save succeeds, not before.
+
+3. Insurance scenario calculated
+
+File:
+`client/src/pages/insurance.tsx`
+
+Find where insurance results render or where rebuild/coverage value is greater than 0.
+
+Add:
+`posthog.capture('scenario_calculated', { type: 'insurance' });`
+
+Trigger rule:
+Fire when the insurance estimate/result is meaningfully available, not on every render.
+
+4. Refinance scenario calculated
+
+File:
+`client/src/pages/refinance.tsx`
+
+Find where refinance results are displayed.
+
+Add:
+`posthog.capture('scenario_calculated', { type: 'refinance' });`
+
+Trigger rule:
+Fire when refinance results are displayed/calculated, not on every render.
+
+5. Cash Buy scenario calculated
+
+File:
+`client/src/pages/cash-buy.tsx`
+
+Find where Purchase with Cash / Cash Buy results are displayed.
+
+Add:
+`posthog.capture('scenario_calculated', { type: 'cash_buy' });`
+
+Trigger rule:
+Fire when cash buy results are displayed/calculated, not on every render.
+
+6. Seller scenario calculated
+
+File:
+`client/src/pages/seller-estimate.tsx`
+
+Find where Sell Your Home / seller net proceeds results are displayed.
+
+Add:
+`posthog.capture('scenario_calculated', { type: 'seller' });`
+
+Trigger rule:
+Fire when seller estimate/net proceeds results are displayed/calculated, not on every render.
+
+7. Account created
+
+Find the account creation completion flow.
+
+Likely locations:
+- `LeadCaptureDialog`
+- Auth dialog
+- Signup handler
+- Account creation success callback
+
+Add:
+`posthog.capture('account_created');`
+
+Trigger rule:
+Fire only after account creation succeeds, not when login succeeds and not when the signup form opens.
+
+Step 4 — Guard against duplicate events
+
+For all `scenario_calculated` events:
+- Do not fire repeatedly on every React render.
+- Use a `useRef`, scenario id, route step, or calculation-complete state to prevent duplicate captures.
+- It is acceptable to fire again if the user creates/calculates a different scenario.
+
+Example pattern:
+`const capturedScenarioCalculatedRef = useRef(false);`
+
+`useEffect(() => {
+  if (!capturedScenarioCalculatedRef.current && resultsAreVisible) {
+    posthog.capture('scenario_calculated', { type: 'purchase' });
+    capturedScenarioCalculatedRef.current = true;
+  }
+}, [resultsAreVisible]);`
+
+Adjust the condition for each page so it matches that page’s actual result-ready state.
+
+Step 5 — Validation
+
+After making changes, run:
+
+npx tsc --noEmit
+
+Requirements:
+- Zero new TypeScript errors
+- App still starts successfully
+- PostHog does not crash when `VITE_POSTHOG_KEY` is blank/missing
+- If key is missing, app should continue to run without analytics breaking the user experience
+
+Step 6 — Report back
+
+After implementation, report:
+1. Whether the PostHog wizard was run successfully
+2. Whether `.env` already had `VITE_POSTHOG_KEY`
+3. Whether a placeholder `VITE_POSTHOG_KEY=` was added
+4. Where PostHog initializes
+5. Where each of the seven events was placed:
+   - purchase calculated
+   - purchase saved
+   - insurance calculated
+   - refinance calculated
+   - cash_buy calculated
+   - seller calculated
+   - account_created
+6. How duplicate scenario_calculated events are prevented
+7. Result of `npx tsc --noEmit`
+8. Which files/functions were changed
+```

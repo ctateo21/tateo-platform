@@ -4,6 +4,12 @@ import {
   type BulkAddress,
 } from "./insurance-from-property";
 import { normalizePropertyKey } from "./property-key";
+import { posthog } from "./posthog";
+
+// PostHog: scenario_saved (purchase) — fire once per scenario id per
+// session. Without this dedupe, the debounced autosave would fire the
+// analytics event on every keystroke-batched persist.
+const _phPurchaseSavedFired = new Set<string>();
 
 const NOT_CONFIGURED = {
   ok: false as const,
@@ -1133,6 +1139,17 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
         console.debug("[purchase-save] upsert result", okInfo);
         console.debug("[purchase-live-test] upsert response", okInfo);
         console.debug("[purchase-save] upsert ok");
+        // PostHog: scenario_saved (purchase). Fires once per scenario id
+        // per session — the debounced autosave can persist the same row
+        // dozens of times; we only want one analytics event per scenario.
+        const newIds: string[] = Array.isArray(upData)
+          ? upData.map((r: any) => r.id).filter((id: any): id is string => typeof id === "string")
+          : [];
+        for (const id of newIds) {
+          if (_phPurchaseSavedFired.has(id)) continue;
+          _phPurchaseSavedFired.add(id);
+          try { posthog.capture("scenario_saved", { type: "purchase" }); } catch {}
+        }
       }
     } else {
       console.debug("[purchase-save] empty list — nothing to upsert");

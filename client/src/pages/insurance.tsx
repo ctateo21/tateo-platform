@@ -21,6 +21,7 @@ import {
 import { getCountyName } from "@/lib/county-tax-estimator";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
+import { posthog } from "@/lib/posthog";
 import { useToast } from "@/hooks/use-toast";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -422,6 +423,20 @@ export default function InsuranceDashboard() {
       openLeadDialog("save");
     }
   }
+
+  // PostHog: scenario_calculated (insurance). Fires once per address the
+  // first time the rebuild-derived premium becomes meaningful (> 0). Keying
+  // by address (rather than a page-level boolean) lets a second scenario
+  // emit on the same mount if the user navigates between addresses.
+  const phInsuranceCalcFiredRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!(rebuild > 0)) return;
+    const key = (address || "").trim().toLowerCase();
+    if (!key) return;
+    if (phInsuranceCalcFiredRef.current.has(key)) return;
+    phInsuranceCalcFiredRef.current.add(key);
+    posthog.capture("scenario_calculated", { type: "insurance" });
+  }, [rebuild, address]);
 
   // ── Calculations ─────────────────────────────────────────────────────────
   const region = REGIONS[regionKey];

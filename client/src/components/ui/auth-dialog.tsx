@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { login, register } from "@/lib/auth";
+import { posthog } from "@/lib/posthog";
 import { useAuth } from "@/context/auth-context";
 
 // Default agent assigned to every newly-registered user. Routed to
@@ -76,6 +77,7 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     const result = await register(regName, regEmail, regPassword, { phone: phoneDigits, agent: DEFAULT_AGENT_NAME });
     setRegLoading(false);
     if (!result.ok) { setRegError(result.error || "Registration failed."); return; }
+    posthog.capture("account_created");
     refresh();
     onOpenChange(false);
     // reset

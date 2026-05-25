@@ -20,6 +20,7 @@ import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-ref
 import { useAuth } from "@/context/auth-context";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { posthog } from "@/lib/posthog";
 
 const MAX_TRACKED_LOANS = 10;
 const DEFAULT_CREDIT_SCORE = 740;
@@ -229,8 +230,16 @@ export default function Refinance() {
     staleTime: 15 * 60 * 1000,
   });
 
+  // PostHog: dedupe refinance scenario_calculated by property address so
+  // re-uploading or re-analyzing the same statement doesn't double-count.
+  const phRefinanceCalcFiredRef = useRef<Set<string>>(new Set());
   const handleAnalysisComplete = (analysis: MortgageAnalysis) => {
     setStatementData(analysis);
+    const key = (analysis.propertyAddress || "").trim().toLowerCase();
+    if (key && !phRefinanceCalcFiredRef.current.has(key)) {
+      phRefinanceCalcFiredRef.current.add(key);
+      posthog.capture("scenario_calculated", { type: "refinance" });
+    }
   };
 
   const handleAnalyzed = (analysis: MortgageAnalysis) => {

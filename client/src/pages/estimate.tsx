@@ -64,6 +64,7 @@ import {
   Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext,
 } from "@/components/ui/carousel";
 import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
+import { posthog } from "@/lib/posthog";
 import { getStoredReferralSource } from "@/components/referral-source-dialog";
 import {
   DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
@@ -897,6 +898,9 @@ export default function Estimate() {
   // recorded as `freshSeededId`.
   const initialZillowFiredRef = useRef(false);
   const initialDraftSavedRef = useRef(false);
+  // PostHog: fire 'scenario_calculated' once per scenario id when the
+  // user reaches Page 4 (results). Re-fires for a different scenario.
+  const phPurchaseCalcFiredRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     if (initialZillowFiredRef.current) return;
     const freshId = initialScenariosRef.current?.freshSeededId;
@@ -957,6 +961,7 @@ export default function Estimate() {
     ]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, authUser]);
+
   const [showAddressPrompt, setShowAddressPrompt] = useState(false);
   const [showZillowLookup, setShowZillowLookup] = useState(false);
 
@@ -1558,6 +1563,16 @@ export default function Estimate() {
   // Close any open edit dialog when the user switches scenario tabs so
   // the dialog can't bleed across scenarios while inputs swap underneath.
   useEffect(() => { setEditingPage(null); }, [activeScenarioId]);
+
+  // PostHog: scenario_calculated (purchase). Fires once per scenario id the
+  // first time the user reaches Page 4 for that scenario. Re-fires for a
+  // newly-created scenario.
+  useEffect(() => {
+    if (step !== 4 || !activeScenarioId) return;
+    if (phPurchaseCalcFiredRef.current.has(activeScenarioId)) return;
+    phPurchaseCalcFiredRef.current.add(activeScenarioId);
+    posthog.capture("scenario_calculated", { type: "purchase" });
+  }, [step, activeScenarioId]);
   const [answersOpen, setAnswersOpen] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
 

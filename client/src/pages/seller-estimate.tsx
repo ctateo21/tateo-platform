@@ -25,6 +25,7 @@ import {
   type SellerScenario, type SellerScenarioStatus,
 } from "@/lib/auth";
 import { normalizePropertyKey } from "@/lib/property-key";
+import { posthog } from "@/lib/posthog";
 import { applySellerSalePriceToRefinance } from "@/lib/refinance-from-seller";
 import { apiRequest } from "@/lib/queryClient";
 import { supabase } from "@/lib/supabase";
@@ -457,6 +458,16 @@ export default function SellerEstimatePage() {
     ? (scenario.sellerClosingCosts ?? 0)
     : Math.round(sale * (closingPct / 100));
   const net = netProceedsOf({ ...scenario, sellerClosingCosts: closingDollars });
+
+  // PostHog: scenario_calculated (seller). Fires once per scenario id the
+  // first time the projected sale price is meaningful (> 0).
+  const phSellerCalcFiredRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!scenario.id || !(sale > 0)) return;
+    if (phSellerCalcFiredRef.current.has(scenario.id)) return;
+    phSellerCalcFiredRef.current.add(scenario.id);
+    posthog.capture("scenario_calculated", { type: "seller" });
+  }, [scenario.id, sale]);
 
   const sliderMax = Math.max(2_000_000, Math.round((sale || 500_000) * 2));
 
