@@ -896,6 +896,7 @@ export default function Estimate() {
   // saved dashboard property. The decision was made at init-time and
   // recorded as `freshSeededId`.
   const initialZillowFiredRef = useRef(false);
+  const initialDraftSavedRef = useRef(false);
   useEffect(() => {
     if (initialZillowFiredRef.current) return;
     const freshId = initialScenariosRef.current?.freshSeededId;
@@ -903,37 +904,59 @@ export default function Estimate() {
     const active = scenarios.find(s => s.id === freshId);
     if (!active || !active.address || active.address === "Unknown Address") return;
     initialZillowFiredRef.current = true;
-    // Snapshot baseline now, before Zillow can return. Also seed the
-    // ref-backed map so the merge path doesn't depend on React state timing.
     baselineByIdRef.current[active.id] = { ...inputs };
     setScenarios(prev =>
       prev.map(s => s.id === active.id && !s.baselineInputs ? { ...s, baselineInputs: { ...inputs } } : s)
     );
     triggerZillowLookup(active.id, active.address);
-    // Persist a DRAFT purchase scenario for the URL-seeded address too
-    // (e.g. user arrived via /estimate?address=… from the home page or
-    // a shared link). Without this, the only save path for a URL-arrival
-    // was the debounced 800ms auto-save useEffect — which got canceled
-    // by quick navigation/logout/unmount, leaving the row unsaved. This
-    // mirrors the immediate-draft-save in confirmNewScenario().
-    if (isAuthenticated) {
-      const existingSaved = getPurchaseScenarios();
-      const dupKey = active.address.trim().toLowerCase();
-      const alreadySaved = existingSaved.some(
-        s => s.address.trim().toLowerCase() === dupKey,
-      );
-      if (!alreadySaved) {
-        console.debug("[purchase-save] url-seeded draft create", active.address);
-        savePurchaseScenarios([
-          ...existingSaved,
-          { id: active.id, address: active.address, savedAt: new Date().toISOString() },
-        ]);
-      } else {
-        console.debug("[purchase-save] url-seeded already saved, skip", active.address);
-      }
-    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Persist a DRAFT purchase scenario for any URL-seeded address as soon as
+  // a logged-in session is available. Runs on mount AND re-runs whenever
+  // auth hydrates (so a session that becomes available after first paint
+  // still saves the draft). Idempotent via `initialDraftSavedRef` + the
+  // existing-address dedupe. This is the path exercised by:
+  //   Dashboard → Purchase with Loan → Add Property → select address
+  //     → setLocation("/estimate?address=X&from=dashboard")
+  //     → estimate.tsx mounts here.
+  useEffect(() => {
+    if (initialDraftSavedRef.current) return;
+    const freshId = initialScenariosRef.current?.freshSeededId;
+    const active = freshId ? scenarios.find(s => s.id === freshId) : null;
+    const sessionId = getSession()?.id ?? null;
+    const authed = !!sessionId || isAuthenticated;
+    console.debug("[purchase-live-test] authenticated", authed);
+    console.debug("[purchase-live-test] auth user id", sessionId);
+    console.debug("[purchase-live-test] address selected", active?.address ?? null);
+    console.debug("[purchase-live-test] generated scenario id", active?.id ?? null);
+    if (!authed) {
+      console.debug("[purchase-live-test] save function called", false, "reason: not-authenticated-yet");
+      return;
+    }
+    if (!active || !active.address || active.address === "Unknown Address") {
+      console.debug("[purchase-live-test] save function called", false, "reason: no-fresh-active-address");
+      return;
+    }
+    const existingSaved = getPurchaseScenarios();
+    const dupKey = active.address.trim().toLowerCase();
+    const alreadySaved = existingSaved.some(
+      s => s.address.trim().toLowerCase() === dupKey,
+    );
+    if (alreadySaved) {
+      console.debug("[purchase-live-test] save function called", false, "reason: already-saved");
+      initialDraftSavedRef.current = true;
+      return;
+    }
+    initialDraftSavedRef.current = true;
+    console.debug("[purchase-live-test] save function called", true);
+    console.debug("[purchase-live-test] target table", "purchase_scenarios");
+    savePurchaseScenarios([
+      ...existingSaved,
+      { id: active.id, address: active.address, savedAt: new Date().toISOString() },
+    ]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, authUser]);
   const [showAddressPrompt, setShowAddressPrompt] = useState(false);
   const [showZillowLookup, setShowZillowLookup] = useState(false);
 
@@ -1420,28 +1443,31 @@ export default function Estimate() {
     // same id (`newId`) the tab is using locally. The auto-save effect
     // matches by address (not id), so it will find this draft and
     // merge derived/calc fields into the same row — no duplicates.
-    if (isAuthenticated) {
-      const existingSaved = getPurchaseScenarios();
-      const dupKey = addr.trim().toLowerCase();
-      const alreadySaved = existingSaved.some(
-        s => s.address.trim().toLowerCase() === dupKey,
-      );
-      if (!alreadySaved) {
-        console.debug("[purchase-save] address selected", addr);
-        console.debug("[purchase-save] scenario id", newId);
-        console.debug("[purchase-save] user id", getSession()?.id);
-        console.debug("[purchase-save] creating draft purchase scenario");
-        savePurchaseScenarios([
-          ...existingSaved,
-          {
-            id: newId,
-            address: addr,
-            savedAt: new Date().toISOString(),
-          },
-        ]);
-        console.debug("[purchase-save] upsert ok");
+    {
+      const sessionId = getSession()?.id ?? null;
+      const authed = !!sessionId || isAuthenticated;
+      console.debug("[purchase-live-test] authenticated", authed);
+      console.debug("[purchase-live-test] auth user id", sessionId);
+      console.debug("[purchase-live-test] address selected", addr);
+      console.debug("[purchase-live-test] generated scenario id", newId);
+      if (!authed) {
+        console.debug("[purchase-live-test] save function called", false, "reason: not-authenticated");
       } else {
-        console.debug("[purchase-save] address already saved, skipping draft create", addr);
+        const existingSaved = getPurchaseScenarios();
+        const dupKey = addr.trim().toLowerCase();
+        const alreadySaved = existingSaved.some(
+          s => s.address.trim().toLowerCase() === dupKey,
+        );
+        if (alreadySaved) {
+          console.debug("[purchase-live-test] save function called", false, "reason: already-saved");
+        } else {
+          console.debug("[purchase-live-test] save function called", true);
+          console.debug("[purchase-live-test] target table", "purchase_scenarios");
+          savePurchaseScenarios([
+            ...existingSaved,
+            { id: newId, address: addr, savedAt: new Date().toISOString() },
+          ]);
+        }
       }
     }
     // Mirror the reset carriedInputs into live state. Without this, live

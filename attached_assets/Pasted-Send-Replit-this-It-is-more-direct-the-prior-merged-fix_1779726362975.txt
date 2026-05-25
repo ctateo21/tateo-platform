@@ -1,0 +1,127 @@
+Send Replit this. It is more direct: the prior “merged” fix did not pass the real test, so they need to prove whether the row exists in Supabase after address selection.
+
+```text id="purchase-loan-still-not-saving-hard-debug"
+Purchase with Loan still does NOT save after the latest merged fix.
+
+I tested the real flow:
+1. Logged in
+2. Added a Purchase with Loan address
+3. Logged out
+4. Logged back in
+5. The property was not saved / did not appear
+
+So the prior fix is not actually working in the live user flow.
+
+Do not assume it is fixed because logs were added. I need you to hard-debug the actual live path.
+
+Critical question:
+After I add a Purchase with Loan address, does a row actually appear in Supabase `purchase_scenarios`?
+
+Please verify this directly.
+
+Required investigation:
+1. Add a Purchase with Loan address while logged in.
+2. Immediately check whether a row exists in `purchase_scenarios`.
+3. Confirm whether the row has the authenticated user’s actual `user_id`.
+4. Confirm whether the dashboard load query is reading that same user_id.
+5. Confirm whether the row is being filtered out after reload/login.
+
+If the row is NOT inserted:
+Fix the save trigger.
+
+If the row IS inserted but does not reload:
+Fix the load/query/filter/dashboard mapping.
+
+Do not make broad changes. Identify the exact failure point.
+
+Required logs:
+When adding Purchase with Loan address, log:
+
+[purchase-live-test] authenticated true/false
+[purchase-live-test] auth user id
+[purchase-live-test] address selected
+[purchase-live-test] normalized property key
+[purchase-live-test] generated scenario id
+[purchase-live-test] save function called true/false
+[purchase-live-test] target table
+[purchase-live-test] upsert payload
+[purchase-live-test] upsert response
+[purchase-live-test] upsert error
+
+When dashboard loads after login, log:
+
+[purchase-live-load] auth user id
+[purchase-live-load] query table
+[purchase-live-load] rows returned
+[purchase-live-load] row ids
+[purchase-live-load] row addresses
+[purchase-live-load] row statuses
+[purchase-live-load] final displayed count
+[purchase-live-load] filtered out rows, if any
+
+Expected save behavior:
+When logged in and a user adds/selects a Purchase with Loan address, the app must immediately upsert to:
+
+purchase_scenarios
+
+Minimum payload:
+- id
+- user_id
+- full_address
+- normalized_property_key
+- status = draft
+- created_at / updated_at
+
+Important:
+Do not save only to local state.
+Do not save only to URL params.
+Do not save only after Page 4.
+Do not save only when Save Scenario is clicked.
+Do not save to `cash_buy_scenarios`.
+Do not save with a missing or wrong user_id.
+Do not filter out draft rows.
+
+Specific possible bugs to check:
+1. The Add Property flow may call `confirmNewScenario`, but not the real Supabase save function.
+2. The save may be skipped because `isAuthenticated` is stale/false.
+3. The auth user id may be missing at the moment of address selection.
+4. The row may be saved under a temporary/local id but not loaded later.
+5. The row may be saved with `address` but not `full_address`, and dashboard only reads `full_address`.
+6. The row may be saved with `saved_at` but no `created_at`/`updated_at`.
+7. The dashboard may be loading a different table or filtering to completed scenarios only.
+8. The app may create the row, then delete/replace it during logout/login or initialization.
+9. The save may be silently failing due to RLS or payload mismatch.
+10. The new `/estimate?address=...` init effect may not be the path actually used when adding from the dashboard.
+
+Required fix:
+Make the exact logged-in Dashboard → Purchase with Loan → Add Property flow save a durable draft row to `purchase_scenarios`.
+
+After the fix, run this exact acceptance test and report evidence:
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Purchase with Loan.
+3. Click Add Property.
+4. Enter/select a new address.
+5. Confirm `[purchase-live-test] upsert response` shows success.
+6. Confirm Supabase `purchase_scenarios` has a row for that address immediately.
+7. Refresh the browser.
+8. Confirm the property still appears.
+9. Log out.
+10. Log back in.
+11. Confirm the property still appears.
+12. Confirm `purchase-live-load` returns that row.
+13. Confirm the dashboard displayed count includes that row.
+14. Confirm no duplicate rows were created.
+
+If a Supabase row is created but still not shown after login:
+- Show me the row data returned from `purchase-live-load`
+- Show me why it was filtered out
+- Fix the filter/display logic only
+
+If no Supabase row is created:
+- Show me why the save function is not called or why the upsert fails
+- Fix the save trigger/upsert only
+
+Do not mark complete until the actual logout/login test passes.
+```

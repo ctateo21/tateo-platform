@@ -606,8 +606,14 @@ function PurchaseTab() {
 
   // Reload on mount and re-sync whenever Supabase hydrates / login changes.
   useEffect(() => {
-    setScenarios(getPurchaseScenarios());
-    const unsub = subscribeAuthChange(() => setScenarios(getPurchaseScenarios()));
+    const s0 = getPurchaseScenarios();
+    setScenarios(s0);
+    console.debug("[purchase-live-load] final displayed count", s0.length, "(PurchaseTab mount)");
+    const unsub = subscribeAuthChange(() => {
+      const next = getPurchaseScenarios();
+      setScenarios(next);
+      console.debug("[purchase-live-load] final displayed count", next.length, "(auth-change)");
+    });
     return unsub;
   }, []);
 

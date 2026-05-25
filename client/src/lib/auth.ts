@@ -708,13 +708,17 @@ async function loadScenarios(userId: string) {
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
   console.debug("[purchase-load] user id", userId);
+  console.debug("[purchase-live-load] auth user id", userId);
+  console.debug("[purchase-live-load] query table", "purchase_scenarios");
   if (pRes.error) {
-    console.error("[purchase-load] error", {
+    const errInfo = {
       message: pRes.error.message,
       details: (pRes.error as any).details,
       hint: (pRes.error as any).hint,
       code: (pRes.error as any).code,
-    });
+    };
+    console.error("[purchase-load] error", errInfo);
+    console.error("[purchase-live-load] error", errInfo);
     notifyError({ table: "purchase_scenarios", message: pRes.error.message });
   }
   _purchaseScenarios = (pRes.data ?? []).map(rowToPurchase);
@@ -732,6 +736,11 @@ async function loadScenarios(userId: string) {
   });
   console.debug("[purchase-load] count", _purchaseScenarios.length);
   console.debug("[purchase-load] draft scenarios included", _draftCount);
+  console.debug("[purchase-live-load] rows returned", _purchaseScenarios.length);
+  console.debug("[purchase-live-load] row ids", _purchaseScenarios.map(p => p.id));
+  console.debug("[purchase-live-load] row addresses", _purchaseScenarios.map(p => p.address));
+  console.debug("[purchase-live-load] row statuses", (pRes.data ?? []).map((r: any) => r.status ?? null));
+  console.debug("[purchase-live-load] filtered out rows, if any", []);
   _insuranceScenarios = (iRes.data ?? []).map(rowToInsurance);
   // Tolerate missing cash_buy_scenarios table on environments where the
   // latest schema.sql hasn't been re-run yet. Other tabs continue to work.
@@ -1055,13 +1064,17 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
   const userId = _session?.id;
   console.debug("[purchase-save] user id", userId);
   console.debug("[purchase-save] scenario count", s.length);
+  console.debug("[purchase-live-test] persist enqueued user id", userId);
+  console.debug("[purchase-live-test] persist scenario count", s.length);
   if (!userId) {
     console.debug("[purchase-save] no session — skipping persist");
+    console.debug("[purchase-live-test] upsert error", "no session at enqueue time");
     return Promise.resolve();
   }
   return enqueueWrite("purchase_scenarios", async () => {
     if (_session?.id !== userId) {
       console.debug("[purchase-save] user changed before drain — aborting");
+      console.debug("[purchase-live-test] upsert error", "user changed before drain");
       return;
     }
     const keep = new Set(s.map(x => x.id));
@@ -1091,32 +1104,39 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
         console.debug("[purchase-save] scenario id", p.id);
         console.debug("[purchase-save] full address", p.full_address ?? p.address);
         console.debug("[purchase-save] normalized key", p.normalized_property_key);
+        console.debug("[purchase-live-test] normalized property key", p.normalized_property_key);
       });
       console.debug("[purchase-save] upsert payload", payload);
+      console.debug("[purchase-live-test] upsert payload", payload);
       const { data: upData, error: upErr, status, statusText } = await supabase
         .from("purchase_scenarios")
         .upsert(payload, { onConflict: "id" })
         .select();
       if (upErr) {
-        console.error("[purchase-save] upsert error", {
+        const errInfo = {
           message: upErr.message,
           details: (upErr as any).details,
           hint: (upErr as any).hint,
           code: (upErr as any).code,
           status,
           statusText,
-        });
+        };
+        console.error("[purchase-save] upsert error", errInfo);
+        console.error("[purchase-live-test] upsert error", errInfo);
         notifyError({ table: "purchase_scenarios", message: upErr.message });
       } else {
-        console.debug("[purchase-save] upsert result", {
+        const okInfo = {
           status,
           rowCount: Array.isArray(upData) ? upData.length : 0,
           ids: Array.isArray(upData) ? upData.map((r: any) => r.id) : [],
-        });
+        };
+        console.debug("[purchase-save] upsert result", okInfo);
+        console.debug("[purchase-live-test] upsert response", okInfo);
         console.debug("[purchase-save] upsert ok");
       }
     } else {
       console.debug("[purchase-save] empty list — nothing to upsert");
+      console.debug("[purchase-live-test] upsert response", "empty list — nothing to upsert");
     }
   });
 }
