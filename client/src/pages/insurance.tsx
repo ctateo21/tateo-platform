@@ -448,6 +448,74 @@ export default function InsuranceDashboard() {
     typeof window !== "undefined" && localStorage.getItem("tateo_auth") === "1"
   );
 
+  // ── Logged-in landing behavior (no address param) ────────────────────────
+  // 1) If the user has saved Insurance scenarios, auto-jump to the first
+  //    one so they land directly on their property instead of a blank
+  //    simulator. Only runs while addressParam is empty so the redirect
+  //    can't loop (after navigation, addressParam is set and the guard
+  //    short-circuits).
+  // 2) If the user has zero saved scenarios, an empty state is rendered
+  //    below (no redirect, no auto-mounting of the simulator content).
+  // 3) Guests are untouched — they keep the simulator-first experience.
+  const [showEmptyAddInput, setShowEmptyAddInput] = useState(false);
+  const savedInsuranceCount = isAuthenticated && !addressParam
+    ? getInsuranceScenarios().length
+    : -1; // sentinel: don't read when not needed
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (addressParam) return;
+    const saved = getInsuranceScenarios();
+    if (saved.length === 0) return;
+    const first = saved[0];
+    const target = first?.address;
+    if (!target) return;
+    setLocation(`/insurance?address=${encodeURIComponent(target)}`, { replace: true });
+  }, [isAuthenticated, addressParam, setLocation]);
+
+  // Wire Google autocomplete onto the empty-state inline input. Mirrors the
+  // existing address-edit autocomplete pattern (uses addressInputRef /
+  // addressAcRef) — these refs are mutually exclusive because the edit
+  // input only renders inside the simulator, and the simulator is skipped
+  // when the empty state is shown.
+  useEffect(() => {
+    if (!showEmptyAddInput) return;
+    setTimeout(() => addressInputRef.current?.focus(), 30);
+
+    async function init() {
+      try {
+        let apiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || "";
+        if (!apiKey) {
+          const res = await fetch("/api/config/google-maps-api-key");
+          const data = await res.json();
+          apiKey = data.apiKey || "";
+        }
+        if (!apiKey || !addressInputRef.current) return;
+        await loadGoogleMapsApi(apiKey);
+        if (!window.google?.maps?.places?.Autocomplete || !addressInputRef.current) return;
+        addressAcRef.current = new window.google.maps.places.Autocomplete(addressInputRef.current, {
+          types: ["address"], componentRestrictions: { country: "us" }, fields: ["formatted_address"],
+        });
+        addressAcRef.current.addListener("place_changed", () => {
+          const place = addressAcRef.current.getPlace();
+          if (place?.formatted_address) {
+            setShowEmptyAddInput(false);
+            setLocation(`/insurance?address=${encodeURIComponent(place.formatted_address)}`);
+          }
+        });
+      } catch { /* autocomplete unavailable */ }
+    }
+    init();
+    return () => {
+      if (addressAcRef.current) {
+        (window as any).google?.maps?.event?.clearInstanceListeners?.(addressAcRef.current);
+        addressAcRef.current = null;
+      }
+    };
+  }, [showEmptyAddInput, setLocation]);
+
+  const showInsuranceEmptyState =
+    isAuthenticated && !addressParam && savedInsuranceCount === 0;
+
   function openLeadDialog(action: "share" | "save") {
     setLeadDialogAction(action);
     setLeadDialogOpen(true);
@@ -534,6 +602,61 @@ export default function InsuranceDashboard() {
     <>
       <Helmet><title>Insurance Estimate — {address || "Tateo & Co"}</title></Helmet>
 
+      {showInsuranceEmptyState ? (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
+          <Card className="w-full max-w-md">
+            <CardContent className="py-10 px-6 flex flex-col items-center text-center gap-4">
+              <Shield className="h-12 w-12 text-primary" />
+              <div className="space-y-1">
+                <h2 className="text-xl font-bold">No properties added yet</h2>
+                <p className="text-sm text-muted-foreground">
+                  Add a property address to get an insurance estimate
+                </p>
+              </div>
+              {!showEmptyAddInput ? (
+                <Button
+                  className="mt-2"
+                  onClick={() => setShowEmptyAddInput(true)}
+                  data-testid="insurance-empty-add-property"
+                >
+                  Add Property Address
+                </Button>
+              ) : (
+                <div className="w-full mt-2">
+                  <div className="flex items-center gap-2 border rounded-md px-3 py-2 bg-white">
+                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <input
+                      ref={addressInputRef}
+                      type="text"
+                      placeholder="Enter a property address"
+                      onKeyDown={e => {
+                        if (e.key === "Enter") {
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val) {
+                            setShowEmptyAddInput(false);
+                            setLocation(`/insurance?address=${encodeURIComponent(val)}`);
+                          }
+                        } else if (e.key === "Escape") {
+                          setShowEmptyAddInput(false);
+                        }
+                      }}
+                      className="flex-1 bg-transparent outline-none text-sm"
+                      autoComplete="off"
+                      data-testid="insurance-empty-address-input"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setShowEmptyAddInput(false)}
+                    className="text-xs text-muted-foreground hover:text-foreground mt-2"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
       <div className="min-h-screen bg-gray-50">
 
         {/* ── Sticky top bar (same pattern as estimate page) ── */}
@@ -914,6 +1037,7 @@ export default function InsuranceDashboard() {
 
         </div>
       </div>
+      )}
 
       {/* ── Lead capture dialog ── */}
       <LeadCaptureDialog

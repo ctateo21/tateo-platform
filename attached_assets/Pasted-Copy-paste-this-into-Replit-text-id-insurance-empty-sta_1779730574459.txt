@@ -1,0 +1,131 @@
+Copy/paste this into Replit:
+
+```text id="insurance-empty-state-add-property"
+In `client/src/pages/insurance.tsx`, make the following change only.
+
+Context:
+- `isAuthenticated` is already tracked as a boolean state in this component.
+- `addressParam` is the `?address=` URL param, empty string when not present.
+- `getInsuranceScenarios()` returns the user's saved insurance scenarios array.
+- `loadGoogleMapsApi` is already imported and used in this file.
+- `Shield` icon is already imported.
+- Existing Google Maps autocomplete pattern already exists in this file using:
+  - `isEditingAddress`
+  - `addressInputRef`
+  - `addressAcRef`
+
+Requested behavior:
+
+1. Authenticated user with no saved Insurance properties
+
+Near the top of the return statement, after the `<Helmet>` tag and before the main content div, add this conditional:
+
+If all three are true:
+- `isAuthenticated === true`
+- `addressParam === ""`
+- `getInsuranceScenarios().length === 0`
+
+Then render an empty state instead of the normal simulator content.
+
+Empty state UI:
+A centered card in the middle of the page showing:
+- Shield icon at `h-12 w-12` in `text-primary`
+- Heading:
+  `No properties added yet`
+- Subtext:
+  `Add a property address to get an insurance estimate`
+- One primary button:
+  `Add Property Address`
+
+When `Add Property Address` is clicked:
+- Open a small inline input below the button.
+- Do not use a modal.
+- Use the existing Google Maps autocomplete pattern already in this file.
+- Reuse the same general behavior as the existing address edit flow using `isEditingAddress`, `addressInputRef`, and `addressAcRef`.
+- When the user selects an address from autocomplete, navigate to:
+
+`/insurance?address=[encoded address]`
+
+Use proper URL encoding.
+
+2. Authenticated user with saved Insurance properties but no addressParam
+
+If:
+- `isAuthenticated === true`
+- `addressParam === ""`
+- `getInsuranceScenarios().length > 0`
+
+Then automatically navigate to:
+
+`/insurance?address=[first saved scenario's address]`
+
+Use the first saved scenario’s address field.
+
+Use whichever address field exists in the scenario:
+- `full_address`
+- `address`
+- or the existing scenario address property used elsewhere in this file
+
+Use proper URL encoding.
+
+This should happen automatically so the user lands directly on their most recent/first saved Insurance property.
+
+3. Guest user behavior
+
+If the user is not authenticated:
+- Existing behavior is unchanged.
+- The simulator should render normally.
+- Guest users can still run estimates as they do now.
+
+Important restrictions:
+- Do not change anything else in this file.
+- Do not change simulator logic.
+- Do not change calculations.
+- Do not change save/share behavior.
+- Do not change Supabase logic.
+- Do not change other pages.
+- Do not change routing outside of this behavior.
+- Do not alter existing saved scenario data.
+
+Implementation notes:
+- Add the conditional rendering near the top of the return statement, immediately after `<Helmet>` and before the normal main content div.
+- For the saved-scenarios redirect, use an effect if that is safer than navigating inside render.
+- Avoid infinite navigation loops.
+- Only redirect when `addressParam === ""`.
+- Only show the empty state when authenticated, no addressParam, and zero saved insurance scenarios.
+- Keep styling consistent with existing cards/buttons.
+
+Validation:
+Run:
+
+`npx tsc --noEmit`
+
+Fix only TypeScript errors caused by this change.
+
+Acceptance test:
+1. Log in as a user with no saved Insurance scenarios.
+2. Go to `/insurance` with no address param.
+3. Confirm the simulator does not show.
+4. Confirm centered empty state appears:
+   - Shield icon
+   - “No properties added yet”
+   - “Add a property address to get an insurance estimate”
+   - “Add Property Address” button
+5. Click Add Property Address.
+6. Confirm inline address input opens below the button.
+7. Select an address from Google autocomplete.
+8. Confirm app navigates to `/insurance?address=[encoded address]`.
+9. Log in as a user with saved Insurance scenarios.
+10. Go to `/insurance` with no address param.
+11. Confirm app automatically navigates to the first saved scenario address.
+12. Log out.
+13. Go to `/insurance` with no address param.
+14. Confirm guest simulator behavior is unchanged.
+
+Report back:
+- Exactly what was added
+- Where the empty state conditional was placed
+- How the inline Google autocomplete input was wired
+- How saved-scenario redirect avoids loops
+- Result of `npx tsc --noEmit`
+```
