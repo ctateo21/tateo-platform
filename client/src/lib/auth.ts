@@ -696,6 +696,19 @@ async function loadScenarios(userId: string) {
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
   _purchaseScenarios = (pRes.data ?? []).map(rowToPurchase);
+  // Debug logs for purchase-with-loan persistence (bug:
+  // purchase-with-loan-save-persistence-fix). A "draft" here is any
+  // purchase scenario without a price set — these are rows created
+  // immediately on address-add before the user fills in Pages 1-4.
+  const _draftCount = _purchaseScenarios.filter(p => p.price == null).length;
+  console.debug("[purchase-load] purchase scenarios loaded", {
+    userId,
+    count: _purchaseScenarios.length,
+    draftCount: _draftCount,
+    addresses: _purchaseScenarios.map(p => p.address),
+  });
+  console.debug("[purchase-load] count", _purchaseScenarios.length);
+  console.debug("[purchase-load] draft scenarios included", _draftCount);
   _insuranceScenarios = (iRes.data ?? []).map(rowToInsurance);
   // Tolerate missing cash_buy_scenarios table on environments where the
   // latest schema.sql hasn't been re-run yet. Other tabs continue to work.

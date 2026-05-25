@@ -1389,6 +1389,39 @@ export default function Estimate() {
       },
     ]);
     setActive(newId);
+    // Persist a DRAFT purchase scenario row to Supabase immediately on
+    // address-add for authenticated users. Without this, the only save
+    // path was the debounced (800ms) auto-save effect — so a user who
+    // added an address and then navigated away, logged out, or closed
+    // the tab within 800ms would lose the row entirely (bug:
+    // purchase-with-loan-save-persistence-fix). The draft uses the
+    // same id (`newId`) the tab is using locally. The auto-save effect
+    // matches by address (not id), so it will find this draft and
+    // merge derived/calc fields into the same row — no duplicates.
+    if (isAuthenticated) {
+      const existingSaved = getPurchaseScenarios();
+      const dupKey = addr.trim().toLowerCase();
+      const alreadySaved = existingSaved.some(
+        s => s.address.trim().toLowerCase() === dupKey,
+      );
+      if (!alreadySaved) {
+        console.debug("[purchase-save] address selected", addr);
+        console.debug("[purchase-save] scenario id", newId);
+        console.debug("[purchase-save] user id", getSession()?.id);
+        console.debug("[purchase-save] creating draft purchase scenario");
+        savePurchaseScenarios([
+          ...existingSaved,
+          {
+            id: newId,
+            address: addr,
+            savedAt: new Date().toISOString(),
+          },
+        ]);
+        console.debug("[purchase-save] upsert ok");
+      } else {
+        console.debug("[purchase-save] address already saved, skipping draft create", addr);
+      }
+    }
     // Mirror the reset carriedInputs into live state. Without this, live
     // `inputs.purchasePriceSource` would still carry the prior tab's
     // "user" marker, causing `mergeZillowIntoInputs` to skip applying the

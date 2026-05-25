@@ -1,0 +1,153 @@
+Copy/paste this into Replit:
+
+```text id="purchase-with-loan-save-persistence-fix"
+Fix Purchase with Loan property saving/persistence.
+
+Current issue:
+When I add a property to the Purchase with Loan tab, then log out and log back in, the property is gone.
+
+Expected behavior:
+When a logged-in user adds a property to Purchase with Loan, it must save to Supabase and remain visible after:
+- page refresh
+- logout/login
+- navigating away and back
+
+Correct table:
+Purchase with Loan should save to:
+
+`purchase_scenarios`
+
+Do not save Purchase with Loan records only in local state/session storage.
+
+Required behavior:
+1. User logs in.
+2. User goes to Dashboard → Purchase with Loan.
+3. User adds a property/address.
+4. A new `purchase_scenarios` row is created or upserted immediately.
+5. The property appears in Purchase with Loan dashboard overview.
+6. User logs out.
+7. User logs back in.
+8. The property is still there.
+
+Likely issue:
+The new Purchase with Loan scenario may only be stored in frontend state until the estimate is completed, or the new scenario may not be getting persisted until a later Save Scenario action.
+
+Fix:
+When a logged-in user adds/selects an address in Purchase with Loan:
+- create a stable scenario ID
+- save/upsert a draft purchase scenario to `purchase_scenarios` immediately
+- include the selected address and normalized property key
+- continue updating that same saved scenario as the user answers Pages 1–3 and Page 4
+
+Minimum fields to save immediately:
+- `id`
+- `user_id`
+- `full_address`
+- `normalized_property_key`
+- `status` = `draft`
+- `created_at`
+- `updated_at`
+
+Then as data becomes available, update:
+- borrower details
+- property use
+- purchase price
+- property type
+- down payment
+- loan type
+- credit score
+- taxes
+- insurance
+- HOA
+- seller concessions
+- discount points
+- closing costs
+- cash to close
+- DTI
+- photos/Zillow data
+- any calculated estimate fields
+
+Save/load mapping:
+Inspect and fix:
+- `persistPurchaseScenarios`
+- purchase scenario row → frontend scenario
+- frontend purchase scenario → Supabase row
+- Purchase with Loan add-address flow
+- Purchase with Loan dashboard overview loader
+
+Make sure:
+- `purchase_scenarios` is queried on dashboard load for the authenticated user
+- new property draft rows are included in the Purchase with Loan overview
+- draft scenarios are not filtered out incorrectly
+- the app does not require Page 4 completion before showing the property in the dashboard
+
+Schema safety:
+Compare the purchase scenario upsert payload with the actual `purchase_scenarios` table columns.
+
+If any columns are missing, give me one complete SQL migration before trying to save them.
+
+Do not let a missing optional column crash the save.
+
+Important:
+- Do not create duplicate rows for the same new scenario.
+- Use stable scenario IDs, not array indexes.
+- Do not overwrite existing saved Purchase with Loan scenarios.
+- Do not save to the wrong table.
+- Do not confuse Purchase with Loan with Purchase with Cash.
+- Purchase with Loan = `purchase_scenarios`
+- Purchase with Cash = `cash_buy_scenarios`
+- Do not break Purchase with Cash, Refinance, Insurance, or Sell Your Home.
+- Do not break the new logic that auto-creates an Insurance scenario from Purchase with Loan.
+- Do not break Zillow/property cache.
+- Do not break photos.
+
+Logged-out behavior:
+If user is logged out and starts Purchase with Loan:
+- keep the draft in memory/local temporary state
+- when they create an account or log in, save the scenario to `purchase_scenarios`
+- do not lose the address or answers during auth
+
+Logged-in behavior:
+If user is already logged in:
+- save immediately after address selection
+- do not wait for them to click Save Scenario
+
+Debug logs:
+Add temporary logs:
+- `[purchase-save] address selected`
+- `[purchase-save] scenario id`
+- `[purchase-save] user id`
+- `[purchase-save] normalized property key`
+- `[purchase-save] creating draft purchase scenario`
+- `[purchase-save] upsert payload keys`
+- `[purchase-save] upsert ok`
+- `[purchase-load] purchase scenarios loaded`
+- `[purchase-load] count`
+- `[purchase-load] draft scenarios included`
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Purchase with Loan.
+3. Add a new property address.
+4. Confirm a `purchase_scenarios` row is created immediately.
+5. Confirm the property appears in Purchase with Loan dashboard overview.
+6. Refresh the page.
+7. Confirm the property is still there.
+8. Log out.
+9. Log back in.
+10. Confirm the property is still there.
+11. Open the property and continue editing.
+12. Confirm edits save to the same scenario row.
+13. Confirm no duplicate Purchase with Loan rows are created.
+14. Confirm Purchase with Cash still saves to `cash_buy_scenarios`.
+15. Confirm the matching Insurance scenario is created/updated if that feature is active.
+
+Please make the smallest safe code change possible and tell me:
+- Why Purchase with Loan properties were not persisting
+- Which save function was fixed
+- Which load function was fixed
+- Whether draft scenarios were being filtered out
+- Which `purchase_scenarios` fields are saved immediately
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```
