@@ -1,6 +1,6 @@
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
-import { Home, Shield, Layers, Banknote, Key, RefreshCw, Tag } from "lucide-react";
+import { Shield, Layers, Banknote, Key, RefreshCw, Tag, MapPin, Pencil } from "lucide-react";
 
 /**
  * Logged-out service picker shown after the user enters an address on
@@ -97,6 +97,14 @@ export default function SelectService() {
     setLocation(route(address));
   }
 
+  // "Change address" returns the user to the home page address entry.
+  // We intentionally do NOT pre-fill or clear any Zillow / property
+  // cache here — that cache is keyed by the (new) address the user
+  // types next, so existing entries for other properties stay intact.
+  function handleChangeAddress() {
+    setLocation("/");
+  }
+
   return (
     <>
       <Helmet>
@@ -105,20 +113,46 @@ export default function SelectService() {
 
       <section className="min-h-[calc(100vh-140px)] flex flex-col items-center justify-center px-4 py-16 bg-gradient-to-br from-gray-50 to-white">
 
-        {/* Address pill — carries through to the chosen flow. */}
-        {address && (
-          <div className="flex items-center gap-2 mb-8 px-4 py-2 bg-white border border-gray-200 rounded-full shadow-sm text-sm text-muted-foreground">
-            <Home className="h-4 w-4 text-primary shrink-0" />
-            <span className="truncate max-w-xs font-medium text-gray-700">{address}</span>
-          </div>
-        )}
-
         <h1 className="text-3xl md:text-4xl font-bold text-gray-900 text-center mb-3">
           What would you like to explore?
         </h1>
-        <p className="text-muted-foreground text-center mb-12 max-w-md">
+        <p className="text-muted-foreground text-center mb-6 max-w-md">
           Select a service and we'll pull up everything you need for this property.
         </p>
+
+        {/* Highlighted selected-address card. Sits directly under the
+            "What would you like to explore?" question so the user
+            understands which property the service options below apply
+            to, and can swap it without losing their place in the flow. */}
+        {address && (
+          <div
+            data-testid="selected-address-card"
+            className="w-full max-w-xl mb-10 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4 sm:p-5 bg-primary/5 border-2 border-primary/30 rounded-2xl shadow-sm"
+          >
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 shrink-0">
+                <MapPin className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary/80 mb-0.5">
+                  Selected property
+                </p>
+                <p className="text-base font-semibold text-gray-900 break-words leading-snug">
+                  {address}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleChangeAddress}
+              data-testid="change-address"
+              className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg border border-primary/40 bg-white text-sm font-semibold text-primary hover:bg-primary hover:text-white transition-colors shrink-0"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Change address
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 w-full max-w-5xl">
           {services.map(({ id, icon: Icon, title, description, color, border, badge, route }) => (

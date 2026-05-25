@@ -1,0 +1,86 @@
+Copy/paste this into Replit:
+
+```text id="service-choice-address-highlight"
+Update the logged-out service selection screen layout after a user enters an address.
+
+Current flow:
+1. User enters/selects an address.
+2. App asks:
+   “What would you like to explore?”
+3. User chooses one of the service options.
+
+Requested change:
+Move the selected address below the “What would you like to explore?” question and visually highlight it so users understand:
+- this is the address being used
+- they can change the address
+- they can pick another service/category for the same address
+
+New layout:
+At the top of the service selection screen:
+
+What would you like to explore?
+
+[Highlighted address box]
+Selected property:
+123 Main St, Tampa, FL 33602
+Change address
+
+Then show the service/category options:
+- All Services
+- Purchase with Cash
+- Purchase with Loan
+- Refinance
+- Insurance
+- Sell Your Home
+
+Address box requirements:
+1. Move the address below the “What would you like to explore?” question.
+2. Make the address visually stand out with a highlighted card/banner.
+3. Include clear text like:
+   “Selected property”
+4. Include a “Change address” action/link/button.
+5. If user clicks “Change address,” take them back to the address entry/search step.
+6. Preserve existing Zillow/property cache data unless the user actually changes the address.
+7. If user changes the address, update the service selection screen with the new address.
+
+Category behavior:
+- User should be able to pick any category/service for the selected address.
+- If they go back from a chosen service flow while logged out, return to this service selection screen with the highlighted address still visible.
+- Do not send them back to address entry unless they click Change address.
+
+Logged-in behavior:
+Do not break logged-in dashboard behavior.
+If logged in and inside a saved scenario detail view:
+- Back should go to dashboard overview, not this service selection screen.
+
+Design:
+- Keep the highlighted address box clean and professional.
+- Use existing card/badge styling if possible.
+- On mobile, stack cleanly.
+- Address should be readable and not cramped.
+
+Acceptance test:
+1. Log out.
+2. Enter/select an address.
+3. Confirm the next screen asks “What would you like to explore?”
+4. Confirm the selected address appears directly below that question.
+5. Confirm the address is highlighted.
+6. Confirm there is a Change address option.
+7. Click Change address.
+8. Confirm it returns to address entry.
+9. Enter a different address.
+10. Confirm the service selection screen shows the new highlighted address.
+11. Choose Purchase with Loan.
+12. Hit Back.
+13. Confirm it returns to the service selection screen, not address entry.
+14. Confirm the highlighted address is still shown.
+15. Repeat with Purchase with Cash, Refinance, Insurance, Sell Your Home, and All Services.
+16. Confirm logged-in dashboard Back behavior is unchanged.
+
+Please make the smallest safe code change possible and tell me:
+- Which service selection component was changed
+- How the selected address is highlighted
+- How Change address works
+- How the selected address is preserved across service choices
+- Which files/functions were changed
+```
