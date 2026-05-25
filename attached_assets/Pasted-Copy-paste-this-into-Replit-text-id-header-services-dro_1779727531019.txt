@@ -1,0 +1,185 @@
+Copy/paste this into Replit:
+
+````text id="header-services-dropdown-routing"
+Update the Services tab/dropdown in the website header.
+
+Current issue:
+The Services tab in the header does not clearly offer all 5 main services, and routing should behave differently depending on whether the user is logged in or logged out.
+
+Requested behavior:
+Under the header Services tab/dropdown, show all 5 main dashboard services:
+
+1. Purchase with Loan
+2. Purchase with Cash
+3. Refinance
+4. Insurance
+5. Sell Your Home
+
+Do not show only generic “All Services” or incomplete service options in the header dropdown.
+
+Header Services dropdown:
+When user clicks “Services” in the header, show these options:
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Insurance
+- Sell Your Home
+
+Use the current tab display names:
+- Purchase with Loan = existing Purchase tab
+- Purchase with Cash = existing Cash Buy tab
+- Refinance = existing Refinance tab
+- Insurance = existing Insurance tab
+- Sell Your Home = existing For Sale / Seller tab
+
+Keep stable internal IDs:
+- purchase = Purchase with Loan
+- cash_buy = Purchase with Cash
+- refinance = Refinance
+- insurance = Insurance
+- for_sale or seller = Sell Your Home
+
+Logged-out behavior:
+If the user is NOT logged in and clicks any service from the header Services dropdown:
+- Take them to the front/home page where they enter an address.
+- After address entry, they should go to the service-selection flow where they can pick the service/category.
+- Ideally preserve the service they clicked so after they enter an address, the app can route them into that chosen service.
+- If preserving the clicked service is too large, at minimum send them to the address-entry page and then the existing “What would you like to explore?” screen.
+
+Example:
+Logged-out user clicks Header → Services → Insurance:
+- Route to front page/address entry.
+- User enters address.
+- They can continue into Insurance.
+
+Preferred logged-out route behavior:
+- `/` or existing address-entry route with query/state:
+  `?service=insurance`
+- After address selection, preselect or route to Insurance if safe.
+- Keep existing service choice screen if required.
+
+Logged-in behavior:
+If the user IS logged in and clicks a service from the header Services dropdown:
+- Take them directly to the dashboard overview on that specific tab.
+
+Examples:
+Logged-in user clicks Header → Services → Insurance:
+- Route to Dashboard overview with Insurance tab active.
+
+Logged-in user clicks Header → Services → Refinance:
+- Route to Dashboard overview with Refinance tab active.
+
+Logged-in user clicks Header → Services → Purchase with Loan:
+- Route to Dashboard overview with Purchase with Loan tab active.
+
+Logged-in routes should use stable tab IDs:
+- Purchase with Loan → `/dashboard?tab=purchase`
+- Purchase with Cash → `/dashboard?tab=cash_buy`
+- Refinance → `/dashboard?tab=refinance`
+- Insurance → `/dashboard?tab=insurance`
+- Sell Your Home → `/dashboard?tab=for_sale` or whatever stable tab id the app currently uses
+
+Important:
+- Logged-in users should NOT be sent to address entry when clicking a service from the header.
+- Logged-in users should NOT be sent to the six-service selection screen.
+- Logged-in users should land on the dashboard overview with the requested tab active.
+- Preserve user-custom dashboard tab order if drag-and-drop tab ordering exists.
+- The correct tab should be selected even if the visual order was customized.
+
+Logged-out users:
+- Should go to the front address-entry experience.
+- Should not go to the dashboard unless they log in/create account.
+- Should not see a broken dashboard route.
+
+Mobile header:
+Apply the same Services options and routing to the mobile menu/hamburger menu.
+
+Implementation requirements:
+1. Find the header/nav component.
+2. Update Services dropdown/menu to include all 5 services.
+3. Add an auth-aware click handler for service links.
+4. If authenticated:
+   - navigate to dashboard with correct tab query/state.
+5. If not authenticated:
+   - navigate to address-entry/home route, optionally carrying selected service in query/state.
+6. Ensure dashboard reads the tab query/state and activates the requested tab.
+7. Ensure mobile nav uses the same service list and routing logic.
+8. Do not duplicate separate desktop/mobile service definitions if avoidable; use one shared service list.
+
+Suggested shared service config:
+```ts
+const SERVICES = [
+  { label: "Purchase with Loan", tabId: "purchase", serviceType: "purchase" },
+  { label: "Purchase with Cash", tabId: "cash_buy", serviceType: "cash_buy" },
+  { label: "Refinance", tabId: "refinance", serviceType: "refinance" },
+  { label: "Insurance", tabId: "insurance", serviceType: "insurance" },
+  { label: "Sell Your Home", tabId: "for_sale", serviceType: "seller" },
+];
+````
+
+Suggested routing:
+
+```ts
+if (isAuthenticated) {
+  navigate(`/dashboard?tab=${tabId}`);
+} else {
+  navigate(`/?service=${serviceType}`);
+}
+```
+
+Use the app’s existing router/navigation helpers.
+
+Do not break:
+
+* Header layout
+* Mobile menu
+* Dashboard tab order
+* Dashboard tab labels
+* Logged-out address entry flow
+* Service selection screen
+* Existing saved scenarios
+* Any auth flow
+
+Acceptance test:
+
+1. Log out.
+2. Open header Services dropdown.
+3. Confirm it shows:
+
+   * Purchase with Loan
+   * Purchase with Cash
+   * Refinance
+   * Insurance
+   * Sell Your Home
+4. Click Insurance while logged out.
+5. Confirm it goes to the front/address-entry flow.
+6. Enter an address.
+7. Confirm the user can continue into Insurance or service selection works correctly.
+8. Repeat logged out for Purchase with Loan, Purchase with Cash, Refinance, and Sell Your Home.
+9. Log in.
+10. Open header Services dropdown.
+11. Click Insurance.
+12. Confirm it goes to Dashboard overview with Insurance tab active.
+13. Click Refinance.
+14. Confirm it goes to Dashboard overview with Refinance tab active.
+15. Click Purchase with Loan.
+16. Confirm it goes to Dashboard overview with Purchase with Loan tab active.
+17. Click Purchase with Cash.
+18. Confirm it goes to Dashboard overview with Purchase with Cash tab active.
+19. Click Sell Your Home.
+20. Confirm it goes to Dashboard overview with Sell Your Home tab active.
+21. Test the same behavior in the mobile menu.
+22. Confirm dashboard tab drag order is preserved but correct tab is activated.
+
+Please make the smallest safe code change possible and tell me:
+
+* Which header/nav component was changed
+* Which Services options were added
+* How logged-out service clicks route
+* How logged-in service clicks route
+* How the dashboard activates the requested tab
+* Whether mobile nav was updated
+* Which files/functions were changed
+
+```
+```
