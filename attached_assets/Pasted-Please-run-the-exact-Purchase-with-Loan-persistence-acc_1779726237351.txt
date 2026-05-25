@@ -1,0 +1,54 @@
+Please run the exact Purchase with Loan persistence acceptance test now and only make changes if the test fails.
+
+Replit says the fix is merged and Purchase with Loan now saves through these paths:
+1. Add Property → confirmNewScenario → immediate draft upsert
+2. /estimate?address=... arrival → init-mount effect → immediate draft upsert
+3. Debounced auto-save → updates same row by address match
+
+Please verify the live behavior end-to-end.
+
+Acceptance test:
+1. Log in as the current user.
+2. Go to Dashboard → Purchase with Loan.
+3. Click Add Property.
+4. Enter/select a new address.
+5. Confirm the console shows:
+   [purchase-save] upsert ok
+6. Confirm Supabase `purchase_scenarios` immediately has a row for that address.
+7. Confirm the row has:
+   - id
+   - user_id
+   - full_address
+   - normalized_property_key
+   - status = draft
+   - created_at
+   - updated_at
+8. Refresh the browser.
+9. Confirm the property still appears under Purchase with Loan.
+10. Log out.
+11. Log back in.
+12. Confirm the property still appears under Purchase with Loan.
+13. Open the property.
+14. Confirm the address and scenario data are still there.
+15. Confirm no duplicate rows were created for the same address/scenario.
+
+If the test passes:
+- Do not change code.
+- Report the evidence:
+  - console save log
+  - Supabase row confirmation
+  - dashboard reload confirmation
+  - logout/login confirmation
+
+If the test fails:
+- Do not guess.
+- Use the exact failing log to fix it.
+- If `[purchase-save] upsert error` appears, paste the message/details/hint/code/status and fix that.
+- If the row exists in Supabase but does not show after refresh/logout/login, fix only the load/filter/dashboard display path.
+- If the row does not exist in Supabase after address selection, fix only the save trigger/upsert path.
+
+Important:
+Do not rewrite the whole Purchase with Loan flow.
+Do not change Supabase schema unless the exact error proves it is needed.
+Do not change Purchase with Cash, Refinance, Insurance, or Sell Your Home.
+Do not remove the debug logs yet.
