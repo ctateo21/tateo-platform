@@ -1,0 +1,229 @@
+Copy/paste this into Replit:
+
+```text id="insurance-estimate-single-source-of-truth"
+Fix homeowners insurance estimate consistency across Purchase with Cash, Purchase with Loan, and Insurance tab.
+
+Current issue:
+The same property is showing three different homeowners insurance values.
+
+Example from Purchase with Cash:
+- Homeowners Insurance Estimate section shows: $2,754/year
+- Ongoing Costs section shows: $2,693/year
+- Purchase with Loan shows: $224/month or $2,688/year
+
+All three should be the same number for the same property/value unless the user manually overrides one.
+
+Required behavior:
+There should be one shared homeowners insurance estimate value for the property, and every place that references homeowners insurance should use that same value.
+
+Default rule:
+Annual homeowners insurance should default to:
+
+homeowners_insurance_annual = property_value × 0.0075
+
+Monthly:
+homeowners_insurance_monthly = homeowners_insurance_annual / 12
+
+Example:
+Property value = $500,000
+Annual insurance = $3,750/year
+Monthly insurance = $312.50/month
+
+Important:
+Do not show any user-facing note saying this is based on 0.75%.
+Use 0.75% internally only.
+
+Part 1 — Make all homeowners insurance values match
+
+For the same property/address, these must all use the same annual/monthly insurance value:
+- Purchase with Cash → Ongoing Costs → Annual Homeowners Insurance
+- Purchase with Cash → Homeowners Insurance Estimate section
+- Purchase with Loan → homeowners insurance estimate
+- Insurance tab → annual premium/monthly premium default
+- Dashboard summaries, if shown
+
+Current issue appears to be that different components are using different formulas:
+- one section uses simulator midpoint
+- one section uses ongoing cost field
+- one section uses purchase loan insurance estimate
+- insurance tab may use its own formula
+
+Fix:
+Create or use one shared helper/source of truth:
+
+`calculateDefaultHomeownersInsurance({ propertyValue })`
+
+Return:
+- annualPremium
+- monthlyPremium
+- source = "default_0_75_percent"
+
+Then make every homeowners insurance display use the same stored/calculated value.
+
+Value source priority:
+1. User manual insurance override, if exists
+2. Real insurance quote/carrier premium, if exists
+3. Shared default = property value × 0.75%
+4. blank/null only if no property value exists
+
+Manual override protection:
+If the user manually changes homeowners insurance:
+- preserve manual value
+- do not overwrite it when purchase price/value changes
+- do not overwrite it with Zillow/cache
+- do not overwrite it from the simulator
+
+If no manual override exists:
+- recalculate default insurance when property value changes
+
+Part 2 — Homeowners Insurance Estimate simulator must match the same value
+
+The Homeowners Insurance Estimate section should not calculate a different annual premium than Ongoing Costs.
+
+If the simulator shows Low / Midpoint / High:
+- Midpoint must equal the same shared annual homeowners insurance value used by Ongoing Costs and Purchase with Loan.
+- Low and High can be derived from midpoint if needed.
+- The Ongoing Costs annual homeowners insurance value should equal the simulator midpoint.
+
+Example:
+If shared annual insurance = $2,754/year:
+- Ongoing Costs should show $2,754/year
+- Simulator midpoint should show $2,754/year
+- Purchase with Loan should show $2,754/year or $229.50/month
+
+Do not allow:
+- Ongoing Costs = $2,693
+- Simulator midpoint = $2,754
+- Purchase with Loan = $2,688
+
+Part 3 — Insurance tab Coverage A / Rebuild Cost default
+
+Current issue:
+In the Insurance tab for the property address, Coverage A / Rebuild Cost auto-defaults to $400,000.
+
+That is wrong.
+
+Required behavior:
+Coverage A / Rebuild Cost should auto-default from Zillow/property data using:
+
+Priority:
+1. Purchase price, if this came from Purchase with Loan or Purchase with Cash
+2. Estimated home value / Zestimate from Zillow, if available
+3. Refinance estimated home value, if this came from Refinance
+4. Existing property cache estimated value
+5. fallback blank/null only if no value exists
+
+Do not default Coverage A to $400,000 unless no property value exists and that fallback is intentionally used.
+
+Example:
+If Zillow Zestimate or purchase/value is $359,000:
+- Coverage A / Rebuild Cost should default to $359,000
+- Insurance annual premium should default to $359,000 × 0.0075 = $2,692.50/year
+- Monthly should be $224.38/month
+
+Part 4 — Insurance tab premium default must use 0.75% of Coverage A/Rebuild Cost
+
+Current issue:
+Even when Coverage A / Rebuild Cost is changed to $359,000, the Insurance tab pricing shows $5,142/year.
+
+That is wrong for the default estimate.
+
+Required behavior:
+If there is no actual quote/manual premium, Insurance tab annual premium should default to:
+
+annual_premium = coverage_a_or_rebuild_cost × 0.0075
+
+Example:
+Coverage A = $359,000
+Annual premium = $2,692.50/year
+Monthly premium = $224.38/month
+
+If Coverage A changes and premium is default-based:
+- annual premium recalculates immediately
+- monthly premium recalculates immediately
+- save values to `insurance_scenarios`
+
+If premium was manually changed or a real quote exists:
+- do not overwrite it
+
+Part 5 — Save consistency to Supabase
+
+Make sure values save/load consistently.
+
+Insurance tab:
+Save to `insurance_scenarios`:
+- coverage_a or rebuild_cost
+- annual_premium
+- monthly_premium
+- premium_source / insurance_source if available
+- value_source if available
+
+Purchase with Cash:
+Save the shared homeowners insurance value to the cash buy scenario if the table has that field.
+
+Purchase with Loan:
+Save the shared homeowners insurance value to the purchase scenario if the table has that field.
+
+If a migration is needed, give me one complete SQL migration before saving new fields.
+
+Potential source fields:
+- `homeowners_insurance_source`
+- `insurance_source`
+- `premium_source`
+- `coverage_a_source`
+- `rebuild_cost_source`
+
+Part 6 — UI requirements
+
+Do not show the user:
+- “based on 0.75%”
+- “default_0_75_percent”
+- internal source names
+
+Show only clean values:
+- Estimated Homeowners Insurance: $2,754/year
+- Monthly: $230/month
+- Coverage A / Rebuild Cost: $359,000
+
+Acceptance test:
+1. Open Purchase with Cash for a property value of $359,000.
+2. Confirm Ongoing Costs → Annual Homeowners Insurance = $2,692.50/year, rounded cleanly.
+3. Confirm Homeowners Insurance Estimate midpoint = same annual value.
+4. Confirm monthly insurance = annual / 12.
+5. Open Purchase with Loan for the same property/value.
+6. Confirm homeowners insurance shows the same annual/monthly value.
+7. Open Insurance tab for the same address.
+8. Confirm Coverage A / Rebuild Cost defaults to the property value/Zestimate/purchase price, not $400,000.
+9. Confirm Insurance tab annual premium defaults to Coverage A × 0.75%.
+10. Confirm Insurance tab annual premium does not show $5,142 unless manually entered or actual quote data exists.
+11. Manually change homeowners insurance premium.
+12. Confirm manual value is preserved and source becomes manual.
+13. Change property value.
+14. Confirm manual insurance value is not overwritten.
+15. Reset/remove manual override.
+16. Confirm default recalculates from property value × 0.75%.
+17. Refresh/logout/login.
+18. Confirm all values persist and still match.
+19. Confirm no user-facing 0.75% note appears anywhere.
+
+Debug logs:
+Add temporary logs:
+- `[insurance-default] property value used`
+- `[insurance-default] annual premium calculated`
+- `[insurance-default] monthly premium calculated`
+- `[insurance-sync] source component`
+- `[insurance-sync] shared annual premium`
+- `[insurance-tab] coverage_a default source`
+- `[insurance-tab] annual premium source`
+- `[insurance-tab] manual override true/false`
+
+Please make the smallest safe code change possible and tell me:
+- Why the three insurance values were different
+- Which shared homeowners insurance helper is now used
+- Which components were updated to use the same value
+- How Coverage A/Rebuild Cost is defaulted from Zillow/purchase/refinance value
+- How Insurance tab annual premium now defaults to 0.75% of Coverage A
+- How manual/quoted values are protected
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```

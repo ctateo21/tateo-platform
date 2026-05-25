@@ -3,7 +3,11 @@ import { useSearch, useLocation } from "wouter";
 import ScenarioActions from "@/components/scenario-actions";
 import {
   getInsuranceScenarios, saveInsuranceScenarios, type InsuranceScenario,
+  getPurchaseScenarios, getCashBuyScenarios, getTrackedLoans,
 } from "@/lib/auth";
+import {
+  DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
+} from "@/lib/insurance-default";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -63,6 +67,54 @@ function getRegionFromAddress(address: string): RegionKey {
   const county = getCountyName(address);
   if (county && COUNTY_TO_REGION[county]) return COUNTY_TO_REGION[county];
   return "tampa";
+}
+
+// Product of every factor table at its default index — used to normalize
+// the raw factor product so a property with default factors yields
+// exactly `0.75% × rebuild` (matches the shared estimate everywhere).
+const NEUTRAL_FACTOR_PRODUCT =
+  ROOF_ADJ[1] * WIND_ADJ[1] * HURR_ADJ[0] * CONST_ADJ[0] * YEAR_ADJ[1] * CLAIM_ADJ[0];
+
+// Look up the best-known property value for an address across the
+// other scenario tabs (Purchase with Loan, Cash Buy, Refinance) and
+// any existing Insurance scenario for that same address. Returns 0
+// if nothing is known so callers can fall back to URL ?price=.
+function getKnownPropertyValueForAddress(address: string): number {
+  if (!address) return 0;
+  const key = address.trim().toLowerCase();
+  if (!key) return 0;
+
+  const purchase = getPurchaseScenarios().find(
+    p => (p.address ?? "").trim().toLowerCase() === key
+  );
+  if (purchase?.price && purchase.price > 0) return purchase.price;
+
+  const cash = getCashBuyScenarios().find(
+    c => (c.address ?? "").trim().toLowerCase() === key
+  );
+  if (cash?.purchasePrice && cash.purchasePrice > 0) return cash.purchasePrice;
+
+  const loan = getTrackedLoans().find(
+    l => (l.propertyAddress ?? "").trim().toLowerCase() === key
+  );
+  if (loan?.estimatedHomeValue && loan.estimatedHomeValue > 0) return loan.estimatedHomeValue;
+
+  const ins = getInsuranceScenarios().find(
+    s => (s.address ?? "").trim().toLowerCase() === key
+  );
+  if (ins?.annualPremium && ins.annualPremium > 0) {
+    return Math.round(ins.annualPremium / DEFAULT_HOMEOWNERS_INSURANCE_PERCENT);
+  }
+
+  return 0;
+}
+
+function defaultRebuildFor(address: string, priceParam: string | null): number {
+  const fromScenarios = getKnownPropertyValueForAddress(address);
+  if (fromScenarios > 0) return fromScenarios;
+  const fromParam = priceParam ? parseInt(priceParam, 10) : 0;
+  if (fromParam && fromParam > 0) return fromParam;
+  return 0;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -159,9 +211,12 @@ export default function InsuranceDashboard() {
   const params = new URLSearchParams(search);
   const addressParam = params.get("address") || "";
   const priceParam = params.get("price");
-  const initialRebuild = priceParam
-    ? Math.max(150000, Math.min(1500000, parseInt(priceParam) || 400000))
-    : 400000;
+  // Default Coverage A / Rebuild Cost from (in order): saved Purchase /
+  // Cash Buy / Refinance scenario value, ?price= URL param, existing
+  // Insurance scenario premium ÷ 0.75%, else 0. We no longer hard-code
+  // a $400,000 fallback — that produced nonsense premiums on properties
+  // whose true value was known elsewhere.
+  const initialRebuild = defaultRebuildFor(addressParam, priceParam);
 
   const { toast } = useToast();
 
@@ -279,7 +334,10 @@ export default function InsuranceDashboard() {
     setActiveScenarioId(targetId);
     setLocation(`/insurance?address=${encodeURIComponent(target.address)}`);
     if (target.savedSettings) applySettings(target.savedSettings);
-    else { setRegionKey(getRegionFromAddress(target.address)); setRebuild(400000); }
+    else {
+      setRegionKey(getRegionFromAddress(target.address));
+      setRebuild(defaultRebuildFor(target.address, null));
+    }
   }
 
   function removeScenario(id: string, e: React.MouseEvent) {
@@ -293,7 +351,10 @@ export default function InsuranceDashboard() {
       setActiveScenarioId(next.id);
       setLocation(`/insurance?address=${encodeURIComponent(next.address)}`);
       if (next.savedSettings) applySettings(next.savedSettings);
-      else { setRegionKey(getRegionFromAddress(next.address)); setRebuild(400000); }
+      else {
+        setRegionKey(getRegionFromAddress(next.address));
+        setRebuild(defaultRebuildFor(next.address, null));
+      }
     }
   }
 
@@ -316,7 +377,7 @@ export default function InsuranceDashboard() {
     setActiveScenarioId(newId);
     setLocation(`/insurance?address=${encodeURIComponent(addr)}`);
     setRegionKey(getRegionFromAddress(addr));
-    setRebuild(400000); setRoofIdx(1); setWindIdx(1); setHurrIdx(0);
+    setRebuild(defaultRebuildFor(addr, null)); setRoofIdx(1); setWindIdx(1); setHurrIdx(0);
     setConstIdx(0); setYearIdx(1); setClaimsIdx(0);
     setNewScenarioAddress("");
     setShowAddressPrompt(false);
@@ -366,10 +427,16 @@ export default function InsuranceDashboard() {
   const region = REGIONS[regionKey];
 
   const calc = useMemo(() => {
-    const adj = ROOF_ADJ[roofIdx] * WIND_ADJ[windIdx] * HURR_ADJ[hurrIdx] * CONST_ADJ[constIdx] * YEAR_ADJ[yearIdx] * CLAIM_ADJ[claimsIdx];
-    const lowRate  = region.low  * adj;
-    const highRate = region.high * adj;
-    const midRate  = (lowRate + highRate) / 2;
+    // Anchor the midpoint to the shared 0.75%-of-value default so this
+    // tab always agrees with Purchase with Loan, Cash Buy, and the
+    // Ongoing Costs row for the same property. Factors still scale the
+    // band, but they're normalized against the default product so a
+    // property with neutral factors lands exactly on the 0.75% number.
+    const rawAdj = ROOF_ADJ[roofIdx] * WIND_ADJ[windIdx] * HURR_ADJ[hurrIdx] * CONST_ADJ[constIdx] * YEAR_ADJ[yearIdx] * CLAIM_ADJ[claimsIdx];
+    const adj = rawAdj / NEUTRAL_FACTOR_PRODUCT;
+    const midRate  = DEFAULT_HOMEOWNERS_INSURANCE_PERCENT * adj;
+    const lowRate  = midRate * 0.85;
+    const highRate = midRate * 1.15;
     const hurrDeductiblePct = [0.02, 0.03, 0.05][hurrIdx];
     return {
       low: rebuild * lowRate, mid: rebuild * midRate, high: rebuild * highRate,

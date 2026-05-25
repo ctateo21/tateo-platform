@@ -1914,8 +1914,13 @@ export default function Estimate() {
   // still shown for context but no longer drive the baseline rate.
   const insPremiumCalc = useMemo(() => {
     const rebuild = inputs.purchasePrice;
-    const adj = INS_ROOF_ADJ[insRoofIdx] * INS_WIND_ADJ[insWindIdx] * INS_HURR_ADJ[insHurrIdx]
+    const rawAdj = INS_ROOF_ADJ[insRoofIdx] * INS_WIND_ADJ[insWindIdx] * INS_HURR_ADJ[insHurrIdx]
               * INS_CONST_ADJ[insConstIdx] * INS_YEAR_ADJ[insYearIdx] * INS_CLAIM_ADJ[insClaimsIdx];
+    // Normalize so default-factor product = 1.0 → midpoint == 0.75% × price.
+    const neutral =
+      INS_ROOF_ADJ[1] * INS_WIND_ADJ[1] * INS_HURR_ADJ[0]
+      * INS_CONST_ADJ[0] * INS_YEAR_ADJ[1] * INS_CLAIM_ADJ[0];
+    const adj = rawAdj / neutral;
     const midRate  = DEFAULT_HOMEOWNERS_INSURANCE_PERCENT * adj;
     const lowRate  = midRate * 0.85;
     const highRate = midRate * 1.15;
