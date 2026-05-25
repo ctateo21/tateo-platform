@@ -1,0 +1,124 @@
+Copy/paste this into Replit:
+
+```text
+Refresh all Insurance estimates for user admin@tateoco.com.
+
+Goal:
+In Dashboard → Insurance, every insurance property for user admin@tateoco.com should show:
+- Annual Premium
+- Monthly Premium
+
+The premium should default to 0.75% of the best available property value.
+
+Formula:
+annual_premium = property_value × 0.0075
+monthly_premium = annual_premium / 12
+
+Example:
+property_value = $500,000
+annual_premium = $3,750/year
+monthly_premium = $312.50/month
+
+Property value source priority:
+For each insurance_scenarios row, determine the best available value in this order:
+
+1. Zillow purchase price pulled from property cache / Zillow scraper
+2. Zestimate from Zillow
+3. Estimated home value from Refinance / tracked_loans, including AI-estimated home value from uploaded mortgage statement
+4. Purchase with Loan purchase price, if matching property exists
+5. Purchase with Cash purchase price, if matching property exists
+6. Existing Insurance Coverage A / rebuild cost, only if no better value exists
+7. Leave blank only if no value can be found
+
+Matching logic:
+Match properties by:
+- user_id
+- normalized_property_key
+
+Do not rely only on raw address text unless normalized_property_key is missing.
+
+Scope:
+Only run this for:
+
+admin@tateoco.com
+
+Steps:
+1. Look up the Supabase auth/profile user for admin@tateoco.com.
+2. Find all `insurance_scenarios` rows for that user.
+3. For each insurance row, find matching property data from:
+   - property/Zillow cache
+   - purchase_scenarios
+   - cash_buy_scenarios
+   - tracked_loans
+   - seller_scenarios, if useful
+4. Determine the best available property value using the priority list above.
+5. Set:
+   - coverage_a / rebuild_cost = best available property value if not manually overridden
+   - annual_premium = property_value × 0.0075
+   - monthly_premium = annual_premium / 12
+   - premium_source / insurance_source = "default_0_75_percent"
+   - updated_at = now()
+6. Save back to `insurance_scenarios`.
+7. Refresh the Insurance dashboard display so each row shows annual and monthly premium.
+
+Important:
+- Do not overwrite actual quote/carrier premium data if the insurance row has a real quote.
+- Do not overwrite manual premium values if the user manually entered them.
+- Only overwrite blank/default/auto-generated premium values.
+- Do not show user-facing text that says “based on 0.75%.”
+- Do not delete any rows.
+- Do not create duplicate insurance rows.
+- Do not change Purchase, Refinance, Cash Buy, or Sell Your Home records except reading from them.
+- Do not run Zillow/Apify unless the existing property cache is missing and the app already safely supports a server-side refresh.
+- Prefer using existing cached values first.
+
+If manual/quote source fields are unclear:
+Use the safest rule:
+- update only rows where annual_premium is blank, null, 0, or previously source = default/auto
+- do not update rows with carrier/policy data that looks like a real quote
+
+Add an admin-only maintenance function or script:
+`refreshInsurancePremiumsForUser("admin@tateoco.com")`
+
+This should:
+- run server-side only
+- use service role safely
+- log each row updated
+- skip protected/manual/quoted rows
+- return summary counts
+
+Debug logs:
+- [insurance-refresh] user email
+- [insurance-refresh] user id
+- [insurance-refresh] insurance rows found
+- [insurance-refresh] address
+- [insurance-refresh] normalized key
+- [insurance-refresh] value source used
+- [insurance-refresh] property value used
+- [insurance-refresh] annual premium
+- [insurance-refresh] monthly premium
+- [insurance-refresh] skipped manual/quoted true/false
+- [insurance-refresh] update ok
+
+Acceptance test:
+1. Run refresh for admin@tateoco.com.
+2. Open Dashboard → Insurance.
+3. Confirm every eligible insurance row shows Annual Premium.
+4. Confirm every eligible insurance row shows Monthly Premium.
+5. Confirm annual premium equals 0.75% of best available purchase price/Zestimate/refinance estimated value.
+6. Confirm monthly premium equals annual / 12.
+7. Confirm Coverage A/Rebuild Cost uses the same best available property value where appropriate.
+8. Confirm manually entered or real quoted premiums were not overwritten.
+9. Refresh/logout/login.
+10. Confirm the updated premiums persist.
+
+Please make the smallest safe code change possible and tell me:
+- Which admin refresh function/script was created
+- How admin@tateoco.com user_id is found
+- Which tables are checked for property values
+- Which value source was used for each updated property
+- How manual/quoted premium rows are protected
+- Which insurance_scenarios fields are updated
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```
