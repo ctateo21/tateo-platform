@@ -107,14 +107,21 @@ function NumRow({ label, hint, value, onChange, min, max, step = 1, prefix, suff
     onChange(Math.min(max, Math.max(min, rounded)));
   }
 
+  // Standard slider layout (global spec): label row on top, then
+  // a 3fr/1fr grid below with the slider on the left (75% width)
+  // and the editable value pill on the right (25%). Mobile stacks.
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <Label className="text-xs font-medium">{label}</Label>
-          {hint && <p className="text-[11px] text-muted-foreground mt-0.5">{hint}</p>}
-        </div>
-        <div className="flex items-center gap-0.5 bg-muted rounded-md px-2 py-1 min-w-[120px]">
+    <div className="space-y-1.5">
+      <Label className="text-xs font-medium">{label}</Label>
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
+      <div className="grid grid-cols-1 md:grid-cols-[3fr_1fr] items-center gap-2 md:gap-3">
+        <Slider
+          className="w-full"
+          min={min} max={max} step={step}
+          value={[Math.min(max, Math.max(min, value))]}
+          onValueChange={([v]) => onChange(v)}
+        />
+        <div className="flex items-center gap-0.5 bg-muted rounded-md px-2 py-1 min-w-[120px] md:justify-end">
           {prefix && <span className="text-xs text-muted-foreground">{prefix}</span>}
           <input
             className="w-full bg-transparent text-xs font-semibold text-right outline-none min-w-0"
@@ -131,11 +138,6 @@ function NumRow({ label, hint, value, onChange, min, max, step = 1, prefix, suff
           {suffix && <span className="text-xs text-muted-foreground ml-0.5">{suffix}</span>}
         </div>
       </div>
-      <Slider
-        min={min} max={max} step={step}
-        value={[Math.min(max, Math.max(min, value))]}
-        onValueChange={([v]) => onChange(v)}
-      />
     </div>
   );
 }

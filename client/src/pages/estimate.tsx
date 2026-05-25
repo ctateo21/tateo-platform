@@ -691,11 +691,28 @@ function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffi
     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
   }
 
+  // Standard slider layout (global spec): label on its own row,
+  // then a 3fr/1fr grid below with the slider on the left and the
+  // editable value pill on the right. Caller can pass label="" to
+  // suppress the label row entirely (used by wrappers that already
+  // render their own label, e.g. renderSellerConcessions). On
+  // mobile we stack value below slider so neither feels cramped.
   return (
-    <div className={`space-y-2 ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
-      <div className="flex items-center justify-between">
+    <div className={`space-y-1.5 ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
+      {label ? (
         <Label className="text-xs text-muted-foreground">{label}</Label>
-        <div className="flex items-center gap-0.5 bg-muted rounded-md px-2 py-1 min-w-[88px]">
+      ) : null}
+      <div className="grid grid-cols-1 md:grid-cols-[3fr_1fr] items-center gap-2 md:gap-3">
+        <Slider
+          className="w-full"
+          min={min}
+          max={max}
+          step={step}
+          value={[Math.min(max, Math.max(min, value))]}
+          onValueChange={([v]) => onChange(v)}
+          disabled={disabled}
+        />
+        <div className="flex items-center gap-0.5 bg-muted rounded-md px-2 py-1 min-w-[88px] md:justify-end">
           {prefix && <span className="text-xs text-muted-foreground">{prefix}</span>}
           <input
             className="w-full bg-transparent text-xs font-semibold text-right text-foreground outline-none min-w-0"
@@ -710,14 +727,6 @@ function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffi
           {suffix && <span className="text-xs text-muted-foreground ml-0.5">{suffix}</span>}
         </div>
       </div>
-      <Slider
-        min={min}
-        max={max}
-        step={step}
-        value={[Math.min(max, Math.max(min, value))]}
-        onValueChange={([v]) => onChange(v)}
-        disabled={disabled}
-      />
     </div>
   );
 }
