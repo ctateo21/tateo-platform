@@ -2268,7 +2268,7 @@ export default function Estimate() {
     return (
       <div className="space-y-1">
         <div className="flex items-center justify-between flex-wrap gap-1">
-          <span className="text-xs text-muted-foreground">Seller Concessions</span>
+          <span className="text-xs text-muted-foreground">Seller Concessions (% of Purchase Price)</span>
           <div className="flex items-center gap-1.5">
             <div className="inline-flex rounded border border-border overflow-hidden text-[10px] leading-none">
               <button
@@ -4134,7 +4134,7 @@ export default function Estimate() {
                           />
                           <SummaryRow label="Loan Amount" value={fmt(calc.loanAmount)} onEdit={() => setEditingPage(3)} sub="Calculated" />
                           <SummaryRow
-                            label={scMode === "amount" ? "Seller Concessions ($)" : "Seller Concessions (%)"}
+                            label={scMode === "amount" ? "Seller Concessions ($ of Purchase Price)" : "Seller Concessions (% of Purchase Price)"}
                             value={
                               inputs.sellerConcessions > 0
                                 ? (scMode === "amount"
@@ -4257,7 +4257,7 @@ export default function Estimate() {
                   <div className="py-2">
                     <div className="space-y-1">
                       <div className="flex items-center justify-between flex-wrap gap-1">
-                        <span className="text-xs text-muted-foreground">Discount Points</span>
+                        <span className="text-xs text-muted-foreground">Discount Points (% of Loan Amount)</span>
                         <Select
                           value={String(calc.discountPointsPct)}
                           onValueChange={(v) => {
@@ -4281,30 +4281,25 @@ export default function Estimate() {
                         </Select>
                       </div>
                       {calc.discountPointsPct > 0 ? (
-                        <div className="text-[10px] text-right text-muted-foreground space-y-0.5">
-                          <p>
-                            Cost: <span className="font-medium text-foreground">{fmt(calc.discountPointsCost)}</span>
-                            {" · "}
-                            Rate buydown:{" "}
-                            <span className="font-medium text-foreground">
-                              −{calc.discountPointsRateReduction.toFixed(3)}%
+                        // Per spec: surface the dollar cost only.
+                        // The rate-buydown amount is intentionally
+                        // hidden from the user-facing UI — the
+                        // calculation still runs and feeds the
+                        // Mortgage card's Interest Rate row. Bank
+                        // Statement has no published buydown yet, so
+                        // we keep the cost-only note for clarity.
+                        <p className="text-[10px] text-right text-muted-foreground">
+                          {calc.discountPointsPct.toFixed(1)}% of loan ·{" "}
+                          <span className="font-medium text-foreground">{fmt(calc.discountPointsCost)}</span>
+                          {inputs.loanType === "bank_statement" && (
+                            <span className="ml-1 text-amber-600">
+                              (Bank Statement buydown table not yet published — cost applied, rate unchanged.)
                             </span>
-                          </p>
-                          <p>
-                            Final rate:{" "}
-                            <span className="font-medium text-primary">
-                              {calc.rateAfterDiscountPoints.toFixed(3)}%
-                            </span>
-                            {inputs.loanType === "bank_statement" && (
-                              <span className="ml-1 text-amber-600">
-                                (Bank Statement buydown table not yet published — cost applied, rate unchanged.)
-                              </span>
-                            )}
-                          </p>
-                        </div>
+                          )}
+                        </p>
                       ) : (
                         <p className="text-[10px] text-muted-foreground text-right">
-                          Buy down your rate by paying points up-front.
+                          Based on loan amount. Buy down your rate by paying points up-front.
                         </p>
                       )}
                     </div>
@@ -4409,18 +4404,12 @@ export default function Estimate() {
                         : undefined
                     }
                   />
-                  {calc.discountPointsPct > 0 && (
-                    <>
-                      <Row
-                        label="Base Rate Before Points"
-                        value={`${calc.rateBeforeDiscountPoints.toFixed(3)}%`}
-                      />
-                      <Row
-                        label="Discount Point Buydown"
-                        value={`−${calc.discountPointsRateReduction.toFixed(3)}%`}
-                      />
-                    </>
-                  )}
+                  {/* Per spec the explicit "Base Rate Before Points"
+                      and "Discount Point Buydown" rows are hidden
+                      from the user-facing UI. The buydown
+                      calculation still runs in `calc` and drives
+                      both `calc.pi` and the Interest Rate row
+                      above. */}
                   <Row
                     label="Property Taxes"
                     value={`${fmt(calc.monthlyTax)}/mo`}

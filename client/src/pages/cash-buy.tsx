@@ -695,7 +695,7 @@ export default function CashBuyPage() {
               {/* Seller concessions toggle */}
               <div className="space-y-2 pt-2 border-t">
                 <div className="flex items-center justify-between gap-2">
-                  <Label className="text-xs font-medium">Seller Concessions</Label>
+                  <Label className="text-xs font-medium">Seller Concessions (% of Purchase Price)</Label>
                   <div className="flex rounded-md border bg-background text-[11px] overflow-hidden">
                     <button
                       type="button"

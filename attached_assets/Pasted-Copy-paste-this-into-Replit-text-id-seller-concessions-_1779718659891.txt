@@ -1,0 +1,124 @@
+Copy/paste this into Replit:
+
+```text id="seller-concessions-discount-points-label-cleanup"
+Update the labels/helper text for Seller Concessions and Discount Points on Purchase with Loan estimates.
+
+Current issue:
+The UI does not clearly explain what each percentage is based on.
+
+Required label changes:
+1. Any time Seller Concessions are shown or referenced, make it clear the percentage is based on the purchase price.
+2. Any time Discount Points are shown or referenced, make it clear the percentage is based on the loan amount.
+3. Remove the visible rate buydown amount from the Discount Points display.
+
+Seller Concessions wording:
+Wherever Seller Concessions appears, update the label/helper text to say:
+
+“Seller Concessions (% of Purchase Price)”
+
+or:
+
+“Seller Concessions — based on purchase price”
+
+This applies anywhere Seller Concessions appears, including:
+- Purchase with Loan Page 3, if shown there
+- Purchase with Loan Page 4 / See My Estimate → Real Estate card
+- Review Your Answers
+- dashboard summaries, if shown
+- tooltips/helper text
+
+Example:
+If purchase price = $500,000 and seller concessions = 2.00%, show:
+Seller Concessions (% of Purchase Price): 2.00% / $10,000
+
+Discount Points wording:
+Wherever Discount Points appears, update the label/helper text to say:
+
+“Discount Points (% of Loan Amount)”
+
+or:
+
+“Discount Points — based on loan amount”
+
+This applies anywhere Discount Points appears, including:
+- Purchase with Loan Page 4 / See My Estimate → Real Estate card
+- Mortgage card, if referenced
+- Review Your Answers
+- saved scenario displays, if shown
+
+Example:
+If loan amount = $300,000 and discount points = 1.0%, show:
+Discount Points (% of Loan Amount): 1.0% / $3,000
+
+Remove visible rate buydown amount:
+Right now, when a user selects discount points, the UI shows:
+- discount point cost
+- rate buydown amount
+
+Remove the visible rate buydown amount from the user-facing UI.
+
+Do not show:
+- “Rate buydown: -0.340%”
+- “Discount point reduction: -0.340%”
+- “Rate reduction: -0.340%”
+
+Still keep the rate buydown calculation in the backend/calculation logic.
+
+The interest rate should still be reduced internally and the final interest rate/payment should still update.
+
+Display should show:
+- Discount Points (% of Loan Amount)
+- selected discount point percentage
+- dollar cost
+- final interest rate if already shown elsewhere
+
+Do not show the rate buydown amount.
+
+Example display:
+Discount Points (% of Loan Amount): 1.0% / $3,000
+
+If the Mortgage card shows interest rate:
+Interest Rate: 6.435%
+
+But do not show:
+Rate Buydown: -0.340%
+
+Important:
+- This is primarily a UI copy/display cleanup.
+- Do not remove the discount point rate buydown logic.
+- Do not remove `discount_points_rate_reduction` from calculations or storage.
+- Do not break payment recalculation.
+- Do not break closing cost calculation.
+- Do not break seller concessions calculation.
+- Do not change how seller concessions reduce cash to close.
+- Do not change discount point cost calculation.
+
+Calculation rules remain:
+Seller concessions:
+seller_concessions_amount = purchase_price × seller_concessions_percent / 100
+
+Discount points:
+discount_points_cost = loan_amount × discount_points_percent / 100
+
+Acceptance test:
+1. Go to Purchase with Loan Page 4 / See My Estimate.
+2. Confirm Seller Concessions label says it is based on purchase price.
+3. Confirm Discount Points label says it is based on loan amount.
+4. Enter purchase price $500,000.
+5. Set seller concessions to 2.00%.
+6. Confirm it shows $10,000 and references purchase price.
+7. Set loan amount to $300,000.
+8. Set discount points to 1.0%.
+9. Confirm it shows $3,000 and references loan amount.
+10. Confirm the rate buydown amount like “-0.340%” is not shown anywhere user-facing.
+11. Confirm the final interest rate still updates from discount points.
+12. Confirm monthly payment, closing costs, cash to close, and DTI still update correctly.
+13. Confirm Review Your Answers uses the updated labels if those fields appear there.
+
+Please make the smallest safe code change possible and tell me:
+- Which Seller Concessions labels/helper text were updated
+- Which Discount Points labels/helper text were updated
+- Where the visible rate buydown amount was removed
+- How the internal buydown calculation was preserved
+- Which files/functions were changed
+```
