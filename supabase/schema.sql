@@ -128,6 +128,21 @@ alter table public.purchase_scenarios
   add column if not exists primary_photo_url text,
   add column if not exists property_photos   jsonb;
 
+-- Page-4 (`/estimate`) writes these on save. Without them the upsert
+-- 400s with PGRST204 "Could not find the '<col>' column of
+-- 'purchase_scenarios' in the schema cache" and the draft never lands.
+-- All `add column if not exists` — safe to re-run.
+alter table public.purchase_scenarios
+  add column if not exists property_type                  text,
+  add column if not exists property_type_source           text,
+  add column if not exists has_deferred_student_loans     boolean,
+  add column if not exists deferred_student_loan_balance  numeric,
+  add column if not exists discount_points_percent        numeric,
+  add column if not exists discount_points_cost           numeric,
+  add column if not exists discount_points_rate_reduction numeric,
+  add column if not exists rate_before_discount_points    numeric,
+  add column if not exists rate_after_discount_points     numeric;
+
 create index if not exists purchase_scenarios_user_idx on public.purchase_scenarios(user_id);
 
 alter table public.purchase_scenarios enable row level security;
