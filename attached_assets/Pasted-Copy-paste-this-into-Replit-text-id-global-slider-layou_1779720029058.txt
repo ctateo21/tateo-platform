@@ -1,0 +1,192 @@
+Copy/paste this into Replit:
+
+````text id="global-slider-layout-standard"
+Standardize slider formatting across the entire website/app.
+
+Current issue:
+Sliders throughout the app are not consistently formatted. Some sliders stretch too far, values are not positioned cleanly, and the label/value relationship is not clear.
+
+Requested global slider layout:
+For every slider on the website/app, format it like this:
+
+- The slider should sit directly under the row/label/value it references.
+- The slider should take about 3/4 of the row width.
+- The remaining 1/4 of the row should be used for the value/summary text that explains what the slider is controlling.
+- The value should appear at the end/right side of the slider row.
+- The slider should not run all the way to the edge of the card/row.
+
+Visual concept:
+
+Top row:
+Label / description / current selected value
+
+Slider row:
+[ slider takes 75% width ] [ value/summary takes 25% width ]
+
+Examples:
+
+Seller Concessions (% of Purchase Price)
+[---------slider---------]   2.00% / $10,000
+
+Discount Points (% of Loan Amount)
+[---------slider---------]   1.0% / $3,000
+
+Down Payment
+[---------slider---------]   20.00% / $100,000
+
+Apply this to all sliders across the entire app, including:
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Insurance
+- Sell Your Home
+- Dashboard detail views
+- Page 3 Purchase Details
+- Page 4 See My Estimate
+- Real Estate cards
+- Mortgage cards
+- Seller concessions sliders
+- Down payment sliders
+- Discount points sliders
+- Seller closing costs sliders
+- Any other slider component used anywhere in the app
+
+Preferred implementation:
+Create or update a reusable slider layout component instead of manually fixing every slider.
+
+Suggested reusable component:
+`LabeledSliderRow` or `SliderField`
+
+It should support:
+- label
+- helper text
+- slider
+- formatted value display
+- optional min/max/step
+- optional mode toggle if the slider has Percentage/Dollar Amount
+- mobile wrapping
+
+Suggested layout:
+
+Desktop:
+- label/helper row full width
+- slider/value row uses CSS grid:
+  - slider column = 3fr
+  - value column = 1fr
+- slider in first column
+- value text in second column
+- align value text cleanly
+- keep enough spacing between slider and value
+
+Mobile:
+- stack cleanly:
+  - label
+  - slider full width
+  - value underneath or right-aligned below
+- do not make the mobile slider cramped
+
+Important formatting requirements:
+1. Slider must be directly under the item it references.
+2. Slider should be compressed to around 75% width on desktop.
+3. Value/summary text should live in the remaining 25%.
+4. Slider should stop before the end of the row/card.
+5. Value should be visually tied to the slider.
+6. Do not let the slider overlap with the value.
+7. Do not break mode toggles like Percentage / Dollar Amount.
+8. Do not break calculations.
+9. Do not change the actual slider min/max/step values unless already required by the field.
+10. This is a layout/styling cleanup, not a calculation change.
+
+Preserve existing behavior:
+Do not change:
+- seller concessions calculations
+- down payment calculations
+- discount point calculations
+- closing cost calculations
+- rate calculations
+- cash to close
+- DTI
+- seller net proceeds
+- save/load behavior
+- Supabase schema
+- loan qualification logic
+
+Specific sliders to verify:
+
+Purchase with Loan:
+- Down Payment slider on Page 3
+- Down Payment slider on Page 4
+- Seller Concessions slider
+- Discount Points slider
+- any loan term/rate sliders if present
+
+Sell Your Home:
+- Realtor commission slider, if present
+- Seller closing costs percent slider
+- buyer concessions slider, if present
+- Post Inspection Credits / Repair Costs slider, if present
+
+Purchase with Cash:
+- Seller concessions slider, if present
+- closing costs slider, if present
+
+Refinance:
+- any rate/payment/value sliders if present
+
+Insurance:
+- any premium/deductible/rebuild cost sliders if present
+
+CSS/styling:
+Prefer a shared CSS class or Tailwind pattern like:
+- `slider-field`
+- `slider-label-row`
+- `slider-control-row`
+- `slider-track-wrap`
+- `slider-value-wrap`
+
+Example structure:
+
+```tsx
+<div className="space-y-2">
+  <div className="flex items-center justify-between gap-4">
+    <div>
+      <label>Seller Concessions (% of Purchase Price)</label>
+      <p className="text-muted">Optional helper text</p>
+    </div>
+  </div>
+
+  <div className="grid grid-cols-1 md:grid-cols-[3fr_1fr] items-center gap-3">
+    <Slider className="w-full" />
+    <div className="md:text-right font-medium">
+      2.00% / $10,000
+    </div>
+  </div>
+</div>
+````
+
+Acceptance test:
+
+1. Open Purchase with Loan Page 3.
+2. Confirm each slider sits directly under the row/field it references.
+3. Confirm slider width is about 3/4 of the row on desktop.
+4. Confirm value text appears in the remaining 1/4 of the row.
+5. Open Purchase with Loan Page 4.
+6. Confirm Down Payment, Seller Concessions, and Discount Points follow the same layout.
+7. Open Sell Your Home.
+8. Confirm seller closing costs and other sliders follow the same layout.
+9. Open Purchase with Cash, Refinance, and Insurance.
+10. Confirm any sliders follow the same layout.
+11. Confirm mobile layout remains readable and does not overflow.
+12. Confirm no calculations or saved values changed.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether a reusable slider layout component was created or updated
+* Which sliders/components were updated
+* How the 3/4 slider + 1/4 value layout was implemented
+* How mobile layout is handled
+* Confirmation that calculations and save/load behavior were not changed
+* Which files/functions were changed
+
+```
+```
