@@ -584,7 +584,12 @@ function fullRate(
   monthlyIncome?: number | null,
   annualAMI?: number | null,
 ): number {
-  const adj = (loanType === "fha" || loanType === "va") ? fhaCreditAdjustment(score) : creditAdjustment(score);
+  // FHA, VA, and USDA share the same credit-score adjustment table
+  // (`fhaCreditAdjustment`). Conventional / DSCR / Bank Statement
+  // use the separate `creditAdjustment` table.
+  const adj = (loanType === "fha" || loanType === "va" || loanType === "usda")
+    ? fhaCreditAdjustment(score)
+    : creditAdjustment(score);
   let rate = base + adj + occupancyRateAdj(occupancy, downPct);
   // Conventional pricing concession: drop the final rate by 10 bps
   // (0.100%). DSCR shares Conventional's pricing engine per spec
