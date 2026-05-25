@@ -909,7 +909,7 @@ export default function InsuranceDashboard() {
           </div>
 
           <p className="text-xs text-muted-foreground text-center leading-relaxed pb-4">
-            These are estimates only based on regional data, property characteristics, and standard assumptions. Results vary by specific property inspection and market availability. Not a binding quote. Coverage not effective until confirmed by a licensed agent. Tateo & Co · Licensed Florida Insurance Agency · License #[YOUR LICENSE NUMBER HERE]
+            These are estimates only based on regional data, property characteristics, and standard assumptions. Results vary by specific property inspection and market availability. Not a binding quote. Coverage not effective until confirmed by a licensed agent. Tateo Insurance Corp (Company) - License #L132640. Paul Christian Tateo (Agent) - License #W142842.
           </p>
 
         </div>
