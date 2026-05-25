@@ -1437,8 +1437,35 @@ export default function Estimate() {
     }
   }
 
-  // Share dialog
-  const [step, setStep] = useState(fromDashboard ? 4 : 1);
+  // Share dialog.
+  //
+  // `from=dashboard` historically jumped straight to step 4 (the
+  // estimate results). That's correct when the user is RE-OPENING a
+  // property they already filled out — but for a BRAND-NEW property
+  // it skipped Pages 1-3 entirely and showed Page 4 populated with
+  // hard-coded defaults (income $8k, credit 780, reserves $35k, etc.)
+  // as if those were the user's real answers. So we only honor the
+  // jump-to-step-4 shortcut when this exact address has a saved
+  // Purchase scenario. New addresses always start on Page 1 so the
+  // user actually answers the borrower questions.
+  const [step, setStep] = useState<number>(() => {
+    if (!fromDashboard) return 1;
+    if (typeof window === "undefined") return 1;
+    const hasSession =
+      getSession() !== null || localStorage.getItem("tateo_auth") === "1";
+    if (!hasSession) return 1;
+    const key = address.trim().toLowerCase();
+    if (!key || key === "unknown address") return 1;
+    const hasSavedForThis = getPurchaseScenarios().some(
+      s => s.address.trim().toLowerCase() === key,
+    );
+    console.debug(
+      "[purchase-new-scenario] route start page",
+      hasSavedForThis ? 4 : 1,
+      hasSavedForThis ? "(existing saved scenario)" : "(new property)",
+    );
+    return hasSavedForThis ? 4 : 1;
+  });
   // Which questionnaire page is currently being edited from the Property
   // Estimate (step 4) summary. `null` = not editing. When set, that step's
   // Card is rendered inside a Dialog overlay on top of the estimate so the
@@ -1799,14 +1826,80 @@ export default function Estimate() {
   // Builds the starting Inputs for an address, restoring any tunable fields
   // the user previously saved on the dashboard so we don't overwrite their
   // saved estimate with default-derived numbers on revisit.
+  //
+  // Three cases:
+  //   1. There's a saved scenario for THIS exact address → restore it
+  //      (revisit / refresh / login). Existing behavior.
+  //   2. No saved scenario for THIS address, but the user has OTHER
+  //      saved Purchase scenarios → carry the borrower-level prefs from
+  //      the most recently saved one so they don't have to re-pick loan
+  //      type, down-payment style, deferred student loans, or discount
+  //      points for the new property. Property-level fields stay at
+  //      defaults and are filled in from Zillow + the questionnaire.
+  //   3. No saved Purchase scenarios at all (or logged out) → clean
+  //      defaults. The questionnaire (Pages 1-3) collects the rest.
   function inputsForAddress(addr: string): Inputs {
     const base = makeDefaultInputs(defaultPrice);
     if (typeof window === "undefined") return base;
     const hasSession = getSession() !== null || localStorage.getItem("tateo_auth") === "1";
     if (!hasSession || !addr) return base;
     const key = addr.trim().toLowerCase();
-    const saved = getPurchaseScenarios().find(s => s.address.trim().toLowerCase() === key);
-    if (!saved) return base;
+    const allSaved = getPurchaseScenarios();
+    const saved = allSaved.find(s => s.address.trim().toLowerCase() === key);
+    if (!saved) {
+      // Case 2: borrower-level carry from the most recent OTHER scenario.
+      const others = allSaved
+        .filter(s => s.address.trim().toLowerCase() !== key)
+        .slice()
+        .sort((a, b) => (b.savedAt ?? "").localeCompare(a.savedAt ?? ""));
+      const source = others[0];
+      if (!source) {
+        console.debug("[purchase-new-scenario] user has existing purchase scenarios", false);
+        return base;
+      }
+      console.debug("[purchase-new-scenario] user has existing purchase scenarios", true);
+      console.debug("[purchase-new-scenario] source scenario id", source.id);
+      const validLoanTypesC2 = ["conventional", "fha", "va", "usda", "dscr", "bank_statement"] as const;
+      const carriedLoanType = validLoanTypesC2.includes(source.loanType as any)
+        ? (source.loanType as Inputs["loanType"])
+        : base.loanType;
+      const carriedDpMode: "percent" | "amount" =
+        source.downPaymentMode === "amount" ? "amount" : "percent";
+      const carriedDpPct = Math.min(
+        source.downPaymentPct ?? base.downPaymentPct,
+        MAX_DOWN_PAYMENT_PCT,
+      );
+      console.debug("[purchase-new-scenario] borrower fields copied", {
+        loanType: carriedLoanType,
+        downPaymentPct: carriedDpPct,
+        downPaymentMode: carriedDpMode,
+        hasDeferredStudentLoans: source.hasDeferredStudentLoans ?? false,
+        deferredStudentLoanBalance: source.deferredStudentLoanBalance ?? 0,
+        discountPointsPct: source.discountPointsPct ?? 0,
+      });
+      console.debug("[purchase-new-scenario] property fields reset");
+      console.debug("[purchase-new-scenario] new address applied", addr);
+      return {
+        ...base,
+        loanType: carriedLoanType,
+        downPaymentPct: carriedDpPct,
+        downPaymentMode: carriedDpMode,
+        downPaymentAmount: Math.round(base.purchasePrice * (carriedDpPct / 100)),
+        hasDeferredStudentLoans:
+          typeof source.hasDeferredStudentLoans === "boolean"
+            ? source.hasDeferredStudentLoans
+            : base.hasDeferredStudentLoans,
+        deferredStudentLoanBalance:
+          typeof source.deferredStudentLoanBalance === "number"
+            ? source.deferredStudentLoanBalance
+            : base.deferredStudentLoanBalance,
+        discountPointsPct: snapDiscountPoints(
+          typeof source.discountPointsPct === "number"
+            ? source.discountPointsPct
+            : base.discountPointsPct,
+        ),
+      };
+    }
     const price = saved.price ?? base.purchasePrice;
     const validLoanTypes = ["conventional", "fha", "va", "usda", "dscr", "bank_statement"] as const;
     const loanType = validLoanTypes.includes(saved.loanType as any)

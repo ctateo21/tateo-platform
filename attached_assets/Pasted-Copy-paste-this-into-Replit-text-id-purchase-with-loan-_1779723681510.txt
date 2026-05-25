@@ -1,0 +1,207 @@
+Copy/paste this into Replit:
+
+```text id="purchase-with-loan-new-property-questionnaire-logic"
+Fix the logged-in Purchase with Loan flow so new properties handle questionnaire answers correctly.
+
+Current issue:
+When I am logged in and start a new Purchase with Loan property, the app appears to auto-produce answers instead of asking me the first 3 pages of Purchase questions.
+
+Requested behavior has two cases:
+
+CASE 1 — Logged-in user has NO saved Purchase with Loan property yet:
+If the user does not already have a saved property/scenario in Purchase with Loan, then when they add a new Purchase with Loan address, they should be taken through the first 3 pages of the Purchase with Loan questionnaire again.
+
+Do not auto-fill/generated answers for them.
+
+They should answer:
+- Page 1 Borrower Details
+- Page 2 Additional Questions
+- Page 3 Purchase Details
+Then go to Page 4 / See My Estimate.
+
+Expected behavior:
+1. Logged-in user enters/selects an address for Purchase with Loan.
+2. App checks whether they already have any saved `purchase_scenarios`.
+3. If no saved Purchase with Loan scenarios exist:
+   - start the normal questionnaire flow at Page 1
+   - do not skip to Page 4
+   - do not auto-produce answers
+   - only prefill address/property-specific Zillow data where appropriate
+4. User completes Pages 1–3.
+5. App saves answers and shows Page 4 estimate.
+
+CASE 2 — Logged-in user DOES have a saved Purchase with Loan property:
+If the user already has a saved Purchase with Loan property/scenario, then when they add a new Purchase with Loan property, bring over their borrower/questionnaire answers from the most recent or selected prior saved home, but only change the data that references the new property address.
+
+Reason:
+The borrower is usually the same person, but the new property details are different.
+
+Carry over borrower/user answers from the previous saved Purchase with Loan scenario, such as:
+- name
+- email
+- phone
+- annual/monthly income
+- base monthly debts
+- deferred student loan answers and balance
+- total monthly debts calculation
+- credit score
+- assets / cash available
+- employment/income type
+- veteran / VA eligibility
+- 100% VA disability, if applicable
+- selected rep/working with, if still used internally
+- other borrower-level answers from Pages 1–2
+
+Do NOT carry over property-specific values from the previous property, including:
+- previous property address
+- previous purchase price
+- previous Zillow value
+- previous property taxes
+- previous homeowners insurance value if property-value based
+- previous HOA amount
+- previous property type if Zillow for new address has a different type
+- previous photos
+- previous normalized property key
+- previous Zillow/cache IDs
+- previous seller concessions if those are property/deal-specific unless app treats them as user preference
+- previous discount points if deal-specific unless intentionally preserved
+- previous estimated closing costs if property-value based
+- previous loan amount
+- previous down payment amount if it depends on purchase price
+- previous cash to close
+- previous DTI result
+- previous qualification/review result
+- previous market/property data
+
+New property data should come from:
+- new entered address
+- Zillow/property cache for the new address
+- new purchase price / value
+- new property type
+- new taxes
+- new HOA
+- new homeowners insurance estimate
+- new photos
+- new calculated loan amount
+- new calculated closing costs
+- new calculated cash to close
+- new calculated DTI/qualification
+
+Default flow for Case 2:
+1. Logged-in user adds a new Purchase with Loan address.
+2. App detects they already have at least one saved Purchase with Loan scenario.
+3. App creates a new draft purchase scenario.
+4. App copies borrower-level answers from the most recent saved Purchase with Loan scenario.
+5. App applies the new property address and new property-specific data.
+6. App still allows user to review/edit Pages 1–3.
+7. User should not be forced to re-answer every borrower question unless they want to edit.
+8. Page 4 should show the new property estimate based on copied borrower data + new property data.
+
+Important:
+Do not overwrite a saved existing Purchase scenario.
+Create a new Purchase with Loan scenario for the new property.
+
+Matching / prior scenario source:
+Use the most recently updated saved `purchase_scenarios` record as the source for borrower-level answers.
+
+If the app later supports selecting which prior scenario to copy from, that can be added later. For now, use most recent saved Purchase with Loan scenario.
+
+New helper suggestion:
+Create a helper like:
+
+`createPurchaseScenarioForNewAddress({ userId, address, sourceScenario })`
+
+This helper should:
+1. Check if user has any saved purchase scenarios.
+2. If none:
+   - create a clean new draft with only address/property data
+   - route to Page 1
+3. If one exists:
+   - copy borrower-level fields from most recent scenario
+   - clear/reset property-specific fields
+   - apply new address/property cache data
+   - create a new scenario ID
+   - route to Page 1 or Page 3/Page 4 depending on current app flow, but user must be able to review Pages 1–3
+
+Recommended UI behavior:
+For users with prior saved Purchase with Loan scenario:
+- Show a small message:
+  “We copied your borrower details from your last estimate. Review and update anything that changed.”
+- Then allow them to proceed/review the questionnaire.
+
+For users with no prior saved Purchase with Loan scenario:
+- Start fresh on Page 1 with no auto-generated borrower answers.
+
+State rules:
+- Do not use global defaults as if they are user answers.
+- Do not fabricate answers.
+- Do not skip required questions if no saved scenario exists.
+- Do not accidentally use stale data from the last property address.
+- Do not use array indexes.
+- Use stable scenario IDs.
+
+Save/load:
+New property scenario should save to `purchase_scenarios`.
+
+If user has prior scenario:
+- copied borrower fields should save into the new scenario
+- new property fields should save into the new scenario
+- previous scenario should remain unchanged
+
+If user has no prior scenario:
+- answers entered on Pages 1–3 should save normally
+
+Address/property cache:
+When the new address is selected:
+- normalize address
+- check Zillow/property cache
+- populate property-specific fields from the new address only
+- do not keep old property photos/taxes/HOA/value
+
+Insurance auto-create:
+If the app now auto-creates an Insurance scenario from Purchase with Loan:
+- create/update Insurance using the new property address, not prior property address
+- use new property value/purchase price for default premium
+- do not duplicate Insurance rows
+
+Debug logs:
+Add temporary logs:
+- `[purchase-new-scenario] user has existing purchase scenarios true/false`
+- `[purchase-new-scenario] source scenario id`
+- `[purchase-new-scenario] borrower fields copied`
+- `[purchase-new-scenario] property fields reset`
+- `[purchase-new-scenario] new address applied`
+- `[purchase-new-scenario] route start page`
+- `[purchase-new-scenario] saved new scenario id`
+
+Acceptance test:
+Case 1 — No saved Purchase with Loan:
+1. Log in with a user who has no saved Purchase with Loan scenarios.
+2. Add a Purchase with Loan address.
+3. Confirm the app starts at Page 1 Borrower Details.
+4. Confirm it does not auto-produce borrower answers.
+5. Complete Pages 1–3.
+6. Confirm Page 4 estimate calculates correctly.
+7. Confirm scenario saves.
+
+Case 2 — Has saved Purchase with Loan:
+1. Log in with a user who already has a saved Purchase with Loan property.
+2. Add a new Purchase with Loan address.
+3. Confirm borrower-level answers are copied from the most recent prior saved scenario.
+4. Confirm the new property address is the new address, not the old one.
+5. Confirm purchase price/value/taxes/HOA/photos/property type come from the new property.
+6. Confirm loan amount, closing costs, cash to close, DTI, and qualification recalculate for the new property.
+7. Confirm previous saved property is not overwritten.
+8. Confirm the new scenario saves as a separate Purchase with Loan scenario.
+9. Refresh/logout/login and confirm both scenarios remain separate.
+10. Confirm user can review/edit Pages 1–3 before relying on Page 4.
+
+Please make the smallest safe code change possible and tell me:
+- Where the app checks whether the user has prior purchase scenarios
+- Which borrower-level fields are copied
+- Which property-specific fields are reset/replaced
+- How the new property address/Zillow data is applied
+- How the no-prior-scenario flow starts fresh on Page 1
+- How the prior-scenario flow copies borrower data without overwriting old property data
+- Which files/functions were changed
+```
