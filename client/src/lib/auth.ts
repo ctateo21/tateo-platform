@@ -3,6 +3,7 @@ import {
   ensureInsuranceForAddresses,
   type BulkAddress,
 } from "./insurance-from-property";
+import { normalizePropertyKey } from "./property-key";
 
 const NOT_CONFIGURED = {
   ok: false as const,
@@ -385,11 +386,22 @@ function rowToPurchase(row: any): PurchaseScenario {
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
+  // Mirror cash_buy_scenarios shape: keep writing legacy `address` /
+  // `saved_at` (still NOT NULL on existing schemas) AND populate the
+  // newer canonical columns `full_address`, `normalized_property_key`,
+  // `updated_at` that the operator added to `purchase_scenarios`. The
+  // server-side `created_at` / `status` columns have defaults
+  // (`now()` / `'draft'`) so we don't have to send them — the DB fills
+  // them in on insert.
+  const normKey = normalizePropertyKey(s.address).key || null;
   return {
     id: s.id,
     user_id: userId,
     address: s.address,
     saved_at: s.savedAt,
+    full_address: s.address,
+    normalized_property_key: normKey,
+    updated_at: new Date().toISOString(),
     price: s.price ?? null,
     monthly_payment: s.monthlyPayment ?? null,
     down_payment: s.downPayment ?? null,
@@ -695,16 +707,27 @@ async function loadScenarios(userId: string) {
     supabase.from("cash_buy_scenarios").select("*").eq("user_id", userId).order("created_at", { ascending: false }),
     supabase.from("tracked_loans").select("*").eq("user_id", userId).order("added_at", { ascending: false }),
   ]);
+  console.debug("[purchase-load] user id", userId);
+  if (pRes.error) {
+    console.error("[purchase-load] error", {
+      message: pRes.error.message,
+      details: (pRes.error as any).details,
+      hint: (pRes.error as any).hint,
+      code: (pRes.error as any).code,
+    });
+    notifyError({ table: "purchase_scenarios", message: pRes.error.message });
+  }
   _purchaseScenarios = (pRes.data ?? []).map(rowToPurchase);
-  // Debug logs for purchase-with-loan persistence (bug:
-  // purchase-with-loan-save-persistence-fix). A "draft" here is any
-  // purchase scenario without a price set — these are rows created
-  // immediately on address-add before the user fills in Pages 1-4.
+  // A "draft" here is any purchase scenario without a price set —
+  // these are rows created immediately on address-add before the user
+  // fills in Pages 1-4. The dashboard intentionally includes these so
+  // the user sees the property they just added.
   const _draftCount = _purchaseScenarios.filter(p => p.price == null).length;
-  console.debug("[purchase-load] purchase scenarios loaded", {
+  console.debug("[purchase-load] rows loaded", {
     userId,
     count: _purchaseScenarios.length,
     draftCount: _draftCount,
+    ids: _purchaseScenarios.map(p => p.id),
     addresses: _purchaseScenarios.map(p => p.address),
   });
   console.debug("[purchase-load] count", _purchaseScenarios.length);
@@ -1030,22 +1053,70 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
   // execution can never cause us to write Account A's data into Account B's
   // rows. If the user has changed by the time the queue drains, drop it.
   const userId = _session?.id;
-  if (!userId) return Promise.resolve();
+  console.debug("[purchase-save] user id", userId);
+  console.debug("[purchase-save] scenario count", s.length);
+  if (!userId) {
+    console.debug("[purchase-save] no session — skipping persist");
+    return Promise.resolve();
+  }
   return enqueueWrite("purchase_scenarios", async () => {
-    if (_session?.id !== userId) return; // user changed; abort this stale job
+    if (_session?.id !== userId) {
+      console.debug("[purchase-save] user changed before drain — aborting");
+      return;
+    }
     const keep = new Set(s.map(x => x.id));
-    const { data: existing } = await supabase
+    const { data: existing, error: selErr } = await supabase
       .from("purchase_scenarios")
       .select("id")
       .eq("user_id", userId);
+    if (selErr) {
+      console.error("[purchase-save] existing-id select error", selErr);
+      notifyError({ table: "purchase_scenarios", message: selErr.message });
+    }
     const toDelete = (existing ?? []).map(r => r.id).filter(id => !keep.has(id));
     if (toDelete.length > 0) {
-      await supabase.from("purchase_scenarios").delete().in("id", toDelete).eq("user_id", userId);
+      const { error: delErr } = await supabase
+        .from("purchase_scenarios")
+        .delete()
+        .in("id", toDelete)
+        .eq("user_id", userId);
+      if (delErr) {
+        console.error("[purchase-save] delete-orphans error", delErr);
+        notifyError({ table: "purchase_scenarios", message: delErr.message });
+      }
     }
     if (s.length > 0) {
-      await supabase
+      const payload = s.map(x => purchaseToRow(x, userId));
+      payload.forEach((p) => {
+        console.debug("[purchase-save] scenario id", p.id);
+        console.debug("[purchase-save] full address", p.full_address ?? p.address);
+        console.debug("[purchase-save] normalized key", p.normalized_property_key);
+      });
+      console.debug("[purchase-save] upsert payload", payload);
+      const { data: upData, error: upErr, status, statusText } = await supabase
         .from("purchase_scenarios")
-        .upsert(s.map(x => purchaseToRow(x, userId)), { onConflict: "id" });
+        .upsert(payload, { onConflict: "id" })
+        .select();
+      if (upErr) {
+        console.error("[purchase-save] upsert error", {
+          message: upErr.message,
+          details: (upErr as any).details,
+          hint: (upErr as any).hint,
+          code: (upErr as any).code,
+          status,
+          statusText,
+        });
+        notifyError({ table: "purchase_scenarios", message: upErr.message });
+      } else {
+        console.debug("[purchase-save] upsert result", {
+          status,
+          rowCount: Array.isArray(upData) ? upData.length : 0,
+          ids: Array.isArray(upData) ? upData.map((r: any) => r.id) : [],
+        });
+        console.debug("[purchase-save] upsert ok");
+      }
+    } else {
+      console.debug("[purchase-save] empty list — nothing to upsert");
     }
   });
 }

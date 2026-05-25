@@ -910,6 +910,28 @@ export default function Estimate() {
       prev.map(s => s.id === active.id && !s.baselineInputs ? { ...s, baselineInputs: { ...inputs } } : s)
     );
     triggerZillowLookup(active.id, active.address);
+    // Persist a DRAFT purchase scenario for the URL-seeded address too
+    // (e.g. user arrived via /estimate?address=… from the home page or
+    // a shared link). Without this, the only save path for a URL-arrival
+    // was the debounced 800ms auto-save useEffect — which got canceled
+    // by quick navigation/logout/unmount, leaving the row unsaved. This
+    // mirrors the immediate-draft-save in confirmNewScenario().
+    if (isAuthenticated) {
+      const existingSaved = getPurchaseScenarios();
+      const dupKey = active.address.trim().toLowerCase();
+      const alreadySaved = existingSaved.some(
+        s => s.address.trim().toLowerCase() === dupKey,
+      );
+      if (!alreadySaved) {
+        console.debug("[purchase-save] url-seeded draft create", active.address);
+        savePurchaseScenarios([
+          ...existingSaved,
+          { id: active.id, address: active.address, savedAt: new Date().toISOString() },
+        ]);
+      } else {
+        console.debug("[purchase-save] url-seeded already saved, skip", active.address);
+      }
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [showAddressPrompt, setShowAddressPrompt] = useState(false);
