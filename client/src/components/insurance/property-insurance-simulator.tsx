@@ -18,6 +18,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Shield, AlertTriangle, Info } from "lucide-react";
 import { getCountyName } from "@/lib/county-tax-estimator";
+import {
+  DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
+} from "@/lib/insurance-default";
 
 export type InsRegionKey =
   | "keys" | "sefl" | "swfl" | "tampa" | "nefljax" | "central" | "ncfl";
@@ -87,16 +90,23 @@ export interface InsurancePremiumResult {
   hurrPct: number;
 }
 
-/** Pure premium calc — shared with persistence code that doesn't render UI. */
+/** Pure premium calc — shared with persistence code that doesn't render UI.
+ *
+ *  Midpoint = property value × 0.75% × factor-adjustments (spec:
+ *  insurance-default-075-percent). Region notes still surface in the
+ *  UI for context, but the regional rate table no longer drives the
+ *  baseline premium — every property anchors to the same 0.75%
+ *  default, then the user-tunable factors (roof/wind/hurricane/etc)
+ *  scale the band up or down. Low/high are a ±15% range around mid
+ *  to express estimate uncertainty. */
 export function calcInsurancePremium(purchasePrice: number, factors: InsuranceFactors): InsurancePremiumResult {
-  const region = INS_REGIONS[factors.regionKey];
   const rebuild = Math.max(0, purchasePrice);
   const adj =
     INS_ROOF_ADJ[factors.roofIdx]   * INS_WIND_ADJ[factors.windIdx]   * INS_HURR_ADJ[factors.hurrIdx] *
     INS_CONST_ADJ[factors.constIdx] * INS_YEAR_ADJ[factors.yearIdx]   * INS_CLAIM_ADJ[factors.claimsIdx];
-  const lowRate  = region.low  * adj;
-  const highRate = region.high * adj;
-  const midRate  = (lowRate + highRate) / 2;
+  const midRate  = DEFAULT_HOMEOWNERS_INSURANCE_PERCENT * adj;
+  const lowRate  = midRate * 0.85;
+  const highRate = midRate * 1.15;
   return {
     low:   Math.round(rebuild * lowRate),
     mid:   Math.round(rebuild * midRate),
@@ -185,14 +195,14 @@ export default function PropertyInsuranceSimulator({
           </Badge>
         </CardTitle>
         <p className="text-xs text-muted-foreground mt-1">
-          Same engine as the Purchase tab. Adjust factors below to refine the estimate.
+          Based on 0.75% of property value. Adjust the factors below to refine the estimate for roof age, wind mitigation, construction, and claims history.
         </p>
       </CardHeader>
       <CardContent className="pt-4">
         {/* Premium hero */}
         <div className="bg-primary rounded-xl p-4 text-white mb-5">
           <div className="text-[10px] font-semibold text-white/60 uppercase tracking-widest mb-1">
-            Estimated Annual Premium — {region.name}
+            Estimated Annual Premium · Based on 0.75% of property value
           </div>
           <div className="grid grid-cols-3 gap-2 mt-2">
             <div className="bg-white/10 rounded-lg p-3 border border-white/10">

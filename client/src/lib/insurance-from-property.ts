@@ -35,6 +35,7 @@
 
 import type { InsuranceScenario } from "./auth";
 import { normalizePropertyKey } from "./property-key";
+import { calculateDefaultHomeownersInsurance } from "./insurance-default";
 
 export type InsuranceSourceType = "purchase" | "cash_buy" | "refinance";
 
@@ -43,6 +44,13 @@ export interface EnsureInsuranceInput {
   sourceScenarioId: string;
   address: string;
   insuranceScenarios: InsuranceScenario[];
+  /** Property value used to seed `annualPremium = 0.75% × value` on
+   *  newly-created insurance rows (spec: insurance-default-075-percent).
+   *  Purchase price for Purchase-with-Loan / Cash, estimated home value
+   *  for Refinance. Omit/leave undefined when no value is available —
+   *  the row will be created with a blank premium and the Insurance
+   *  tab will fall back to the 0.75% default at render. */
+  propertyValue?: number;
 }
 
 export interface EnsureInsuranceResult {
@@ -73,7 +81,7 @@ function makeInsuranceId(): string {
 export function ensureInsuranceForAddress(
   input: EnsureInsuranceInput,
 ): EnsureInsuranceResult {
-  const { sourceType, sourceScenarioId, address, insuranceScenarios } = input;
+  const { sourceType, sourceScenarioId, address, insuranceScenarios, propertyValue } = input;
   const trimmed = (address ?? "").trim();
 
   console.log("[insurance-auto-create] source type", { sourceType });
@@ -121,10 +129,19 @@ export function ensureInsuranceForAddress(
     address: trimmed,
   });
 
+  // Seed annualPremium with the global 0.75%-of-value default
+  // (spec: insurance-default-075-percent). Manual or carrier-quoted
+  // premiums entered later overwrite this via the standard
+  // InsuranceScenario edit flow; this branch only runs on FIRST
+  // creation so it never clobbers a real number.
+  const seededPremium = propertyValue && propertyValue > 0
+    ? calculateDefaultHomeownersInsurance(propertyValue).annualInsurance
+    : undefined;
   const created: InsuranceScenario = {
     id: makeInsuranceId(),
     address: trimmed,
     savedAt: new Date().toISOString(),
+    annualPremium: seededPremium,
   };
 
   return {
@@ -139,6 +156,9 @@ export interface BulkAddress {
   sourceType: InsuranceSourceType;
   sourceScenarioId: string;
   address: string;
+  /** Optional property value — passed through to seed `annualPremium`
+   *  on newly-created insurance rows. See EnsureInsuranceInput. */
+  propertyValue?: number;
 }
 
 /**
@@ -159,6 +179,7 @@ export function ensureInsuranceForAddresses(
       sourceType: a.sourceType,
       sourceScenarioId: a.sourceScenarioId,
       address: a.address,
+      propertyValue: a.propertyValue,
       insuranceScenarios: scenarios,
     });
     if (result.changed) {

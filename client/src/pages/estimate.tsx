@@ -65,6 +65,10 @@ import {
 } from "@/components/ui/carousel";
 import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
 import { getStoredReferralSource } from "@/components/referral-source-dialog";
+import {
+  DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
+  calculateDefaultHomeownersInsurance,
+} from "@/lib/insurance-default";
 import { useAuth } from "@/context/auth-context";
 import { apiRequest } from "@/lib/queryClient";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
@@ -497,7 +501,7 @@ function makeDefaultInputs(price = 350000): Inputs {
     loanType: "conventional", creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
-    annualHOIns: Math.round(price * 0.0075), annualFloodIns: 2000,
+    annualHOIns: calculateDefaultHomeownersInsurance(price).annualInsurance, annualFloodIns: 2000,
     monthlyDebts: 0, monthlyIncome: 8000, reserves: 35000,
     impactWindows: false, roofAttachment: "toenails", swr: false,
     hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, monthlyRentalIncome: 0, rentalType: null,
@@ -1841,7 +1845,7 @@ export default function Estimate() {
       interestRate: saved.interestRate ?? base.interestRate,
       loanType,
       annualTaxes: Math.round(price * 0.015),
-      annualHOIns: Math.round(price * 0.0075),
+      annualHOIns: calculateDefaultHomeownersInsurance(price).annualInsurance,
       // Restore saved Property Type + provenance so a "manual" pick
       // survives reload/login and Zillow refreshes can't overwrite it.
       propertyType: saved.propertyType ?? base.propertyType,
@@ -1904,15 +1908,17 @@ export default function Estimate() {
     }
   }, [address]);
 
-  // Calculate insurance premium from the engine
+  // Calculate insurance premium from the engine. Baseline midpoint
+  // is 0.75% × purchase price × factor adjustments (spec:
+  // insurance-default-075-percent). The regional table notes are
+  // still shown for context but no longer drive the baseline rate.
   const insPremiumCalc = useMemo(() => {
-    const region = INS_REGIONS[insRegionKey];
     const rebuild = inputs.purchasePrice;
     const adj = INS_ROOF_ADJ[insRoofIdx] * INS_WIND_ADJ[insWindIdx] * INS_HURR_ADJ[insHurrIdx]
               * INS_CONST_ADJ[insConstIdx] * INS_YEAR_ADJ[insYearIdx] * INS_CLAIM_ADJ[insClaimsIdx];
-    const lowRate  = region.low  * adj;
-    const highRate = region.high * adj;
-    const midRate  = (lowRate + highRate) / 2;
+    const midRate  = DEFAULT_HOMEOWNERS_INSURANCE_PERCENT * adj;
+    const lowRate  = midRate * 0.85;
+    const highRate = midRate * 1.15;
     return {
       low:   Math.round(rebuild * lowRate),
       mid:   Math.round(rebuild * midRate),
@@ -1921,7 +1927,7 @@ export default function Estimate() {
       hurrDeductible: Math.round(rebuild * [0.02, 0.03, 0.05][insHurrIdx]),
       hurrPct: [2, 3, 5][insHurrIdx],
     };
-  }, [inputs.purchasePrice, insRegionKey, insRoofIdx, insWindIdx, insHurrIdx, insConstIdx, insYearIdx, insClaimsIdx]);
+  }, [inputs.purchasePrice, insRoofIdx, insWindIdx, insHurrIdx, insConstIdx, insYearIdx, insClaimsIdx]);
 
   // Wire insurance midpoint into annualHOIns — only after the user
   // has actively engaged the simulator. Before that we keep the
@@ -1940,7 +1946,7 @@ export default function Estimate() {
   useEffect(() => {
     if (userTouchedInsuranceSimRef.current) return;
     setInputs(prev => {
-      const target = Math.round(prev.purchasePrice * 0.0075);
+      const target = calculateDefaultHomeownersInsurance(prev.purchasePrice).annualInsurance;
       if (prev.annualHOIns === target) return prev;
       return { ...prev, annualHOIns: target };
     });

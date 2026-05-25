@@ -24,6 +24,7 @@ import {
 } from "@/lib/auth";
 import { normalizePropertyKey } from "@/lib/property-key";
 import { estimateAnnualTax } from "@/lib/county-tax-estimator";
+import { calculateDefaultHomeownersInsurance } from "@/lib/insurance-default";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import PropertyInsuranceSimulator, {
@@ -525,7 +526,7 @@ export default function CashBuyPage() {
   //   3. Global 0.75%-of-purchase-price default
   const insMidpoint = scenario.homeownersInsurance
     ?? scenario.insurancePremiumAnnual
-    ?? Math.round(price * 0.0075);
+    ?? calculateDefaultHomeownersInsurance(price).annualInsurance;
 
   const priceSourceLabel: Record<NonNullable<CashBuyScenario["purchasePriceSource"]>, string> = {
     default: "Default",

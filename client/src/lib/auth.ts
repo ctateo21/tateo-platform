@@ -1001,7 +1001,14 @@ export function savePurchaseScenarios(s: PurchaseScenario[]) {
   notify();
   void persistPurchaseScenarios(s);
   autoCreateInsuranceFromAddresses(
-    s.map(p => ({ sourceType: "purchase" as const, sourceScenarioId: p.id, address: p.address })),
+    s.map(p => ({
+      sourceType: "purchase" as const,
+      sourceScenarioId: p.id,
+      address: p.address,
+      // Seed Insurance-tab annualPremium with 0.75% of purchase price
+      // for newly-created rows (spec: insurance-default-075-percent).
+      propertyValue: p.price ?? undefined,
+    })),
   );
 }
 
@@ -1191,7 +1198,14 @@ export function saveCashBuyScenarios(s: CashBuyScenario[]) {
   notify();
   void persistCashBuyScenarios(s);
   autoCreateInsuranceFromAddresses(
-    s.map(c => ({ sourceType: "cash_buy" as const, sourceScenarioId: c.id, address: c.address })),
+    s.map(c => ({
+      sourceType: "cash_buy" as const,
+      sourceScenarioId: c.id,
+      address: c.address,
+      // Seed Insurance-tab annualPremium with 0.75% of purchase price
+      // for newly-created rows (spec: insurance-default-075-percent).
+      propertyValue: c.purchasePrice ?? undefined,
+    })),
   );
 }
 
@@ -1237,6 +1251,9 @@ export function saveTrackedLoans(loans: TrackedLoan[]): Promise<void> {
       sourceType: "refinance" as const,
       sourceScenarioId: l.id,
       address: l.propertyAddress,
+      // Seed Insurance-tab annualPremium with 0.75% of estimated home
+      // value for newly-created rows (spec: insurance-default-075-percent).
+      propertyValue: l.estimatedHomeValue ?? undefined,
     })),
   );
   // Returns the persistence promise — see saveInsuranceScenarios.

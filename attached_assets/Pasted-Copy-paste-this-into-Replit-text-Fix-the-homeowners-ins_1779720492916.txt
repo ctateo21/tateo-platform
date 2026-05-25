@@ -1,0 +1,155 @@
+Copy/paste this into Replit:
+
+```text
+Fix the homeowners insurance default so 0.75% of purchase price/value applies everywhere homeowners insurance is referenced.
+
+Current issue:
+The 0.75% default was added inside Purchase with Loan, but it did not update:
+- Purchase with Cash
+- Homeowners Insurance Estimate Simulator
+- other places where homeowners insurance is estimated
+
+Required standard:
+Across the entire app, whenever homeowners insurance is being estimated and there is no actual quote/manual value, default to:
+
+Annual Homeowners Insurance = 0.75% of purchase price or estimated property value
+
+Example:
+Home value / purchase price = $500,000
+Annual homeowners insurance = $500,000 × 0.0075 = $3,750/year
+Monthly homeowners insurance = $3,750 / 12 = $312.50/month
+
+This should be the default in all areas referencing homeowners insurance.
+
+Apply to these areas:
+1. Purchase with Loan
+2. Purchase with Cash
+3. Homeowners Insurance Estimate Simulator
+4. Insurance tab
+5. Auto-created Insurance scenarios from Purchase with Loan
+6. Auto-created Insurance scenarios from Purchase with Cash
+7. Auto-created Insurance scenarios from Refinance
+8. Refinance tab, if homeowners insurance is referenced
+9. Any dashboard summaries/cards that display homeowners insurance
+10. Any detail view that displays homeowners insurance estimate
+
+Best implementation:
+Create one shared helper function and use it everywhere.
+
+Suggested helper:
+`calculateDefaultHomeownersInsurance(propertyValue)`
+
+Logic:
+annual = propertyValue * 0.0075
+monthly = annual / 12
+
+Return:
+{
+  annualInsurance,
+  monthlyInsurance,
+  source: "default_0_75_percent"
+}
+
+Value source priority:
+Use the best available value:
+1. Purchase price, for Purchase with Loan or Purchase with Cash
+2. Estimated home value, for Refinance / Sell Your Home / property cache
+3. Zillow/property cache value, if no user-entered value exists
+4. null/blank if no value exists
+
+Manual override protection:
+If the user manually changes homeowners insurance:
+- do not overwrite it with the 0.75% default
+- preserve that manual value after purchase price/value changes
+- preserve after refresh/logout/login
+
+If a real insurance quote exists:
+- do not overwrite actual carrier quote data with the default
+
+Use source tracking if available:
+- `insurance_source = "manual"`
+- `insurance_source = "quote"`
+- `insurance_source = "default_0_75_percent"`
+
+If no source field exists, use the smallest safe approach and tell me whether a migration is needed.
+
+Purchase with Cash:
+When purchase price/value is entered or populated:
+- default annual homeowners insurance to 0.75%
+- default monthly homeowners insurance to annual / 12
+- update cash-to-close / ongoing costs if insurance is included there
+- preserve manual overrides
+
+Homeowners Insurance Estimate Simulator:
+Update the simulator’s default estimate logic to use 0.75% of purchase price/value.
+
+If the simulator currently has its own separate formula, replace or route it through the shared helper.
+
+The simulator should show:
+- Annual estimate
+- Monthly estimate
+- Based on 0.75% of purchase price/value
+
+Example simulator display:
+Estimated Homeowners Insurance: $3,750/year
+Monthly: $312.50/month
+Based on 0.75% of estimated property value
+
+Insurance tab:
+When an insurance scenario is created or auto-created:
+- if there is no quote/manual premium, default annual premium to 0.75% of purchase price/value
+- default monthly premium to annual / 12
+- save those values to `insurance_scenarios`
+- do not overwrite manual/quoted premium data
+
+Supabase:
+Use existing fields if available:
+- `homeowners_insurance`
+- `annual_premium`
+- `monthly_premium`
+- `annual_insurance`
+- `monthly_insurance`
+- `insurance_source`
+
+If missing fields are needed, give me SQL migration before trying to save them.
+
+Important:
+- Do not create multiple competing formulas.
+- Do not hardcode 0.75% in only one component.
+- Use one shared helper so every flow stays consistent.
+- Do not overwrite manual values.
+- Do not overwrite actual quote values.
+- Do not double-count insurance in monthly payment, cash to close, or ongoing costs.
+- Do not break Purchase with Loan, which is already working.
+- Do not break Insurance auto-create behavior.
+
+Acceptance test:
+1. Purchase with Loan: enter purchase price $500,000.
+2. Confirm homeowners insurance = $3,750/year.
+3. Purchase with Cash: enter purchase price $500,000.
+4. Confirm homeowners insurance = $3,750/year.
+5. Open the Homeowners Insurance Estimate Simulator.
+6. Confirm it uses $3,750/year for a $500,000 value.
+7. Change purchase price/value to $600,000.
+8. Confirm default insurance updates to $4,500/year if not manually overridden.
+9. Manually change insurance to $5,000/year.
+10. Change value again.
+11. Confirm manual $5,000/year is preserved.
+12. Create/auto-create an Insurance scenario from Purchase with Cash.
+13. Confirm Insurance tab annual premium defaults to 0.75% of value.
+14. Create/auto-create from Refinance.
+15. Confirm Insurance tab annual premium defaults to 0.75% of estimated home value.
+16. Refresh/logout/login.
+17. Confirm values persist.
+18. Confirm actual quote/manual premium values are not overwritten.
+
+Please make the smallest safe code change possible and tell me:
+- Which shared homeowners insurance helper was created or updated
+- Which components now use it
+- How Purchase with Cash was updated
+- How the Homeowners Insurance Estimate Simulator was updated
+- How Insurance tab default premiums are saved
+- How manual/quoted values are protected
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```

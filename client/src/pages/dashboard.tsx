@@ -1027,6 +1027,9 @@ function InsuranceTab() {
             sourceType: "purchase" as const,
             sourceScenarioId: p.id,
             address: p.address,
+            // Seed Insurance-tab annualPremium with 0.75% of value
+            // for any newly-created rows (spec: insurance-default-075-percent).
+            propertyValue: p.price ?? undefined,
           })),
         ...cb
           .filter(c => c.address && c.address.trim().length > 0)
@@ -1034,6 +1037,7 @@ function InsuranceTab() {
             sourceType: "cash_buy" as const,
             sourceScenarioId: c.id,
             address: c.address,
+            propertyValue: c.purchasePrice ?? undefined,
           })),
         ...tl
           .filter(l => l.propertyAddress && l.propertyAddress.trim().length > 0)
@@ -1041,6 +1045,7 @@ function InsuranceTab() {
             sourceType: "refinance" as const,
             sourceScenarioId: l.id,
             address: l.propertyAddress,
+            propertyValue: l.estimatedHomeValue ?? undefined,
           })),
       ];
       if (addresses.length === 0) return;
