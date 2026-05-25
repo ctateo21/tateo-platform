@@ -545,13 +545,13 @@ function creditAdjustment(score: number): number {
 }
 
 function fhaCreditAdjustment(score: number): number {
-  if (score >= 740) return -0.50;
-  if (score >= 720) return -0.25;
-  if (score >= 700) return  0;
-  if (score >= 680) return  0.10;
-  if (score >= 660) return  0.50;
-  if (score >= 640) return  1.00;
-  return 1.50;
+  if (score >= 740) return -0.500;
+  if (score >= 720) return -0.250;
+  if (score >= 700) return -0.100;
+  if (score >= 680) return  0.000;
+  if (score >= 660) return  0.450;
+  if (score >= 640) return  0.900;
+  return 1.250;
 }
 
 function adjustedRate(base: number, score: number): number {
