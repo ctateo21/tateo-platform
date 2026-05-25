@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
-  Menu, Home, Briefcase, HelpCircle, ChevronDown,
+  Menu, Home, Briefcase, ChevronDown,
   LayoutDashboard, LogIn, LogOut, User, Settings as SettingsIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -51,13 +51,10 @@ export default function Header() {
       icon: <Briefcase className="mr-2 h-4 w-4" />,
       hasDropdown: true,
       dropdownItems: [
-        { href: "/real-estate", label: "Real Estate" },
-        { href: "/mortgage", label: "Mortgage" },
+        { href: "/select-service", label: "Get Started" },
         { href: "/insurance", label: "Insurance" },
-        { href: "/property-management", label: "Property Management" },
       ],
     },
-    { href: "/review", label: "REVIEWS", icon: <HelpCircle className="mr-2 h-4 w-4" /> },
   ];
 
   async function handleLogout() {

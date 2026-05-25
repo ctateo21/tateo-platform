@@ -113,7 +113,7 @@ export default function Footer() {
                   </Link>
                 </li>
                 <li>
-                  <Link href="/property-management" className="text-white/90 hover:text-[#f6921e]">
+                  <Link href="/select-service" className="text-white/90 hover:text-[#f6921e]">
                     Prop Mgmt / Rentals
                   </Link>
                 </li>

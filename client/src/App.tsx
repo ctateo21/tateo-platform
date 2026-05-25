@@ -20,13 +20,7 @@ import Footer from "./components/layout/footer";
 import Home from "./pages/home";
 import Dashboard from "./pages/dashboard";
 import Settings from "./pages/settings";
-import RealEstate from "./pages/real-estate";
-import Mortgage from "./pages/mortgage-new-fixed";
 import Insurance from "./pages/insurance";
-import Construction from "./pages/construction";
-import PropertyManagement from "./pages/property-management";
-import HomeServices from "./pages/home-services";
-import Review from "./pages/review-new";
 import Estimate from "./pages/estimate";
 import Refinance from "./pages/refinance";
 import SellerEstimate from "./pages/seller-estimate";
@@ -48,13 +42,7 @@ function App() {
                   <Route path="/" component={Home} />
                   <Route path="/dashboard" component={Dashboard} />
                   <Route path="/settings" component={Settings} />
-                  <Route path="/real-estate" component={RealEstate} />
-                  <Route path="/mortgage" component={Mortgage} />
                   <Route path="/insurance" component={Insurance} />
-                  <Route path="/construction" component={Construction} />
-                  <Route path="/property-management" component={PropertyManagement} />
-                  <Route path="/home-services" component={HomeServices} />
-                  <Route path="/review" component={Review} />
                   <Route path="/estimate" component={Estimate} />
                   <Route path="/refinance" component={Refinance} />
                   <Route path="/seller" component={SellerEstimate} />
