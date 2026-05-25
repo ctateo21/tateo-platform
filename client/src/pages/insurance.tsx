@@ -909,9 +909,7 @@ export default function InsuranceDashboard() {
           </div>
 
           <p className="text-xs text-muted-foreground text-center leading-relaxed pb-4">
-            Data sourced from FL OIR CHOICES filings, Insure.com, Insurance.com, Greene & Associates, Broker One (2026).
-            Estimates are for planning purposes only. Actual premiums depend on carrier underwriting, credit score,
-            specific property inspection, and market availability. Not a binding quote.
+            These are estimates only based on regional data, property characteristics, and standard assumptions. Results vary by specific property inspection and market availability. Not a binding quote. Coverage not effective until confirmed by a licensed agent. Tateo & Co · Licensed Florida Insurance Agency · License #[YOUR LICENSE NUMBER HERE]
           </p>
 
         </div>
