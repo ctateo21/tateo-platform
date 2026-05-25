@@ -33,6 +33,7 @@ import {
   setOccupancyOverride,
   type OccupancyType,
 } from "@/lib/property-key";
+import { getDefaultInsurancePolicyType } from "@/lib/insurance-policy-type";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -1091,6 +1092,42 @@ function InsuranceTab() {
   // the lint rule below stays happy without complicating the hook deps.
   void overrideBump;
 
+  // ── Backfill missing policy_type on insurance rows ─────────────────────
+  // The detail page already writes `policy_type` on save, but legacy rows
+  // (created before this field existed) come back from Supabase with no
+  // value. Compute the default from row.occupancy + the linked purchase's
+  // physical propertyType, persist it as policy_type_source = "default_rule",
+  // and never overwrite a row already marked "manual".
+  useEffect(() => {
+    if (rows.length === 0) return;
+    let next = insurance;
+    let changed = false;
+    for (const row of rows) {
+      const ins = row.insurance;
+      if (!ins) continue;
+      if (ins.policyType) continue;             // already set (auto or manual)
+      if (ins.policyTypeSource === "manual") continue;
+      const purchaseType = row.purchaseMatches[0]?.propertyType;
+      const occ = row.occupancy === "unknown" ? undefined : row.occupancy;
+      const def = getDefaultInsurancePolicyType({
+        occupancyType: occ,
+        propertyType: purchaseType ?? ins.propertyType,
+      });
+      if (!def) continue;
+      next = next.map(s =>
+        s.id === ins.id
+          ? { ...s, policyType: def, policyTypeSource: "default_rule" as const }
+          : s
+      );
+      changed = true;
+    }
+    if (changed) {
+      setInsurance(next);
+      void saveInsuranceScenarios(next);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insurance, purchases, loans, overrideBump]);
+
   function handleOccupancyChange(key: string, next: OccupancyType) {
     setOccupancyOverride(key, next);
     setOverrideBump(n => n + 1);
@@ -1209,6 +1246,17 @@ function InsuranceRowCard({
   const monthly = typeof annual === "number" ? annual / 12 : undefined;
   const occupancyBadgeClass = PROPERTY_TYPE_COLORS[row.occupancy] ?? "bg-muted text-muted-foreground border";
 
+  // Policy type: prefer the persisted value (manual or default_rule from
+  // a prior save), else compute on the fly from row context so the card
+  // matches what the detail page would show. The backfill effect above
+  // persists this same value back to Supabase asynchronously.
+  const purchaseType = row.purchaseMatches[0]?.propertyType ?? ins?.propertyType;
+  const occForRule = row.occupancy === "unknown" ? undefined : row.occupancy;
+  const policyTypeDisplay =
+    ins?.policyType ??
+    getDefaultInsurancePolicyType({ occupancyType: occForRule, propertyType: purchaseType }) ??
+    null;
+
   return (
     <Card className="hover:shadow-md transition-shadow group">
       <CardContent className="py-4">
@@ -1272,7 +1320,9 @@ function InsuranceRowCard({
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Policy Type</p>
-              <p className="font-semibold truncate">{ins?.coverageType ?? "—"}</p>
+              <p className="font-semibold truncate" data-testid={`insurance-policy-type-${row.key}`}>
+                {policyTypeDisplay ?? "—"}
+              </p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Status</p>

@@ -1,0 +1,100 @@
+Copy/paste this into Replit:
+
+```text id="remove-dead-pages-routes-only"
+Remove all dead pages and their routes.
+
+Do this exactly as written. Do not change anything else.
+
+STEP 1 — Delete these files:
+- client/src/pages/construction.tsx
+- client/src/pages/home-services.tsx
+- client/src/pages/property-management.tsx
+- client/src/pages/real-estate.tsx
+- client/src/pages/review.tsx
+- client/src/pages/review-new.tsx
+- client/src/pages/mortgage.tsx
+- client/src/pages/mortgage-new.tsx
+- client/src/pages/mortgage-new-fixed.tsx
+- client/src/pages/mortgage-new.tsx.bak
+
+Important:
+If the same file appears more than once in this list, delete it once.
+Do not delete any other files.
+
+STEP 2 — In client/src/App.tsx:
+
+Remove only these import lines:
+- import RealEstate from "./pages/real-estate"
+- import Mortgage from "./pages/mortgage-new-fixed"
+- import Construction from "./pages/construction"
+- import PropertyManagement from "./pages/property-management"
+- import HomeServices from "./pages/home-services"
+- import Review from "./pages/review-new"
+
+Remove only these Route entries:
+- <Route path="/real-estate" ...>
+- <Route path="/mortgage" ...>
+- <Route path="/construction" ...>
+- <Route path="/property-management" ...>
+- <Route path="/home-services" ...>
+- <Route path="/review" ...>
+
+Do not remove any other imports.
+Do not remove any other routes.
+Do not change route behavior for any active page.
+
+STEP 3 — Search the entire codebase for any remaining references to these deleted routes:
+- /real-estate
+- /mortgage
+- /construction
+- /property-management
+- /home-services
+- /review
+
+If any navigation, button, menu item, link, redirect, or `navigate()` call points to one of these deleted routes, change it to:
+
+navigate("/select-service")
+
+or, for link href/to props:
+
+"/select-service"
+
+Do not change unrelated links.
+
+STEP 4 — Run:
+
+npx tsc --noEmit
+
+Fix only TypeScript errors caused directly by these deletions.
+
+Do not fix unrelated pre-existing TypeScript errors.
+Do not refactor unrelated code.
+Do not rename components.
+Do not change styling.
+Do not change dashboard logic.
+Do not change service flow logic.
+Do not change Supabase logic.
+Do not change analytics logic.
+
+Acceptance test:
+1. Deleted files are removed.
+2. App.tsx no longer imports deleted pages.
+3. App.tsx no longer contains routes for:
+   - /real-estate
+   - /mortgage
+   - /construction
+   - /property-management
+   - /home-services
+   - /review
+4. No remaining navigation points to deleted routes.
+5. Any old navigation to deleted routes now goes to /select-service.
+6. `npx tsc --noEmit` runs with no new errors caused by this task.
+
+Report back:
+- Which files were deleted
+- Which App.tsx imports were removed
+- Which App.tsx routes were removed
+- Which references were updated to /select-service
+- Result of npx tsc --noEmit
+- Confirmation that no unrelated files/logic were changed
+```

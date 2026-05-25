@@ -1,0 +1,70 @@
+Copy/paste this into Replit:
+
+```text id="insurance-overview-policy-type-display"
+Fix the Insurance tab overview property cards so Policy Type displays correctly.
+
+Current issue:
+On Dashboard → Insurance, each property address card has a “Policy Type” label, but the line/value underneath it is blank.
+
+When I click into the detailed view for that address, the correct policy type appears there:
+- HO3
+- HO6
+- DP3
+
+Requested behavior:
+The Insurance dashboard overview card should show the same policy type value that appears in the detailed view.
+
+Expected behavior:
+For every Insurance property card:
+- Policy Type should show HO3, HO6, or DP3
+- It should not be blank if the detailed view has a value
+- The overview and detail view should use the same saved/source value
+
+Source of truth:
+Use the same field used by the Insurance detailed view, likely:
+
+`insurance_scenarios.policy_type`
+
+If the overview card currently reads from a different field, update it to use the same field as the detail page.
+
+Fallback:
+If `policy_type` is missing/blank but occupancy and property type exist, calculate it using the shared helper:
+
+`getDefaultInsurancePolicyType({ occupancyType, propertyUse, propertyType })`
+
+Then:
+- display the calculated value
+- save it back to `insurance_scenarios.policy_type`
+- set `policy_type_source = "default_rule"` unless the user manually changed it
+
+Do not overwrite manual values:
+If `policy_type_source = "manual"`, preserve and display the manual value.
+
+Requirements:
+1. Fix Insurance overview/card display.
+2. Use the same policy type source as the detailed page.
+3. Show HO3, HO6, or DP3 under the Policy Type label.
+4. Do not leave the Policy Type value blank when it can be determined.
+5. Persist any auto-calculated missing policy type back to Supabase.
+6. Keep manual overrides protected.
+7. Do not change premium, Coverage A, deductibles, or other insurance calculations.
+
+Acceptance test:
+1. Go to Dashboard → Insurance.
+2. Look at each property card.
+3. Confirm Policy Type shows HO3, HO6, or DP3.
+4. Click into a property detail page.
+5. Confirm the detailed page policy type matches the overview card.
+6. Manually change policy type in the detail view.
+7. Go back to Insurance overview.
+8. Confirm the overview card shows the manually changed policy type.
+9. Refresh/logout/login.
+10. Confirm policy type still displays correctly on the overview cards.
+
+Please make the smallest safe code change possible and tell me:
+- Which Insurance overview/card component was changed
+- Which field the overview now uses for Policy Type
+- Whether missing policy types are backfilled with the shared helper
+- How manual policy type overrides are protected
+- Which files/functions were changed
+```
