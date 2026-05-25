@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Menu, Home, Briefcase, ChevronDown,
   LayoutDashboard, LogIn, LogOut, User, Settings as SettingsIcon,
+  Key, Banknote, RefreshCw, Shield, Tag,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -43,6 +44,28 @@ export default function Header() {
     setReferralOpen(true);
   }
 
+  // Shared, single-source service list. `tabId` is the stable dashboard
+  // tab id; `serviceType` is the query param we hand off to the logged-out
+  // home/address-entry flow so it can preselect that service after the
+  // user types an address.
+  const SERVICES = [
+    { label: "Purchase with Loan", tabId: "purchase",  serviceType: "purchase",  icon: Key },
+    { label: "Purchase with Cash", tabId: "cash_buy",  serviceType: "cash_buy",  icon: Banknote },
+    { label: "Refinance",          tabId: "refinance", serviceType: "refinance", icon: RefreshCw },
+    { label: "Insurance",          tabId: "insurance", serviceType: "insurance", icon: Shield },
+    // Stable tab id in dashboard is "sellers"; route accordingly.
+    { label: "Sell Your Home",     tabId: "sellers",   serviceType: "seller",    icon: Tag },
+  ] as const;
+
+  function handleServiceClick(svc: typeof SERVICES[number]) {
+    setIsOpen(false); // close mobile sheet if open
+    if (user) {
+      setLocation(`/dashboard?tab=${svc.tabId}`);
+    } else {
+      setLocation(`/?service=${svc.serviceType}`);
+    }
+  }
+
   const links = [
     { href: "/", label: "HOME", icon: <Home className="mr-2 h-4 w-4" /> },
     {
@@ -50,10 +73,7 @@ export default function Header() {
       label: "SERVICES",
       icon: <Briefcase className="mr-2 h-4 w-4" />,
       hasDropdown: true,
-      dropdownItems: [
-        { href: "/select-service", label: "Get Started" },
-        { href: "/insurance", label: "Insurance" },
-      ],
+      dropdownItems: SERVICES.map(s => ({ label: s.label, onClick: () => handleServiceClick(s) })),
     },
   ];
 
@@ -113,8 +133,12 @@ export default function Header() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="center" className="w-56">
                   {link.dropdownItems?.map((item) => (
-                    <DropdownMenuItem key={item.label} asChild>
-                      <Link href={item.href} className="w-full cursor-pointer">{item.label}</Link>
+                    <DropdownMenuItem
+                      key={item.label}
+                      onClick={item.onClick}
+                      className="cursor-pointer"
+                    >
+                      {item.label}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -217,14 +241,14 @@ export default function Header() {
                       </div>
                       <div className="ml-8 space-y-3">
                         {link.dropdownItems?.map((item) => (
-                          <Link
+                          <button
                             key={item.label}
-                            href={item.href}
-                            className="block text-gray-600 hover:text-primary"
-                            onClick={() => setIsOpen(false)}
+                            type="button"
+                            onClick={item.onClick}
+                            className="block text-left text-gray-600 hover:text-primary w-full"
                           >
                             {item.label}
-                          </Link>
+                          </button>
                         ))}
                       </div>
                     </>
