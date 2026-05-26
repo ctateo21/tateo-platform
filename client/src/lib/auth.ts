@@ -255,6 +255,15 @@ export type InsurancePremiumSource =
 export type InsuranceCoverageASource =
   | "manual" | "property_value_sync" | "default";
 
+/** Provenance for snapshot/dropdown fields that previously had no
+ *  source tracking. "manual" — user edited the field in the Insurance
+ *  detail view; protected from defaults / Purchase / Cash / Refi /
+ *  property-value sync. "default" — never user-touched. Persisted on
+ *  the matching *_source column added in the 2026 insurance migration.
+ *  Sync helpers (insurance-from-property.ts, property-value-sync.ts)
+ *  must skip any field whose source === "manual". */
+export type InsuranceFieldSource = "default" | "manual";
+
 export interface InsuranceScenario {
   id: string;
   address: string;
@@ -289,6 +298,47 @@ export interface InsuranceScenario {
    *  "Townhouse", ...) snapshot from the source flow. Same lifecycle
    *  as `occupancyType` above. */
   propertyType?: string;
+  /** Normalized property key derived from address via the shared
+   *  `normalizePropertyKey` helper. Mirrors the DB column added by the
+   *  insurance migration and powers the (user_id, normalized_property_key)
+   *  unique index that prevents duplicate Insurance rows for the same
+   *  property. Backfilled at row→frontend mapping time so legacy rows
+   *  participate in dedup the first time they're re-saved. */
+  normalizedPropertyKey?: string;
+  /** Provenance for `occupancyType` snapshot. "manual" means the user
+   *  changed occupancy from inside the Insurance detail view and the
+   *  Purchase/Cash/Refi sync must not overwrite it. */
+  occupancyTypeSource?: InsuranceFieldSource;
+  /** Provenance for `propertyType` snapshot. Same semantics as
+   *  `occupancyTypeSource` — used by `ensureInsuranceForAddress` to
+   *  skip the snapshot refresh when the user has overridden it. */
+  propertyTypeSource?: InsuranceFieldSource;
+  /** Provenance for the optional `carrier` field. Future-proofed —
+   *  no UI today, but the column exists and is round-tripped. */
+  carrierSource?: InsuranceFieldSource;
+  /** Provenance for the AOP / hurricane / flood deductible
+   *  selections. Future-proofed — round-tripped through the mappers
+   *  so a later UI surface can stamp `"manual"` to lock the value. */
+  aopDeductibleSource?: InsuranceFieldSource;
+  hurricaneDeductibleSource?: InsuranceFieldSource;
+  floodDeductibleSource?: InsuranceFieldSource;
+  /** Provenance for the discounts / mitigation selections (the factor
+   *  dropdowns in the Insurance detail view — roof age, wind
+   *  mitigation, hurricane deductible %, construction, year built,
+   *  claims history). When the user changes any of those, autosave
+   *  stamps this `"manual"` and the corresponding factor values are
+   *  persisted inside `userAnswerSources`. */
+  discountsSource?: InsuranceFieldSource;
+  /** Provenance for `quoteDetails` (carrier quote assumptions, if
+   *  uploaded). Future-proofed. */
+  quoteDetailsSource?: InsuranceFieldSource;
+  /** Open-ended provenance + scratch map for fields without their own
+   *  column. Used by the Insurance autosave to persist the six factor
+   *  dropdown values (factor_roofIdx, factor_windIdx, factor_hurrIdx,
+   *  factor_constIdx, factor_yearIdx, factor_claimsIdx). Values are
+   *  numbers or strings — JSON-encoded into the
+   *  `insurance_scenarios.user_answer_sources` jsonb column. */
+  userAnswerSources?: Record<string, any>;
 }
 
 export type SellerScenarioStatus =
@@ -825,6 +875,19 @@ function rowToInsurance(row: any): InsuranceScenario {
   const coverageASource: InsuranceCoverageASource | undefined =
     cas === "manual" || cas === "property_value_sync" || cas === "default"
       ? cas : undefined;
+  const asFieldSource = (v: any): InsuranceFieldSource | undefined =>
+    v === "manual" || v === "default" ? v : undefined;
+  // Backfill normalized_property_key from address for legacy rows
+  // that pre-date the migration. The first re-save will write it
+  // back through `insuranceToRow` so subsequent loads short-circuit
+  // here and dedup picks it up.
+  const storedKey = (row.normalized_property_key ?? "").toString().trim() || null;
+  const derivedKey = storedKey ?? (normalizePropertyKey(row.address).key || null);
+  if (!storedKey && derivedKey) {
+    console.debug("[insurance-key] backfilled normalized property key", {
+      id: row.id, address: row.address, key: derivedKey,
+    });
+  }
   return {
     id: row.id,
     address: row.address,
@@ -837,9 +900,30 @@ function rowToInsurance(row: any): InsuranceScenario {
     coverageType: row.coverage_type ?? undefined,
     policyType,
     policyTypeSource,
+    ...(derivedKey ? { normalizedPropertyKey: derivedKey } : {}),
+    occupancyTypeSource:        asFieldSource(row.occupancy_type_source),
+    propertyTypeSource:         asFieldSource(row.property_type_source),
+    carrierSource:              asFieldSource(row.carrier_source),
+    aopDeductibleSource:        asFieldSource(row.aop_deductible_source),
+    hurricaneDeductibleSource:  asFieldSource(row.hurricane_deductible_source),
+    floodDeductibleSource:      asFieldSource(row.flood_deductible_source),
+    discountsSource:            asFieldSource(row.discounts_source),
+    quoteDetailsSource:         asFieldSource(row.quote_details_source),
+    userAnswerSources:
+      row.user_answer_sources && typeof row.user_answer_sources === "object"
+        ? (row.user_answer_sources as Record<string, any>)
+        : undefined,
   };
 }
 function insuranceToRow(s: InsuranceScenario, userId: string) {
+  // Always derive (and persist) the normalized key from the current
+  // address — guarantees backfill for legacy rows on the very next
+  // write and keeps the (user_id, normalized_property_key) unique
+  // index participating for new rows.
+  const normKey =
+    (s.normalizedPropertyKey && s.normalizedPropertyKey.trim()) ||
+    normalizePropertyKey(s.address).key ||
+    null;
   return {
     id: s.id,
     user_id: userId,
@@ -847,6 +931,7 @@ function insuranceToRow(s: InsuranceScenario, userId: string) {
     saved_at: s.savedAt,
     annual_premium: s.annualPremium ?? null,
     coverage_type: s.coverageType ?? null,
+    normalized_property_key: normKey,
     // The `policy_type` + `policy_type_source` columns were added by the
     // user before this change went in (see spec). Omitted nulls preserve
     // any value already on the row.
@@ -860,6 +945,18 @@ function insuranceToRow(s: InsuranceScenario, userId: string) {
     ...(s.premiumSource ? { premium_source: s.premiumSource } : { premium_source: null }),
     ...(typeof s.coverageA === "number" ? { coverage_a: s.coverageA } : {}),
     ...(s.coverageASource ? { coverage_a_source: s.coverageASource } : { coverage_a_source: null }),
+    // Eight new source columns from the most recent insurance
+    // migration. Written as null when the user hasn't stamped them so
+    // refinance/cash/purchase sync can still update those fields.
+    occupancy_type_source:       s.occupancyTypeSource ?? null,
+    property_type_source:        s.propertyTypeSource ?? null,
+    carrier_source:              s.carrierSource ?? null,
+    aop_deductible_source:       s.aopDeductibleSource ?? null,
+    hurricane_deductible_source: s.hurricaneDeductibleSource ?? null,
+    flood_deductible_source:     s.floodDeductibleSource ?? null,
+    discounts_source:            s.discountsSource ?? null,
+    quote_details_source:        s.quoteDetailsSource ?? null,
+    user_answer_sources:         s.userAnswerSources ?? null,
   };
 }
 function rowToSeller(row: any): SellerScenario {
@@ -1753,11 +1850,21 @@ function persistInsuranceScenarios(s: InsuranceScenario[]) {
     }
     if (s.length > 0) {
       // Strip-and-retry: protects against older Supabase instances that
-      // haven't run the 2026_05_26 migration (premium_source, coverage_a,
-      // coverage_a_source) — and also tolerates pre-policy-type schemas.
+      // haven't run the latest insurance migration (premium_source,
+      // coverage_a, coverage_a_source, the eight *_source columns,
+      // normalized_property_key, user_answer_sources). Each missing
+      // column triggers one retry that drops the column from the
+      // payload and continues — so a partial schema still saves the
+      // fields it does have, with a one-time error toast naming the
+      // missing column.
       const INSURANCE_OPTIONAL_COLUMNS = [
         "premium_source", "coverage_a", "coverage_a_source",
         "policy_type", "policy_type_source",
+        "normalized_property_key", "user_answer_sources",
+        "occupancy_type_source", "property_type_source",
+        "carrier_source", "aop_deductible_source",
+        "hurricane_deductible_source", "flood_deductible_source",
+        "discounts_source", "quote_details_source",
       ] as const;
       const stripped = new Set<string>();
       const buildPayload = () => s.map(x => {
@@ -1765,13 +1872,45 @@ function persistInsuranceScenarios(s: InsuranceScenario[]) {
         Array.from(stripped).forEach(col => { delete row[col]; });
         return row;
       });
+      // Prefer the (user_id, normalized_property_key) unique index when
+      // available — it provides DB-level duplicate prevention and is
+      // resilient to client-side id mismatches when the same property
+      // is saved through two different flows. Fall back to PK (id)
+      // when the unique index is missing or any row lacks a normalized
+      // key (`onConflict` requires every row to have a value for the
+      // conflict target).
+      const allHaveKey = buildPayload().every(r => !!r.normalized_property_key);
+      const conflictTargets = allHaveKey && !stripped.has("normalized_property_key")
+        ? ["user_id,normalized_property_key", "id"]
+        : ["id"];
+      let conflictIdx = 0;
       let lastErr: string | null = null;
-      for (let attempt = 0; attempt <= INSURANCE_OPTIONAL_COLUMNS.length; attempt++) {
+      for (let attempt = 0; attempt <= INSURANCE_OPTIONAL_COLUMNS.length + 1; attempt++) {
+        const onConflict = conflictTargets[Math.min(conflictIdx, conflictTargets.length - 1)];
+        console.debug("[insurance-user-save] upsert payload keys", {
+          attempt, onConflict,
+          rows: buildPayload().map(r => ({
+            id: r.id, key: r.normalized_property_key,
+            cols: Object.keys(r).length,
+          })),
+        });
         const { error: upErr } = await supabase
           .from("insurance_scenarios")
-          .upsert(buildPayload(), { onConflict: "id" });
-        if (!upErr) { lastErr = null; break; }
-        const missing = extractMissingColumn(upErr.message);
+          .upsert(buildPayload(), { onConflict });
+        if (!upErr) {
+          console.debug("[insurance-user-save] upsert ok", { onConflict });
+          lastErr = null;
+          break;
+        }
+        const msg = upErr.message || "";
+        // If the unique index doesn't exist yet, fall back to PK.
+        if (onConflict !== "id" &&
+            /no unique|exclusion constraint matching|42P10/i.test(msg)) {
+          console.warn("[insurance-user-save] unique index missing — falling back to id");
+          conflictIdx++;
+          continue;
+        }
+        const missing = extractMissingColumn(msg);
         if (missing && (INSURANCE_OPTIONAL_COLUMNS as readonly string[]).includes(missing) && !stripped.has(missing)) {
           console.warn(`[insurance-save] retrying without missing column '${missing}'`);
           notifyError({
@@ -1779,9 +1918,13 @@ function persistInsuranceScenarios(s: InsuranceScenario[]) {
             message: `Your Supabase insurance_scenarios table is missing the '${missing}' column — re-apply supabase/schema.sql so this field can persist.`,
           });
           stripped.add(missing);
+          // If we just stripped the normalized key, drop back to PK
+          // conflict resolution on the next attempt.
+          if (missing === "normalized_property_key") conflictIdx = conflictTargets.length - 1;
           continue;
         }
-        lastErr = upErr.message;
+        console.debug("[insurance-user-save] upsert error", { onConflict, message: msg });
+        lastErr = msg;
         break;
       }
       if (lastErr) {

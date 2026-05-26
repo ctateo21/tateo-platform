@@ -1,0 +1,309 @@
+Copy/paste this updated version into Replit:
+
+```text id="insurance-tab-persistence-after-sql"
+Fix Insurance tab persistence, duplicate prevention, policy recalculation, and detailed quote field saving.
+
+Current status:
+I ran the corrected Supabase SQL successfully.
+
+The first SQL failed because `insurance_scenarios.normalized_property_key` did not exist.
+
+The corrected SQL worked and added/confirmed:
+- insurance_scenarios.normalized_property_key
+- insurance_scenarios.user_answer_sources
+- insurance_scenarios.occupancy_type_source
+- insurance_scenarios.property_type_source
+- insurance_scenarios.policy_type_source
+- insurance_scenarios.coverage_a_source
+- insurance_scenarios.premium_source
+- insurance_scenarios.carrier_source
+- insurance_scenarios.aop_deductible_source
+- insurance_scenarios.hurricane_deductible_source
+- insurance_scenarios.flood_deductible_source
+- insurance_scenarios.discounts_source
+- insurance_scenarios.quote_details_source
+
+It also successfully created the unique index:
+
+`insurance_scenarios_user_property_unique`
+
+on:
+
+`user_id, normalized_property_key`
+
+where:
+
+`normalized_property_key is not null`
+
+Please verify these columns and the unique index exist, then use them.
+
+Goal:
+Any user-entered or user-adjusted information inside the Insurance tab must save to `insurance_scenarios` and reload exactly as entered after:
+- page refresh
+- logout/login
+- navigating away and back
+
+Also, the same property/address should not be able to appear more than once in the Insurance tab.
+
+Scope:
+Insurance tab only, but do not break auto-create/sync from:
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+
+Core rules:
+1. If the user changes a value in Insurance, save it.
+2. When the user refreshes/logs out/logs back in, load that saved value.
+3. Do not overwrite user-edited Insurance values with defaults, Zillow data, Purchase data, Cash Buy data, Refinance data, or sync updates.
+4. The same property/address should not appear more than once in the Insurance tab.
+5. Duplicate matching must use:
+   - user_id
+   - normalized_property_key
+
+Required normalized_property_key behavior:
+1. Every Insurance scenario must have `normalized_property_key`.
+2. Use the same shared `normalizePropertyKey` helper used by the other dashboard tabs.
+3. When creating a new Insurance row, populate `normalized_property_key`.
+4. When updating an existing Insurance row, preserve/populate `normalized_property_key`.
+5. When loading existing Insurance rows that have an address but missing `normalized_property_key`, backfill it.
+6. Existing rows with `full_address` or `address` but no `normalized_property_key` should be updated safely so duplicate prevention works.
+
+Duplicate prevention:
+A home should not be able to appear more than once in the Insurance tab.
+
+Requirements:
+1. Before creating an `insurance_scenarios` row, check for an existing row by:
+   - user_id
+   - normalized_property_key
+2. If a row exists:
+   - update that row
+   - do not create a duplicate
+3. If the user manually adds an address that already exists:
+   - open the existing Insurance scenario, or
+   - show a message: “This property already exists in your Insurance tab.”
+4. Auto-created Insurance scenarios from Purchase/Refinance/Cash Buy must reuse the existing Insurance row.
+5. The unique index should prevent duplicates at the database level.
+6. Handle duplicate insert conflicts gracefully with upsert/onConflict.
+7. Use upsert/onConflict on:
+   - user_id
+   - normalized_property_key
+
+If duplicate rows already exist:
+- Do not delete or merge them automatically in this task unless required.
+- Report them and suggest a cleanup separately.
+
+Fields that must persist:
+- full address
+- normalized property key
+- occupancy / property use:
+  - Primary
+  - Secondary
+  - Investment
+- property type:
+  - Single Family Residence
+  - Condominium
+  - Townhouse
+  - Villa
+  - Manufactured Home
+  - Multi-Family
+  - Duplex
+  - Triplex
+  - Quadplex
+  - Other
+- policy type:
+  - HO3
+  - HO6
+  - DP3
+- Coverage A / Rebuild Cost
+- annual premium
+- monthly premium, if stored; otherwise derive from annual / 12
+- carrier, if shown
+- AOP deductible, if shown
+- hurricane deductible, if shown
+- flood deductible, if shown
+- discounts / mitigation selections, if shown
+- quote details / quote assumptions, if shown
+- any detailed view dropdown selection
+- any detailed view input
+- any insurance simulator user changes
+- status, if shown
+- photos / Zillow cache fields if stored
+
+Source tracking:
+When the user changes a field manually, set the matching source field to `"manual"` and update `user_answer_sources`.
+
+Examples:
+- user changes occupancy → `occupancy_type_source = "manual"`
+- user changes property type → `property_type_source = "manual"`
+- user changes policy type → `policy_type_source = "manual"`
+- user changes Coverage A → `coverage_a_source = "manual"`
+- user changes Annual Premium → `premium_source = "manual"`
+- user changes carrier → `carrier_source = "manual"`
+- user changes deductible → matching deductible source = `"manual"`
+- user changes discounts → `discounts_source = "manual"`
+
+Use:
+- `user_answer_sources` jsonb as the general source map
+- specific `*_source` fields for fields that already have dedicated source columns
+
+Policy type behavior:
+If the user changes occupancy or property type and `policy_type_source` is not `"manual"`, recalculate the policy type using the existing helper:
+
+`getDefaultInsurancePolicyType({ occupancyType, propertyUse, propertyType })`
+
+Rules:
+- Primary + non-condo/townhouse → HO3
+- Secondary + non-condo/townhouse → HO3
+- Investment + non-condo/townhouse → DP3
+- Condo/Townhouse/Townhome → HO6 regardless of occupancy
+
+Examples:
+- User changes occupancy from Primary to Investment and property type is Single Family → policy type should change from HO3 to DP3.
+- User changes property type from Single Family to Condo → policy type should change to HO6.
+- User manually changes policy type → `policy_type_source = "manual"` and future occupancy/property type changes should not overwrite it.
+
+Premium behavior:
+If the user changes Coverage A / Rebuild Cost and `premium_source` is not `"manual"` or `"quote"`:
+- annual premium should recalculate from Coverage A using the existing default formula
+- monthly premium should derive from annual / 12
+- do not show user-facing text saying “based on 0.75%”
+
+If the user manually changes annual premium:
+- save annual_premium
+- `premium_source = "manual"`
+- monthly premium = annual / 12
+- future Coverage A/property value sync should not overwrite annual premium
+
+Discount behavior:
+If a user changes any detailed view dropdown or discount/mitigation field:
+- save the selected value
+- apply the discount/calculation immediately
+- persist the selected value
+- persist the resulting premium if the app stores it
+- mark the relevant source field/manual source
+- reload after refresh/logout/login exactly as selected
+
+Important:
+If discounts change the quote/premium, the premium and discount selections must both persist.
+
+Save/load mapping:
+Audit and fix:
+- InsuranceScenario type/model
+- insurance_scenarios row mapper
+- frontend → Supabase mapper
+- Supabase row → frontend mapper
+- persistInsuranceScenarios or equivalent save function
+- insurance.tsx detail state hydration
+- insurance.tsx autosave logic
+- dashboard Insurance loader
+- manual add-property flow
+- auto-create Insurance from Purchase with Loan
+- auto-create Insurance from Purchase with Cash
+- auto-create Insurance from Refinance
+- policy type helper usage
+- discount/dropdown calculation logic
+
+Manual override protection:
+Do not overwrite fields with source = `"manual"` or `"quote"`.
+
+Protect manual values from:
+- Zillow/property cache
+- Purchase with Loan sync
+- Purchase with Cash sync
+- Refinance sync
+- property-value sync
+- default 0.75% premium logic
+- default HO3/HO6/DP3 policy type logic
+- default deductible/discount values
+
+Property sync behavior:
+Insurance should still receive updates from other tabs only when the target Insurance field is not manual.
+
+Examples:
+- Refinance home value changes → update Coverage A only if `coverage_a_source` is not `"manual"`
+- Purchase with Cash property type changes → update Insurance property type only if `property_type_source` is not `"manual"`
+- Purchase with Loan occupancy changes → update Insurance occupancy only if `occupancy_type_source` is not `"manual"`
+- If `policy_type_source` is not manual, recompute policy type after occupancy/property type change
+- If `policy_type_source` is manual, do not recompute policy type
+
+Autosave:
+Any user-editable field in the Insurance detailed view should autosave to the same `insurance_scenarios` row.
+
+Requirements:
+1. Debounce if needed.
+2. Do not create duplicate scenarios.
+3. Use stable scenario ID.
+4. Update `updated_at`.
+5. Save to `insurance_scenarios`.
+6. Show no blocking save prompt.
+7. Values must persist after refresh/logout/login.
+
+Debug logs:
+Add temporary logs:
+- `[insurance-user-save] changed field`
+- `[insurance-user-save] value`
+- `[insurance-user-save] source`
+- `[insurance-user-save] scenario id`
+- `[insurance-user-save] normalized property key`
+- `[insurance-user-save] upsert payload keys`
+- `[insurance-user-save] upsert ok/error`
+- `[insurance-user-load] scenario id`
+- `[insurance-user-load] normalized property key`
+- `[insurance-user-load] loaded user fields`
+- `[insurance-user-load] loaded source map`
+- `[insurance-key] backfilled normalized property key`
+- `[insurance-duplicate] existing row found`
+- `[insurance-duplicate] prevented duplicate`
+- `[insurance-policy-sync] occupancy`
+- `[insurance-policy-sync] property type`
+- `[insurance-policy-sync] prior policy type/source`
+- `[insurance-policy-sync] new policy type`
+- `[insurance-default] skipped because manual value exists`
+- `[insurance-default] applied because field blank/default`
+
+Acceptance test:
+1. Log in.
+2. Open Dashboard → Insurance.
+3. Add/open a property.
+4. Confirm the property appears only once.
+5. Try adding the same address again.
+6. Confirm it does not create a duplicate row.
+7. Change occupancy from Primary to Investment.
+8. If property type is Single Family, confirm policy type changes from HO3 to DP3.
+9. Change property type to Condo or Townhouse.
+10. Confirm policy type changes to HO6.
+11. Manually change policy type.
+12. Confirm `policy_type_source = manual`.
+13. Change occupancy/property type again.
+14. Confirm manual policy type is not overwritten.
+15. Change Coverage A / Rebuild Cost.
+16. Confirm annual/monthly premium recalculates if `premium_source` is not manual/quote.
+17. Manually change annual premium.
+18. Confirm `premium_source = manual`.
+19. Change Coverage A again.
+20. Confirm manual annual premium is not overwritten.
+21. Change detailed view dropdowns/discount fields.
+22. Confirm discounts apply and values save.
+23. Refresh the page.
+24. Confirm all changed values remain.
+25. Log out.
+26. Log back in.
+27. Open the same Insurance property.
+28. Confirm all changed values remain exactly as entered.
+29. Confirm matching Purchase/Cash Buy/Refinance sync still updates only non-manual fields.
+30. Confirm no duplicate Insurance rows are created.
+
+Please make the smallest safe code change possible and tell me:
+- Whether `normalized_property_key` was detected and populated
+- Whether the unique index exists
+- Which Insurance fields now persist
+- Which Supabase columns already existed
+- Which save mapper was updated
+- Which load mapper was updated
+- How old rows missing `normalized_property_key` are backfilled
+- How duplicate Insurance rows are prevented
+- How occupancy/property type changes recalculate HO3/HO6/DP3
+- How detailed view dropdowns/discounts are saved and applied
+- How manual values are protected from defaults/sync
+- Which files/functions were changed
+```

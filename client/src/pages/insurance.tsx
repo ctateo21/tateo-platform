@@ -24,6 +24,7 @@ import {
   TrendingDown, TrendingUp, Minus, Share2, Save, Plus, X, Pencil,
 } from "lucide-react";
 import { getCountyName } from "@/lib/county-tax-estimator";
+import { normalizePropertyKey } from "@/lib/property-key";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { posthog } from "@/lib/posthog";
@@ -352,12 +353,58 @@ export default function InsuranceDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressParam]);
 
-  const [roofIdx, setRoofIdx] = useState(1);
-  const [windIdx, setWindIdx] = useState(1);
-  const [hurrIdx, setHurrIdx] = useState(0);
-  const [constIdx, setConstIdx] = useState(0);
-  const [yearIdx, setYearIdx] = useState(1);
-  const [claimsIdx, setClaimsIdx] = useState(0);
+  // ── Factor dropdowns (roof / wind / hurricane / construction / year
+  //    / claims). These ARE the discounts/mitigation surface in this
+  //    UI — moving them changes the calculated midpoint premium.
+  //    Persisted inside `insurance_scenarios.user_answer_sources` jsonb
+  //    under `factor_<name>` keys (no new column needed). When any are
+  //    changed by the user we stamp `discountsSource = "manual"` so a
+  //    future property-value sync can't reset them.
+  function resolveFactorsFor(addr: string): {
+    roof: number; wind: number; hurr: number; cons: number; year: number; claims: number;
+  } {
+    const defaults = { roof: 1, wind: 1, hurr: 0, cons: 0, year: 1, claims: 0 };
+    const key = (addr ?? "").trim().toLowerCase();
+    if (!key) return defaults;
+    const ins = getInsuranceScenarios().find(
+      s => (s.address ?? "").trim().toLowerCase() === key
+    );
+    const ua = ins?.userAnswerSources;
+    if (!ua) return defaults;
+    const pick = (k: string, d: number) => {
+      const v = ua[k];
+      return typeof v === "number" && Number.isFinite(v) ? v : d;
+    };
+    return {
+      roof:   pick("factor_roofIdx",   defaults.roof),
+      wind:   pick("factor_windIdx",   defaults.wind),
+      hurr:   pick("factor_hurrIdx",   defaults.hurr),
+      cons:   pick("factor_constIdx",  defaults.cons),
+      year:   pick("factor_yearIdx",   defaults.year),
+      claims: pick("factor_claimsIdx", defaults.claims),
+    };
+  }
+  const initialFactors = resolveFactorsFor(addressParam);
+  const [roofIdx, setRoofIdx]     = useState(initialFactors.roof);
+  const [windIdx, setWindIdx]     = useState(initialFactors.wind);
+  const [hurrIdx, setHurrIdx]     = useState(initialFactors.hurr);
+  const [constIdx, setConstIdx]   = useState(initialFactors.cons);
+  const [yearIdx, setYearIdx]     = useState(initialFactors.year);
+  const [claimsIdx, setClaimsIdx] = useState(initialFactors.claims);
+
+  // Re-hydrate factors when the active address changes (mirrors the
+  // manual-premium / policy-type rehydration pattern above) so
+  // switching between scenario tabs restores each property's saved
+  // dropdown picks.
+  useEffect(() => {
+    const f = resolveFactorsFor(addressParam);
+    setRoofIdx(f.roof);    setWindIdx(f.wind);    setHurrIdx(f.hurr);
+    setConstIdx(f.cons);   setYearIdx(f.year);    setClaimsIdx(f.claims);
+    console.debug("[insurance-user-load] loaded user fields", {
+      address: addressParam, factors: f,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressParam]);
 
   // Auto-detect region when address changes
   useEffect(() => {
@@ -616,6 +663,128 @@ export default function InsuranceDashboard() {
     phInsuranceCalcFiredRef.current.add(key);
     posthog.capture("scenario_calculated", { type: "insurance" });
   }, [rebuild, address]);
+
+  // ── Autosave ─────────────────────────────────────────────────────────────
+  // Debounced 600 ms writer that mirrors the Save button payload so
+  // every editable field (Coverage A, factor dropdowns, policy type,
+  // manual annual premium) round-trips to `insurance_scenarios`
+  // without the user clicking Save. Gated on:
+  //   1. `isAuthenticated` — guests don't have a Supabase user_id
+  //   2. `hydratedRef.current` — first render after address change
+  //      seeds defaults; saving before hydration would clobber the
+  //      saved row with placeholder values (same race-prevention
+  //      pattern used in seller-estimate.tsx).
+  const insuranceHydratedRef = useRef(false);
+  useEffect(() => {
+    // Mark hydrated one tick after the address-change rehydration
+    // effect above has run. That effect updates state synchronously,
+    // so by the time this microtask resolves the new factor/premium
+    // values are in place.
+    insuranceHydratedRef.current = false;
+    const t = window.setTimeout(() => { insuranceHydratedRef.current = true; }, 0);
+    return () => window.clearTimeout(t);
+  }, [addressParam]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (!insuranceHydratedRef.current) return;
+    const addr = (address ?? "").trim();
+    if (!addr) return;
+    const t = window.setTimeout(() => {
+      const existing = getInsuranceScenarios();
+      const key = addr.toLowerCase();
+      const match = existing.find(s => s.address.trim().toLowerCase() === key);
+      const incomingKey = normalizePropertyKey(addr).key || undefined;
+      // Roll a fresh midpoint from current factors so a coverage-only
+      // change keeps annual premium consistent (mirrors the Save
+      // button). When the user has typed a manual premium, that wins.
+      const midNow = (() => {
+        const rawAdj = ROOF_ADJ[roofIdx] * WIND_ADJ[windIdx] * HURR_ADJ[hurrIdx]
+          * CONST_ADJ[constIdx] * YEAR_ADJ[yearIdx] * CLAIM_ADJ[claimsIdx];
+        const adj = rawAdj / NEUTRAL_FACTOR_PRODUCT;
+        return rebuild * DEFAULT_HOMEOWNERS_INSURANCE_PERCENT * adj;
+      })();
+      // Detect manual factor edits by comparing against defaults
+      // (1,1,0,0,1,0). Any drift stamps discountsSource = "manual"
+      // so future syncs leave them alone. If the user resets back to
+      // all-defaults, we still preserve a prior manual stamp on the
+      // existing row so they don't lose the lock by accident.
+      const factorsChangedFromDefault =
+        roofIdx !== 1 || windIdx !== 1 || hurrIdx !== 0 ||
+        constIdx !== 0 || yearIdx !== 1 || claimsIdx !== 0;
+      const discountsSource =
+        factorsChangedFromDefault || match?.discountsSource === "manual"
+          ? "manual" as const
+          : match?.discountsSource;
+      const updated: InsuranceScenario = {
+        id: match?.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        address: addr,
+        savedAt: new Date().toISOString(),
+        annualPremium:
+          manualAnnualPremium != null ? manualAnnualPremium : Math.round(midNow),
+        coverageA: rebuild,
+        coverageASource: match?.coverageASource ?? "default",
+        premiumSource:
+          manualAnnualPremium != null
+            ? "manual"
+            : match?.premiumSource === "quote" ? "quote" : "default_0_75_percent",
+        coverageType: region.name,
+        ...(incomingKey ? { normalizedPropertyKey: incomingKey } : {}),
+        ...(policyType
+          ? { policyType, policyTypeSource: policyTypeSource ?? "default_rule" }
+          : {}),
+        ...(match?.occupancyType ? { occupancyType: match.occupancyType } : {}),
+        ...(match?.propertyType ? { propertyType: match.propertyType } : {}),
+        // Carry forward all previously-stamped source fields so we
+        // don't wipe locks set by future UI work (carrier / AOP /
+        // deductibles / quote details).
+        ...(match?.occupancyTypeSource ? { occupancyTypeSource: match.occupancyTypeSource } : {}),
+        ...(match?.propertyTypeSource ? { propertyTypeSource: match.propertyTypeSource } : {}),
+        ...(match?.carrierSource ? { carrierSource: match.carrierSource } : {}),
+        ...(match?.aopDeductibleSource ? { aopDeductibleSource: match.aopDeductibleSource } : {}),
+        ...(match?.hurricaneDeductibleSource ? { hurricaneDeductibleSource: match.hurricaneDeductibleSource } : {}),
+        ...(match?.floodDeductibleSource ? { floodDeductibleSource: match.floodDeductibleSource } : {}),
+        ...(match?.quoteDetailsSource ? { quoteDetailsSource: match.quoteDetailsSource } : {}),
+        ...(discountsSource ? { discountsSource } : {}),
+        // Persist the six factor picks inside the jsonb scratch map.
+        // Keys are namespaced with `factor_` so they don't collide
+        // with any future source-tag entries the cash-buy / seller
+        // pattern might add to the same column.
+        userAnswerSources: {
+          ...(match?.userAnswerSources ?? {}),
+          factor_roofIdx: roofIdx,
+          factor_windIdx: windIdx,
+          factor_hurrIdx: hurrIdx,
+          factor_constIdx: constIdx,
+          factor_yearIdx: yearIdx,
+          factor_claimsIdx: claimsIdx,
+          ...(factorsChangedFromDefault ? { factor_source: "manual" } : {}),
+        },
+      };
+      console.debug("[insurance-user-save] scenario id", updated.id);
+      console.debug("[insurance-user-save] normalized property key", incomingKey);
+      console.debug("[insurance-user-save] changed field", "(autosave snapshot)");
+      console.debug("[insurance-user-save] value", {
+        coverageA: rebuild, policyType, manualAnnualPremium,
+        factors: { roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx },
+      });
+      console.debug("[insurance-user-save] source", {
+        coverageA: updated.coverageASource, policy: updated.policyTypeSource,
+        premium: updated.premiumSource, discounts: updated.discountsSource,
+      });
+      const next = match
+        ? existing.map(s => (s.id === match.id ? updated : s))
+        : [...existing, updated];
+      saveInsuranceScenarios(next).catch(err => {
+        console.debug("[insurance-user-save] upsert error", err?.message ?? err);
+      });
+    }, 600);
+    return () => window.clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isAuthenticated, address, rebuild, policyType, policyTypeSource,
+    manualAnnualPremium, roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx,
+  ]);
 
   // ── Calculations ─────────────────────────────────────────────────────────
   const region = REGIONS[regionKey];
