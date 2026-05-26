@@ -1,0 +1,236 @@
+Copy/paste this into Replit:
+
+```text id="insurance-row-card-autosave-and-sync"
+Fix Insurance tab row/card editing so changes autosave and related values update immediately.
+
+Current issue:
+On Dashboard → Insurance, when changing data directly on the property address row/cards, the changes do not reliably autosave and related values do not automatically update.
+
+Goal:
+Any user change made on an Insurance property row/card should:
+1. update the UI immediately
+2. autosave to `insurance_scenarios`
+3. update any related calculated/corresponding values
+4. persist after refresh/logout/login
+5. respect manual override protections
+
+Scope:
+Dashboard → Insurance overview row/cards and Insurance detailed view.
+
+Core rule:
+If a user changes an Insurance value anywhere — overview card or detailed view — that change must save to the same `insurance_scenarios` row and all related Insurance fields should update.
+
+Examples:
+1. User changes occupancy from Primary to Investment:
+   - save occupancy_type
+   - set occupancy_type_source = "manual"
+   - if property type is Single Family and policy_type_source is not manual, policy type should update from HO3 to DP3
+   - overview card and detail view should both show DP3
+   - persist after refresh/logout/login
+
+2. User changes property type from Single Family to Condo/Townhouse:
+   - save property_type
+   - set property_type_source = "manual"
+   - if policy_type_source is not manual, policy type should update to HO6
+   - overview card and detail view should both show HO6
+   - persist after refresh/logout/login
+
+3. User changes Coverage A / Rebuild Cost:
+   - save coverage_a
+   - set coverage_a_source = "manual"
+   - if premium_source is not manual or quote, recalculate annual premium
+   - monthly premium should update as annual / 12
+   - overview and detail should update
+   - persist after refresh/logout/login
+
+4. User changes Annual Premium:
+   - save annual_premium
+   - set premium_source = "manual"
+   - monthly premium should update as annual / 12
+   - future Coverage A changes should not overwrite the manual premium
+   - persist after refresh/logout/login
+
+5. User changes policy type directly:
+   - save policy_type
+   - set policy_type_source = "manual"
+   - future occupancy/property type changes should not overwrite it
+   - persist after refresh/logout/login
+
+Fields on Insurance row/cards that should autosave if editable:
+- occupancy / property use
+- property type
+- policy type
+- Coverage A / Rebuild Cost
+- annual premium
+- carrier, if editable
+- deductibles, if editable
+- discounts / mitigation selections, if editable
+- any other row/card editable field
+
+Required behavior:
+1. Add or fix onChange handlers for editable row/card fields.
+2. Every handler should call a shared update function for the Insurance scenario.
+3. The shared update function should:
+   - update local state
+   - stamp matching source field = "manual"
+   - update `user_answer_sources`
+   - recalculate dependent fields
+   - autosave to `insurance_scenarios`
+4. Use the same logic for overview card and detailed view so they do not diverge.
+5. Do not require a Save button for overview card changes.
+6. Do not create duplicate Insurance rows.
+
+Shared helper suggestion:
+Create or update a helper like:
+
+`updateInsuranceScenarioField({ scenarioId, normalizedPropertyKey, field, value, source = "manual" })`
+
+or:
+
+`applyInsuranceUserChange({ scenario, changedField, value })`
+
+This helper should:
+- mark the changed field manual
+- recompute policy type if occupancy/property type changes and policy_type_source is not manual
+- recompute annual/monthly premium if Coverage A changes and premium_source is not manual/quote
+- save the updated row
+- return the updated scenario for UI state
+
+Policy type recalculation:
+Use existing helper:
+
+`getDefaultInsurancePolicyType({ occupancyType, propertyUse, propertyType })`
+
+Rules:
+- Primary + non-condo/townhouse → HO3
+- Secondary + non-condo/townhouse → HO3
+- Investment + non-condo/townhouse → DP3
+- Condo/Townhouse/Townhome → HO6 regardless of occupancy
+
+Important:
+- If `policy_type_source = "manual"`, do not auto-change policy type.
+- If policy type is blank/default and occupancy/property type changes, recompute it.
+
+Premium recalculation:
+If Coverage A changes and `premium_source` is not `"manual"` or `"quote"`:
+- annual_premium = coverage_a × 0.0075
+- monthly premium = annual_premium / 12
+- premium_source = "default_0_75_percent"
+
+Do not show user-facing text saying “based on 0.75%.”
+
+If Annual Premium changes manually:
+- premium_source = "manual"
+- monthly premium derives from annual / 12
+- do not overwrite future manual premium unless user resets it
+
+Duplicate prevention:
+All Insurance row/card changes must update the existing row.
+
+Use:
+- scenario id, if available
+- user_id + normalized_property_key as fallback
+
+Do not create a new row when editing an overview card.
+
+Ensure:
+- `normalized_property_key` is populated
+- if missing, backfill using the same `normalizePropertyKey` helper
+- use the unique index on `user_id, normalized_property_key`
+- use upsert/onConflict where appropriate
+
+Save/load:
+All values must persist after:
+- refresh
+- logout/login
+- navigating to detail view and back
+- switching dashboard tabs
+
+Manual override protection:
+Respect these source fields:
+- occupancy_type_source
+- property_type_source
+- policy_type_source
+- coverage_a_source
+- premium_source
+- carrier_source
+- aop_deductible_source
+- hurricane_deductible_source
+- flood_deductible_source
+- discounts_source
+- quote_details_source
+- user_answer_sources
+
+Do not overwrite manual fields from:
+- Zillow/property cache
+- Purchase with Loan sync
+- Purchase with Cash sync
+- Refinance sync
+- property-value sync
+- default policy type logic
+- default premium logic
+
+Overview/detail consistency:
+If user changes something on the Insurance overview card:
+- detailed view should show the same value
+- related calculated values should update in detail view
+
+If user changes something in the detail view:
+- overview card should show the same value
+- related calculated values should update on the card
+
+Debug logs:
+Add temporary logs:
+- `[insurance-card-save] changed field`
+- `[insurance-card-save] value`
+- `[insurance-card-save] source`
+- `[insurance-card-save] scenario id`
+- `[insurance-card-save] normalized property key`
+- `[insurance-card-save] dependent updates`
+- `[insurance-card-save] upsert ok/error`
+- `[insurance-card-sync] policy recalculated`
+- `[insurance-card-sync] premium recalculated`
+- `[insurance-card-sync] skipped policy because manual`
+- `[insurance-card-sync] skipped premium because manual/quote`
+- `[insurance-card-load] loaded row/card fields`
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Insurance.
+3. Open an Insurance property row/card.
+4. Change occupancy from Primary to Investment.
+5. Confirm the change autosaves.
+6. If property type is Single Family and policy type is not manual, confirm policy type changes to DP3.
+7. Change property type to Condo/Townhouse.
+8. Confirm policy type changes to HO6 if policy type is not manual.
+9. Change Coverage A.
+10. Confirm annual/monthly premium recalculates if premium is not manual/quote.
+11. Change Annual Premium manually.
+12. Confirm premium_source becomes manual.
+13. Change Coverage A again.
+14. Confirm manual Annual Premium is not overwritten.
+15. Manually change Policy Type.
+16. Confirm policy_type_source becomes manual.
+17. Change occupancy/property type again.
+18. Confirm manual Policy Type is not overwritten.
+19. Open the detailed view.
+20. Confirm all row/card changes appear there.
+21. Change values in detailed view.
+22. Go back to overview.
+23. Confirm the overview card reflects detailed-view changes.
+24. Refresh.
+25. Confirm values remain.
+26. Log out/log back in.
+27. Confirm values remain.
+28. Confirm no duplicate Insurance rows were created.
+
+Please make the smallest safe code change possible and tell me:
+- Which Insurance row/card component was changed
+- Which fields now autosave from the row/card
+- Which shared update helper was created or reused
+- How related policy type values update
+- How related premium values update
+- How manual values are protected
+- How duplicates are prevented
+- Which files/functions were changed
+```

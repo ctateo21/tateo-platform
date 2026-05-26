@@ -21,6 +21,7 @@ import {
   getPurchaseScenarios, savePurchaseScenarios,
   getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
   getInsuranceScenarios, saveInsuranceScenarios,
+  type CashBuyOccupancyType,
   getSellerScenarios, saveSellerScenarios, subscribePersistenceError,
   getCashBuyScenarios, saveCashBuyScenarios,
   type CashBuyScenario,
@@ -1129,9 +1130,85 @@ function InsuranceTab() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [insurance, purchases, loans, overrideBump]);
 
+  // Dashboard Insurance card → occupancy dropdown handler.
+  //
+  // Historically this only wrote a localStorage override (for rows that
+  // had no `insurance_scenarios` row yet, e.g. pure Purchase / Refi
+  // correlations). That left two problems for rows that DO have an
+  // insurance scenario:
+  //   1. occupancy_type / occupancy_type_source weren't persisted, so
+  //      the change didn't survive logout/login on a different device.
+  //   2. policy_type wasn't recomputed, so a Primary→Investment swap on
+  //      a Single Family Residence kept showing HO3 on the card until
+  //      the user re-opened the detail view.
+  //
+  // The fix below keeps the localStorage override (still needed for
+  // correlation-only rows) AND, when an `insurance_scenarios` row
+  // exists, stamps occupancyType / occupancyTypeSource = "manual",
+  // recomputes policyType when not user-locked, and autosaves through
+  // the same `saveInsuranceScenarios` pipeline used by the detail
+  // view. Source guards mirror the detail-view autosave so manual
+  // policy picks stay locked.
   function handleOccupancyChange(key: string, next: OccupancyType) {
     setOccupancyOverride(key, next);
     setOverrideBump(n => n + 1);
+
+    const row = rows.find(r => r.key === key);
+    const ins = row?.insurance;
+    if (!ins) {
+      console.debug("[insurance-card-save] no scenario row — localStorage override only", { key, next });
+      return;
+    }
+    // Map dashboard's wider OccupancyType ("unknown" included) onto
+    // the narrower CashBuyOccupancyType stored on the scenario. An
+    // "unknown" pick clears the snapshot so the auto-rule (refi
+    // typed propertyType) can resume driving the row.
+    const nextOccupancy: CashBuyOccupancyType | undefined =
+      next === "primary" || next === "secondary" || next === "investment"
+        ? next
+        : undefined;
+    const propertyType = row?.purchaseMatches[0]?.propertyType ?? ins.propertyType;
+    const policyManual = ins.policyTypeSource === "manual";
+    const recomputedPolicy = !policyManual
+      ? getDefaultInsurancePolicyType({
+          occupancyType: nextOccupancy,
+          propertyType,
+        })
+      : undefined;
+    const updated: InsuranceScenario = {
+      ...ins,
+      savedAt: new Date().toISOString(),
+      occupancyType: nextOccupancy,
+      // Only stamp "manual" when the user picked a concrete occupancy.
+      // Resetting to "unknown" clears the lock so future sync can fill
+      // it back in.
+      occupancyTypeSource: nextOccupancy ? "manual" : undefined,
+      ...(recomputedPolicy
+        ? { policyType: recomputedPolicy, policyTypeSource: "default_rule" as const }
+        : {}),
+    };
+    console.debug("[insurance-card-save] changed field", "occupancyType");
+    console.debug("[insurance-card-save] value", nextOccupancy);
+    console.debug("[insurance-card-save] source", "manual");
+    console.debug("[insurance-card-save] scenario id", ins.id);
+    console.debug(
+      "[insurance-card-save] normalized property key",
+      normalizePropertyKey(ins.address).key,
+    );
+    if (policyManual) {
+      console.debug("[insurance-card-sync] skipped policy because manual", {
+        prior: ins.policyType,
+      });
+    } else if (recomputedPolicy && recomputedPolicy !== ins.policyType) {
+      console.debug("[insurance-card-sync] policy recalculated", {
+        prior: ins.policyType, next: recomputedPolicy,
+      });
+    }
+    const nextScenarios = insurance.map(s => (s.id === ins.id ? updated : s));
+    setInsurance(nextScenarios);
+    saveInsuranceScenarios(nextScenarios).catch(err => {
+      console.debug("[insurance-card-save] upsert error", err?.message ?? err);
+    });
   }
 
   // Manual "Add Insurance Property" — mirrors SellersTab.openOrCreate.
