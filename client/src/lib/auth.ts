@@ -191,6 +191,19 @@ export interface PurchaseScenario {
    *  Primary/Secondary → HO3 (HO6 overrides via propertyType). Stored
    *  on `purchase_scenarios.occupancy_type`. */
   occupancyType?: "primary" | "secondary" | "investment";
+  /** Borrower's gross monthly income. Persisted to
+   *  `purchase_scenarios.monthly_income`. Manual user entry must survive
+   *  refresh / login / address changes — the AMI-prefill effect checks
+   *  `monthlyIncomeSource` and skips when it's "manual". */
+  monthlyIncome?: number;
+  /** Provenance for `monthlyIncome`.
+   *  "manual" — the user typed/changed it in the borrower-details panel;
+   *    the AMI lookup must not overwrite it.
+   *  "ami_default" — seeded from the area-median-income API on first load
+   *    of a brand-new scenario.
+   *  "default" — the in-memory factory default ($8,000) was never touched.
+   *  Stored on `purchase_scenarios.monthly_income_source`. */
+  monthlyIncomeSource?: "manual" | "ami_default" | "default";
 }
 
 /** Provenance for `InsuranceScenario.annualPremium`.
@@ -542,6 +555,16 @@ function rowToPurchase(row: any): PurchaseScenario {
       row.price_source === "default"
         ? row.price_source
         : undefined,
+    monthlyIncome:
+      row.monthly_income != null && Number.isFinite(Number(row.monthly_income))
+        ? Number(row.monthly_income)
+        : undefined,
+    monthlyIncomeSource:
+      row.monthly_income_source === "manual" ||
+      row.monthly_income_source === "ami_default" ||
+      row.monthly_income_source === "default"
+        ? row.monthly_income_source
+        : undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -583,6 +606,12 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     ...(s.propertyType ? { property_type: s.propertyType } : {}),
     ...(s.propertyTypeSource ? { property_type_source: s.propertyTypeSource } : {}),
     ...(s.occupancyType ? { occupancy_type: s.occupancyType } : {}),
+    // Borrower monthly income — gated on a real number so we never
+    // clobber a saved value with `undefined` from older Inputs shapes.
+    ...(typeof s.monthlyIncome === "number" && Number.isFinite(s.monthlyIncome)
+      ? { monthly_income: s.monthlyIncome }
+      : {}),
+    ...(s.monthlyIncomeSource ? { monthly_income_source: s.monthlyIncomeSource } : {}),
     ...(typeof s.hasDeferredStudentLoans === "boolean"
       ? { has_deferred_student_loans: s.hasDeferredStudentLoans }
       : {}),
@@ -1339,7 +1368,12 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
       // Strip-and-retry: protects against older Supabase instances that
       // haven't run the 2026_05_26 migration (price_source). Mirrors the
       // tracked_loans / seller_scenarios pattern.
-      const PURCHASE_OPTIONAL_COLUMNS = ["price_source", "occupancy_type"] as const;
+      const PURCHASE_OPTIONAL_COLUMNS = [
+        "price_source",
+        "occupancy_type",
+        "monthly_income",
+        "monthly_income_source",
+      ] as const;
       const stripped = new Set<string>();
       const buildPayload = () => s.map(x => {
         const row: Record<string, any> = purchaseToRow(x, userId);

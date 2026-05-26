@@ -1,0 +1,119 @@
+Copy/paste this into Replit:
+
+```text id="monthly-income-manual-save-fix"
+Fix monthly income persistence in Purchase with Loan.
+
+Current issue:
+When I manually change monthly income, it does not save. After navigating away / refreshing / logging out and back in, it reverts to the default AMI monthly income for that county.
+
+That is wrong.
+
+Expected behavior:
+If the user manually enters monthly income, that manual income should save and persist.
+
+Rules:
+1. AMI monthly income can be used as an initial default only when the user has not entered an income yet.
+2. Once the user manually changes monthly income, that manual value becomes the source of truth.
+3. Do not overwrite manual monthly income with county AMI defaults.
+4. Manual monthly income should persist after:
+   - page navigation
+   - refresh
+   - logout/login
+   - changing address
+   - recalculating AMI eligibility
+5. AMI should be used only for comparison/discount eligibility, not to replace the borrower’s entered income.
+
+Required fields/source handling:
+Add or use an income source field if available:
+
+- monthly_income_source = "manual" | "ami_default" | "profile" | "copied_from_prior"
+
+If this source field does not exist, use the smallest safe approach and tell me if a Supabase migration is needed.
+
+Preferred behavior:
+- If monthly income is blank/null and AMI data exists:
+  - prefill from AMI default if that is the current intended behavior
+  - set monthly_income_source = "ami_default"
+- If user types a new monthly income:
+  - save monthly_income = user-entered amount
+  - set monthly_income_source = "manual"
+- If monthly_income_source = "manual":
+  - never replace it with AMI default
+- If user clears the income field:
+  - allow blank or reset to AMI default only if there is a clear reset behavior
+
+Important:
+AMI calculation should still work:
+- Annual income = monthly_income × 12
+- Compare annual income to county AMI
+- Apply Conventional AMI rate discount if applicable
+
+But the AMI value itself should not overwrite monthly_income once the user manually enters a value.
+
+Places to inspect:
+- Purchase with Loan Page 1 Borrower Details monthly income input
+- Purchase with Loan Page 4 Review Your Answers
+- Any AMI default/prefill logic
+- Any county AMI lookup logic
+- Any effect that recalculates borrower income when county/address changes
+- purchase_scenarios save/load mapping
+- copied borrower details from prior scenario logic
+
+Possible bug:
+There may be an effect that runs after address/AMI loads and does something like:
+
+monthlyIncome = countyAmi / 12
+
+That should only run when monthly income is empty or source is not manual.
+
+Supabase:
+Ensure purchase_scenarios saves:
+- monthly_income or annual_income, depending on current schema
+- monthly_income_source if added/available
+- updated_at
+
+If the app uses annual income only:
+- preserve user-entered monthly income as the input display value
+- or convert consistently:
+  monthly_income = annual_income / 12
+  annual_income = monthly_income × 12
+
+Do not let AMI defaults overwrite the user-entered income.
+
+Acceptance test:
+1. Go to Purchase with Loan.
+2. Enter/select an address.
+3. Go to borrower details.
+4. Change monthly income to $8,000.
+5. Confirm AMI discount logic recalculates from $8,000 × 12.
+6. Navigate to Page 4.
+7. Confirm Review Your Answers shows $8,000/month.
+8. Refresh the page.
+9. Confirm monthly income still shows $8,000.
+10. Log out and log back in.
+11. Confirm monthly income still shows $8,000.
+12. Change the property address or county.
+13. Confirm monthly income stays $8,000 and does not revert to county AMI default.
+14. Change monthly income to $10,000.
+15. Confirm it saves and persists.
+16. Confirm AMI eligibility uses $10,000/month, not the county AMI monthly default.
+
+Debug logs:
+Add temporary logs:
+- [income-save] user entered monthly income
+- [income-save] monthly income source
+- [income-save] saved to purchase_scenarios
+- [income-load] loaded monthly income
+- [income-load] loaded source
+- [ami-default] skipped because manual income exists
+- [ami-default] applied because income blank
+
+Please make the smallest safe code change possible and tell me:
+- Why monthly income was reverting to AMI default
+- Which component/effect was overwriting it
+- Which field stores monthly income
+- Whether a source field was added or reused
+- Whether a Supabase migration is needed
+- How AMI discount still calculates from user-entered income
+- Which files/functions were changed
+```

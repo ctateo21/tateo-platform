@@ -279,6 +279,10 @@ interface Inputs {
   annualFloodIns: number;
   monthlyDebts: number;
   monthlyIncome: number;
+  /** Provenance for `monthlyIncome`. Once the user types a value the
+   *  AMI-prefill effect must not overwrite it. See PurchaseScenario
+   *  in lib/auth.ts for the persisted column. */
+  monthlyIncomeSource?: "manual" | "ami_default" | "default";
   reserves: number;
   impactWindows: boolean;
   roofAttachment: string;
@@ -503,7 +507,7 @@ function makeDefaultInputs(price = 350000): Inputs {
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
     annualHOIns: calculateDefaultHomeownersInsurance(price).annualInsurance, annualFloodIns: 2000,
-    monthlyDebts: 0, monthlyIncome: 8000, reserves: 35000,
+    monthlyDebts: 0, monthlyIncome: 8000, monthlyIncomeSource: "default", reserves: 35000,
     impactWindows: false, roofAttachment: "toenails", swr: false,
     hasMortgage: null, currentLoanFHA: null, hasRentalIncome: null, monthlyRentalIncome: 0, rentalType: null,
     isVeteran: null, vaDisability: null, vaDisabilityRating100: null, vaLoanUse: null,
@@ -1909,12 +1913,31 @@ export default function Estimate() {
     retry: false,
   });
 
-  // Set monthly income to AMI once loaded (only on first load)
+  // Set monthly income to AMI once loaded (only on first load) — but
+  // NEVER overwrite a value the user has manually entered. The Source
+  // check is the only guard that keeps a user's $8,000 alive across
+  // refresh / login / address change / AMI recompute.
   const amiLoadedRef = useRef(false);
   useEffect(() => {
     if (amiData && !amiLoadedRef.current) {
       amiLoadedRef.current = true;
-      setInputs((p) => ({ ...p, monthlyIncome: amiData.monthlyAMI }));
+      setInputs((p) => {
+        if (p.monthlyIncomeSource === "manual") {
+          console.log("[ami-default] skipped because manual income exists", {
+            monthlyIncome: p.monthlyIncome,
+          });
+          return p;
+        }
+        console.log("[ami-default] applied because income blank or default", {
+          amiMonthly: amiData.monthlyAMI,
+          priorSource: p.monthlyIncomeSource ?? "default",
+        });
+        return {
+          ...p,
+          monthlyIncome: amiData.monthlyAMI,
+          monthlyIncomeSource: "ami_default",
+        };
+      });
     }
   }, [amiData]);
   const rates = liveRates ?? FALLBACK_RATES;
@@ -2073,6 +2096,20 @@ export default function Estimate() {
           ? saved.discountPointsPct
           : base.discountPointsPct,
       ),
+      // Borrower monthly income — restore the user's entered value and
+      // its provenance so the AMI-prefill effect (which runs after this
+      // initial render) will short-circuit on `manual` and won't
+      // overwrite it on refresh / login / address change.
+      monthlyIncome:
+        typeof saved.monthlyIncome === "number" && Number.isFinite(saved.monthlyIncome)
+          ? saved.monthlyIncome
+          : base.monthlyIncome,
+      monthlyIncomeSource:
+        saved.monthlyIncomeSource === "manual" ||
+        saved.monthlyIncomeSource === "ami_default" ||
+        saved.monthlyIncomeSource === "default"
+          ? saved.monthlyIncomeSource
+          : base.monthlyIncomeSource,
     };
   }
 
@@ -2900,6 +2937,12 @@ export default function Estimate() {
           // purchases (and HO3 for Primary/Secondary). Stored on
           // purchase_scenarios.occupancy_type via the 2026_05_27 migration.
           occupancyType: inputs.occupancy,
+          // Borrower monthly income + provenance. Persisted via the
+          // 2026_05_28 migration. The source flag is what keeps a
+          // user's manual entry from being clobbered by the county
+          // AMI default on refresh / login / address change.
+          monthlyIncome: inputs.monthlyIncome,
+          monthlyIncomeSource: inputs.monthlyIncomeSource ?? "default",
           hasDeferredStudentLoans: inputs.hasDeferredStudentLoans ?? false,
           deferredStudentLoanBalance: inputs.deferredStudentLoanBalance ?? 0,
           // Discount Points: persist the user's slider position so
@@ -2932,6 +2975,8 @@ export default function Estimate() {
             && (cur.propertyType ?? undefined) === next.propertyType
             && (cur.propertyTypeSource ?? undefined) === next.propertyTypeSource
             && (cur.occupancyType ?? undefined) === next.occupancyType
+            && (cur.monthlyIncome ?? undefined) === next.monthlyIncome
+            && (cur.monthlyIncomeSource ?? "default") === next.monthlyIncomeSource
             && (cur.hasDeferredStudentLoans ?? false) === next.hasDeferredStudentLoans
             && (cur.deferredStudentLoanBalance ?? 0) === next.deferredStudentLoanBalance
             && (cur.discountPointsPct ?? 0) === next.discountPointsPct
@@ -3456,7 +3501,19 @@ export default function Estimate() {
                     <SliderInput
                       label="Monthly Gross Income (exclude rental income)"
                       value={inputs.monthlyIncome}
-                      onChange={(v) => set("monthlyIncome", v)}
+                      onChange={(v) => {
+                        // Stamp source=manual the moment the user touches
+                        // the slider so the AMI-prefill effect (and any
+                        // future address-change recompute) treats this as
+                        // the borrower's source of truth and never
+                        // overwrites it with a county-AMI default.
+                        console.log("[income-save] user entered monthly income", { value: v });
+                        setInputs(p => ({
+                          ...p,
+                          monthlyIncome: v,
+                          monthlyIncomeSource: "manual",
+                        }));
+                      }}
                       min={1000} max={50000} step={100}
                       prefix="$"
                     />
