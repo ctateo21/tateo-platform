@@ -1337,8 +1337,6 @@ function InsuranceRowCard({
   const ins = row.insurance;
   const annual = ins?.annualPremium;
   const monthly = typeof annual === "number" ? annual / 12 : undefined;
-  const occupancyBadgeClass = PROPERTY_TYPE_COLORS[row.occupancy] ?? "bg-muted text-muted-foreground border";
-
   // Policy type display rules (spec: insurance-overview-occupancy-policy-type-live-update):
   //   - If `policyTypeSource === "manual"`, ALWAYS show the persisted
   //     `ins.policyType` — never recompute, never overwrite. This is
@@ -1383,32 +1381,16 @@ function InsuranceRowCard({
             </div>
           </div>
 
-          {/* Occupancy + override */}
-          <div className="flex lg:flex-col items-start gap-1.5 lg:min-w-[150px]">
-            <Badge variant="outline" className={`text-xs ${occupancyBadgeClass}`}>
-              {OCCUPANCY_LABELS[row.occupancy]}
-            </Badge>
-            <Select
-              value={row.occupancy}
-              onValueChange={(v) => onOccupancyChange(v as OccupancyType)}
-            >
-              <SelectTrigger className="h-7 text-xs w-[150px]" aria-label="Change occupancy">
-                <SelectValue placeholder="Change occupancy" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="primary">Primary Residence</SelectItem>
-                <SelectItem value="secondary">Second Home</SelectItem>
-                <SelectItem value="investment">Investment</SelectItem>
-                <SelectItem value="unknown">Not selected (auto)</SelectItem>
-              </SelectContent>
-            </Select>
-            <span className="text-[10px] text-muted-foreground">
-              {row.occupancySource === "manual_override" && "Manual"}
-              {row.occupancySource === "refinance" && "From Refinance"}
-              {row.occupancySource === "purchase" && "From Purchase"}
-              {row.occupancySource === "unknown" && "Auto-match"}
-            </span>
-          </div>
+          {/*
+            Occupancy dropdown intentionally hidden from the overview
+            card (spec: insurance-overview-policy-type-only). The user
+            edits Primary / Secondary / Investment inside the detail
+            view; the value is still saved on `insurance_scenarios`,
+            still drives the Policy Type default rule, and still
+            survives refresh/logout/login via `occupancyTypeSource`.
+            We render Policy Type below as the single visible badge so
+            the card matches the detail view.
+          */}
 
           {/* Insurance stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm flex-1">

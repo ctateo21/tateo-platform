@@ -1,0 +1,119 @@
+You should **not need more SQL** if these columns already exist in `insurance_scenarios`:
+
+```sql
+policy_type
+policy_type_source
+```
+
+You already added those earlier. This is mostly a **UI/display + save mapping fix**.
+
+Copy/paste this into Replit:
+
+```text
+Fix the Insurance tab overview card so it shows Policy Type instead of showing a separate Primary / Secondary / Investment dropdown.
+
+Current issue:
+Inside Dashboard → Insurance → overview cards, each property card currently shows:
+- Policy Type
+- A separate dropdown for Primary / Secondary / Investment
+
+Inside the detailed view for that property, there is already a Policy Type dropdown showing:
+- HO3
+- HO6
+- DP3
+
+I do not want two different sections on the Insurance overview card.
+
+Requested change:
+On the Insurance overview card, remove/hide the Primary / Secondary / Investment dropdown from the visible card UI and show the saved Policy Type instead.
+
+The overview card should display the same Policy Type that appears in the detailed view.
+
+Expected overview card display:
+Policy Type: HO3
+
+or:
+
+Policy Type: HO6
+
+or:
+
+Policy Type: DP3
+
+Source of truth:
+Use:
+
+insurance_scenarios.policy_type
+
+If policy_type is blank but can be calculated, use the existing helper:
+
+getDefaultInsurancePolicyType({
+  occupancyType,
+  propertyUse,
+  propertyType,
+})
+
+Then save the calculated policy_type back to insurance_scenarios with:
+
+policy_type_source = "default_rule"
+
+Manual override protection:
+If policy_type_source = "manual":
+- display the manual policy_type
+- do not overwrite it from occupancy/property type logic
+
+Detailed view:
+Keep the Policy Type dropdown inside the detailed view.
+If the user changes Policy Type in the detailed view:
+- save insurance_scenarios.policy_type
+- save insurance_scenarios.policy_type_source = "manual"
+- update the Insurance overview card so it shows the same selected Policy Type
+- persist after refresh/logout/login
+
+Overview card:
+The overview card should not show a separate occupancy dropdown as a main field anymore.
+
+If occupancy/property use is still needed internally:
+- keep it saved in the background
+- keep it available in the detailed view if already shown there
+- do not show it as a separate competing dropdown on the overview card
+
+Important:
+- Do not delete occupancy_type from the database.
+- Do not remove occupancy logic from calculations.
+- Do not break HO3/HO6/DP3 automatic defaulting.
+- Do not break policy_type_source manual protection.
+- Do not create duplicate Insurance rows.
+- Do not change annual premium, Coverage A, or deductible logic.
+- Do not change Purchase/Cash Buy/Refinance sync behavior.
+
+No new SQL should be needed if these columns already exist:
+- insurance_scenarios.policy_type
+- insurance_scenarios.policy_type_source
+
+If those columns are missing, tell me before coding. Otherwise proceed without SQL.
+
+Acceptance test:
+1. Go to Dashboard → Insurance.
+2. Confirm each property overview card shows Policy Type as HO3, HO6, or DP3.
+3. Confirm the overview card no longer shows a separate Primary / Secondary / Investment dropdown as a competing visible field.
+4. Open a property detailed view.
+5. Change Policy Type to DP3.
+6. Go back to the Insurance overview.
+7. Confirm the same card shows Policy Type: DP3.
+8. Refresh.
+9. Confirm the overview card still shows DP3.
+10. Log out/log back in.
+11. Confirm the overview card still shows DP3.
+12. Confirm manual policy_type_source is not overwritten.
+
+Please make the smallest safe code change possible and tell me:
+- Whether policy_type and policy_type_source already existed
+- Which Insurance overview card component was changed
+- Which occupancy dropdown was removed/hidden from the overview card
+- How the overview card now reads policy_type
+- How detailed-view Policy Type changes update the overview card
+- How manual policy type overrides are protected
+- Whether any SQL migration was needed
+- Which files/functions were changed
+```
