@@ -30,7 +30,7 @@
 
 import type { InsuranceScenario } from "./auth";
 import { normalizePropertyKey } from "./property-key";
-import { calculateDefaultHomeownersInsurance } from "./insurance-default";
+import { calculateInsuranceDefaults } from "./insurance-default";
 import { getDefaultInsurancePolicyType } from "./insurance-policy-type";
 
 export type InsuranceSourceType = "purchase" | "cash_buy" | "refinance";
@@ -239,16 +239,29 @@ export function ensureInsuranceForAddress(
     defaultPolicyType,
   });
 
-  // Seed annualPremium with the global 0.75%-of-value default
-  // (spec: insurance-default-075-percent).
-  const seededPremium = propertyValue && propertyValue > 0
-    ? calculateDefaultHomeownersInsurance(propertyValue).annualInsurance
-    : undefined;
+  // Seed annualPremium + coverageA with the global 0.75%-of-value
+  // default, scaled by the policy-type multiplier (HO6 → 0.50, else
+  // 1.00). Spec: insurance-ho6-half-coverage-and-premium.
+  const seeded = propertyValue && propertyValue > 0
+    ? calculateInsuranceDefaults({ propertyValue, policyType: defaultPolicyType })
+    : null;
+  console.log("[insurance-defaults] property value", propertyValue ?? null);
+  console.log("[insurance-defaults] policy type", defaultPolicyType ?? null);
+  if (seeded) {
+    console.log("[insurance-defaults] coverage multiplier", seeded.coverageMultiplier);
+    console.log("[insurance-defaults] coverage A", seeded.coverageA);
+    console.log("[insurance-defaults] annual premium", seeded.annualPremium);
+    console.log("[insurance-defaults] monthly premium", seeded.monthlyPremium);
+  }
   const created: InsuranceScenario = {
     id: makeInsuranceId(),
     address: trimmed,
     savedAt: new Date().toISOString(),
-    annualPremium: seededPremium,
+    annualPremium: seeded?.annualPremium,
+    ...(seeded && seeded.coverageA > 0
+      ? { coverageA: seeded.coverageA, coverageASource: "default" as const }
+      : {}),
+    ...(seeded ? { premiumSource: "default_0_75_percent" as const } : {}),
     ...(occupancyType ? { occupancyType: occupancyType as any } : {}),
     ...(propertyType ? { propertyType } : {}),
     ...(defaultPolicyType

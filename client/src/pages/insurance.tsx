@@ -7,6 +7,7 @@ import {
 } from "@/lib/auth";
 import {
   DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
+  getInsuranceCoverageMultiplier,
 } from "@/lib/insurance-default";
 import {
   getDefaultInsurancePolicyType,
@@ -352,6 +353,82 @@ export default function InsuranceDashboard() {
     setPolicyTypeSource(next.source);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressParam]);
+
+  // ── Policy-type → Coverage A recompute (spec: insurance-ho6-half-coverage-and-premium) ──
+  // When the user (or an upstream rule) changes policy type, recompute
+  // Coverage A / Rebuild Cost using the policy-type multiplier:
+  //   HO6 → propertyValue × 0.50,  HO3 / DP3 → propertyValue × 1.00.
+  // Premium recomputes automatically because the autosave below derives
+  // premium from `rebuild` (premium = rebuild × 0.75% × adj). Manual
+  // Coverage A is protected (`coverageASource === "manual"`); manual /
+  // quoted premium is already protected by the autosave's
+  // `manualAnnualPremium != null` branch and `match.premiumSource ===
+  // "quote"` carry-forward.
+  //
+  // We only act on transitions of `policyType` for the SAME address —
+  // an address switch also reseeds policyType, but the address-change
+  // useEffect above already reset Coverage A via `defaultRebuildFor`,
+  // so we must not double-transform here. A ref keyed on address +
+  // last-seen policy guards this.
+  const prevPolicyContextRef = useRef<{ address: string; policy: InsurancePolicyType | "" }>({
+    address: addressParam,
+    policy: policyType,
+  });
+  useEffect(() => {
+    const prev = prevPolicyContextRef.current;
+    // Address changed → the address-switch effects own Coverage A. Just
+    // record the new context and skip.
+    if (prev.address !== addressParam) {
+      prevPolicyContextRef.current = { address: addressParam, policy: policyType };
+      return;
+    }
+    if (prev.policy === policyType) return;
+    prevPolicyContextRef.current = { address: addressParam, policy: policyType };
+    if (!prev.policy || !policyType) return; // ignore initial empty → resolved hydration
+    const prevMult = getInsuranceCoverageMultiplier(prev.policy);
+    const newMult = getInsuranceCoverageMultiplier(policyType);
+    if (prevMult === newMult || prevMult <= 0) return;
+
+    // Manual Coverage A lock — read the persisted source from the
+    // saved insurance scenario for this address.
+    const key = (addressParam ?? "").trim().toLowerCase();
+    const ins = key
+      ? getInsuranceScenarios().find(s => (s.address ?? "").trim().toLowerCase() === key)
+      : undefined;
+    if (ins?.coverageASource === "manual") {
+      console.log("[insurance-defaults] skipped coverage A because manual", {
+        address: addressParam, policyType,
+      });
+      return;
+    }
+    if (manualAnnualPremium != null) {
+      console.log("[insurance-defaults] skipped premium because manual/quote", {
+        address: addressParam, premiumSource: "manual",
+      });
+      // Coverage A still recomputes — manual-premium protection is
+      // separate from coverageA. The autosave preserves the manual
+      // premium value because `manualAnnualPremium != null` wins.
+    } else if (ins?.premiumSource === "quote") {
+      console.log("[insurance-defaults] skipped premium because manual/quote", {
+        address: addressParam, premiumSource: "quote",
+      });
+    }
+
+    // Transform existing rebuild from old multiplier → new multiplier
+    // so a user toggling HO3↔HO6↔HO3 lands back on the same number
+    // (idempotent up to rounding).
+    const baseValue = rebuild / prevMult;
+    const nextRebuild = Math.round(baseValue * newMult);
+    const nextPremium = Math.round(nextRebuild * DEFAULT_HOMEOWNERS_INSURANCE_PERCENT);
+    console.log("[insurance-defaults] policy type", policyType);
+    console.log("[insurance-defaults] property value", Math.round(baseValue));
+    console.log("[insurance-defaults] coverage multiplier", newMult);
+    console.log("[insurance-defaults] coverage A", nextRebuild);
+    console.log("[insurance-defaults] annual premium", nextPremium);
+    console.log("[insurance-defaults] monthly premium", Math.round((nextPremium / 12) * 100) / 100);
+    setRebuild(nextRebuild);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [policyType, addressParam]);
 
   // ── Factor dropdowns (roof / wind / hurricane / construction / year
   //    / claims). These ARE the discounts/mitigation surface in this
@@ -799,8 +876,16 @@ export default function InsuranceDashboard() {
         id: match?.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         address: addr,
         savedAt: new Date().toISOString(),
+        // Spec: insurance-ho6-half-coverage-and-premium — manual / quote
+        // premium MUST be preserved when policy type recomputes Coverage A.
+        // Manual input wins, then a prior quote upload (locked dollar
+        // value, not just label), else the calculated midpoint.
         annualPremium:
-          manualAnnualPremium != null ? manualAnnualPremium : Math.round(midNow),
+          manualAnnualPremium != null
+            ? manualAnnualPremium
+            : match?.premiumSource === "quote" && typeof match.annualPremium === "number"
+              ? match.annualPremium
+              : Math.round(midNow),
         coverageA: rebuild,
         coverageASource: match?.coverageASource ?? "default",
         premiumSource:
@@ -1090,7 +1175,9 @@ export default function InsuranceDashboard() {
                     annualPremium:
                       manualAnnualPremium != null
                         ? manualAnnualPremium
-                        : Math.round(calc.mid),
+                        : match?.premiumSource === "quote" && typeof match.annualPremium === "number"
+                          ? match.annualPremium
+                          : Math.round(calc.mid),
                     // Persist Coverage A so the Phase 1 cross-tab value
                     // sync can read/protect it. Source carries forward
                     // from the saved scenario; if the user moved the

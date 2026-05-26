@@ -1,0 +1,203 @@
+Copy/paste this into Replit:
+
+```text id="insurance-ho6-half-coverage-and-premium"
+Update Insurance calculations so HO6 policies cut both Coverage A/Rebuild Cost and premium in half compared with HO3/DP3 defaults.
+
+Current issue:
+HO6 condo/townhome policies should not use the same rebuild cost and premium calculation as HO3 or DP3.
+
+Goal:
+When policy type is HO6:
+1. Coverage A / Rebuild Cost should default to 50% of the normal property value/rebuild estimate.
+2. Annual Premium should also be 50% of the normal HO3/DP3 premium.
+3. Monthly Premium should be annual premium / 12.
+
+When policy type is HO3 or DP3:
+- Keep the current full-value logic unchanged.
+
+Current default logic for HO3 / DP3:
+- coverage_a = property_value or estimated home value
+- annual_premium = coverage_a × 0.0075
+- monthly_premium = annual_premium / 12
+
+New HO6 formula:
+normal_coverage_a = property_value
+normal_annual_premium = normal_coverage_a × 0.0075
+
+ho6_coverage_a = normal_coverage_a × 0.50
+ho6_annual_premium = normal_annual_premium × 0.50
+
+This is equivalent to:
+ho6_annual_premium = ho6_coverage_a × 0.0075
+
+Important:
+For HO6, both numbers must be reduced:
+1. Coverage A/Rebuild Cost is cut in half.
+2. Annual Premium is also cut in half because it is calculated from the reduced Coverage A.
+
+Example:
+Property value = $500,000
+
+HO3 / DP3:
+- Coverage A = $500,000
+- Annual Premium = $3,750/year
+- Monthly Premium = $312.50/month
+
+HO6:
+- Coverage A = $250,000
+- Annual Premium = $1,875/year
+- Monthly Premium = $156.25/month
+
+Apply this anywhere Insurance estimates are calculated or defaulted:
+- Insurance tab detailed view
+- Insurance overview cards
+- auto-created Insurance scenarios from Purchase with Loan
+- auto-created Insurance scenarios from Purchase with Cash
+- auto-created Insurance scenarios from Refinance
+- Homeowners Insurance Estimate Simulator if policy type is HO6
+- dashboard summaries where Insurance annual/monthly premium is shown
+
+Use policy_type as the deciding factor:
+- HO6 → 50% Coverage A and 50% premium
+- HO3 / DP3 → 100% Coverage A and full premium
+
+Manual override protection:
+Do not overwrite manual values.
+
+If `coverage_a_source = "manual"`:
+- do not reduce Coverage A to half automatically
+- preserve the user-entered Coverage A
+
+If `premium_source = "manual"` or `"quote"`:
+- do not reduce annual premium to half automatically
+- preserve the user-entered or quoted premium
+
+If policy type changes:
+1. If user changes from HO3/DP3 to HO6:
+   - if Coverage A is not manual, recalculate Coverage A as property_value × 0.50
+   - if premium is not manual/quote, recalculate annual premium from the new reduced Coverage A
+2. If user changes from HO6 to HO3/DP3:
+   - if Coverage A is not manual, recalculate Coverage A as property_value × 1.00
+   - if premium is not manual/quote, recalculate annual premium from full Coverage A
+3. Monthly premium should always derive from annual premium / 12
+
+Policy type sync:
+If policy type auto-changes because:
+- occupancy changes
+- property type changes
+- condo/townhouse defaults to HO6
+
+then the HO6 half coverage/premium logic should apply immediately unless manual/quote sources protect the fields.
+
+Examples:
+User changes property type from Single Family to Condo:
+- policy type changes to HO6
+- Coverage A becomes 50% of property value unless manual
+- Annual Premium becomes 50% of the normal full-value premium unless manual/quote
+
+User changes property type from Condo to Single Family:
+- policy type changes based on occupancy, likely HO3 or DP3
+- Coverage A returns to 100% of property value unless manual
+- Annual Premium returns to normal full-value premium unless manual/quote
+
+Shared helper:
+Create or update a shared helper so this logic is not duplicated.
+
+Suggested helper:
+`calculateInsuranceDefaults({ propertyValue, policyType })`
+
+Return:
+- coverageA
+- annualPremium
+- monthlyPremium
+- coverageMultiplier
+
+Rules:
+- policyType === "HO6" → coverageMultiplier = 0.50
+- policyType === "HO3" or "DP3" → coverageMultiplier = 1.00
+
+Formula:
+coverageA = propertyValue × coverageMultiplier
+annualPremium = coverageA × 0.0075
+monthlyPremium = annualPremium / 12
+
+Do not show user-facing text saying “0.75%” or “50%.”
+This is internal calculation logic only.
+
+Persistence:
+Save recalculated values to `insurance_scenarios` when applicable:
+- coverage_a
+- coverage_a_source = "default_rule" or "property_value_sync" as appropriate
+- annual_premium
+- premium_source = "default_0_75_percent"
+- updated_at
+
+If monthly premium is stored, update it too.
+If monthly premium is derived at render, no new column is needed.
+
+No SQL should be needed unless required fields are missing. Use existing:
+- policy_type
+- coverage_a
+- coverage_a_source
+- annual_premium
+- premium_source
+
+Do not create duplicate fields.
+
+Do not break:
+- manual Annual Premium input
+- manual Coverage A/Rebuild Cost input
+- policy_type_source manual protection
+- premium_source manual/quote protection
+- coverage_a_source manual protection
+- duplicate Insurance scenario prevention
+- Purchase/Cash Buy/Refinance auto-create
+- Insurance overview/detail sync
+- homeowner insurance default elsewhere
+- persistence after refresh/logout/login
+
+Debug logs:
+Add temporary logs:
+- `[insurance-defaults] policy type`
+- `[insurance-defaults] property value`
+- `[insurance-defaults] coverage multiplier`
+- `[insurance-defaults] coverage A`
+- `[insurance-defaults] annual premium`
+- `[insurance-defaults] monthly premium`
+- `[insurance-defaults] skipped coverage A because manual`
+- `[insurance-defaults] skipped premium because manual/quote`
+
+Acceptance test:
+1. Open Insurance detail for a Single Family property.
+2. Set policy type to HO3.
+3. Set property value / estimated value to $500,000.
+4. Confirm Coverage A = $500,000.
+5. Confirm Annual Premium = $3,750/year.
+6. Change policy type to HO6.
+7. Confirm Coverage A = $250,000.
+8. Confirm Annual Premium = $1,875/year.
+9. Confirm Monthly Premium = $156.25/month.
+10. Change policy type to DP3.
+11. Confirm Coverage A returns to $500,000.
+12. Confirm Annual Premium returns to $3,750/year.
+13. Change property type to Condo/Townhouse so policy type auto-defaults to HO6.
+14. Confirm Coverage A and premium use the HO6 half values.
+15. Manually change Coverage A.
+16. Change policy type again.
+17. Confirm manual Coverage A is not overwritten.
+18. Manually change Annual Premium.
+19. Change policy type again.
+20. Confirm manual Annual Premium is not overwritten.
+21. Refresh/logout/login.
+22. Confirm values persist.
+
+Please make the smallest safe code change possible and tell me:
+- Which insurance default helper was created or updated
+- How HO6 multiplier is applied
+- How HO3/DP3 remain unchanged
+- How Coverage A recalculates when policy type changes
+- How premium recalculates when policy type changes
+- How manual Coverage A and manual/quoted premium are protected
+- Whether any SQL migration was needed
+- Which files/functions were changed
+```

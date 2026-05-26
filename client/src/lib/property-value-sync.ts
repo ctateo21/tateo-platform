@@ -54,6 +54,7 @@ import {
   type SellerScenario,
 } from "./auth";
 import { normalizePropertyKey } from "./property-key";
+import { getInsuranceCoverageMultiplier } from "./insurance-default";
 
 export type PropertyValueSourceTab =
   | "purchase" | "cash_buy" | "refinance" | "seller";
@@ -219,7 +220,14 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
 
     // ── Insurance ────────────────────────────────────────────────
     if (matchInsurance) {
-      const annual = Math.round(newValue * DEFAULT_INSURANCE_RATE);
+      // Apply HO6 half-coverage multiplier so a condo/townhome row
+      // doesn't get reset to full-property-value Coverage A on every
+      // property-value sync (spec: insurance-ho6-half-coverage-and-premium).
+      // Premium derives from the multiplied coverage so the halving
+      // cascades automatically.
+      const coverageMultiplier = getInsuranceCoverageMultiplier(matchInsurance.policyType);
+      const syncedCoverageA = Math.round(newValue * coverageMultiplier);
+      const annual = Math.round(syncedCoverageA * DEFAULT_INSURANCE_RATE);
       const writePremium = isInsurancePremiumOverridable(matchInsurance, [
         matchPurchase?.price,
         matchCash?.purchasePrice,
@@ -240,7 +248,7 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
       }
 
       const premiumChanged   = writePremium    && matchInsurance.annualPremium !== annual;
-      const coverageAChanged = writeCoverageA  && matchInsurance.coverageA     !== newValue;
+      const coverageAChanged = writeCoverageA  && matchInsurance.coverageA     !== syncedCoverageA;
 
       if (premiumChanged || coverageAChanged) {
         const next: InsuranceScenario[] = insurances.map(i => {
@@ -251,7 +259,7 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
             updated.premiumSource = "default_0_75_percent";
           }
           if (writeCoverageA) {
-            updated.coverageA = newValue;
+            updated.coverageA = syncedCoverageA;
             updated.coverageASource = "property_value_sync";
           }
           return updated;
@@ -261,10 +269,16 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
         if (premiumChanged) {
           console.log("[property-value-sync] recalculated insurance premium", {
             annual, monthly: Math.round((annual / 12) * 100) / 100,
+            policyType: matchInsurance.policyType ?? null,
+            coverageMultiplier,
           });
         }
         if (coverageAChanged) {
-          console.log("[property-value-sync] synced insurance coverage A", { coverageA: newValue });
+          console.log("[property-value-sync] synced insurance coverage A", {
+            coverageA: syncedCoverageA,
+            policyType: matchInsurance.policyType ?? null,
+            coverageMultiplier,
+          });
         }
       }
     }
