@@ -332,49 +332,12 @@ export default function SellerEstimatePage() {
           ? all.map(s => s.id === stamped.id ? stamped : s)
           : [stamped, ...all];
         saveSellerScenarios(next);
-        // Mirror the seller estimated_sale_price into the matching
-        // refinance tracked_loan.estimated_home_value when it
-        // changed since the last save. Smallest-safe two-way sync:
-        // never creates a Refinance row, never blocks on prior
-        // "manual" state — the latest user value wins per spec.
-        try {
-          const prevSalePrice = lastSyncedSalePriceRef.current;
-          const newSalePrice = stamped.estimatedSalePrice;
-          if (
-            typeof newSalePrice === "number" &&
-            Number.isFinite(newSalePrice) &&
-            newSalePrice > 0 &&
-            newSalePrice !== prevSalePrice
-          ) {
-            const loans = getTrackedLoans();
-            const result = applySellerSalePriceToRefinance({
-              sellerScenario: stamped,
-              loans,
-            });
-            console.log("[home-value-sync] source tab", { tab: "seller" });
-            console.log("[home-value-sync] normalized property key", {
-              key: stamped.normalizedPropertyKey ?? null,
-            });
-            console.log("[home-value-sync] new value", { value: newSalePrice });
-            console.log("[home-value-sync] matching refinance found true/false", {
-              found: result.matchedLoanIds.length > 0,
-              ids: result.matchedLoanIds,
-            });
-            if (result.changed) {
-              saveTrackedLoans(result.loans);
-              console.log("[home-value-sync] saved to tracked_loans", {
-                count: result.matchedLoanIds.length,
-                value: newSalePrice,
-              });
-              console.log("[home-value-sync] recalculated refinance LTV", {
-                note: "LTV recomputes from estimatedHomeValue at render-time in LoanTracker",
-              });
-            }
-            lastSyncedSalePriceRef.current = newSalePrice;
-          }
-        } catch (syncErr) {
-          console.warn("[home-value-sync] seller→refinance failed:", syncErr);
-        }
+        // Seller → refinance value mirroring used to live here; it is now
+        // handled globally by the Phase 1 cross-tab sync helper
+        // (`syncPropertyValueAcrossTabs`) which fires from the diff-watcher
+        // inside `saveSellerScenarios`. Keeping the manual call would
+        // cause duplicate writes and competing sync paths.
+        lastSyncedSalePriceRef.current = stamped.estimatedSalePrice;
         if (isMountedRef.current) {
           setSaveStatus("saved");
           window.setTimeout(() => {

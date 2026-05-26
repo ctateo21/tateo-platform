@@ -5,6 +5,48 @@ import {
 } from "./insurance-from-property";
 import { normalizePropertyKey } from "./property-key";
 import { posthog } from "./posthog";
+import {
+  syncPropertyValueAcrossTabs,
+  isPropertyValueSyncInFlight,
+  type PropertyValueSourceTab,
+} from "./property-value-sync";
+
+/** Diff-watcher for the cross-tab property-value sync (Phase 1). Detects
+ *  when an existing row's value field changed between two save calls
+ *  and fires `syncPropertyValueAcrossTabs`. Skipped when:
+ *   - no authenticated user (anon drafts must not write to other users)
+ *   - a sync is already in flight (loop guard — the helper calls back
+ *     into our save funcs as it writes to the other tables)
+ *   - the row didn't exist in `prev` (it's a brand-new add, not an edit
+ *     — `autoCreateInsuranceFromAddresses` handles the create case) */
+function _diffAndSyncPropertyValue<T extends { id: string }>(
+  prev: T[],
+  next: T[],
+  sourceTab: PropertyValueSourceTab,
+  getValue: (row: T) => number | undefined,
+  getAddress: (row: T) => string | undefined,
+  getKey?: (row: T) => string | undefined,
+): void {
+  if (isPropertyValueSyncInFlight()) return;
+  const userId = _session?.id;
+  if (!userId) return;
+  for (const row of next) {
+    const oldRow = prev.find(p => p.id === row.id);
+    if (!oldRow) continue; // brand-new — handled by auto-create paths
+    const newVal = getValue(row);
+    const oldVal = getValue(oldRow);
+    if (!Number.isFinite(newVal as number) || (newVal as number) <= 0) continue;
+    if (oldVal === newVal) continue;
+    const key = getKey?.(row) || normalizePropertyKey(getAddress(row)).key;
+    if (!key) continue;
+    syncPropertyValueAcrossTabs({
+      userId,
+      normalizedPropertyKey: key,
+      sourceTab,
+      newValue: newVal as number,
+    });
+  }
+}
 
 // PostHog: scenario_saved (purchase) — fire once per scenario id per
 // session. Without this dedupe, the debounced autosave would fire the
@@ -1081,9 +1123,13 @@ export function getPurchaseScenarios(): PurchaseScenario[] {
 }
 
 export function savePurchaseScenarios(s: PurchaseScenario[]) {
+  const prev = _purchaseScenarios;
   _purchaseScenarios = s;
   notify();
   void persistPurchaseScenarios(s);
+  _diffAndSyncPropertyValue(prev, s, "purchase",
+    p => p.price,
+    p => p.address);
   autoCreateInsuranceFromAddresses(
     s.map(p => ({
       sourceType: "purchase" as const,
@@ -1258,9 +1304,14 @@ export function getSellerScenarios(): SellerScenario[] {
 }
 
 export function saveSellerScenarios(s: SellerScenario[]) {
+  const prev = _sellerScenarios;
   _sellerScenarios = s;
   notify();
   void persistSellerScenarios(s);
+  _diffAndSyncPropertyValue(prev, s, "seller",
+    x => x.estimatedSalePrice,
+    x => x.address,
+    x => x.normalizedPropertyKey);
 }
 
 function persistSellerScenarios(s: SellerScenario[]) {
@@ -1359,9 +1410,14 @@ export function getCashBuyScenarios(): CashBuyScenario[] {
 }
 
 export function saveCashBuyScenarios(s: CashBuyScenario[]) {
+  const prev = _cashBuyScenarios;
   _cashBuyScenarios = s;
   notify();
   void persistCashBuyScenarios(s);
+  _diffAndSyncPropertyValue(prev, s, "cash_buy",
+    x => x.purchasePrice,
+    x => x.address,
+    x => x.normalizedPropertyKey);
   autoCreateInsuranceFromAddresses(
     s.map(c => ({
       sourceType: "cash_buy" as const,
@@ -1413,8 +1469,12 @@ export function getTrackedLoans(): TrackedLoan[] {
 }
 
 export function saveTrackedLoans(loans: TrackedLoan[]): Promise<void> {
+  const prev = _trackedLoans;
   _trackedLoans = loans;
   notify();
+  _diffAndSyncPropertyValue(prev, loans, "refinance",
+    l => l.estimatedHomeValue,
+    l => l.propertyAddress);
   autoCreateInsuranceFromAddresses(
     loans.map(l => ({
       sourceType: "refinance" as const,
