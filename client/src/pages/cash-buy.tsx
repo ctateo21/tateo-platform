@@ -445,20 +445,27 @@ export default function CashBuyPage() {
         const pct = prev.closingCostsPercent ?? DEFAULT_CLOSING_PERCENT;
         next.closingCosts = Math.round(v * (pct / 100));
       }
-      next.propertyTaxes = computeAnnualTaxes(prev.address, v, prev.occupancyType ?? "primary");
+      // Only recompute tax default if the user hasn't manually entered one.
+      if (prev.propertyTaxesSource !== "manual") {
+        next.propertyTaxes = computeAnnualTaxes(prev.address, v, prev.occupancyType ?? "primary");
+      } else {
+        console.debug("[cash-buy-default] skipped tax recompute because manual value exists");
+      }
       return next;
     });
   }
 
   function setOccupancy(occ: CashBuyOccupancyType) {
-    setScenario(prev => ({
-      ...prev,
-      occupancyType: occ,
-      // Tax is fully derived from (address, price, occupancy) — always
-      // recompute on occupancy change; there is no manual-override
-      // concept for taxes in Phase 2.
-      propertyTaxes: computeAnnualTaxes(prev.address, prev.purchasePrice ?? 0, occ),
-    }));
+    setScenario(prev => {
+      const next: CashBuyScenario = { ...prev, occupancyType: occ, occupancyTypeSource: "manual" };
+      // Only recompute tax default if the user hasn't manually entered one.
+      if (prev.propertyTaxesSource !== "manual") {
+        next.propertyTaxes = computeAnnualTaxes(prev.address, prev.purchasePrice ?? 0, occ);
+      } else {
+        console.debug("[cash-buy-default] skipped tax recompute because manual value exists");
+      }
+      return next;
+    });
   }
 
   // Phase 2: physical property type select. Saved to
@@ -467,7 +474,19 @@ export default function CashBuyPage() {
   // HO6. The Zillow merge above only seeds when prev.propertyType is
   // empty, so a manual pick here permanently sticks.
   function setPropertyType(pt: string) {
-    setScenario(prev => ({ ...prev, propertyType: pt }));
+    setScenario(prev => ({ ...prev, propertyType: pt, propertyTypeSource: "manual" }));
+  }
+
+  function setPropertyTaxes(v: number) {
+    setScenario(prev => ({ ...prev, propertyTaxes: v, propertyTaxesSource: "manual" }));
+  }
+
+  function setHomeownersInsurance(v: number) {
+    setScenario(prev => ({
+      ...prev,
+      homeownersInsurance: v,
+      homeownersInsuranceSource: "manual",
+    }));
   }
 
   function setClosingCosts(v: number) {
@@ -512,11 +531,20 @@ export default function CashBuyPage() {
     // simulator. The 0.75% default already covers the no-touch case
     // via `insMidpoint` below.
     if (!userTouchedInsuranceSimRef.current) return;
-    setScenario(prev =>
-      prev.insurancePremiumAnnual === annual && prev.homeownersInsurance === annual
+    setScenario(prev => {
+      // Manual lock: a user-entered annualHomeownersInsurance must not
+      // be overwritten by the simulator. Still record the simulator's
+      // own premium so the sim UI stays consistent.
+      if (prev.homeownersInsuranceSource === "manual") {
+        console.debug("[cash-buy-default] skipped insurance sync because manual value exists");
+        return prev.insurancePremiumAnnual === annual
+          ? prev
+          : { ...prev, insurancePremiumAnnual: annual };
+      }
+      return prev.insurancePremiumAnnual === annual && prev.homeownersInsurance === annual
         ? prev
-        : { ...prev, insurancePremiumAnnual: annual, homeownersInsurance: annual }
-    );
+        : { ...prev, insurancePremiumAnnual: annual, homeownersInsurance: annual };
+    });
   }, []);
 
   // ─── Derived display state ───
@@ -799,7 +827,7 @@ export default function CashBuyPage() {
                     label="Percent of Price"
                     hint="Seller credits are capped at your closing costs."
                     value={scenario.sellerConcessionsPercent ?? 0}
-                    onChange={v => update("sellerConcessionsPercent", v)}
+                    onChange={v => setScenario(prev => ({ ...prev, sellerConcessionsPercent: v, sellerConcessionsSource: "manual" }))}
                     min={0} max={concessionMax} step={0.05} suffix="%" decimals={2}
                   />
                 ) : (
@@ -807,7 +835,7 @@ export default function CashBuyPage() {
                     label="Dollar Amount"
                     hint="Seller credits are capped at your closing costs."
                     value={scenario.sellerConcessionsAmount ?? 0}
-                    onChange={v => update("sellerConcessionsAmount", v)}
+                    onChange={v => setScenario(prev => ({ ...prev, sellerConcessionsAmount: v, sellerConcessionsSource: "manual" }))}
                     min={0} max={concessionMax} step={50} prefix="$"
                   />
                 )}
@@ -826,16 +854,22 @@ export default function CashBuyPage() {
             <CardContent className="space-y-4">
               <NumRow
                 label="Annual Property Taxes"
-                hint="Auto-estimated from the Purchase tab's county-aware rates. Updates when price or property use changes."
+                hint={scenario.propertyTaxesSource === "manual"
+                  ? "Manually entered. Editing price or property use won't overwrite this."
+                  : "Auto-estimated from the Purchase tab's county-aware rates. Updates when price or property use changes."}
                 value={scenario.propertyTaxes ?? 0}
-                onChange={v => update("propertyTaxes", v)}
+                onChange={setPropertyTaxes}
                 min={0} max={50_000} step={50} prefix="$"
               />
               <NumRow
                 label="Annual Homeowners Insurance"
-                hint="Synced from the insurance simulator midpoint below."
-                value={insMidpoint}
-                onChange={v => update("homeownersInsurance", v)}
+                hint={scenario.homeownersInsuranceSource === "manual"
+                  ? "Manually entered. Simulator changes won't overwrite this."
+                  : "Synced from the insurance simulator midpoint below."}
+                value={scenario.homeownersInsuranceSource === "manual"
+                  ? (scenario.homeownersInsurance ?? 0)
+                  : insMidpoint}
+                onChange={setHomeownersInsurance}
                 min={0} max={20_000} step={25} prefix="$"
               />
               <NumRow

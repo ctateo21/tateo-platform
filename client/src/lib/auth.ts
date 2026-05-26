@@ -349,6 +349,10 @@ export type CashBuyPurchasePriceSource =
   | "zillow_cache" | "zillow_listing" | "zillow_sold" | "zillow_zestimate";
 export type CashBuyClosingCostsSource = "default_percent" | "manual";
 export type CashBuyHoaSource = "zillow" | "manual" | "unknown";
+/** Manual-lock provenance for fields whose values have other in-app
+ *  writers (defaults / Zillow / property cache / cross-tab sync). Once
+ *  stamped `"manual"`, those other writers must skip the field. */
+export type CashBuyManualSource = "manual" | "default" | "zillow";
 export type CashBuyZillowStatus =
   | "loading" | "loaded_from_cache" | "loaded_from_zillow" | "error";
 
@@ -380,8 +384,19 @@ export interface CashBuyScenario {
    *  to override Condo/Townhouse → HO6. Stored on
    *  `cash_buy_scenarios.property_type`. */
   propertyType?: string;
+  /** Manual-lock for `propertyType` — blocks the Zillow seed effect. */
+  propertyTypeSource?: CashBuyManualSource;
+  /** Manual-lock for `occupancyType` — recorded but currently no other
+   *  writer; persisted so future defaults can respect it. */
+  occupancyTypeSource?: CashBuyManualSource;
   propertyTaxes?: number;        // annual
+  /** Manual-lock for `propertyTaxes` — blocks the price/occupancy-driven
+   *  `computeAnnualTaxes` recompute in `setPurchasePrice`/`setOccupancy`. */
+  propertyTaxesSource?: CashBuyManualSource;
   homeownersInsurance?: number;  // annual (synced from simulator midpoint)
+  /** Manual-lock for `homeownersInsurance` — blocks both the 0.75%-of-price
+   *  default and the insurance-simulator overwrite. */
+  homeownersInsuranceSource?: CashBuyManualSource;
   hoaMonthly?: number;           // monthly HOA / condo fees
   /** Source of the HOA value. `"manual"` blocks Zillow overwrites. */
   hoaSource?: CashBuyHoaSource;
@@ -393,6 +408,8 @@ export interface CashBuyScenario {
   sellerConcessionsMode?: SellerConcessionsMode;
   sellerConcessionsPercent?: number; // 0–9
   sellerConcessionsAmount?: number;  // absolute $
+  /** Manual-lock for seller-concessions fields. */
+  sellerConcessionsSource?: CashBuyManualSource;
   /** Latest computed cash-to-close snapshot. UI always recomputes from inputs. */
   cashToClose?: number;
   primaryPhotoUrl?: string;
@@ -411,6 +428,10 @@ export interface CashBuyScenario {
    *  if available. Persisted but not currently consumed by the UI. */
   zillowCacheKey?: string;
   propertyCacheId?: string;
+  /** Generic per-field manual-lock map. Mirrors `purchase_scenarios.user_answer_sources`.
+   *  Used alongside the typed *_source columns above so future writers can
+   *  record provenance without a schema change. */
+  userAnswerSources?: Record<string, "manual" | "default" | "zillow" | "simulator">;
 }
 
 export type TrackedLoanPropertyType = "primary" | "secondary" | "investment";
@@ -912,6 +933,23 @@ function rowToCashBuy(row: any): CashBuyScenario {
   const hoaSource: CashBuyHoaSource | undefined =
     hs === "zillow" || hs === "manual" || hs === "unknown" ? hs : undefined;
 
+  const toManualSource = (v: any): CashBuyManualSource | undefined =>
+    v === "manual" || v === "default" || v === "zillow" ? v : undefined;
+  const pps = row.purchase_price_source;
+  const purchasePriceSource: CashBuyPurchasePriceSource | undefined =
+    pps === "default" || pps === "user" || pps === "zillow_cache" ||
+    pps === "zillow_listing" || pps === "zillow_sold" || pps === "zillow_zestimate"
+      ? pps : undefined;
+  const insuranceFactors: CashBuyInsuranceFactors | undefined =
+    row.insurance_factors && typeof row.insurance_factors === "object" &&
+    typeof row.insurance_factors.regionKey === "string"
+      ? row.insurance_factors as CashBuyInsuranceFactors
+      : undefined;
+  const userAnswerSources =
+    row.user_answer_sources && typeof row.user_answer_sources === "object"
+      ? row.user_answer_sources as Record<string, "manual" | "default" | "zillow" | "simulator">
+      : undefined;
+
   // HOA is stored as (amount, frequency). Normalize to a monthly number
   // for the UI — divide by 12 when the row recorded an annual figure.
   let hoaMonthly: number | undefined;
@@ -927,11 +965,16 @@ function rowToCashBuy(row: any): CashBuyScenario {
     savedAt: row.created_at,
     updatedAt: row.updated_at ?? row.created_at,
     purchasePrice: row.purchase_price != null ? Number(row.purchase_price) : undefined,
+    purchasePriceSource,
     occupancyType,
+    occupancyTypeSource: toManualSource(row.occupancy_type_source),
     propertyType: typeof row.property_type === "string" && row.property_type.trim()
       ? row.property_type : undefined,
+    propertyTypeSource: toManualSource(row.property_type_source),
     propertyTaxes: row.property_taxes != null ? Number(row.property_taxes) : undefined,
+    propertyTaxesSource: toManualSource(row.property_taxes_source),
     homeownersInsurance: row.homeowners_insurance != null ? Number(row.homeowners_insurance) : undefined,
+    homeownersInsuranceSource: toManualSource(row.homeowners_insurance_source),
     hoaMonthly,
     hoaSource,
     closingCosts: row.buyer_closing_costs != null ? Number(row.buyer_closing_costs) : undefined,
@@ -940,7 +983,11 @@ function rowToCashBuy(row: any): CashBuyScenario {
     sellerConcessionsMode,
     sellerConcessionsPercent: row.seller_concessions_percent != null ? Number(row.seller_concessions_percent) : undefined,
     sellerConcessionsAmount: row.seller_concessions_amount != null ? Number(row.seller_concessions_amount) : undefined,
+    sellerConcessionsSource: toManualSource(row.seller_concessions_source),
     cashToClose: row.cash_to_close != null ? Number(row.cash_to_close) : undefined,
+    insurancePremiumAnnual: row.insurance_premium_annual != null ? Number(row.insurance_premium_annual) : undefined,
+    insuranceFactors,
+    userAnswerSources,
     primaryPhotoUrl: row.primary_photo_url ?? undefined,
     propertyPhotos: photos,
     status: typeof row.status === "string" ? row.status : undefined,
@@ -958,10 +1005,18 @@ function cashBuyToRow(s: CashBuyScenario, userId: string) {
     created_at: s.savedAt,
     updated_at: s.updatedAt,
     purchase_price: s.purchasePrice ?? null,
+    purchase_price_source: s.purchasePriceSource ?? null,
     occupancy_type: s.occupancyType ?? null,
-    ...(s.propertyType ? { property_type: s.propertyType } : {}),
+    occupancy_type_source: s.occupancyTypeSource ?? null,
+    property_type: s.propertyType ?? null,
+    property_type_source: s.propertyTypeSource ?? null,
     property_taxes: s.propertyTaxes ?? null,
+    property_taxes_source: s.propertyTaxesSource ?? null,
     homeowners_insurance: s.homeownersInsurance ?? null,
+    homeowners_insurance_source: s.homeownersInsuranceSource ?? null,
+    insurance_premium_annual: s.insurancePremiumAnnual ?? null,
+    insurance_factors: s.insuranceFactors ?? null,
+    user_answer_sources: s.userAnswerSources ?? null,
     // Canonical column pair — we always persist the monthly value with
     // an explicit frequency tag so a future per-frequency reader can
     // round-trip without losing information.
@@ -974,6 +1029,7 @@ function cashBuyToRow(s: CashBuyScenario, userId: string) {
     seller_concessions_mode: s.sellerConcessionsMode ?? null,
     seller_concessions_percent: s.sellerConcessionsPercent ?? null,
     seller_concessions_amount: s.sellerConcessionsAmount ?? null,
+    seller_concessions_source: s.sellerConcessionsSource ?? null,
     cash_to_close: s.cashToClose ?? null,
     primary_photo_url: s.primaryPhotoUrl ?? null,
     property_photos: s.propertyPhotos ?? null,
@@ -1866,10 +1922,58 @@ function persistCashBuyScenarios(s: CashBuyScenario[]) {
       if (delErr) notifyError({ table: "cash_buy_scenarios", message: delErr.message });
     }
     if (s.length > 0) {
-      const { error: upErr } = await supabase
-        .from("cash_buy_scenarios")
-        .upsert(s.map(x => cashBuyToRow(x, userId)), { onConflict: "id" });
-      if (upErr) notifyError({ table: "cash_buy_scenarios", message: upErr.message });
+      // Strip-and-retry: protects against older Supabase instances that
+      // haven't run the 2026_05_27 / 2026_05_29 migrations. Mirrors the
+      // purchase_scenarios pattern.
+      const CASH_BUY_OPTIONAL_COLUMNS = [
+        "property_type",
+        "purchase_price_source",
+        "occupancy_type_source",
+        "property_type_source",
+        "property_taxes_source",
+        "homeowners_insurance_source",
+        "seller_concessions_source",
+        "insurance_premium_annual",
+        "insurance_factors",
+        "user_answer_sources",
+      ] as const;
+      const stripped = new Set<string>();
+      const buildPayload = () => s.map(x => {
+        const row: Record<string, any> = cashBuyToRow(x, userId);
+        Array.from(stripped).forEach(col => { delete row[col]; });
+        return row;
+      });
+      let lastErr: string | null = null;
+      for (let attempt = 0; attempt <= CASH_BUY_OPTIONAL_COLUMNS.length; attempt++) {
+        const payload = buildPayload();
+        if (attempt === 0) {
+          payload.forEach((p) => {
+            console.debug("[cash-buy-user-save] scenario id", p.id);
+            console.debug("[cash-buy-user-save] full address", p.full_address);
+            console.debug("[cash-buy-user-save] upsert payload keys", Object.keys(p));
+          });
+        }
+        const { error: upErr } = await supabase
+          .from("cash_buy_scenarios")
+          .upsert(payload, { onConflict: "id" });
+        if (!upErr) { lastErr = null; console.debug("[cash-buy-user-save] upsert ok"); break; }
+        const missing = extractMissingColumn(upErr.message);
+        if (missing && (CASH_BUY_OPTIONAL_COLUMNS as readonly string[]).includes(missing) && !stripped.has(missing)) {
+          console.warn(`[cash-buy-user-save] retrying without missing column '${missing}'`);
+          notifyError({
+            table: "cash_buy_scenarios",
+            message: `Your Supabase cash_buy_scenarios table is missing the '${missing}' column — apply supabase/migrations/2026_05_29_cash_buy_user_answers.sql so this field can persist.`,
+          });
+          stripped.add(missing);
+          continue;
+        }
+        lastErr = upErr.message;
+        break;
+      }
+      if (lastErr) {
+        console.error("[cash-buy-user-save] upsert error", lastErr);
+        notifyError({ table: "cash_buy_scenarios", message: lastErr });
+      }
     }
   });
 }
