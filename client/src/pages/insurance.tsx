@@ -259,6 +259,48 @@ export default function InsuranceDashboard() {
   const [regionKey, setRegionKey] = useState<RegionKey>(getRegionFromAddress(addressParam));
   const [rebuild, setRebuild] = useState(initialRebuild);
 
+  // ── Manual Annual Premium override ───────────────────────────────────────
+  // When the user types a dollar amount into the editable Annual Premium
+  // input, we persist that value and stamp `premiumSource = "manual"` on
+  // save. The cross-tab property-value sync helper then skips the premium
+  // (see `isInsurancePremiumOverridable` in lib/property-value-sync.ts) so
+  // a Refinance / Purchase / Cash / Seller value change can update
+  // Coverage A without overwriting the user's manual premium.
+  //
+  // `null` means "not manual — show the calculated midpoint". A saved
+  // InsuranceScenario with `premiumSource === "manual"` hydrates the
+  // input on mount / address change.
+  function resolveManualPremiumFor(addr: string): number | null {
+    const key = (addr ?? "").trim().toLowerCase();
+    if (!key) return null;
+    const ins = getInsuranceScenarios().find(
+      s => (s.address ?? "").trim().toLowerCase() === key
+    );
+    if (ins?.premiumSource === "manual" && typeof ins.annualPremium === "number"
+        && Number.isFinite(ins.annualPremium) && ins.annualPremium > 0) {
+      return ins.annualPremium;
+    }
+    return null;
+  }
+  const [manualAnnualPremium, setManualAnnualPremium] = useState<number | null>(
+    resolveManualPremiumFor(addressParam)
+  );
+  // Editable input value (kept as a string so partial entry like "5" → "50"
+  // → "500" doesn't reset the cursor or coerce to 0 mid-typing).
+  const [manualPremiumInput, setManualPremiumInput] = useState<string>(
+    () => {
+      const v = resolveManualPremiumFor(addressParam);
+      return v == null ? "" : String(Math.round(v));
+    }
+  );
+  // Re-hydrate from saved state when the address switches.
+  useEffect(() => {
+    const v = resolveManualPremiumFor(addressParam);
+    setManualAnnualPremium(v);
+    setManualPremiumInput(v == null ? "" : String(Math.round(v)));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressParam]);
+
   // ── Policy type (HO3 / HO6 / DP3) ────────────────────────────────────────
   // Defaulted from occupancy + propertyType using the shared rule helper.
   // Hydrates from a saved InsuranceScenario when present (so a manual
@@ -792,7 +834,15 @@ export default function InsuranceDashboard() {
                     id: match?.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
                     address,
                     savedAt: new Date().toISOString(),
-                    annualPremium: Math.round(calc.mid),
+                    // If the user has typed a manual Annual Premium,
+                    // persist that exact value and stamp the source.
+                    // Otherwise fall back to the calculated midpoint
+                    // (Coverage A × 0.75% × factor adjustment) — the
+                    // sync helper is free to recompute this later.
+                    annualPremium:
+                      manualAnnualPremium != null
+                        ? manualAnnualPremium
+                        : Math.round(calc.mid),
                     // Persist Coverage A so the Phase 1 cross-tab value
                     // sync can read/protect it. Source carries forward
                     // from the saved scenario; if the user moved the
@@ -804,14 +854,15 @@ export default function InsuranceDashboard() {
                     // "default" / "manual") is preserved.
                     coverageA: rebuild,
                     coverageASource: match?.coverageASource ?? "default",
-                    // Premium also follows from Coverage A (calc.mid).
-                    // Preserve any "manual" / "quote" stamp from the
-                    // saved row; otherwise treat as the default-derived
-                    // value so future sync can recompute it.
+                    // Stamp premium provenance from the manual-input
+                    // state, preserving any prior "quote" upload that
+                    // the page can't override today.
                     premiumSource:
-                      match?.premiumSource === "manual" || match?.premiumSource === "quote"
-                        ? match.premiumSource
-                        : "default_0_75_percent",
+                      manualAnnualPremium != null
+                        ? "manual"
+                        : match?.premiumSource === "quote"
+                          ? "quote"
+                          : "default_0_75_percent",
                     coverageType: region.name,
                     ...(policyType
                       ? {
@@ -999,6 +1050,99 @@ export default function InsuranceDashboard() {
                   </div>
                 </div>
               </div>
+
+              {/* Annual Premium override (editable) */}
+              <Card className="border shadow-sm">
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                        Annual Premium
+                      </div>
+                      <div className="text-[11px] text-muted-foreground">
+                        {manualAnnualPremium != null
+                          ? "Manual override — sync will not change this"
+                          : "Auto-estimated from Coverage A — editable"}
+                      </div>
+                    </div>
+                    {manualAnnualPremium != null && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-xs h-7"
+                        onClick={() => {
+                          setManualAnnualPremium(null);
+                          setManualPremiumInput("");
+                        }}
+                        data-testid="insurance-reset-premium"
+                      >
+                        Reset to Estimate
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">
+                        Annual
+                      </div>
+                      <div className="flex items-center gap-1 border rounded-md px-2 py-1.5 bg-white">
+                        <span className="text-muted-foreground text-sm">$</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          className="flex-1 text-base font-mono font-semibold text-primary bg-transparent outline-none w-full min-w-0"
+                          value={
+                            manualAnnualPremium != null
+                              ? manualPremiumInput
+                              : String(Math.round(calc.mid))
+                          }
+                          onFocus={(e) => {
+                            // First focus while still on the auto-estimate:
+                            // seed the input with the current midpoint so
+                            // the user edits a real number, not a blank.
+                            if (manualAnnualPremium == null) {
+                              const seed = String(Math.round(calc.mid));
+                              setManualPremiumInput(seed);
+                              setManualAnnualPremium(Math.round(calc.mid));
+                              // Select the seeded text for quick replacement.
+                              setTimeout(() => e.target.select(), 0);
+                            }
+                          }}
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(/[^0-9]/g, "");
+                            setManualPremiumInput(raw);
+                            if (raw === "") {
+                              // Empty input — clear manual stamp so the
+                              // calculated midpoint shows through and Reset
+                              // is effectively automatic.
+                              setManualAnnualPremium(null);
+                            } else {
+                              const n = parseInt(raw, 10);
+                              setManualAnnualPremium(Number.isFinite(n) ? n : null);
+                            }
+                          }}
+                          data-testid="insurance-manual-premium"
+                        />
+                        <span className="text-muted-foreground text-xs">/yr</span>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">
+                        Monthly
+                      </div>
+                      <div className="text-base font-mono font-semibold text-primary px-2 py-1.5">
+                        {fmt(
+                          (manualAnnualPremium != null
+                            ? manualAnnualPremium
+                            : calc.mid) / 12
+                        )}
+                        <span className="text-muted-foreground text-xs ml-1">/mo</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Key metric cards */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

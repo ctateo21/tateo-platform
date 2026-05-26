@@ -1,0 +1,89 @@
+Yes — add the **manual premium input now** before Phase 2.
+
+Reason: the whole sync system depends on knowing when insurance premium is manual vs. default. If there is no UI to manually set annual premium, then `premium_source = "manual"` cannot be tested properly.
+
+Send Replit this:
+
+```text
+Add a manual Annual Premium input to the Insurance detailed view before moving to Phase 2.
+
+Current issue:
+Phase 1 property-value sync is implemented, but the acceptance test step for manual insurance premium override is not reachable from the UI because the Insurance page does not currently expose a direct premium input.
+
+Goal:
+Allow a user to manually enter the insurance Annual Premium in the Insurance detailed view. When they do, stamp:
+
+premium_source = "manual"
+
+Then future property-value sync should not overwrite that annual premium.
+
+Location:
+Dashboard → Insurance → detailed property view
+
+Add/edit field:
+Annual Premium
+
+Behavior:
+1. Show an editable Annual Premium input in the Insurance detailed view.
+2. Default annual premium should still be calculated from Coverage A/Rebuild Cost × 0.75% when premium_source is blank/default.
+3. If user manually changes Annual Premium:
+   - save annual_premium
+   - save premium_source = "manual"
+   - monthly premium = annual_premium / 12
+   - persist to insurance_scenarios
+4. If premium_source = "manual":
+   - property-value sync must not overwrite annual_premium
+   - property-value sync must not overwrite monthly premium
+5. If user clears/resets manual premium:
+   - allow a “Reset to Estimate” behavior if simple
+   - set premium_source = "default_0_75_percent"
+   - recalculate annual premium from Coverage A × 0.75%
+6. Do not show any user-facing text saying “based on 0.75%.”
+
+Display:
+- Annual Premium: editable dollar input
+- Monthly Premium: read-only calculated display
+- Optional button/link: “Reset to Estimate”
+
+Manual override protection:
+After user enters a manual annual premium, changing the property value from:
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Sell Your Home
+
+should update Coverage A only if Coverage A is not manual, but it should NOT overwrite the manual annual premium.
+
+Supabase:
+Use existing columns:
+- insurance_scenarios.annual_premium
+- insurance_scenarios.monthly_premium, if it exists, or derive monthly at render
+- insurance_scenarios.premium_source
+
+I already added premium_source SQL, so do not request a migration unless another column is actually missing.
+
+Acceptance test:
+1. Open Dashboard → Insurance → detailed view.
+2. Confirm Annual Premium is editable.
+3. Enter $5,000/year.
+4. Confirm Monthly Premium shows $416.67/month.
+5. Confirm premium_source saves as "manual".
+6. Refresh/logout/login.
+7. Confirm $5,000/year persists.
+8. Change Refinance estimated home value for the same property.
+9. Confirm manual Annual Premium stays $5,000/year.
+10. Confirm Coverage A still follows property-value sync unless coverage_a_source = manual.
+11. Click Reset to Estimate, if implemented.
+12. Confirm premium_source becomes "default_0_75_percent" and premium recalculates from Coverage A.
+
+Please make the smallest safe code change possible and tell me:
+- Which Insurance component was changed
+- Which field stores manual annual premium
+- How premium_source = manual is stamped
+- How monthly premium is calculated
+- How Reset to Estimate works, if added
+- How property-value sync protects manual premium
+- Which files/functions were changed
+```
+
+After that passes, move to **Phase 2 — Policy Type sync**.
