@@ -1,0 +1,170 @@
+Replit is being honest here: **Phase 2 is not fully complete for your actual intended behavior** because two data-model gaps limit it.
+
+The main issue is this line:
+
+> PurchaseScenario has no occupancy column → seeds "primary" … To unlock Purchase→DP3, add occupancy to purchase schema.
+
+That matters because you specifically wanted:
+
+* Primary / Secondary → HO3 unless condo/townhome → HO6
+* Investment → DP3 unless condo/townhome → HO6
+
+If Purchase with Loan cannot store occupancy/property use, it cannot reliably create DP3 for investment purchases.
+
+The other issue:
+
+> TrackedLoan and CashBuyScenario have no physical-property-type column
+
+That means Refinance and Purchase with Cash cannot reliably detect condo/townhome for HO6 unless that physical property type exists somewhere else.
+
+Send this to Replit:
+
+```text id="complete-policy-type-sync-schema-gaps"
+Phase 2 Policy Type sync needs one follow-up before I consider it complete.
+
+Your report shows two data-model limitations that prevent the intended behavior:
+
+1. PurchaseScenario has no occupancy column, so Purchase with Loan always seeds Insurance as primary.
+   This means Purchase with Loan cannot correctly default Investment → DP3.
+
+2. TrackedLoan and CashBuyScenario do not have physical property type columns, so Cash Buy and Refinance cannot reliably default Condo/Townhouse → HO6.
+
+Please fix these schema/data gaps so policy type sync works exactly as intended.
+
+Required behavior:
+- Primary or Secondary + non-condo/townhouse → HO3
+- Investment + non-condo/townhouse → DP3
+- Condo/Townhouse/Townhome → HO6 regardless of occupancy
+
+This must work from:
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Insurance manual add-property
+
+Step 1 — Supabase migration needed
+Give me one SQL migration for any missing columns before using them.
+
+Likely needed:
+
+purchase_scenarios:
+- occupancy_type text
+- property_type text if not already present
+
+cash_buy_scenarios:
+- occupancy_type text if not already present
+- property_type text if not already present
+
+tracked_loans:
+- occupancy_type text if not already present
+- property_type text if not already present
+
+insurance_scenarios:
+- policy_type text already exists
+- policy_type_source text already exists
+
+Do not create duplicate columns if equivalent fields already exist.
+
+Step 2 — Wire Purchase with Loan occupancy/property type
+Purchase with Loan already asks property use/occupancy and property type in the questionnaire.
+
+Make sure those values save to purchase_scenarios:
+- occupancy_type = Primary / Secondary / Investment
+- property_type = Single Family / Condo / Townhouse / etc.
+
+Then when Insurance is auto-created from Purchase with Loan:
+- copy occupancy_type
+- copy property_type
+- compute policy_type using getDefaultInsurancePolicyType()
+
+Examples:
+- Purchase with Loan Investment + Single Family → Insurance policy_type = DP3
+- Purchase with Loan Primary + Condo → Insurance policy_type = HO6
+- Purchase with Loan Secondary + Townhouse → Insurance policy_type = HO6
+
+Step 3 — Wire Purchase with Cash occupancy/property type
+Purchase with Cash should store:
+- occupancy_type
+- property_type
+
+If property_type comes from Zillow, save it.
+If user changes property type manually, save the manual value.
+
+When Insurance is auto-created from Purchase with Cash:
+- copy occupancy_type
+- copy property_type
+- compute policy_type using getDefaultInsurancePolicyType()
+
+Examples:
+- Cash Buy Investment + Single Family → DP3
+- Cash Buy Investment + Condo → HO6
+- Cash Buy Primary + Single Family → HO3
+
+Step 4 — Wire Refinance occupancy/property type
+Refinance should store:
+- occupancy_type
+- property_type
+
+Important:
+Do not use the same field for occupancy and physical property type.
+The report says TrackedLoan propertyType currently holds occupancy. That must be fixed or separated.
+
+Correct model:
+- occupancy_type = Primary / Secondary / Investment
+- property_type = Single Family / Condo / Townhouse / etc.
+
+When Insurance is auto-created from Refinance:
+- copy occupancy_type
+- copy property_type
+- compute policy_type using getDefaultInsurancePolicyType()
+
+Examples:
+- Refinance Investment + Single Family → DP3
+- Refinance Primary + Condo → HO6
+- Refinance Secondary + Townhouse → HO6
+
+Step 5 — Preserve manual policy type overrides
+If insurance_scenarios.policy_type_source = "manual":
+- do not overwrite policy_type from auto-sync
+- overview and detail should show the manual value
+
+If policy_type_source is blank/default:
+- compute and save the default policy type
+
+Step 6 — Backfill existing rows
+For existing saved scenarios:
+- If occupancy_type/property_type can be inferred from existing fields, backfill them.
+- Then backfill insurance_scenarios.policy_type where blank and not manual.
+- Do not overwrite manual policy_type rows.
+
+Step 7 — Update Insurance overview cards
+Insurance overview cards should show policy_type from insurance_scenarios.policy_type.
+If blank but determinable, compute/backfill it.
+
+Acceptance test:
+1. Purchase with Loan: Primary + Single Family → Insurance HO3.
+2. Purchase with Loan: Secondary + Single Family → Insurance HO3.
+3. Purchase with Loan: Investment + Single Family → Insurance DP3.
+4. Purchase with Loan: Primary + Condo → Insurance HO6.
+5. Purchase with Loan: Investment + Condo → Insurance HO6.
+6. Purchase with Cash: Investment + Single Family → Insurance DP3.
+7. Purchase with Cash: Investment + Condo → Insurance HO6.
+8. Refinance: Investment + Single Family → Insurance DP3.
+9. Refinance: Primary + Condo → Insurance HO6.
+10. Manually change Insurance policy type.
+11. Confirm policy_type_source = manual.
+12. Change occupancy/property type elsewhere.
+13. Confirm manual policy type is not overwritten.
+14. Refresh/logout/login.
+15. Confirm overview and detail policy type match and persist.
+
+Please make the smallest safe code change possible and tell me:
+- Which SQL migration is needed
+- Which occupancy/property type fields were added or reused
+- How Purchase with Loan now passes true occupancy to Insurance
+- How Cash Buy now passes physical property type to Insurance
+- How Refinance now separates occupancy from physical property type
+- How existing rows are backfilled
+- How manual policy type overrides remain protected
+- Which files/functions were changed
+```

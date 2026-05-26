@@ -186,6 +186,11 @@ export interface PurchaseScenario {
    *  Stamped by the diff-watcher in `savePurchaseScenarios` when a save
    *  is not coming from sync. */
   priceSource?: "manual" | "zillow" | "default";
+  /** Occupancy / property-use for the purchase. Used by the Phase 2
+   *  insurance policy-type rule to default Investment → DP3 and
+   *  Primary/Secondary → HO3 (HO6 overrides via propertyType). Stored
+   *  on `purchase_scenarios.occupancy_type`. */
+  occupancyType?: "primary" | "secondary" | "investment";
 }
 
 /** Provenance for `InsuranceScenario.annualPremium`.
@@ -322,6 +327,11 @@ export interface CashBuyScenario {
   /** Provenance of `purchasePrice` — used to gate Zillow overwrites. */
   purchasePriceSource?: CashBuyPurchasePriceSource;
   occupancyType?: CashBuyOccupancyType;
+  /** Physical property type ("Single Family Residence", "Condo",
+   *  "Townhouse", ...) used by the Phase 2 insurance policy-type rule
+   *  to override Condo/Townhouse → HO6. Stored on
+   *  `cash_buy_scenarios.property_type`. */
+  propertyType?: string;
   propertyTaxes?: number;        // annual
   homeownersInsurance?: number;  // annual (synced from simulator midpoint)
   hoaMonthly?: number;           // monthly HOA / condo fees
@@ -368,6 +378,18 @@ export interface TrackedLoan {
   estimatedHomeValue: number;
   estimatedRemainingYears: number;
   propertyType: TrackedLoanPropertyType;
+  /** Phase 2: dedicated occupancy field (Primary / Secondary /
+   *  Investment). The legacy `propertyType` field above historically
+   *  holds the same value — `occupancyType` is preferred when present
+   *  and `propertyType` is treated as a fallback for old rows.
+   *  Stored on `tracked_loans.occupancy_type`. */
+  occupancyType?: "primary" | "secondary" | "investment";
+  /** Phase 2: physical structure type ("Single Family Residence",
+   *  "Condo", "Townhouse", ...) — separate from the historical
+   *  `propertyType` (which holds occupancy). Drives Condo/Townhouse →
+   *  HO6 in the insurance policy-type rule. Stored on
+   *  `tracked_loans.physical_property_type`. */
+  physicalPropertyType?: string;
   /** Refinance loan program. Persisted on tracked_loans.loan_type.
    *  VA/FHA are only valid when propertyType === "primary"; the UI
    *  enforces this and auto-falls-back to "conventional" if the user
@@ -470,6 +492,10 @@ function rowToPurchase(row: any): PurchaseScenario {
       ? row.property_photos.filter((p: any) => typeof p === "string")
       : undefined,
     propertyType: row.property_type ?? undefined,
+    occupancyType: ((): "primary" | "secondary" | "investment" | undefined => {
+      const v = row.occupancy_type;
+      return v === "primary" || v === "secondary" || v === "investment" ? v : undefined;
+    })(),
     propertyTypeSource:
       row.property_type_source === "manual" ||
       row.property_type_source === "zillow" ||
@@ -556,6 +582,7 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
       : {}),
     ...(s.propertyType ? { property_type: s.propertyType } : {}),
     ...(s.propertyTypeSource ? { property_type_source: s.propertyTypeSource } : {}),
+    ...(s.occupancyType ? { occupancy_type: s.occupancyType } : {}),
     ...(typeof s.hasDeferredStudentLoans === "boolean"
       ? { has_deferred_student_loans: s.hasDeferredStudentLoans }
       : {}),
@@ -742,6 +769,8 @@ function rowToCashBuy(row: any): CashBuyScenario {
     updatedAt: row.updated_at ?? row.created_at,
     purchasePrice: row.purchase_price != null ? Number(row.purchase_price) : undefined,
     occupancyType,
+    propertyType: typeof row.property_type === "string" && row.property_type.trim()
+      ? row.property_type : undefined,
     propertyTaxes: row.property_taxes != null ? Number(row.property_taxes) : undefined,
     homeownersInsurance: row.homeowners_insurance != null ? Number(row.homeowners_insurance) : undefined,
     hoaMonthly,
@@ -771,6 +800,7 @@ function cashBuyToRow(s: CashBuyScenario, userId: string) {
     updated_at: s.updatedAt,
     purchase_price: s.purchasePrice ?? null,
     occupancy_type: s.occupancyType ?? null,
+    ...(s.propertyType ? { property_type: s.propertyType } : {}),
     property_taxes: s.propertyTaxes ?? null,
     homeowners_insurance: s.homeownersInsurance ?? null,
     // Canonical column pair — we always persist the monthly value with
@@ -806,6 +836,13 @@ function rowToTrackedLoan(row: any): TrackedLoan {
     estimatedHomeValue: Number(row.estimated_home_value),
     estimatedRemainingYears: Number(row.estimated_remaining_years),
     propertyType: (row.property_type ?? "primary") as TrackedLoanPropertyType,
+    occupancyType: ((): "primary" | "secondary" | "investment" | undefined => {
+      const v = row.occupancy_type;
+      return v === "primary" || v === "secondary" || v === "investment" ? v : undefined;
+    })(),
+    physicalPropertyType:
+      typeof row.physical_property_type === "string" && row.physical_property_type.trim()
+        ? row.physical_property_type : undefined,
     loanType: ((): TrackedLoanType | undefined => {
       const v = row.loan_type;
       return v === "va" || v === "fha" || v === "conventional" ||
@@ -843,6 +880,8 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     estimated_home_value: l.estimatedHomeValue,
     estimated_remaining_years: l.estimatedRemainingYears,
     property_type: l.propertyType ?? "primary",
+    ...(l.occupancyType ? { occupancy_type: l.occupancyType } : {}),
+    ...(l.physicalPropertyType ? { physical_property_type: l.physicalPropertyType } : {}),
     loan_type: l.loanType ?? "conventional",
     added_at: l.addedAt,
     balance_as_of: l.balanceAsOf ?? null,
@@ -1241,16 +1280,15 @@ export function savePurchaseScenarios(s: PurchaseScenario[]) {
       // Seed Insurance-tab annualPremium with 0.75% of purchase price
       // for newly-created rows (spec: insurance-default-075-percent).
       propertyValue: p.price ?? undefined,
-      // PurchaseScenario has no explicit occupancy field yet — the
-      // mortgage pricing engine treats Purchase-with-Loan as a primary
-      // residence by default. We surface that assumption to the
-      // policy-type helper so SFR purchases default to HO3 and
-      // condos/townhouses default to HO6. If we later add a per-purchase
-      // occupancy field, replace this with `p.occupancyType`; secondary/
-      // investment purchases would then auto-default to HO3 / DP3.
+      // Phase 2 follow-up: PurchaseScenario now has its own
+      // `occupancyType` column (2026_05_27 migration). When set, we
+      // use it directly so Investment purchases default to DP3 and
+      // Secondary purchases stay on HO3. We fall back to "primary"
+      // for legacy rows / new scenarios that haven't picked an
+      // occupancy yet, matching the mortgage pricing engine default.
       // Manual overrides in the Insurance tab still win
       // (policyTypeSource = "manual").
-      occupancyType: "primary",
+      occupancyType: p.occupancyType ?? "primary",
       propertyType: p.propertyType,
     })),
   );
@@ -1301,7 +1339,7 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
       // Strip-and-retry: protects against older Supabase instances that
       // haven't run the 2026_05_26 migration (price_source). Mirrors the
       // tracked_loans / seller_scenarios pattern.
-      const PURCHASE_OPTIONAL_COLUMNS = ["price_source"] as const;
+      const PURCHASE_OPTIONAL_COLUMNS = ["price_source", "occupancy_type"] as const;
       const stripped = new Set<string>();
       const buildPayload = () => s.map(x => {
         const row: Record<string, any> = purchaseToRow(x, userId);
@@ -1607,9 +1645,10 @@ export function saveCashBuyScenarios(s: CashBuyScenario[]) {
       // for newly-created rows (spec: insurance-default-075-percent).
       propertyValue: c.purchasePrice ?? undefined,
       occupancyType: c.occupancyType,
-      // CashBuyScenario does not store a separate physical property
-      // type yet — the helper falls back to occupancy-only defaults
-      // (HO3 for primary/secondary, DP3 for investment).
+      // Phase 2 follow-up: cash_buy_scenarios.property_type column
+      // added 2026_05_27. When the user (or Zillow) has supplied a
+      // physical type, the rule can override Condo/Townhouse → HO6.
+      propertyType: c.propertyType,
     })),
   );
 }
@@ -1667,9 +1706,15 @@ export function saveTrackedLoans(loans: TrackedLoan[]): Promise<void> {
       // Seed Insurance-tab annualPremium with 0.75% of estimated home
       // value for newly-created rows (spec: insurance-default-075-percent).
       propertyValue: l.estimatedHomeValue ?? undefined,
-      // TrackedLoan.propertyType holds occupancy (primary / secondary /
-      // investment) — name is historical, not the physical type.
-      occupancyType: l.propertyType,
+      // Phase 2 follow-up: prefer the new dedicated occupancy column
+      // (2026_05_27 migration). Falls back to the legacy `propertyType`
+      // field, which historically stored occupancy values
+      // (primary/secondary/investment) — the name is historical, not
+      // the physical type.
+      occupancyType: l.occupancyType ?? l.propertyType,
+      // Physical structure type (Single Family / Condo / Townhouse /
+      // ...) from the dedicated column. Drives Condo/Townhouse → HO6.
+      propertyType: l.physicalPropertyType,
     })),
   );
   // Returns the persistence promise — see saveInsuranceScenarios.
@@ -1719,6 +1764,7 @@ function autoCreateInsuranceFromAddresses(
 // retry the upsert once so the save still succeeds on older schemas.
 const TRACKED_LOAN_OPTIONAL_COLUMNS = [
   "loan_number", "credit_score", "loan_type", "balance_as_of",
+  "occupancy_type", "physical_property_type",
 ] as const;
 
 export function extractMissingColumn(message: string): string | null {
