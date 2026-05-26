@@ -283,6 +283,11 @@ interface Inputs {
    *  AMI-prefill effect must not overwrite it. See PurchaseScenario
    *  in lib/auth.ts for the persisted column. */
   monthlyIncomeSource?: "manual" | "ami_default" | "default";
+  /** Generic per-field provenance map. Persisted to
+   *  `purchase_scenarios.user_answer_sources` (jsonb). Only fields that
+   *  have other in-app writers need an entry — e.g. `annual_ho_ins`
+   *  has a default-sync effect that must skip "manual"/"simulator". */
+  userAnswerSources?: Record<string, string>;
   reserves: number;
   impactWindows: boolean;
   roofAttachment: string;
@@ -2065,8 +2070,18 @@ export default function Estimate() {
         saved.occupancyType === "investment"
           ? saved.occupancyType
           : base.occupancy,
-      annualTaxes: Math.round(price * 0.015),
-      annualHOIns: calculateDefaultHomeownersInsurance(price).annualInsurance,
+      // Restore saved annual taxes / HO insurance when present, else
+      // fall back to the price-derived defaults. The annualHOIns line-
+      // 2186 default-sync effect respects userAnswerSources to avoid
+      // clobbering a restored or simulator-set value (see guard below).
+      annualTaxes:
+        typeof saved.annualTaxes === "number" && Number.isFinite(saved.annualTaxes)
+          ? saved.annualTaxes
+          : Math.round(price * 0.015),
+      annualHOIns:
+        typeof saved.annualHOIns === "number" && Number.isFinite(saved.annualHOIns)
+          ? saved.annualHOIns
+          : calculateDefaultHomeownersInsurance(price).annualInsurance,
       // Restore saved Property Type + provenance so a "manual" pick
       // survives reload/login and Zillow refreshes can't overwrite it.
       propertyType: saved.propertyType ?? base.propertyType,
@@ -2110,6 +2125,91 @@ export default function Estimate() {
         saved.monthlyIncomeSource === "default"
           ? saved.monthlyIncomeSource
           : base.monthlyIncomeSource,
+      // ── 2026_05_28 comprehensive borrower-answer restore ──
+      // Every user-edited field on Pages 1-4 reloads exactly as entered.
+      // Numeric fields use type narrowing + Number.isFinite to ignore
+      // legacy NaN/null. Yes/no fields preserve `null` (unanswered)
+      // distinctly from `false` (answered no).
+      monthlyDebts:
+        typeof saved.monthlyDebts === "number" && Number.isFinite(saved.monthlyDebts)
+          ? saved.monthlyDebts : base.monthlyDebts,
+      creditScore:
+        typeof saved.creditScore === "number" && Number.isFinite(saved.creditScore)
+          ? saved.creditScore : base.creditScore,
+      reserves:
+        typeof saved.reserves === "number" && Number.isFinite(saved.reserves)
+          ? saved.reserves : base.reserves,
+      isVeteran:
+        saved.isVeteran === true || saved.isVeteran === false || saved.isVeteran === null
+          ? saved.isVeteran : base.isVeteran,
+      vaDisability:
+        saved.vaDisability === true || saved.vaDisability === false || saved.vaDisability === null
+          ? saved.vaDisability : base.vaDisability,
+      vaDisabilityRating100:
+        saved.vaDisabilityRating100 === true || saved.vaDisabilityRating100 === false || saved.vaDisabilityRating100 === null
+          ? saved.vaDisabilityRating100 : base.vaDisabilityRating100,
+      vaLoanUse:
+        saved.vaLoanUse === "first" || saved.vaLoanUse === "second" || saved.vaLoanUse === null
+          ? saved.vaLoanUse : base.vaLoanUse,
+      hasMortgage:
+        saved.hasMortgage === true || saved.hasMortgage === false || saved.hasMortgage === null
+          ? saved.hasMortgage : base.hasMortgage,
+      currentLoanFHA:
+        saved.currentLoanFHA === true || saved.currentLoanFHA === false || saved.currentLoanFHA === null
+          ? saved.currentLoanFHA : base.currentLoanFHA,
+      hasRentalIncome:
+        saved.hasRentalIncome === true || saved.hasRentalIncome === false || saved.hasRentalIncome === null
+          ? saved.hasRentalIncome : base.hasRentalIncome,
+      monthlyRentalIncome:
+        typeof saved.monthlyRentalIncome === "number" && Number.isFinite(saved.monthlyRentalIncome)
+          ? saved.monthlyRentalIncome : base.monthlyRentalIncome,
+      rentalType:
+        saved.rentalType === "annual" || saved.rentalType === "short-term" || saved.rentalType === null
+          ? saved.rentalType : base.rentalType,
+      sellerConcessions:
+        typeof saved.sellerConcessions === "number" && Number.isFinite(saved.sellerConcessions)
+          ? saved.sellerConcessions : base.sellerConcessions,
+      sellerConcessionsMode:
+        saved.sellerConcessionsMode === "percent" || saved.sellerConcessionsMode === "amount"
+          ? saved.sellerConcessionsMode : base.sellerConcessionsMode,
+      annualFloodIns:
+        typeof saved.annualFloodIns === "number" && Number.isFinite(saved.annualFloodIns)
+          ? saved.annualFloodIns : base.annualFloodIns,
+      hoaMonthly:
+        typeof saved.hoaMonthly === "number" && Number.isFinite(saved.hoaMonthly)
+          ? saved.hoaMonthly : base.hoaMonthly,
+      cddAnnual:
+        typeof saved.cddAnnual === "number" && Number.isFinite(saved.cddAnnual)
+          ? saved.cddAnnual : base.cddAnnual,
+      impactWindows:
+        typeof saved.impactWindows === "boolean" ? saved.impactWindows : base.impactWindows,
+      roofAttachment:
+        typeof saved.roofAttachment === "string" ? saved.roofAttachment : base.roofAttachment,
+      swr: typeof saved.swr === "boolean" ? saved.swr : base.swr,
+      userAnswerSources: (() => {
+        // Start from the saved source map (or base), then auto-stamp
+        // `annual_ho_ins` if the saved insurance value is present and
+        // doesn't match the price-derived default. This protects legacy
+        // rows (saved before the source map existed) and any future
+        // writer that bypasses the source-stamping path: without this,
+        // the line-2186 default-sync useEffect would clobber the
+        // restored value on first render.
+        const base0 = (saved.userAnswerSources && typeof saved.userAnswerSources === "object")
+          ? { ...saved.userAnswerSources }
+          : { ...(base.userAnswerSources ?? {}) };
+        const savedHo = typeof saved.annualHOIns === "number" && Number.isFinite(saved.annualHOIns)
+          ? saved.annualHOIns : null;
+        if (savedHo != null && !base0.annual_ho_ins) {
+          const defaultHo = calculateDefaultHomeownersInsurance(price).annualInsurance;
+          if (Math.abs(savedHo - defaultHo) > 1) {
+            base0.annual_ho_ins = "manual";
+            console.log("[purchase-user-load] auto-stamped annual_ho_ins=manual for legacy row", {
+              savedHo, defaultHo,
+            });
+          }
+        }
+        return Object.keys(base0).length > 0 ? base0 : undefined;
+      })(),
     };
   }
 
@@ -2177,15 +2277,36 @@ export default function Estimate() {
   // the regional midpoint becomes the source of truth.
   useEffect(() => {
     if (!userTouchedInsuranceSimRef.current) return;
-    setInputs(prev => ({ ...prev, annualHOIns: insPremiumCalc.mid }));
+    // Stamp source=simulator so the price-sync default writer below
+    // (and any future load) recognizes the midpoint as authoritative
+    // and won't fall back to the 0.75%-of-price default.
+    setInputs(prev => ({
+      ...prev,
+      annualHOIns: insPremiumCalc.mid,
+      userAnswerSources: { ...(prev.userAnswerSources ?? {}), annual_ho_ins: "simulator" },
+    }));
   }, [insPremiumCalc.mid]);
 
   // Keep the 0.75%-of-price default in sync with `purchasePrice`
   // until the user touches the simulator. Once they have, the
   // simulator-midpoint wire-up above owns this field.
+  // ALSO skip when userAnswerSources.annual_ho_ins is "manual" or
+  // "simulator" — that flag is restored from the saved scenario and
+  // is the only thing that prevents this effect from clobbering a
+  // round-tripped insurance value on the very first render after
+  // refresh / login.
   useEffect(() => {
     if (userTouchedInsuranceSimRef.current) return;
     setInputs(prev => {
+      const src = prev.userAnswerSources?.annual_ho_ins;
+      if (src === "manual" || src === "simulator") {
+        // Treat a restored saved value as a touched simulator so the
+        // midpoint wire-up takes over for subsequent edits without
+        // a one-shot clobber on mount.
+        if (!userTouchedInsuranceSimRef.current) userTouchedInsuranceSimRef.current = true;
+        console.log("[purchase-default] annualHOIns skipped: source", src);
+        return prev;
+      }
       const target = calculateDefaultHomeownersInsurance(prev.purchasePrice).annualInsurance;
       if (prev.annualHOIns === target) return prev;
       return { ...prev, annualHOIns: target };
@@ -2943,6 +3064,31 @@ export default function Estimate() {
           // AMI default on refresh / login / address change.
           monthlyIncome: inputs.monthlyIncome,
           monthlyIncomeSource: inputs.monthlyIncomeSource ?? "default",
+          // ── 2026_05_28 comprehensive borrower-answer write ──
+          // Every user-edited field on Pages 1-4 round-trips here.
+          monthlyDebts: inputs.monthlyDebts,
+          creditScore: inputs.creditScore,
+          reserves: inputs.reserves,
+          isVeteran: inputs.isVeteran,
+          vaDisability: inputs.vaDisability,
+          vaDisabilityRating100: inputs.vaDisabilityRating100,
+          vaLoanUse: inputs.vaLoanUse,
+          hasMortgage: inputs.hasMortgage,
+          currentLoanFHA: inputs.currentLoanFHA,
+          hasRentalIncome: inputs.hasRentalIncome,
+          monthlyRentalIncome: inputs.monthlyRentalIncome,
+          rentalType: inputs.rentalType,
+          sellerConcessions: inputs.sellerConcessions,
+          sellerConcessionsMode: inputs.sellerConcessionsMode ?? "percent",
+          annualTaxes: inputs.annualTaxes,
+          annualHOIns: inputs.annualHOIns,
+          annualFloodIns: inputs.annualFloodIns,
+          hoaMonthly: inputs.hoaMonthly,
+          cddAnnual: inputs.cddAnnual,
+          impactWindows: inputs.impactWindows,
+          roofAttachment: inputs.roofAttachment,
+          swr: inputs.swr,
+          userAnswerSources: inputs.userAnswerSources,
           hasDeferredStudentLoans: inputs.hasDeferredStudentLoans ?? false,
           deferredStudentLoanBalance: inputs.deferredStudentLoanBalance ?? 0,
           // Discount Points: persist the user's slider position so
@@ -2984,6 +3130,30 @@ export default function Estimate() {
             && (cur.discountPointsRateReduction ?? 0) === next.discountPointsRateReduction
             && (cur.rateBeforeDiscountPoints ?? null) === next.rateBeforeDiscountPoints
             && (cur.rateAfterDiscountPoints ?? null) === next.rateAfterDiscountPoints
+            // ── 2026_05_28 comprehensive borrower-answer same-check ──
+            && (cur.monthlyDebts ?? undefined) === next.monthlyDebts
+            && (cur.creditScore ?? undefined) === next.creditScore
+            && (cur.reserves ?? undefined) === next.reserves
+            && (cur.isVeteran ?? undefined) === next.isVeteran
+            && (cur.vaDisability ?? undefined) === next.vaDisability
+            && (cur.vaDisabilityRating100 ?? undefined) === next.vaDisabilityRating100
+            && (cur.vaLoanUse ?? undefined) === next.vaLoanUse
+            && (cur.hasMortgage ?? undefined) === next.hasMortgage
+            && (cur.currentLoanFHA ?? undefined) === next.currentLoanFHA
+            && (cur.hasRentalIncome ?? undefined) === next.hasRentalIncome
+            && (cur.monthlyRentalIncome ?? undefined) === next.monthlyRentalIncome
+            && (cur.rentalType ?? undefined) === next.rentalType
+            && (cur.sellerConcessions ?? undefined) === next.sellerConcessions
+            && (cur.sellerConcessionsMode ?? "percent") === next.sellerConcessionsMode
+            && (cur.annualTaxes ?? undefined) === next.annualTaxes
+            && (cur.annualHOIns ?? undefined) === next.annualHOIns
+            && (cur.annualFloodIns ?? undefined) === next.annualFloodIns
+            && (cur.hoaMonthly ?? undefined) === next.hoaMonthly
+            && (cur.cddAnnual ?? undefined) === next.cddAnnual
+            && (cur.impactWindows ?? undefined) === next.impactWindows
+            && (cur.roofAttachment ?? undefined) === next.roofAttachment
+            && (cur.swr ?? undefined) === next.swr
+            && JSON.stringify(cur.userAnswerSources ?? null) === JSON.stringify(next.userAnswerSources ?? null)
             && cur.address === address;
           if (!same) {
             const updated = [...existing];

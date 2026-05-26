@@ -204,6 +204,41 @@ export interface PurchaseScenario {
    *  "default" — the in-memory factory default ($8,000) was never touched.
    *  Stored on `purchase_scenarios.monthly_income_source`. */
   monthlyIncomeSource?: "manual" | "ami_default" | "default";
+  // ── Comprehensive borrower-answer persistence (2026_05_28 migration) ──
+  // Every user-edited field on Pages 1-4 round-trips here so the value
+  // reloads exactly as entered after refresh / login / address change.
+  // All fields are optional; rowToPurchase / purchaseToRow treat
+  // undefined as "no recorded answer" and the caller falls back to its
+  // in-memory default.
+  monthlyDebts?: number;
+  creditScore?: number;
+  reserves?: number;
+  isVeteran?: boolean | null;
+  vaDisability?: boolean | null;
+  vaDisabilityRating100?: boolean | null;
+  vaLoanUse?: "first" | "second" | null;
+  hasMortgage?: boolean | null;
+  currentLoanFHA?: boolean | null;
+  hasRentalIncome?: boolean | null;
+  monthlyRentalIncome?: number;
+  rentalType?: "annual" | "short-term" | null;
+  sellerConcessions?: number;
+  sellerConcessionsMode?: "percent" | "amount";
+  annualTaxes?: number;
+  annualHOIns?: number;
+  annualFloodIns?: number;
+  hoaMonthly?: number;
+  cddAnnual?: number;
+  impactWindows?: boolean;
+  roofAttachment?: string;
+  swr?: boolean;
+  /** Generic per-field provenance map. Only fields that have other
+   *  in-app writers need an entry; everything else is implicitly
+   *  "manual" once persisted. The line 2186 annualHOIns default sync
+   *  in estimate.tsx checks `userAnswerSources?.annual_ho_ins` to
+   *  decide whether to overwrite a user/loaded value with the
+   *  0.75%-of-price default. */
+  userAnswerSources?: Record<string, string>;
 }
 
 /** Provenance for `InsuranceScenario.annualPremium`.
@@ -565,7 +600,61 @@ function rowToPurchase(row: any): PurchaseScenario {
       row.monthly_income_source === "default"
         ? row.monthly_income_source
         : undefined,
+    // ── 2026_05_28 comprehensive borrower-answer round-trip ──
+    monthlyDebts: numOrUndef(row.monthly_debts),
+    creditScore: numOrUndef(row.credit_score),
+    reserves: numOrUndef(row.reserves),
+    isVeteran: boolOrUndef(row.is_veteran),
+    vaDisability: boolOrUndef(row.va_disability),
+    vaDisabilityRating100: boolOrUndef(row.va_disability_rating_100),
+    vaLoanUse:
+      row.va_loan_use === "first" || row.va_loan_use === "second"
+        ? row.va_loan_use
+        : undefined,
+    hasMortgage: boolOrUndef(row.has_mortgage),
+    currentLoanFHA: boolOrUndef(row.current_loan_fha),
+    hasRentalIncome: boolOrUndef(row.has_rental_income),
+    monthlyRentalIncome: numOrUndef(row.monthly_rental_income),
+    rentalType:
+      row.rental_type === "annual" || row.rental_type === "short-term"
+        ? row.rental_type
+        : undefined,
+    sellerConcessions: numOrUndef(row.seller_concessions),
+    sellerConcessionsMode:
+      row.seller_concessions_mode === "percent" ||
+      row.seller_concessions_mode === "amount"
+        ? row.seller_concessions_mode
+        : undefined,
+    annualTaxes: numOrUndef(row.annual_taxes),
+    annualHOIns: numOrUndef(row.annual_ho_ins),
+    annualFloodIns: numOrUndef(row.annual_flood_ins),
+    hoaMonthly: numOrUndef(row.hoa_monthly),
+    cddAnnual: numOrUndef(row.cdd_annual),
+    impactWindows:
+      typeof row.impact_windows === "boolean" ? row.impact_windows : undefined,
+    roofAttachment:
+      typeof row.roof_attachment === "string" ? row.roof_attachment : undefined,
+    swr: typeof row.swr === "boolean" ? row.swr : undefined,
+    userAnswerSources:
+      row.user_answer_sources && typeof row.user_answer_sources === "object"
+        ? (row.user_answer_sources as Record<string, string>)
+        : undefined,
   };
+}
+
+// Helpers for the round-trip above. `numOrUndef` accepts Supabase's
+// `numeric → string` coercion (e.g. "780") as well as numbers, and
+// rejects NaN. `boolOrUndef` accepts only real booleans so legacy
+// "null" rows stay nullable in the UI.
+function numOrUndef(v: unknown): number | undefined {
+  if (v == null) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+function boolOrUndef(v: unknown): boolean | null | undefined {
+  if (v === true || v === false) return v;
+  if (v === null) return null;
+  return undefined;
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
   // Mirror cash_buy_scenarios shape: keep writing legacy `address` /
@@ -612,6 +701,47 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
       ? { monthly_income: s.monthlyIncome }
       : {}),
     ...(s.monthlyIncomeSource ? { monthly_income_source: s.monthlyIncomeSource } : {}),
+    // ── 2026_05_28 comprehensive borrower-answer write ──
+    // Each entry is a conditional spread so older Inputs shapes (where
+    // a field is still `undefined`) never clobber a column that's
+    // already been populated by a later save. `null` is meaningful for
+    // the yes/no Page-2 fields (user hasn't answered yet) and IS
+    // persisted distinctly from `undefined` (no recorded answer at all).
+    ...(typeof s.monthlyDebts === "number" && Number.isFinite(s.monthlyDebts)
+      ? { monthly_debts: s.monthlyDebts } : {}),
+    ...(typeof s.creditScore === "number" && Number.isFinite(s.creditScore)
+      ? { credit_score: s.creditScore } : {}),
+    ...(typeof s.reserves === "number" && Number.isFinite(s.reserves)
+      ? { reserves: s.reserves } : {}),
+    ...(s.isVeteran !== undefined ? { is_veteran: s.isVeteran } : {}),
+    ...(s.vaDisability !== undefined ? { va_disability: s.vaDisability } : {}),
+    ...(s.vaDisabilityRating100 !== undefined
+      ? { va_disability_rating_100: s.vaDisabilityRating100 } : {}),
+    ...(s.vaLoanUse !== undefined ? { va_loan_use: s.vaLoanUse } : {}),
+    ...(s.hasMortgage !== undefined ? { has_mortgage: s.hasMortgage } : {}),
+    ...(s.currentLoanFHA !== undefined ? { current_loan_fha: s.currentLoanFHA } : {}),
+    ...(s.hasRentalIncome !== undefined ? { has_rental_income: s.hasRentalIncome } : {}),
+    ...(typeof s.monthlyRentalIncome === "number" && Number.isFinite(s.monthlyRentalIncome)
+      ? { monthly_rental_income: s.monthlyRentalIncome } : {}),
+    ...(s.rentalType !== undefined ? { rental_type: s.rentalType } : {}),
+    ...(typeof s.sellerConcessions === "number" && Number.isFinite(s.sellerConcessions)
+      ? { seller_concessions: s.sellerConcessions } : {}),
+    ...(s.sellerConcessionsMode ? { seller_concessions_mode: s.sellerConcessionsMode } : {}),
+    ...(typeof s.annualTaxes === "number" && Number.isFinite(s.annualTaxes)
+      ? { annual_taxes: s.annualTaxes } : {}),
+    ...(typeof s.annualHOIns === "number" && Number.isFinite(s.annualHOIns)
+      ? { annual_ho_ins: s.annualHOIns } : {}),
+    ...(typeof s.annualFloodIns === "number" && Number.isFinite(s.annualFloodIns)
+      ? { annual_flood_ins: s.annualFloodIns } : {}),
+    ...(typeof s.hoaMonthly === "number" && Number.isFinite(s.hoaMonthly)
+      ? { hoa_monthly: s.hoaMonthly } : {}),
+    ...(typeof s.cddAnnual === "number" && Number.isFinite(s.cddAnnual)
+      ? { cdd_annual: s.cddAnnual } : {}),
+    ...(typeof s.impactWindows === "boolean" ? { impact_windows: s.impactWindows } : {}),
+    ...(typeof s.roofAttachment === "string" ? { roof_attachment: s.roofAttachment } : {}),
+    ...(typeof s.swr === "boolean" ? { swr: s.swr } : {}),
+    ...(s.userAnswerSources && Object.keys(s.userAnswerSources).length > 0
+      ? { user_answer_sources: s.userAnswerSources } : {}),
     ...(typeof s.hasDeferredStudentLoans === "boolean"
       ? { has_deferred_student_loans: s.hasDeferredStudentLoans }
       : {}),
@@ -1373,6 +1503,34 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
         "occupancy_type",
         "monthly_income",
         "monthly_income_source",
+        // 2026_05_28 comprehensive borrower-answer persistence — every
+        // column added by `2026_05_28_purchase_user_answers.sql` is
+        // listed here so the strip-and-retry path keeps the app
+        // working against Supabase instances that haven't applied the
+        // migration yet.
+        "monthly_debts",
+        "credit_score",
+        "reserves",
+        "is_veteran",
+        "va_disability",
+        "va_disability_rating_100",
+        "va_loan_use",
+        "has_mortgage",
+        "current_loan_fha",
+        "has_rental_income",
+        "monthly_rental_income",
+        "rental_type",
+        "seller_concessions",
+        "seller_concessions_mode",
+        "annual_taxes",
+        "annual_ho_ins",
+        "annual_flood_ins",
+        "hoa_monthly",
+        "cdd_annual",
+        "impact_windows",
+        "roof_attachment",
+        "swr",
+        "user_answer_sources",
       ] as const;
       const stripped = new Set<string>();
       const buildPayload = () => s.map(x => {

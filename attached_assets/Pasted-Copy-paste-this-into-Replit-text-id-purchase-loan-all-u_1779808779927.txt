@@ -1,0 +1,320 @@
+Copy/paste this into Replit:
+
+```text id="purchase-loan-all-user-changes-persist"
+Expand Purchase with Loan persistence so every user-changed field across the entire flow saves and reloads.
+
+Current issue:
+User changes may stay temporarily while moving between tabs, but after refresh/logout/login, some values reset to defaults, AMI values, Zillow values, or original calculated values.
+
+This applies beyond Page 1 and Page 2.
+
+Goal:
+Any user-changed information anywhere inside the Purchase with Loan flow must save to `purchase_scenarios` and reload exactly as entered.
+
+Scope:
+Purchase with Loan only.
+
+Pages:
+- Page 1 — Borrower Details
+- Page 2 — Additional Questions
+- Page 3 — Purchase Details
+- Page 4 — See My Estimate
+
+Core rule:
+If the user changes a value, save it.
+When they refresh/logout/login, load that saved user value.
+Do not replace user-entered values with defaults unless the field is blank or the user intentionally resets it.
+
+Page 1 fields to persist:
+- name, if collected
+- email, if collected
+- phone, if collected
+- monthly income
+- annual income, if used
+- monthly debts
+- credit score
+- assets / reserves / cash available
+- employment type / income type
+- any other borrower-level field shown on Page 1
+
+Page 2 fields to persist:
+- property use / occupancy
+- veteran / VA eligible
+- 100% VA disability
+- currently owns a home
+- deferred student loans yes/no
+- deferred student loan balance
+- calculated student loan monthly debt adjustment
+- any other yes/no or qualifying field shown on Page 2
+
+Page 3 fields to persist:
+- purchase price
+- property type
+- occupancy / property use, if editable there
+- loan type
+- down payment mode: percent or dollar
+- down payment percent
+- down payment dollar amount
+- seller concessions mode: percent or dollar
+- seller concessions percent
+- seller concessions dollar amount
+- estimated closing costs
+- annual property taxes
+- homeowners insurance estimate
+- HOA / condo fees
+- loan term / amortization, if editable
+- interest rate, if user-editable or selected
+- discount points, if present on Page 3
+- FHA DPA selections, if present
+- any other Page 3 purchase-detail field that affects calculations
+
+Page 4 fields to persist:
+- loan type dropdown changes
+- down payment mode/percent/dollar changes
+- seller concessions mode/percent/dollar changes
+- discount points percent
+- discount points cost
+- selected/final interest rate if user-adjusted
+- rate before discount points
+- rate after discount points
+- closing cost edits
+- homeowners insurance edits
+- taxes edits
+- HOA edits
+- any estimate-card field that user can change
+- any Review Your Answers edit
+- any field changed from Page 4 that affects:
+  - loan amount
+  - payment
+  - DTI
+  - cash to close
+  - qualification
+  - seller concessions caps
+  - discount point costs
+  - AMI discount
+  - insurance estimates
+
+Important distinction:
+User-entered or user-edited values must be protected.
+Derived/calculated values can recalculate from those saved user inputs.
+
+Do not overwrite user-entered values with:
+- AMI monthly income default
+- Zillow Zestimate
+- Zillow purchase price
+- property cache value
+- default down payment
+- default loan type
+- default seller concessions
+- default discount points
+- default homeowners insurance
+- default property tax
+- copied prior scenario values
+unless the user value is blank/null or the user explicitly resets it.
+
+Source tracking:
+Add or reuse source fields where helpful.
+
+Preferred approach:
+Use a generic user-source map instead of adding dozens of individual source columns if cleaner.
+
+Possible field:
+- user_answer_sources jsonb
+
+Example:
+{
+  "monthly_income": "manual",
+  "monthly_debts": "manual",
+  "credit_score": "manual",
+  "assets": "manual",
+  "loan_type": "manual",
+  "purchase_price": "manual",
+  "down_payment_percent": "manual",
+  "seller_concessions_percent": "manual",
+  "discount_points_percent": "manual",
+  "homeowners_insurance": "manual",
+  "property_taxes": "manual",
+  "hoa_fee": "manual"
+}
+
+If individual source fields already exist, use them.
+If needed, give me one SQL migration before saving new fields.
+
+Minimum source rule:
+When user changes a field:
+- mark that field source = "manual"
+- save the value
+- do not overwrite it later with default/Zillow/AMI/copy logic
+
+When field is blank and default is applied:
+- source = "default", "ami_default", "zillow", or "copied_from_prior"
+
+AMI behavior:
+AMI should only be used for:
+- initial default if monthly income is blank
+- AMI discount comparison
+
+AMI must not overwrite manual monthly income.
+
+Zillow/property cache behavior:
+Zillow can populate property-specific fields initially, such as:
+- purchase price/value
+- property type
+- taxes
+- HOA
+- photos
+
+But if user edits those fields:
+- preserve user value
+- do not overwrite with Zillow later unless user resets
+
+Copied prior scenario behavior:
+If a new Purchase with Loan scenario copies borrower answers from a prior saved scenario:
+- copied values should save into the new scenario
+- they should not be overwritten by defaults
+- if user edits a copied value, source becomes manual
+
+Autosave:
+Any user-editable field in Purchase with Loan Pages 1–4 should trigger autosave to the same `purchase_scenarios` row.
+
+Requirements:
+1. Debounce if needed.
+2. Do not create duplicate scenarios.
+3. Use stable scenario ID.
+4. Update `updated_at`.
+5. Save to `purchase_scenarios`.
+6. Show no blocking save prompt.
+7. Values must persist after refresh/logout/login.
+
+Save/load mapping:
+Audit and fix:
+- PurchaseScenario type/model
+- purchase_scenarios row mapper
+- frontend → Supabase row mapper
+- Supabase row → frontend mapper
+- `persistPurchaseScenarios`
+- dashboard Purchase with Loan loader
+- Page 1 state hydration
+- Page 2 state hydration
+- Page 3 state hydration
+- Page 4 state hydration
+- Review Your Answers hydration/edit behavior
+
+Do not save only local state.
+Do not save only URL params.
+Do not save only computed state.
+Do not wait until Page 4.
+Do not require Save Scenario button.
+
+Calculated fields:
+Calculated outputs may be recalculated on load from saved inputs:
+- loan amount
+- payment
+- DTI
+- cash to close
+- qualification
+- discount point cost
+- final interest rate
+- AMI discount
+
+But the user inputs that drive these calculations must be saved.
+
+Example:
+If user changes:
+- purchase price = $500,000
+- down payment = 10%
+- discount points = 1.0%
+- seller concessions = 2%
+Then after logout/login:
+- purchase price still $500,000
+- down payment still 10%
+- discount points still 1.0%
+- seller concessions still 2%
+- loan amount/payment/cash-to-close recalculate from those saved inputs
+
+Supabase:
+If columns are missing, give me one complete SQL migration.
+
+Likely fields to verify/add:
+- monthly_income
+- monthly_income_source
+- monthly_debts
+- credit_score
+- assets
+- occupancy_type
+- veteran_status
+- va_disability_100
+- owns_home
+- deferred_student_loans
+- deferred_student_loan_balance
+- down_payment_mode
+- down_payment_percent
+- down_payment_amount
+- seller_concessions_mode
+- seller_concessions_percent
+- seller_concessions_amount
+- discount_points_percent
+- discount_points_cost
+- discount_points_rate_reduction
+- rate_before_discount_points
+- rate_after_discount_points
+- homeowners_insurance
+- annual_property_taxes
+- hoa_fee
+- loan_type
+- loan_term
+- user_answer_sources jsonb
+
+Use existing equivalent columns if they already exist.
+Do not create duplicates.
+
+Debug logs:
+Add temporary logs:
+- [purchase-user-save] page
+- [purchase-user-save] changed field
+- [purchase-user-save] value
+- [purchase-user-save] source
+- [purchase-user-save] scenario id
+- [purchase-user-save] upsert payload keys
+- [purchase-user-save] upsert ok/error
+- [purchase-user-load] scenario id
+- [purchase-user-load] loaded user fields
+- [purchase-user-load] loaded source map
+- [purchase-default] skipped because manual value exists
+- [purchase-default] applied because field blank
+
+Acceptance test:
+1. Log in.
+2. Open Purchase with Loan.
+3. Add/select a property.
+4. On Page 1, enter monthly income, monthly debts, credit score, and assets.
+5. On Page 2, answer veteran, owns home, deferred student loans, student loan balance, and occupancy.
+6. On Page 3, change purchase price, property type, loan type, down payment mode/value, seller concessions mode/value, taxes, insurance, and HOA.
+7. On Page 4, change loan type, down payment, seller concessions, and discount points.
+8. Confirm Review Your Answers shows the changed values.
+9. Refresh the page.
+10. Confirm all changed values from Pages 1–4 remain.
+11. Log out.
+12. Log back in.
+13. Open the same Purchase with Loan scenario.
+14. Confirm all changed values from Pages 1–4 remain exactly as entered.
+15. Confirm AMI did not overwrite monthly income.
+16. Confirm Zillow did not overwrite edited purchase price/property taxes/HOA/insurance.
+17. Confirm defaults did not overwrite loan type/down payment/seller concessions/discount points.
+18. Change values again and confirm they autosave.
+19. Refresh/logout/login again and confirm updated values remain.
+20. Confirm no duplicate Purchase with Loan scenarios were created.
+
+Please make the smallest safe code change possible and tell me:
+- Which Page 1 fields now persist
+- Which Page 2 fields now persist
+- Which Page 3 fields now persist
+- Which Page 4 fields now persist
+- Which Supabase columns already existed
+- Which SQL migration is needed, if any
+- Which save mapper was updated
+- Which load mapper was updated
+- Which default/Zillow/AMI effects were guarded
+- How user-edited values are protected from defaults
+- Which files/functions were changed
+```
