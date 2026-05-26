@@ -303,9 +303,18 @@ export type SellerScenarioStatus =
  *  never be overwritten by a subsequent refinance upload. NULL/undefined
  *  is treated as "auto / overridable" by the seller-from-refinance helper.
  *  See supabase/migrations/2026_05_24_seller_scenario_sources.sql. */
-export type SellerEstimatedSalePriceSource = "refinance" | "zillow" | "manual";
+export type SellerEstimatedSalePriceSource = "refinance" | "zillow" | "manual" | "property_value_sync";
 export type SellerMortgagePayoffSource = "refinance_statement" | "manual";
 export type SellerRealtorCommissionSource = "default_5_percent" | "manual";
+// Provenance for the three free-text user inputs that previously had
+// no source tracking. "default" — never user-touched (0 / unset).
+// "manual" — user has typed/dragged a value. Used by the seller
+// autosave to keep manual entries from being wiped by future
+// refinance / Zillow / property-cache merges. Persisted on the
+// matching *_source column on seller_scenarios.
+export type SellerBuyerConcessionsSource = "default" | "manual";
+export type SellerRepairBudgetSource = "default" | "manual";
+export type SellerOtherSellingCostsSource = "default" | "manual";
 export type SellerClosingCostsSource =
   | "default_percent"     // current default (1.85% of sale price)
   | "percent_manual"      // user moved the percent slider
@@ -340,6 +349,14 @@ export interface SellerScenario {
   mortgagePayoffSource?: SellerMortgagePayoffSource;
   realtorCommissionSource?: SellerRealtorCommissionSource;
   sellerClosingCostsSource?: SellerClosingCostsSource;
+  /** Provenance for the three free-text seller inputs. See type aliases above. */
+  buyerConcessionsSource?: SellerBuyerConcessionsSource;
+  repairBudgetSource?: SellerRepairBudgetSource;
+  otherSellingCostsSource?: SellerOtherSellingCostsSource;
+  /** Open-ended provenance map (mirrors cash-buy's user_answer_sources).
+   *  Keys are camelCase field names; values are arbitrary string tags.
+   *  Persisted on seller_scenarios.user_answer_sources (jsonb). */
+  userAnswerSources?: Record<string, string>;
 }
 
 export type CashBuyOccupancyType = "primary" | "secondary" | "investment";
@@ -885,6 +902,13 @@ function rowToSeller(row: any): SellerScenario {
     mortgagePayoffSource:     (row.mortgage_payoff_source      ?? undefined) as SellerMortgagePayoffSource | undefined,
     realtorCommissionSource:  (row.realtor_commission_source   ?? undefined) as SellerRealtorCommissionSource | undefined,
     sellerClosingCostsSource: (row.seller_closing_costs_source ?? undefined) as SellerClosingCostsSource | undefined,
+    buyerConcessionsSource:   (row.buyer_concessions_source    ?? undefined) as SellerBuyerConcessionsSource | undefined,
+    repairBudgetSource:       (row.repair_budget_source        ?? undefined) as SellerRepairBudgetSource | undefined,
+    otherSellingCostsSource:  (row.other_selling_costs_source  ?? undefined) as SellerOtherSellingCostsSource | undefined,
+    userAnswerSources:
+      row.user_answer_sources && typeof row.user_answer_sources === "object"
+        ? row.user_answer_sources as Record<string, string>
+        : undefined,
   };
 }
 function sellerToRow(s: SellerScenario, userId: string) {
@@ -911,6 +935,10 @@ function sellerToRow(s: SellerScenario, userId: string) {
     mortgage_payoff_source:      s.mortgagePayoffSource ?? null,
     realtor_commission_source:   s.realtorCommissionSource ?? null,
     seller_closing_costs_source: s.sellerClosingCostsSource ?? null,
+    buyer_concessions_source:    s.buyerConcessionsSource ?? null,
+    repair_budget_source:        s.repairBudgetSource ?? null,
+    other_selling_costs_source:  s.otherSellingCostsSource ?? null,
+    user_answer_sources:         s.userAnswerSources ?? null,
   };
 }
 // Maps a Supabase `cash_buy_scenarios` row to the in-memory shape used

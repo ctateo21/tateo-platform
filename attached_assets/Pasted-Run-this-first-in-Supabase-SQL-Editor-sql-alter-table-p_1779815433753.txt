@@ -1,0 +1,311 @@
+Run this first in **Supabase → SQL Editor**.
+
+```sql
+alter table public.seller_scenarios
+  add column if not exists estimated_sale_price_source text,
+  add column if not exists mortgage_payoff_source text,
+  add column if not exists realtor_commission_source text,
+  add column if not exists seller_closing_costs_source text,
+  add column if not exists buyer_concessions_source text,
+  add column if not exists repair_budget_source text,
+  add column if not exists other_selling_costs_source text,
+  add column if not exists annual_property_taxes_source text,
+  add column if not exists hoa_monthly_source text,
+  add column if not exists user_answer_sources jsonb default '{}'::jsonb;
+```
+
+Then copy/paste this into Replit:
+
+```text
+Fix Sell Your Home persistence so every user-entered or user-adjusted field saves and reloads.
+
+Current issue:
+Purchase with Loan and Purchase with Cash now preserve user-edited values after refresh/logout/login. I need the same behavior on Sell Your Home.
+
+Goal:
+Any user-changed information inside the Sell Your Home tab must save to `seller_scenarios` and reload exactly as entered.
+
+Scope:
+Sell Your Home only.
+
+Core rule:
+If the user changes a value in Sell Your Home, save it.
+When they refresh/logout/login, load that saved value.
+Do not replace user-entered values with defaults, Zillow values, property cache values, Refinance values, or calculated values unless the field is blank or the user intentionally resets it.
+
+I already ran this SQL in Supabase:
+
+alter table public.seller_scenarios
+  add column if not exists estimated_sale_price_source text,
+  add column if not exists mortgage_payoff_source text,
+  add column if not exists realtor_commission_source text,
+  add column if not exists seller_closing_costs_source text,
+  add column if not exists buyer_concessions_source text,
+  add column if not exists repair_budget_source text,
+  add column if not exists other_selling_costs_source text,
+  add column if not exists annual_property_taxes_source text,
+  add column if not exists hoa_monthly_source text,
+  add column if not exists user_answer_sources jsonb default '{}'::jsonb;
+
+Please verify these columns exist and use them. Do not request another migration unless a different missing column is found.
+
+Fields that must persist:
+- full address
+- normalized property key
+- estimated sale price
+- mortgage payoff / loan balance
+- realtor commission percent
+- realtor commission dollar amount
+- seller closing costs percent
+- seller closing costs dollar amount
+- seller closing costs source/mode
+- buyer concessions / seller credits
+- Post Inspection Credits / Repair Costs
+- other selling costs
+- annual property taxes, if shown
+- HOA / condo fees, if shown
+- property type, if shown
+- occupancy / property use, if shown
+- status:
+  - Draft
+  - Ready to List
+  - Listed
+  - any other existing status
+- market analysis eligibility status
+- any user-edited selling cost field
+- any user-edited net proceeds input
+- photos / Zillow cache fields if stored
+- any other editable Sell Your Home field shown in the tab
+
+Important distinction:
+User-entered values should be protected.
+Zillow/property-cache/refinance values can initially populate fields, but they should not overwrite a user-edited value after the user changes it.
+
+Required behavior:
+1. When user changes any Sell Your Home field, update local state immediately.
+2. Auto-save the changed value to `seller_scenarios`.
+3. Mark the field as manual/user-edited using the source columns or `user_answer_sources`.
+4. On load after refresh/logout/login, hydrate the UI from `seller_scenarios`.
+5. Do not replace manual values with defaults, Zillow/property cache, Refinance sync, or calculated values.
+6. Do not create duplicate seller scenarios.
+7. Save to the same existing scenario row using stable scenario ID.
+
+Source tracking:
+Use these source fields:
+- estimated_sale_price_source
+- mortgage_payoff_source
+- realtor_commission_source
+- seller_closing_costs_source
+- buyer_concessions_source
+- repair_budget_source
+- other_selling_costs_source
+- annual_property_taxes_source
+- hoa_monthly_source
+- user_answer_sources jsonb
+
+Source values:
+- "manual" = user changed the value
+- "default" = app default
+- "zillow" = Zillow/property cache
+- "refinance" = copied from Refinance
+- "property_value_sync" = synced from shared property value
+- "calculated" = calculated from another field
+
+Critical rule:
+When user changes a field:
+- mark that field source = "manual"
+- save the value
+- do not overwrite it later with default/Zillow/refinance/property sync logic
+
+Zillow/property cache behavior:
+Zillow can initially populate:
+- estimated sale price / Zestimate
+- property type
+- photos
+- taxes
+- HOA
+- sqft/year built/bed/bath
+
+But if user edits those fields:
+- preserve user value
+- do not overwrite with Zillow later unless user resets
+
+Refinance sync behavior:
+The app currently auto-creates or updates Sell Your Home from Refinance.
+
+That should continue, but must respect manual overrides.
+
+If Refinance sends:
+- estimated home value → seller estimated sale price
+- loan balance → mortgage payoff
+- commission default = 5%
+- seller closing costs default = current seller closing cost logic
+
+Then:
+- only apply those values if the Sell Your Home field is blank/default/not manual
+- do not overwrite manual estimated sale price
+- do not overwrite manual mortgage payoff
+- do not overwrite manual commission
+- do not overwrite manual seller closing costs
+- do not overwrite manual repair costs / credits
+
+If user changes Sell Your Home estimated sale price directly:
+- that value becomes manual
+- property value sync may update Refinance if that is already current behavior
+- but future Refinance updates should not overwrite it unless the user directly changes the shared value again according to the existing property-value sync rules
+
+Seller closing costs behavior:
+Seller closing costs should continue using the current default percent logic unless manually changed.
+
+If user changes seller closing cost percent:
+- save percent
+- calculate dollar amount
+- source = manual
+
+If user changes seller closing cost dollar amount:
+- save dollar amount
+- calculate implied percent if currently supported
+- source = manual
+
+If estimated sale price changes and seller closing costs are default/percent-based:
+- recalculate from percent
+
+If seller closing costs are manual dollar amount:
+- preserve manual dollar amount unless user changes it
+
+Realtor commission behavior:
+If user changes commission percent or dollar amount:
+- save the changed value
+- mark source = manual
+- do not overwrite it with 5% default later
+
+Post Inspection Credits / Repair Costs:
+This is the renamed repair_budget field.
+If user changes it:
+- save repair_budget
+- repair_budget_source = manual
+- do not overwrite it
+
+Market Analysis behavior:
+Do not trigger Market Analysis because user changed selling inputs.
+Market Analysis should still only run when status is:
+- Ready to List
+- Listed
+
+Draft should show the existing highlighted placeholder message and should not call Anthropic, Realtor.com, Zillow scraper, or web search just because user changes seller inputs.
+
+Supabase:
+Make sure `seller_scenarios` has fields for all editable Sell Your Home values that need to persist.
+
+Use existing equivalent columns if they already exist.
+Do not create duplicate fields.
+
+If a required column is missing beyond the SQL I already ran, give me one complete SQL migration before saving.
+
+Save/load mapping:
+Audit and fix:
+- SellerScenario type/model
+- seller_scenarios row mapper
+- frontend → Supabase mapper
+- Supabase row → frontend mapper
+- `persistSellerScenarios`
+- seller-estimate page state hydration
+- seller-estimate autosave logic
+- dashboard Sell Your Home loader
+- Refinance → Sell Your Home auto-create/update
+- property-value sync into Sell Your Home
+- any default/Zillow/property cache effects in seller-estimate.tsx
+
+Autosave:
+Any user-editable field in Sell Your Home should trigger autosave to the same `seller_scenarios` row.
+
+Requirements:
+1. Debounce if needed.
+2. Do not create duplicate scenarios.
+3. Use stable scenario ID.
+4. Update `updated_at`.
+5. Save to `seller_scenarios`.
+6. Show no blocking save prompt.
+7. Values must persist after refresh/logout/login.
+
+Calculated fields:
+Calculated outputs may recalculate from saved inputs:
+- realtor commission amount
+- seller closing costs amount
+- estimated net proceeds
+- total selling costs
+
+But the user inputs that drive those calculations must be saved.
+
+Net proceeds formula should remain:
+Estimated Sale Price
+- Mortgage Payoff
+- Realtor Commission
+- Seller Closing Costs
+- Buyer Concessions
+- Post Inspection Credits / Repair Costs
+- Other Selling Costs
+= Estimated Net Proceeds
+
+Debug logs:
+Add temporary logs:
+- [seller-user-save] changed field
+- [seller-user-save] value
+- [seller-user-save] source
+- [seller-user-save] scenario id
+- [seller-user-save] upsert payload keys
+- [seller-user-save] upsert ok/error
+- [seller-user-load] scenario id
+- [seller-user-load] loaded user fields
+- [seller-user-load] loaded source map
+- [seller-default] skipped because manual value exists
+- [seller-default] applied because field blank
+- [seller-zillow] skipped because manual value exists
+- [seller-zillow] applied because field blank
+- [seller-refi-sync] skipped because manual value exists
+- [seller-refi-sync] applied because field blank/default
+
+Acceptance test:
+1. Log in.
+2. Open Sell Your Home.
+3. Add/open a property.
+4. Change:
+   - estimated sale price
+   - mortgage payoff
+   - realtor commission
+   - seller closing costs
+   - buyer concessions
+   - Post Inspection Credits / Repair Costs
+   - other selling costs
+   - annual property taxes, if shown
+   - HOA/condo fees, if shown
+   - status
+5. Confirm the values update in the UI.
+6. Confirm estimated net proceeds recalculates correctly.
+7. Refresh the page.
+8. Confirm all changed values remain.
+9. Log out.
+10. Log back in.
+11. Open the same Sell Your Home property.
+12. Confirm all changed values remain exactly as entered.
+13. Confirm Zillow/property cache does not overwrite edited sale price/taxes/HOA.
+14. Confirm Refinance sync does not overwrite manually edited sale price or mortgage payoff.
+15. Confirm default 5% commission does not overwrite manually edited commission.
+16. Confirm default seller closing costs do not overwrite manually edited seller closing costs.
+17. Change values again and confirm they autosave.
+18. Refresh/logout/login again and confirm updated values remain.
+19. Confirm no duplicate Seller scenarios were created.
+20. Confirm Market Analysis does not run when status is Draft.
+21. Confirm Market Analysis behavior is unchanged for Ready to List and Listed.
+
+Please make the smallest safe code change possible and tell me:
+- Which Sell Your Home fields now persist
+- Which Supabase columns already existed
+- Which SQL migration is needed, if any
+- Which save mapper was updated
+- Which load mapper was updated
+- Which default/Zillow/Refinance sync effects were guarded
+- How user-edited values are protected from defaults
+- How Market Analysis gating was preserved
+- Which files/functions were changed
+```

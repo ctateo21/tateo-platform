@@ -208,6 +208,27 @@ export default function SellerEstimatePage() {
         if (persisted) {
           // Replace local state with the persisted row so autosave
           // doesn't clobber it with the placeholder defaults.
+          console.debug("[seller-user-load] scenario id", persisted.id);
+          console.debug("[seller-user-load] loaded user fields", {
+            estimatedSalePrice: persisted.estimatedSalePrice,
+            mortgagePayoff: persisted.mortgagePayoff,
+            realtorCommissionPct: persisted.realtorCommissionPct,
+            sellerClosingCosts: persisted.sellerClosingCosts,
+            sellerClosingCostsPercent: persisted.sellerClosingCostsPercent,
+            buyerConcessions: persisted.buyerConcessions,
+            repairBudget: persisted.repairBudget,
+            otherSellingCosts: persisted.otherSellingCosts,
+            status: persisted.status,
+          });
+          console.debug("[seller-user-load] loaded source map", {
+            estimatedSalePriceSource: persisted.estimatedSalePriceSource,
+            mortgagePayoffSource: persisted.mortgagePayoffSource,
+            realtorCommissionSource: persisted.realtorCommissionSource,
+            sellerClosingCostsSource: persisted.sellerClosingCostsSource,
+            buyerConcessionsSource: persisted.buyerConcessionsSource,
+            repairBudgetSource: persisted.repairBudgetSource,
+            otherSellingCostsSource: persisted.otherSellingCostsSource,
+          });
           setScenario(persisted);
           // Seed the reverse-sync gate from the persisted value so
           // the first post-hydration autosave doesn't fire seller→refi
@@ -355,13 +376,31 @@ export default function SellerEstimatePage() {
   function update<K extends keyof SellerScenario>(field: K, value: SellerScenario[K]) {
     setScenario(prev => {
       const next: SellerScenario = { ...prev, [field]: value };
-      // Stamp provenance when the user edits one of the four
-      // refinance-derived fields so a future refinance upload won't
-      // overwrite their manual entry. See seller-from-refinance.ts.
-      if (field === "estimatedSalePrice")   next.estimatedSalePriceSource = "manual";
-      else if (field === "mortgagePayoff")  next.mortgagePayoffSource = "manual";
-      else if (field === "realtorCommissionPct") next.realtorCommissionSource = "manual";
-      else if (field === "sellerClosingCosts")   next.sellerClosingCostsSource = "manual";
+      // Stamp provenance when the user edits any persistable input so
+      // refinance / Zillow / property-cache merges won't clobber it.
+      // See seller-from-refinance.ts (mergeFromRefinance) and the
+      // Zillow merge block higher up in this file.
+      let stampedSource: string | undefined;
+      if (field === "estimatedSalePrice") {
+        next.estimatedSalePriceSource = "manual"; stampedSource = "manual";
+      } else if (field === "mortgagePayoff") {
+        next.mortgagePayoffSource = "manual"; stampedSource = "manual";
+      } else if (field === "realtorCommissionPct") {
+        next.realtorCommissionSource = "manual"; stampedSource = "manual";
+      } else if (field === "sellerClosingCosts") {
+        next.sellerClosingCostsSource = "manual"; stampedSource = "manual";
+      } else if (field === "buyerConcessions") {
+        next.buyerConcessionsSource = "manual"; stampedSource = "manual";
+      } else if (field === "repairBudget") {
+        next.repairBudgetSource = "manual"; stampedSource = "manual";
+      } else if (field === "otherSellingCosts") {
+        next.otherSellingCostsSource = "manual"; stampedSource = "manual";
+      }
+      // Debug breadcrumb — autosave (~line 320) does the actual write.
+      console.debug("[seller-user-save] changed field", String(field));
+      console.debug("[seller-user-save] value", value);
+      console.debug("[seller-user-save] source", stampedSource ?? "(not tracked)");
+      console.debug("[seller-user-save] scenario id", prev.id);
       // When the sale price changes, recompute seller closing-costs
       // dollars from the stored percent so the slider's chosen %
       // continues to reflect the new sale price (legacy "manual"
