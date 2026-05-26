@@ -1163,13 +1163,14 @@ function InsuranceTab() {
   // view. Source guards mirror the detail-view autosave so manual
   // policy picks stay locked.
   function handleOccupancyChange(key: string, next: OccupancyType) {
+    console.log("[insurance-overview-occupancy] selected occupancy", next);
     setOccupancyOverride(key, next);
     setOverrideBump(n => n + 1);
 
     const row = rows.find(r => r.key === key);
     const ins = row?.insurance;
     if (!ins) {
-      console.debug("[insurance-card-save] no scenario row — localStorage override only", { key, next });
+      console.log("[insurance-overview-occupancy] no scenario row — localStorage override only", { key, next });
       return;
     }
     // Map dashboard's wider OccupancyType ("unknown" included) onto
@@ -1182,12 +1183,16 @@ function InsuranceTab() {
         : undefined;
     const propertyType = row?.purchaseMatches[0]?.propertyType ?? ins.propertyType;
     const policyManual = ins.policyTypeSource === "manual";
+    console.log("[insurance-overview-occupancy] property type", propertyType ?? null);
+    console.log("[insurance-overview-occupancy] prior policy type", ins.policyType ?? null);
+    console.log("[insurance-overview-occupancy] prior policy_type_source", ins.policyTypeSource ?? null);
     const recomputedPolicy = !policyManual
       ? getDefaultInsurancePolicyType({
           occupancyType: nextOccupancy,
           propertyType,
         })
       : undefined;
+    console.log("[insurance-overview-occupancy] recalculated policy type", recomputedPolicy ?? null);
     const updated: InsuranceScenario = {
       ...ins,
       savedAt: new Date().toISOString(),
@@ -1200,28 +1205,25 @@ function InsuranceTab() {
         ? { policyType: recomputedPolicy, policyTypeSource: "default_rule" as const }
         : {}),
     };
-    console.debug("[insurance-card-save] changed field", "occupancyType");
-    console.debug("[insurance-card-save] value", nextOccupancy);
-    console.debug("[insurance-card-save] source", "manual");
-    console.debug("[insurance-card-save] scenario id", ins.id);
-    console.debug(
-      "[insurance-card-save] normalized property key",
-      normalizePropertyKey(ins.address).key,
-    );
     if (policyManual) {
-      console.debug("[insurance-card-sync] skipped policy because manual", {
+      console.log("[insurance-overview-occupancy] skipped policy update because manual", {
         prior: ins.policyType,
-      });
-    } else if (recomputedPolicy && recomputedPolicy !== ins.policyType) {
-      console.debug("[insurance-card-sync] policy recalculated", {
-        prior: ins.policyType, next: recomputedPolicy,
       });
     }
     const nextScenarios = insurance.map(s => (s.id === ins.id ? updated : s));
     setInsurance(nextScenarios);
-    saveInsuranceScenarios(nextScenarios).catch(err => {
-      console.debug("[insurance-card-save] upsert error", err?.message ?? err);
+    console.log("[insurance-overview-occupancy] updated local card state", {
+      id: ins.id,
+      occupancy: nextOccupancy,
+      policyType: updated.policyType,
     });
+    saveInsuranceScenarios(nextScenarios)
+      .then(() => {
+        console.log("[insurance-overview-occupancy] saved to insurance_scenarios", { id: ins.id });
+      })
+      .catch(err => {
+        console.log("[insurance-overview-occupancy] save error", err?.message ?? err);
+      });
   }
 
   // Manual "Add Insurance Property" — mirrors SellersTab.openOrCreate.
