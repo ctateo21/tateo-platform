@@ -1,0 +1,124 @@
+Copy/paste this into Replit:
+
+```text
+Update the Purchase with Cash overview row/card so it includes Insurance Cost and Ongoing Monthly Costs.
+
+Current issue:
+On the Purchase with Cash tab, the property overview row currently shows:
+- Price
+- Cash to Close
+- Closing Costs
+- Annual Taxes
+
+Requested change:
+Add two more values to that same overview row/card:
+- Insurance Cost
+- Ongoing Monthly Costs
+
+Location:
+Dashboard → Purchase with Cash → property overview row/card
+
+Expected overview row fields:
+1. Price
+2. Cash to Close
+3. Closing Costs
+4. Annual Taxes
+5. Insurance Cost
+6. Ongoing Monthly Costs
+
+Insurance Cost:
+Use the same homeowners insurance value already used inside the Purchase with Cash detail view.
+
+This should match the Homeowners Insurance Estimate / Ongoing Costs insurance value.
+
+Display preference:
+- Show annual insurance cost:
+  `Insurance Cost: $X/yr`
+- If there is room, optionally include monthly:
+  `Insurance Cost: $X/yr · $Y/mo`
+
+Do not create a separate insurance calculation for the overview card.
+Use the same resolved value used by the detail page.
+
+Ongoing Monthly Costs:
+Calculate the monthly ongoing costs using the same values shown in the Purchase with Cash Ongoing Costs section.
+
+Expected formula:
+ongoing_monthly_costs =
+  monthly property taxes
+  + monthly homeowners insurance
+  + monthly HOA/condo fees
+  + any other ongoing monthly costs already included in the Cash Buy detail view
+
+Use the same source values as the detail page:
+- Annual property taxes / 12
+- Annual homeowners insurance / 12
+- HOA monthly
+- CDD annual / 12, if included in ongoing costs
+- Flood insurance / 12, if included in ongoing costs
+
+Important:
+The overview row should match the detailed view. Do not calculate a different number.
+
+If the detail view shows:
+- Annual taxes = $6,000 → $500/mo
+- Insurance = $3,000/yr → $250/mo
+- HOA = $400/mo
+
+Then overview should show:
+Ongoing Monthly Costs = $1,150/mo
+
+Manual override behavior:
+If the user manually changes insurance, taxes, HOA, or other ongoing cost fields:
+- the overview row should update
+- the values should persist after refresh/logout/login
+- the overview should still match the detail view
+
+Do not break:
+- Cash Buy closing cost percent/dollar toggle
+- Cash to Close calculation
+- Property tax calculation
+- Homeowners insurance calculation
+- Cash Buy persistence
+- Insurance auto-create/sync
+- Purchase with Loan
+- Refinance
+- Sell Your Home
+
+Responsive layout:
+There are now six values in the overview row/card.
+
+Make the layout clean:
+- Desktop: use a responsive grid so all six values fit neatly.
+- Mobile: stack/wrap cleanly.
+- Do not make the row too cramped.
+- Keep labels readable.
+
+Acceptance test:
+1. Go to Dashboard → Purchase with Cash.
+2. Open or create a Cash Buy property.
+3. Confirm the overview row/card shows:
+   - Price
+   - Cash to Close
+   - Closing Costs
+   - Annual Taxes
+   - Insurance Cost
+   - Ongoing Monthly Costs
+4. Confirm Insurance Cost matches the detail view homeowners insurance value.
+5. Confirm Ongoing Monthly Costs equals the same monthly total shown/calculated in the detail view.
+6. Change annual property taxes.
+7. Confirm Ongoing Monthly Costs updates.
+8. Change homeowners insurance.
+9. Confirm Insurance Cost and Ongoing Monthly Costs update.
+10. Change HOA.
+11. Confirm Ongoing Monthly Costs updates.
+12. Refresh/logout/login.
+13. Confirm all overview values persist and still match the detail view.
+
+Please make the smallest safe code change possible and tell me:
+- Which Cash Buy overview component/card was changed
+- Which existing insurance value is used
+- How Ongoing Monthly Costs is calculated
+- How the six-field layout is handled on desktop/mobile
+- Which files/functions were changed
+```

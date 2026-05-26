@@ -34,6 +34,7 @@ import {
   type OccupancyType,
 } from "@/lib/property-key";
 import { getDefaultInsurancePolicyType } from "@/lib/insurance-policy-type";
+import { calculateDefaultHomeownersInsurance } from "@/lib/insurance-default";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -1465,6 +1466,32 @@ function cashBuyCashToCloseSnapshot(s: CashBuyScenario): number | null {
   return Math.max(0, Math.round(s.purchasePrice + (s.closingCosts ?? 0) - concession));
 }
 
+// Insurance value shown on the dashboard overview. Mirrors the
+// precedence used by the cash-buy detail page (spec:
+// insurance-default-075-percent):
+//   1. Manual `homeownersInsurance` (preserved)
+//   2. Simulator-supplied `insurancePremiumAnnual`
+//   3. 0.75%-of-purchase-price default
+// Returns null when there's no price to base a default on.
+function cashBuyInsuranceAnnual(s: CashBuyScenario): number | null {
+  if (s.homeownersInsurance && s.homeownersInsurance > 0) return s.homeownersInsurance;
+  if (s.insurancePremiumAnnual && s.insurancePremiumAnnual > 0) return s.insurancePremiumAnnual;
+  if (s.purchasePrice && s.purchasePrice > 0) {
+    return calculateDefaultHomeownersInsurance(s.purchasePrice).annualInsurance;
+  }
+  return null;
+}
+
+// Ongoing monthly carry — matches the "Monthly carrying cost"
+// summary on the cash-buy detail page (taxes + insurance + HOA).
+function cashBuyMonthlyOngoing(s: CashBuyScenario): number {
+  const taxesMo = (s.propertyTaxes ?? 0) / 12;
+  const insAnnual = cashBuyInsuranceAnnual(s) ?? 0;
+  const insMo = insAnnual / 12;
+  const hoaMo = s.hoaMonthly ?? 0;
+  return Math.round(taxesMo + insMo + hoaMo);
+}
+
 const CASH_OCCUPANCY_LABEL: Record<NonNullable<CashBuyScenario["occupancyType"]>, string> = {
   primary: "Primary",
   secondary: "Secondary",
@@ -1590,6 +1617,8 @@ function CashBuyTab() {
       <div className="space-y-3">
         {scenarios.map(s => {
           const ctc = cashBuyCashToCloseSnapshot(s);
+          const insAnnual = cashBuyInsuranceAnnual(s);
+          const monthlyOngoing = cashBuyMonthlyOngoing(s);
           const occLabel = s.occupancyType ? CASH_OCCUPANCY_LABEL[s.occupancyType] : null;
           return (
             <Card
@@ -1612,7 +1641,11 @@ function CashBuyTab() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm flex-1">
+                  {/* Six-field overview. 2 cols on mobile, 3 on sm, 6 across
+                      on lg so all fields fit on a single row on desktop.
+                      Insurance + Ongoing Monthly Costs are derived to match
+                      the cash-buy detail page exactly (same helpers). */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2 text-sm flex-1">
                     {s.purchasePrice != null && (
                       <div>
                         <p className="text-xs text-muted-foreground">Price</p>
@@ -1637,16 +1670,28 @@ function CashBuyTab() {
                         <p className="font-semibold">{formatCurrency(s.propertyTaxes)}</p>
                       </div>
                     )}
-                    {s.homeownersInsurance != null && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">Annual Insurance</p>
-                        <p className="font-semibold">{formatCurrency(s.homeownersInsurance)}</p>
+                    {insAnnual != null && (
+                      <div data-testid={`cash-overview-insurance-${s.id}`}>
+                        <p className="text-xs text-muted-foreground">Insurance Cost</p>
+                        <p className="font-semibold">
+                          {formatCurrency(insAnnual)}<span className="text-xs font-normal text-muted-foreground">/yr</span>
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          ≈ {formatCurrency(Math.round(insAnnual / 12))}/mo
+                        </p>
                       </div>
                     )}
-                    {s.hoaMonthly != null && s.hoaMonthly > 0 && (
-                      <div>
-                        <p className="text-xs text-muted-foreground">HOA / mo</p>
-                        <p className="font-semibold">{formatCurrency(s.hoaMonthly)}</p>
+                    {s.purchasePrice != null && (
+                      <div data-testid={`cash-overview-monthly-${s.id}`}>
+                        <p className="text-xs text-muted-foreground">Ongoing Monthly</p>
+                        <p className="font-semibold">
+                          {formatCurrency(monthlyOngoing)}<span className="text-xs font-normal text-muted-foreground">/mo</span>
+                        </p>
+                        {s.hoaMonthly != null && s.hoaMonthly > 0 && (
+                          <p className="text-[11px] text-muted-foreground">
+                            incl. HOA {formatCurrency(s.hoaMonthly)}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
