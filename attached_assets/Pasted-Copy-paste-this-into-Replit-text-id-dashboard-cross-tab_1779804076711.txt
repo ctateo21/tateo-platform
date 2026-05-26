@@ -1,0 +1,314 @@
+Copy/paste this into Replit:
+
+```text id="dashboard-cross-tab-data-sync"
+Build cross-tab data syncing so shared property data and personal information stay consistent across the dashboard.
+
+Current issue:
+If a user changes property data or personal information in one tab, the same corresponding information does not automatically update in the other tabs.
+
+Example problems:
+- User changes purchase price / estimated home value in Purchase with Loan, but Insurance still shows an old value.
+- User changes estimated home value in Refinance, but Sell Your Home or Insurance still shows a different value.
+- User changes personal info like credit score, income, debts, VA status, or deferred student loans in one flow, but another flow still uses stale info.
+
+Goal:
+Any time a user changes shared property data or shared personal/borrower information on any tab, update the corresponding fields across all relevant tabs and save the updates to the correct Supabase tables.
+
+Tabs involved:
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Insurance
+- Sell Your Home
+
+Core rule:
+Use one consistent source of truth for shared data, then sync values across related scenario tables.
+
+Matching logic:
+Match property-specific data by:
+- user_id
+- normalized_property_key
+
+Do not rely only on raw address text.
+
+Personal/borrower data:
+Match personal data by:
+- user_id
+
+Shared personal/borrower fields that should stay consistent:
+- name
+- email
+- phone
+- credit score
+- annual income / monthly income
+- base monthly debts
+- deferred student loan yes/no
+- deferred student loan balance
+- calculated deferred student loan monthly payment
+- total monthly debts used for DTI
+- assets / cash available
+- employment/income type
+- veteran / VA eligibility
+- 100% VA disability
+- other borrower-level qualifying answers
+
+When one of these changes in any relevant tab:
+- update the shared user/profile or latest borrower data source if one exists
+- update matching scenario records that use those fields
+- recalculate dependent values where needed
+- persist to Supabase
+
+Property-specific fields that should stay consistent for the same address:
+- full_address
+- normalized_property_key
+- purchase price
+- estimated home value / Zestimate / property value
+- property type
+- occupancy / property use
+- annual property taxes
+- HOA / condo dues
+- homeowners insurance annual premium
+- homeowners insurance monthly premium
+- Coverage A / rebuild cost
+- insurance policy type
+- primary photo URL
+- property photos
+- Zillow property data / cache fields
+- square footage
+- year built
+- bedrooms/bathrooms if used
+- loan balance / mortgage payoff where appropriate
+
+When these fields change for a matching property:
+- update corresponding fields across all scenarios for that same user_id + normalized_property_key
+- save to the correct Supabase table
+- recalculate dependent values
+
+Supabase tables to sync:
+- purchase_scenarios
+- cash_buy_scenarios
+- tracked_loans
+- insurance_scenarios
+- seller_scenarios
+- profiles or user profile table, if borrower-level data belongs there
+- property cache table, if the app has one
+
+Specific sync behavior:
+
+1. Purchase with Loan → Insurance
+If purchase price, property type, occupancy, taxes, HOA, or homeowners insurance changes:
+- update matching insurance_scenarios
+- Coverage A/Rebuild Cost should use purchase price/value unless manually overridden
+- annual premium should use the shared homeowners insurance value unless manually/quote overridden
+- policy type should update from occupancy + property type unless manually overridden
+
+2. Purchase with Cash → Insurance
+If purchase price/value, property type, occupancy, taxes, HOA, or homeowners insurance changes:
+- update matching insurance_scenarios
+- keep annual/monthly premium consistent
+- keep Coverage A/Rebuild Cost consistent unless manually overridden
+
+3. Refinance → Insurance
+If estimated home value changes:
+- update matching insurance_scenarios Coverage A/Rebuild Cost unless manually overridden
+- annual premium should recalculate from the shared value unless manual/quoted
+- monthly premium should update
+- do not require user to update Insurance separately
+
+4. Refinance → Sell Your Home
+If estimated home value changes:
+- update seller_scenarios.estimated_sale_price for the same property unless user intentionally overrides according to current sync rules
+- update net proceeds calculations
+- mortgage payoff should map from refinance loan balance if appropriate
+
+5. Sell Your Home → Refinance
+If estimated sale price/home value changes:
+- update matching tracked_loans estimated home value
+- recalculate LTV and refinance estimates if applicable
+
+6. Purchase with Loan / Cash → Sell Your Home
+If purchase price/property value changes and there is a matching seller_scenarios row:
+- update estimated_sale_price if appropriate and not protected by manual override
+- recalculate net proceeds
+
+7. Any tab → Insurance
+If occupancy/property use or property type changes:
+- update policy type using the shared HO3/HO6/DP3 helper unless manual policy type override exists
+- save to insurance_scenarios.policy_type and policy_type_source
+
+Manual override protection:
+Do not overwrite fields that the user manually changed unless the user is editing that exact shared field.
+
+For example:
+- If user manually edits Insurance annual premium, do not overwrite it with default 0.75% later.
+- If user manually edits Coverage A, do not overwrite it from Zillow/purchase/refinance later.
+- If user manually edits policy type, do not overwrite it from automatic HO3/HO6/DP3 logic.
+- If user manually edits Seller estimated sale price directly, that value becomes the new shared home value for that property and should sync back to Refinance.
+- If user manually edits Refinance estimated home value directly, that value becomes the new shared home value for that property and should sync to Sell Your Home and Insurance.
+
+Use source fields if available:
+- value_source
+- estimated_home_value_source
+- estimated_sale_price_source
+- purchase_price_source
+- homeowners_insurance_source
+- premium_source
+- coverage_a_source
+- policy_type_source
+- occupancy_source
+
+If source fields are missing, use the smallest safe protection logic and tell me what SQL migration is needed.
+
+Recommended architecture:
+Create a shared sync helper/service instead of duplicating logic inside every component.
+
+Suggested helper:
+`syncSharedDashboardData({ userId, normalizedPropertyKey, sourceTab, changedFields })`
+
+This helper should:
+1. identify whether changed fields are personal/borrower-level or property-level
+2. find matching records across the relevant tables
+3. update only corresponding fields
+4. preserve manual overrides
+5. recalculate dependent fields
+6. save changes to Supabase
+7. avoid infinite sync loops
+
+Also create smaller helpers if useful:
+- `syncBorrowerProfileData(...)`
+- `syncPropertyValueAcrossTabs(...)`
+- `syncInsuranceDefaultsForProperty(...)`
+- `syncSellerAndRefinanceValue(...)`
+- `syncPolicyTypeForProperty(...)`
+
+Avoid infinite loops:
+When a sync writes to another table, do not trigger another endless sync cycle.
+
+Use one of:
+- sourceTab/sourceField metadata
+- `sync_origin`
+- debounce
+- only syncing on explicit user changes, not every render/load
+- compare old value vs new value before writing
+
+Do not sync from stale data:
+Only sync when:
+- user manually changes a field
+- new Zillow/property data is fetched for the current address
+- mortgage statement analysis provides new property/loan data
+- scenario is saved/updated with a new real value
+
+Do not sync:
+- blank/null values over existing real values
+- default placeholder values over user-entered values
+- stale cached values over newer user-entered values
+
+Recalculations required:
+When shared values update, recalculate affected outputs:
+- Purchase with Loan:
+  - loan amount
+  - payment
+  - taxes
+  - insurance
+  - cash to close
+  - DTI
+  - qualification
+- Purchase with Cash:
+  - closing costs
+  - insurance
+  - ongoing costs
+- Refinance:
+  - LTV
+  - rate/payment if applicable
+  - dashboard summary
+- Insurance:
+  - Coverage A/Rebuild Cost
+  - annual premium
+  - monthly premium
+  - policy type
+- Sell Your Home:
+  - realtor commission
+  - seller closing costs if percent-based
+  - net proceeds
+
+Important:
+- Do not require the user to update the same value in multiple tabs.
+- Do not create duplicate rows in any table.
+- Do not overwrite manual/quoted insurance values.
+- Do not overwrite manually protected fields with defaults.
+- Do not break existing save/load logic.
+- Do not break existing auto-create logic.
+- Do not trigger Market Analysis just because shared data changed.
+- Market Analysis should still only run for Sell Your Home status ready_to_list or listed.
+- Do not expose Supabase service keys on frontend.
+- Keep all writes secure under current RLS/server rules.
+
+Suggested first implementation scope:
+Start with the highest-impact shared fields:
+1. credit_score
+2. income
+3. monthly debts
+4. purchase price / estimated home value / estimated sale price / Coverage A
+5. homeowners insurance annual/monthly premium
+6. property type
+7. occupancy/property use
+8. policy type
+
+Then ensure the helper is reusable for additional fields.
+
+Debug logs:
+Add temporary logs:
+- `[dashboard-sync] source tab`
+- `[dashboard-sync] user id`
+- `[dashboard-sync] normalized property key`
+- `[dashboard-sync] changed fields`
+- `[dashboard-sync] matching purchase found true/false`
+- `[dashboard-sync] matching cash buy found true/false`
+- `[dashboard-sync] matching refinance found true/false`
+- `[dashboard-sync] matching insurance found true/false`
+- `[dashboard-sync] matching seller found true/false`
+- `[dashboard-sync] skipped manual override field`
+- `[dashboard-sync] updated table`
+- `[dashboard-sync] recalculated values`
+- `[dashboard-sync] save ok`
+- `[dashboard-sync] save error`
+
+Acceptance test:
+1. Log in.
+2. Use the same property address across Purchase with Loan, Purchase with Cash, Refinance, Insurance, and Sell Your Home.
+3. Change estimated home value in Refinance.
+4. Confirm Sell Your Home estimated sale price updates.
+5. Confirm Insurance Coverage A/Rebuild Cost updates.
+6. Confirm Insurance annual/monthly premium updates.
+7. Change estimated sale price in Sell Your Home.
+8. Confirm Refinance estimated home value updates.
+9. Confirm Insurance Coverage A/Rebuild Cost and premium update.
+10. Change purchase price in Purchase with Loan.
+11. Confirm Insurance value/premium updates for that address.
+12. Change property type to Condo.
+13. Confirm Insurance policy type updates to HO6.
+14. Change property use to Investment and property type to Single Family.
+15. Confirm Insurance policy type updates to DP3.
+16. Change credit score in Purchase with Loan.
+17. Confirm Refinance uses the updated credit score.
+18. Change monthly income/debts in Purchase with Loan.
+19. Confirm borrower-level values remain consistent in other relevant tabs.
+20. Manually override Insurance annual premium.
+21. Change property value elsewhere.
+22. Confirm manual Insurance premium is not overwritten.
+23. Refresh/logout/login.
+24. Confirm all synced values persist in the correct Supabase tables.
+25. Confirm no duplicate rows were created.
+
+Please make the smallest safe code change possible and tell me:
+- Which shared sync helper/service was created
+- Which fields are synced now
+- Which tables are updated
+- How property records are matched by normalized_property_key
+- How borrower-level data is matched by user_id
+- How manual overrides are protected
+- How infinite sync loops are prevented
+- Which recalculations run after sync
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```
