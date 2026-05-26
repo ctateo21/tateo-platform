@@ -4,15 +4,16 @@
 // Purchase-with-Cash, Refinance, or Sell-Your-Home, propagate the new
 // value to the same property (matched by user_id + normalizedPropertyKey)
 // across every other table, recompute Insurance annualPremium /
-// monthlyPremium from a 0.75% default, and protect manual overrides.
+// monthlyPremium from a 0.75% default, sync Coverage A, and protect
+// manual overrides via per-field source columns.
 //
 // NOT in scope: borrower-profile sync, policy-type sync, occupancy /
 // property-type sync. Those land in Phase 2+.
 //
 // Loop prevention:
 //   * `_syncInFlight` flag — wraps every save call the helper makes so
-//     the diff-watchers in `auth.ts` (which fire the helper) skip while
-//     a sync is already running.
+//     the diff-watchers + manual-source stampers in `auth.ts` (which fire
+//     the helper) skip while a sync is already running.
 //   * Helper writes only when newValue !== existing value — a same-value
 //     no-op write never re-enters the diff watcher anyway.
 //   * Helper is invoked from save* functions, never from load/hydrate
@@ -20,19 +21,24 @@
 //     directly without going through the savers, so it can't trigger
 //     sync from stale persisted data.
 //
-// Required source-of-truth columns the protection logic checks (when
-// the field exists in the TS model). Columns marked (MIGRATION) do not
-// exist yet — see returnMessage in syncPropertyValueAcrossTabs's
-// summary docblock for the SQL needed before stronger protection is
-// possible. Until then we use the smallest-safe heuristic noted below.
+// Source-of-truth columns this helper respects (set by the
+// `_stampManualOnValueDiff` helper in auth.ts on user-driven edits):
 //
-//   purchase_scenarios.price                — no source column (MIGRATION needed: price_source)
-//   cash_buy_scenarios.purchase_price       — purchase_price_source ("user" = manual)
-//   tracked_loans.estimated_home_value      — no source column (MIGRATION needed: estimated_home_value_source)
-//   seller_scenarios.estimated_sale_price   — estimated_sale_price_source ("manual" = locked)
-//   insurance_scenarios.annual_premium      — no source column (MIGRATION needed: premium_source + coverage_a + coverage_a_source)
+//   purchase_scenarios.price_source              "manual" → skip
+//   cash_buy_scenarios.purchase_price_source     "user"   → skip
+//   tracked_loans.estimated_home_value_source    "manual" → skip
+//   seller_scenarios.estimated_sale_price_source "manual" → skip
+//   insurance_scenarios.premium_source           "manual" | "quote" → skip
+//   insurance_scenarios.coverage_a_source        "manual" → skip
 //
-// Insurance heuristic until premium_source exists:
+// Sync writes stamp:
+//   insurance.coverage_a_source  = "property_value_sync"
+//   insurance.premium_source     = "default_0_75_percent"
+//   tracked_loans.estimated_home_value_source = "synced"
+//   purchase_scenarios.price_source           — left untouched (null)
+//   seller_scenarios.estimated_sale_price_source = "refinance" or "zillow"
+//
+// Insurance heuristic (legacy rows only — premium_source IS NULL):
 //   Treat the current annualPremium as "default-derived (overridable)"
 //   when it's missing OR when it equals 0.75% of one of the candidate
 //   pre-sync values across the matching property's other tables
@@ -56,8 +62,8 @@ const DEFAULT_INSURANCE_RATE = 0.0075;
 const PREMIUM_MATCH_TOLERANCE_DOLLARS = 1;
 
 let _syncInFlight = false;
-/** Diff-watchers in auth.ts call this before firing the helper so a
- *  helper-initiated save never re-enters the watcher. */
+/** Diff-watchers + manual-source stampers in auth.ts call this before
+ *  firing the helper so a helper-initiated save never re-enters them. */
 export function isPropertyValueSyncInFlight(): boolean { return _syncInFlight; }
 
 function keyOf(address: string | undefined | null): string {
@@ -100,7 +106,7 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
   _syncInFlight = true;
   try {
     // Snapshot every table BEFORE we mutate anything — the insurance
-    // heuristic needs the pre-sync candidate values.
+    // legacy heuristic needs the pre-sync candidate values.
     const purchases   = getPurchaseScenarios();
     const cashBuys    = getCashBuyScenarios();
     const loans       = getTrackedLoans();
@@ -127,11 +133,17 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
     console.log("[property-value-sync] matching insurance found", { found: !!matchInsurance });
 
     // ── Purchase-with-Loan ────────────────────────────────────────
-    if (sourceTab !== "purchase" && matchPurchase && matchPurchase.price !== newValue) {
-      const next = purchases.map(p =>
-        p.id === matchPurchase.id ? { ...p, price: newValue } : p);
-      savePurchaseScenarios(next);
-      console.log("[property-value-sync] updated table", { table: "purchase_scenarios", id: matchPurchase.id });
+    if (sourceTab !== "purchase" && matchPurchase) {
+      if (matchPurchase.priceSource === "manual") {
+        console.log("[property-value-sync] skipped manual override", {
+          table: "purchase_scenarios", field: "price",
+        });
+      } else if (matchPurchase.price !== newValue) {
+        const next = purchases.map(p =>
+          p.id === matchPurchase.id ? { ...p, price: newValue } : p);
+        savePurchaseScenarios(next);
+        console.log("[property-value-sync] updated table", { table: "purchase_scenarios", id: matchPurchase.id });
+      }
     }
 
     // ── Cash Buy ──────────────────────────────────────────────────
@@ -157,13 +169,19 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
     }
 
     // ── Refinance / tracked_loans ────────────────────────────────
-    if (sourceTab !== "refinance" && matchLoan && matchLoan.estimatedHomeValue !== newValue) {
-      // tracked_loans has no estimated_home_value_source column yet —
-      // always overridable. (MIGRATION needed for stronger protection.)
-      const next = loans.map(l =>
-        l.id === matchLoan.id ? { ...l, estimatedHomeValue: newValue } : l);
-      saveTrackedLoans(next).catch(() => { /* persist error already toasted */ });
-      console.log("[property-value-sync] updated table", { table: "tracked_loans", id: matchLoan.id });
+    if (sourceTab !== "refinance" && matchLoan) {
+      if (matchLoan.estimatedHomeValueSource === "manual") {
+        console.log("[property-value-sync] skipped manual override", {
+          table: "tracked_loans", field: "estimated_home_value",
+        });
+      } else if (matchLoan.estimatedHomeValue !== newValue) {
+        const next = loans.map(l =>
+          l.id === matchLoan.id
+            ? { ...l, estimatedHomeValue: newValue, estimatedHomeValueSource: "synced" as const }
+            : l);
+        saveTrackedLoans(next).catch(() => { /* persist error already toasted */ });
+        console.log("[property-value-sync] updated table", { table: "tracked_loans", id: matchLoan.id });
+      }
     }
 
     // ── Sell-Your-Home ───────────────────────────────────────────
@@ -201,30 +219,53 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
 
     // ── Insurance ────────────────────────────────────────────────
     if (matchInsurance) {
-      // Candidate pre-sync values to check whether existing premium
-      // looks like a 0.75%-default of any of them (i.e. overridable).
-      const candidates: number[] = [
+      const annual = Math.round(newValue * DEFAULT_INSURANCE_RATE);
+      const writePremium = isInsurancePremiumOverridable(matchInsurance, [
         matchPurchase?.price,
         matchCash?.purchasePrice,
         matchLoan?.estimatedHomeValue,
         matchSeller?.estimatedSalePrice,
-      ].filter(isPositive);
+      ].filter(isPositive));
+      const writeCoverageA = matchInsurance.coverageASource !== "manual";
 
-      if (isInsurancePremiumOverridable(matchInsurance.annualPremium, candidates)) {
-        const annual = Math.round(newValue * DEFAULT_INSURANCE_RATE);
-        if (matchInsurance.annualPremium !== annual) {
-          const next: InsuranceScenario[] = insurances.map(i =>
-            i.id === matchInsurance.id ? { ...i, annualPremium: annual } : i);
-          void saveInsuranceScenarios(next).catch(() => { /* persist error already toasted */ });
-          console.log("[property-value-sync] updated table", { table: "insurance_scenarios", id: matchInsurance.id });
+      if (!writePremium) {
+        console.log("[property-value-sync] skipped manual override", {
+          table: "insurance_scenarios", field: "annual_premium",
+        });
+      }
+      if (!writeCoverageA) {
+        console.log("[property-value-sync] skipped manual override", {
+          table: "insurance_scenarios", field: "coverage_a",
+        });
+      }
+
+      const premiumChanged   = writePremium    && matchInsurance.annualPremium !== annual;
+      const coverageAChanged = writeCoverageA  && matchInsurance.coverageA     !== newValue;
+
+      if (premiumChanged || coverageAChanged) {
+        const next: InsuranceScenario[] = insurances.map(i => {
+          if (i.id !== matchInsurance.id) return i;
+          const updated: InsuranceScenario = { ...i };
+          if (writePremium) {
+            updated.annualPremium = annual;
+            updated.premiumSource = "default_0_75_percent";
+          }
+          if (writeCoverageA) {
+            updated.coverageA = newValue;
+            updated.coverageASource = "property_value_sync";
+          }
+          return updated;
+        });
+        void saveInsuranceScenarios(next).catch(() => { /* persist error already toasted */ });
+        console.log("[property-value-sync] updated table", { table: "insurance_scenarios", id: matchInsurance.id });
+        if (premiumChanged) {
           console.log("[property-value-sync] recalculated insurance premium", {
             annual, monthly: Math.round((annual / 12) * 100) / 100,
           });
         }
-      } else {
-        console.log("[property-value-sync] skipped manual override", {
-          table: "insurance_scenarios", field: "annual_premium",
-        });
+        if (coverageAChanged) {
+          console.log("[property-value-sync] synced insurance coverage A", { coverageA: newValue });
+        }
       }
     }
 
@@ -236,17 +277,21 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
   }
 }
 
-/** Until insurance_scenarios has a `premium_source` column, treat the
- *  existing annualPremium as overridable when it's missing OR when it
- *  matches 0.75% of any pre-sync candidate value (within $1). */
+/** Honors `insurance_scenarios.premium_source` strictly when set, and
+ *  falls back to the legacy heuristic only for null/undefined values
+ *  (rows saved before the 2026_05_26 migration). */
 function isInsurancePremiumOverridable(
-  currentPremium: number | undefined,
+  ins: InsuranceScenario,
   candidateValues: number[],
 ): boolean {
-  if (currentPremium == null) return true;
+  const src = ins.premiumSource;
+  if (src === "manual" || src === "quote") return false;
+  if (src === "default_0_75_percent" || src === "property_value_sync") return true;
+  // Legacy row (premium_source IS NULL). Use the smallest-safe heuristic.
+  if (ins.annualPremium == null) return true;
   for (const v of candidateValues) {
     const expected = v * DEFAULT_INSURANCE_RATE;
-    if (Math.abs(currentPremium - expected) <= PREMIUM_MATCH_TOLERANCE_DOLLARS) return true;
+    if (Math.abs(ins.annualPremium - expected) <= PREMIUM_MATCH_TOLERANCE_DOLLARS) return true;
   }
   return false;
 }

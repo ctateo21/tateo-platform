@@ -217,12 +217,24 @@ export default function InsuranceDashboard() {
   const params = new URLSearchParams(search);
   const addressParam = params.get("address") || "";
   const priceParam = params.get("price");
-  // Default Coverage A / Rebuild Cost from (in order): saved Purchase /
-  // Cash Buy / Refinance scenario value, ?price= URL param, existing
-  // Insurance scenario premium ÷ 0.75%, else 0. We no longer hard-code
-  // a $400,000 fallback — that produced nonsense premiums on properties
-  // whose true value was known elsewhere.
-  const initialRebuild = defaultRebuildFor(addressParam, priceParam);
+  // Default Coverage A / Rebuild Cost from (in order): saved
+  // InsuranceScenario.coverageA (preserves Phase 1 sync writes and any
+  // manual override across logout/login), then saved Purchase / Cash
+  // Buy / Refinance scenario value, ?price= URL param, existing
+  // Insurance scenario premium ÷ 0.75%, else 0.
+  function initialRebuildFor(addr: string, price: string | null): number {
+    const key = (addr ?? "").trim().toLowerCase();
+    if (key) {
+      const ins = getInsuranceScenarios().find(
+        s => (s.address ?? "").trim().toLowerCase() === key
+      );
+      if (ins && typeof ins.coverageA === "number" && ins.coverageA > 0) {
+        return ins.coverageA;
+      }
+    }
+    return defaultRebuildFor(addr, price);
+  }
+  const initialRebuild = initialRebuildFor(addressParam, priceParam);
 
   const { toast } = useToast();
 
@@ -781,6 +793,25 @@ export default function InsuranceDashboard() {
                     address,
                     savedAt: new Date().toISOString(),
                     annualPremium: Math.round(calc.mid),
+                    // Persist Coverage A so the Phase 1 cross-tab value
+                    // sync can read/protect it. Source carries forward
+                    // from the saved scenario; if the user moved the
+                    // Rebuild Cost slider this save call,
+                    // `_stampManualOnValueDiff` in saveInsuranceScenarios
+                    // will detect the diff vs `match.coverageA` and
+                    // stamp coverageASource = "manual". If unchanged,
+                    // the prior source ("property_value_sync" /
+                    // "default" / "manual") is preserved.
+                    coverageA: rebuild,
+                    coverageASource: match?.coverageASource ?? "default",
+                    // Premium also follows from Coverage A (calc.mid).
+                    // Preserve any "manual" / "quote" stamp from the
+                    // saved row; otherwise treat as the default-derived
+                    // value so future sync can recompute it.
+                    premiumSource:
+                      match?.premiumSource === "manual" || match?.premiumSource === "quote"
+                        ? match.premiumSource
+                        : "default_0_75_percent",
                     coverageType: region.name,
                     ...(policyType
                       ? {

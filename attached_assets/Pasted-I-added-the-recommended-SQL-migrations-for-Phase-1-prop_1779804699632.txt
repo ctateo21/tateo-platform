@@ -1,0 +1,64 @@
+I added the recommended SQL migrations for Phase 1 property-value sync:
+
+- insurance_scenarios.premium_source
+- insurance_scenarios.coverage_a
+- insurance_scenarios.coverage_a_source
+- tracked_loans.estimated_home_value_source
+- purchase_scenarios.price_source
+
+Before moving to Phase 2, please update/verify Phase 1 to use these source fields instead of relying only on heuristics.
+
+Tasks:
+1. Confirm the new columns exist in Supabase.
+2. Update the Phase 1 property-value sync helper to use the new source fields where appropriate.
+3. Use `insurance_scenarios.premium_source` to protect manual/quote premiums.
+4. Use `insurance_scenarios.coverage_a_source` to protect manual Coverage A/Rebuild Cost.
+5. Use `tracked_loans.estimated_home_value_source` to track Refinance estimated home value source.
+6. Use `purchase_scenarios.price_source` to track Purchase with Loan purchase price source.
+7. Do not overwrite manual/quote values.
+8. Keep the existing fallback heuristic only as a backup if source fields are blank.
+
+Expected source behavior:
+- If user manually changes Insurance premium:
+  - premium_source = "manual"
+  - future property-value sync should not overwrite annual/monthly premium.
+- If premium is default-generated:
+  - premium_source = "default_0_75_percent"
+  - future property-value sync can recalculate annual/monthly premium.
+- If user manually changes Coverage A:
+  - coverage_a_source = "manual"
+  - future property-value sync should not overwrite Coverage A.
+- If Coverage A is synced from shared property value:
+  - coverage_a_source = "property_value_sync"
+- If Refinance estimated home value is manually changed:
+  - estimated_home_value_source = "manual"
+- If Purchase with Loan purchase price is manually changed:
+  - price_source = "manual"
+
+Run Phase 1 acceptance test:
+1. Use the same property address across Purchase with Loan, Purchase with Cash, Refinance, Insurance, and Sell Your Home.
+2. Change Refinance estimated home value to $400,000.
+3. Confirm Sell Your Home estimated sale price updates to $400,000.
+4. Confirm Insurance Coverage A updates to $400,000 unless coverage_a_source = manual.
+5. Confirm Insurance annual premium updates to $3,000/year if premium_source is default/blank.
+6. Change Sell Your Home estimated sale price to $425,000.
+7. Confirm Refinance estimated home value updates to $425,000.
+8. Confirm Insurance Coverage A/premium update if not manually overridden.
+9. Manually override Insurance annual premium.
+10. Change property value elsewhere.
+11. Confirm manual Insurance premium is not overwritten.
+12. Manually override Coverage A.
+13. Change property value elsewhere.
+14. Confirm manual Coverage A is not overwritten.
+15. Refresh/logout/login.
+16. Confirm synced values persist.
+17. Confirm no duplicate rows were created.
+18. Confirm Market Analysis does not run from value sync.
+
+Please report:
+- Whether the new source columns were detected
+- Which source fields are now being written
+- Which source fields are now being respected for manual override protection
+- Whether Phase 1 acceptance test passed
+- Any failures and exact logs
+- Whether Phase 2 is safe to start

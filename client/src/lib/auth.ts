@@ -11,6 +11,32 @@ import {
   type PropertyValueSourceTab,
 } from "./property-value-sync";
 
+/** Stamp source = "manual" on rows whose value field changed between
+ *  two save calls — but only when the change did NOT come from the
+ *  cross-tab sync helper. Returns a new array (does not mutate `next`).
+ *  Used by savePurchaseScenarios / saveTrackedLoans / saveInsuranceScenarios
+ *  so that pure-UI edits stamp provenance without each page needing to
+ *  thread the source down through its edit handlers.
+ *
+ *  Skips stamping when sync is in flight — the sync helper sets its
+ *  own provenance ("property_value_sync" / "default_0_75_percent"). */
+export function _stampManualOnValueDiff<T extends { id: string }>(
+  prev: T[],
+  next: T[],
+  getValue: (row: T) => number | undefined,
+  applyManual: (row: T) => T,
+): T[] {
+  if (isPropertyValueSyncInFlight()) return next;
+  return next.map(row => {
+    const old = prev.find(p => p.id === row.id);
+    if (!old) return row; // brand-new row — let the create path set source
+    const v = getValue(row);
+    if (!Number.isFinite(v as number) || (v as number) <= 0) return row;
+    if (getValue(old) === v) return row;
+    return applyManual(row);
+  });
+}
+
 /** Diff-watcher for the cross-tab property-value sync (Phase 1). Detects
  *  when an existing row's value field changed between two save calls
  *  and fires `syncPropertyValueAcrossTabs`. Skipped when:
@@ -154,13 +180,43 @@ export interface PurchaseScenario {
   /** Final interest rate after the discount-point buydown,
    *  rounded to 3 decimals. */
   rateAfterDiscountPoints?: number;
+  /** Provenance for `price`. "manual" means the user typed/changed it
+   *  in the Purchase-with-Loan flow and Phase 1 cross-tab value sync
+   *  must not overwrite it. Stored on `purchase_scenarios.price_source`.
+   *  Stamped by the diff-watcher in `savePurchaseScenarios` when a save
+   *  is not coming from sync. */
+  priceSource?: "manual" | "zillow" | "default";
 }
+
+/** Provenance for `InsuranceScenario.annualPremium`.
+ *  "manual" / "quote" — locked, cross-tab sync must not overwrite.
+ *  "default_0_75_percent" — auto-derived from property value × 0.75%;
+ *    safe to recompute when a synced value arrives.
+ *  "property_value_sync" — stamped by sync helper when it writes. */
+export type InsurancePremiumSource =
+  | "manual" | "quote" | "default_0_75_percent" | "property_value_sync";
+
+/** Provenance for `InsuranceScenario.coverageA` (Rebuild / Replacement
+ *  Cost). "manual" — locked. "property_value_sync" — synced from another
+ *  tab. "default" — initial seed from defaultRebuildFor(). */
+export type InsuranceCoverageASource =
+  | "manual" | "property_value_sync" | "default";
 
 export interface InsuranceScenario {
   id: string;
   address: string;
   savedAt: string;
   annualPremium?: number;
+  /** Provenance for `annualPremium`. See InsurancePremiumSource. When
+   *  null/undefined (legacy rows), the sync helper falls back to the
+   *  0.75%-of-candidate-value heuristic. */
+  premiumSource?: InsurancePremiumSource;
+  /** Rebuild / Replacement Cost (Coverage A). Phase 1 cross-tab sync
+   *  propagates this from Purchase/Cash/Refi/Seller value edits unless
+   *  `coverageASource === "manual"`. */
+  coverageA?: number;
+  /** Provenance for `coverageA`. See InsuranceCoverageASource. */
+  coverageASource?: InsuranceCoverageASource;
   coverageType?: string;
   /** Auto-defaulted from occupancy + property type via
    *  `getDefaultInsurancePolicyType()`. Stored on
@@ -326,6 +382,11 @@ export interface TrackedLoan {
   /** FICO score used by the shared mortgage pricing engine. Stored on
    *  the tracked_loans row so refresh/logout/login preserve it. */
   creditScore?: number;
+  /** Provenance for `estimatedHomeValue`. "manual" — user-edited, locked
+   *  against Phase 1 cross-tab value sync. "synced" — written by the
+   *  sync helper. "statement" / "zillow" — reserved for upload / lookup
+   *  flows. Stored on `tracked_loans.estimated_home_value_source`. */
+  estimatedHomeValueSource?: "manual" | "statement" | "zillow" | "synced";
 }
 
 export type TrackedLoanType = "va" | "fha" | "conventional" | "dscr" | "bank_statement";
@@ -449,6 +510,12 @@ function rowToPurchase(row: any): PurchaseScenario {
       Number.isFinite(Number(row.rate_after_discount_points))
         ? Number(row.rate_after_discount_points)
         : undefined,
+    priceSource:
+      row.price_source === "manual" ||
+      row.price_source === "zillow" ||
+      row.price_source === "default"
+        ? row.price_source
+        : undefined,
   };
 }
 function purchaseToRow(s: PurchaseScenario, userId: string) {
@@ -512,6 +579,7 @@ function purchaseToRow(s: PurchaseScenario, userId: string) {
     ...(typeof s.rateBeforeDiscountPoints === "number"
       ? { rate_before_discount_points: s.rateBeforeDiscountPoints }
       : {}),
+    ...(s.priceSource ? { price_source: s.priceSource } : {}),
     ...(typeof s.rateAfterDiscountPoints === "number"
       ? { rate_after_discount_points: s.rateAfterDiscountPoints }
       : {}),
@@ -524,11 +592,24 @@ function rowToInsurance(row: any): InsuranceScenario {
   const pts = row.policy_type_source;
   const policyTypeSource: InsuranceScenario["policyTypeSource"] =
     pts === "manual" || pts === "default_rule" ? pts : undefined;
+  const ps = row.premium_source;
+  const premiumSource: InsurancePremiumSource | undefined =
+    ps === "manual" || ps === "quote" ||
+    ps === "default_0_75_percent" || ps === "property_value_sync"
+      ? ps : undefined;
+  const cas = row.coverage_a_source;
+  const coverageASource: InsuranceCoverageASource | undefined =
+    cas === "manual" || cas === "property_value_sync" || cas === "default"
+      ? cas : undefined;
   return {
     id: row.id,
     address: row.address,
     savedAt: row.saved_at,
     annualPremium: row.annual_premium ?? undefined,
+    premiumSource,
+    coverageA: row.coverage_a != null && Number.isFinite(Number(row.coverage_a))
+      ? Number(row.coverage_a) : undefined,
+    coverageASource,
     coverageType: row.coverage_type ?? undefined,
     policyType,
     policyTypeSource,
@@ -549,6 +630,12 @@ function insuranceToRow(s: InsuranceScenario, userId: string) {
     ...(s.policyTypeSource
       ? { policy_type_source: s.policyTypeSource }
       : { policy_type_source: null }),
+    // 2026_05_26 migration — premium_source, coverage_a, coverage_a_source.
+    // Older Supabase instances strip these via persistInsuranceScenarios'
+    // optional-column retry loop if they're missing.
+    ...(s.premiumSource ? { premium_source: s.premiumSource } : { premium_source: null }),
+    ...(typeof s.coverageA === "number" ? { coverage_a: s.coverageA } : {}),
+    ...(s.coverageASource ? { coverage_a_source: s.coverageASource } : { coverage_a_source: null }),
   };
 }
 function rowToSeller(row: any): SellerScenario {
@@ -734,6 +821,13 @@ function rowToTrackedLoan(row: any): TrackedLoan {
       const n = typeof v === "number" ? v : parseInt(String(v), 10);
       return Number.isFinite(n) && n > 0 ? n : undefined;
     })(),
+    estimatedHomeValueSource:
+      row.estimated_home_value_source === "manual" ||
+      row.estimated_home_value_source === "statement" ||
+      row.estimated_home_value_source === "zillow" ||
+      row.estimated_home_value_source === "synced"
+        ? row.estimated_home_value_source
+        : undefined,
   };
 }
 function trackedLoanToRow(l: TrackedLoan, userId: string) {
@@ -754,6 +848,9 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     balance_as_of: l.balanceAsOf ?? null,
     loan_number: l.loanNumber && l.loanNumber.trim() ? l.loanNumber.trim() : null,
     credit_score: typeof l.creditScore === "number" && l.creditScore > 0 ? l.creditScore : null,
+    ...(l.estimatedHomeValueSource
+      ? { estimated_home_value_source: l.estimatedHomeValueSource }
+      : {}),
   };
   console.log("[refi-save] tracked_loans payload loan_type", { loanId: l.id, loan_type: row.loan_type });
   return row;
@@ -1124,6 +1221,12 @@ export function getPurchaseScenarios(): PurchaseScenario[] {
 
 export function savePurchaseScenarios(s: PurchaseScenario[]) {
   const prev = _purchaseScenarios;
+  // Stamp priceSource = "manual" on user-driven price diffs (skipped when
+  // a sync write is in flight — sync helper leaves priceSource untouched
+  // because sync targets are overridable by definition).
+  s = _stampManualOnValueDiff(prev, s,
+    p => p.price,
+    p => ({ ...p, priceSource: "manual" }));
   _purchaseScenarios = s;
   notify();
   void persistPurchaseScenarios(s);
@@ -1195,30 +1298,67 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
       }
     }
     if (s.length > 0) {
-      const payload = s.map(x => purchaseToRow(x, userId));
-      payload.forEach((p) => {
-        console.debug("[purchase-save] scenario id", p.id);
-        console.debug("[purchase-save] full address", p.full_address ?? p.address);
-        console.debug("[purchase-save] normalized key", p.normalized_property_key);
-        console.debug("[purchase-live-test] normalized property key", p.normalized_property_key);
+      // Strip-and-retry: protects against older Supabase instances that
+      // haven't run the 2026_05_26 migration (price_source). Mirrors the
+      // tracked_loans / seller_scenarios pattern.
+      const PURCHASE_OPTIONAL_COLUMNS = ["price_source"] as const;
+      const stripped = new Set<string>();
+      const buildPayload = () => s.map(x => {
+        const row: Record<string, any> = purchaseToRow(x, userId);
+        Array.from(stripped).forEach(col => { delete row[col]; });
+        return row;
       });
-      console.debug("[purchase-save] upsert payload", payload);
-      console.debug("[purchase-live-test] upsert payload", payload);
-      const { data: upData, error: upErr, status, statusText } = await supabase
-        .from("purchase_scenarios")
-        .upsert(payload, { onConflict: "id" })
-        .select();
-      if (upErr) {
+      let lastErr: string | null = null;
+      let upData: any[] | null = null;
+      let lastStatus: number | undefined;
+      let lastStatusText: string | undefined;
+      for (let attempt = 0; attempt <= PURCHASE_OPTIONAL_COLUMNS.length; attempt++) {
+        const payload = buildPayload();
+        if (attempt === 0) {
+          payload.forEach((p) => {
+            console.debug("[purchase-save] scenario id", p.id);
+            console.debug("[purchase-save] full address", p.full_address ?? p.address);
+            console.debug("[purchase-save] normalized key", p.normalized_property_key);
+            console.debug("[purchase-live-test] normalized property key", p.normalized_property_key);
+          });
+          console.debug("[purchase-save] upsert payload", payload);
+          console.debug("[purchase-live-test] upsert payload", payload);
+        }
+        const res = await supabase
+          .from("purchase_scenarios")
+          .upsert(payload, { onConflict: "id" })
+          .select();
+        lastStatus = res.status;
+        lastStatusText = res.statusText;
+        if (!res.error) { upData = res.data ?? []; lastErr = null; break; }
+        const missing = extractMissingColumn(res.error.message);
+        if (missing && (PURCHASE_OPTIONAL_COLUMNS as readonly string[]).includes(missing) && !stripped.has(missing)) {
+          console.warn(`[purchase-save] retrying without missing column '${missing}'`);
+          notifyError({
+            table: "purchase_scenarios",
+            message: `Your Supabase purchase_scenarios table is missing the '${missing}' column — re-apply supabase/schema.sql so this field can persist.`,
+          });
+          stripped.add(missing);
+          continue;
+        }
+        lastErr = res.error.message;
+        upData = null;
         const errInfo = {
-          message: upErr.message,
-          details: (upErr as any).details,
-          hint: (upErr as any).hint,
-          code: (upErr as any).code,
-          status,
-          statusText,
+          message: res.error.message,
+          details: (res.error as any).details,
+          hint: (res.error as any).hint,
+          code: (res.error as any).code,
+          status: res.status,
+          statusText: res.statusText,
         };
         console.error("[purchase-save] upsert error", errInfo);
         console.error("[purchase-live-test] upsert error", errInfo);
+        break;
+      }
+      const upErr = lastErr ? { message: lastErr } as any : null;
+      const status = lastStatus;
+      const statusText = lastStatusText;
+      if (upErr) {
         notifyError({ table: "purchase_scenarios", message: upErr.message });
       } else {
         const okInfo = {
@@ -1254,6 +1394,17 @@ export function getInsuranceScenarios(): InsuranceScenario[] {
 }
 
 export function saveInsuranceScenarios(s: InsuranceScenario[]): Promise<void> {
+  const prev = _insuranceScenarios;
+  // Stamp coverageASource = "manual" on user-driven Coverage A diffs.
+  // Premium is not stamped here because insurance.tsx has no direct
+  // premium input — premium auto-derives from Coverage A, so a
+  // Coverage-A edit must not lock the premium against future sync.
+  // When the sync helper writes Coverage A, it stamps
+  // coverageASource = "property_value_sync" itself, and this stamper
+  // is skipped (isPropertyValueSyncInFlight() === true).
+  s = _stampManualOnValueDiff(prev, s,
+    i => i.coverageA,
+    i => ({ ...i, coverageASource: "manual" }));
   _insuranceScenarios = s;
   notify();
   // Returns the persistence promise so callers (the new "Save
@@ -1287,12 +1438,41 @@ function persistInsuranceScenarios(s: InsuranceScenario[]) {
       }
     }
     if (s.length > 0) {
-      const { error: upErr } = await supabase
-        .from("insurance_scenarios")
-        .upsert(s.map(x => insuranceToRow(x, userId)), { onConflict: "id" });
-      if (upErr) {
-        notifyError({ table: "insurance_scenarios", message: upErr.message });
-        throw new Error(upErr.message);
+      // Strip-and-retry: protects against older Supabase instances that
+      // haven't run the 2026_05_26 migration (premium_source, coverage_a,
+      // coverage_a_source) — and also tolerates pre-policy-type schemas.
+      const INSURANCE_OPTIONAL_COLUMNS = [
+        "premium_source", "coverage_a", "coverage_a_source",
+        "policy_type", "policy_type_source",
+      ] as const;
+      const stripped = new Set<string>();
+      const buildPayload = () => s.map(x => {
+        const row: Record<string, any> = insuranceToRow(x, userId);
+        Array.from(stripped).forEach(col => { delete row[col]; });
+        return row;
+      });
+      let lastErr: string | null = null;
+      for (let attempt = 0; attempt <= INSURANCE_OPTIONAL_COLUMNS.length; attempt++) {
+        const { error: upErr } = await supabase
+          .from("insurance_scenarios")
+          .upsert(buildPayload(), { onConflict: "id" });
+        if (!upErr) { lastErr = null; break; }
+        const missing = extractMissingColumn(upErr.message);
+        if (missing && (INSURANCE_OPTIONAL_COLUMNS as readonly string[]).includes(missing) && !stripped.has(missing)) {
+          console.warn(`[insurance-save] retrying without missing column '${missing}'`);
+          notifyError({
+            table: "insurance_scenarios",
+            message: `Your Supabase insurance_scenarios table is missing the '${missing}' column — re-apply supabase/schema.sql so this field can persist.`,
+          });
+          stripped.add(missing);
+          continue;
+        }
+        lastErr = upErr.message;
+        break;
+      }
+      if (lastErr) {
+        notifyError({ table: "insurance_scenarios", message: lastErr });
+        throw new Error(lastErr);
       }
     }
   });
@@ -1470,6 +1650,10 @@ export function getTrackedLoans(): TrackedLoan[] {
 
 export function saveTrackedLoans(loans: TrackedLoan[]): Promise<void> {
   const prev = _trackedLoans;
+  // Stamp estimatedHomeValueSource = "manual" on user-driven value diffs.
+  loans = _stampManualOnValueDiff(prev, loans,
+    l => l.estimatedHomeValue,
+    l => ({ ...l, estimatedHomeValueSource: "manual" }));
   _trackedLoans = loans;
   notify();
   _diffAndSyncPropertyValue(prev, loans, "refinance",
