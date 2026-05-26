@@ -1,0 +1,56 @@
+Now that you added the SQL, the next step is to **test Purchase with Cash persistence after refresh/logout/login** and have Replit verify the new columns are being used.
+
+Replit’s response says the migration added the missing Cash Buy persistence columns, including `property_type`, multiple `*_source` fields, `insurance_premium_annual`, `insurance_factors`, and `user_answer_sources` . It also says the updated save/load mapping and guarded defaults are already in code, so this is now an acceptance-test issue, not a new build issue .
+
+Copy/paste this into Replit:
+
+```text
+I ran the required Supabase SQL migration for Purchase with Cash persistence.
+
+Please now verify the live Purchase with Cash persistence flow against the updated schema.
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Purchase with Cash.
+3. Add/open a Purchase with Cash property.
+4. Change these fields:
+   - purchase price
+   - property type
+   - occupancy/property use
+   - annual property taxes
+   - homeowners insurance
+   - HOA/condo fees
+   - estimated closing costs / closing cost percent
+   - seller concessions mode
+   - seller concessions percent or dollar amount
+   - insurance simulator premium/factors, if editable
+5. Confirm browser console shows:
+   [cash-buy-user-save] upsert ok
+6. Refresh the page.
+7. Confirm every changed value remains.
+8. Log out.
+9. Log back in.
+10. Open the same Purchase with Cash property.
+11. Confirm every changed value still remains exactly as entered.
+12. Confirm Zillow/default values do not overwrite manually edited:
+   - purchase price
+   - property type
+   - taxes
+   - homeowners insurance
+   - HOA
+   - seller concessions
+13. Confirm the homeowners insurance value shown in Ongoing Costs matches the Homeowners Insurance Estimate section.
+14. Confirm no duplicate Cash Buy scenario rows are created.
+15. Confirm the matching Insurance scenario still updates correctly where allowed.
+
+Please report:
+- Whether the new Supabase columns were detected
+- Whether `user_answer_sources` is saving
+- Whether the `*_source` fields are saving
+- Whether all edited Purchase with Cash values persist after refresh/logout/login
+- Any field that still resets
+- Any `[cash-buy-user-save]` error or strip-and-retry log
+- Whether the Insurance scenario still syncs correctly
+```
+
+If one item still resets, send Replit only that field name plus the console lines around `[cash-buy-user-save]`.
