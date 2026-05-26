@@ -1,0 +1,184 @@
+Send Replit this to start Phase 2:
+
+```text id="phase-2-policy-type-sync"
+Move to Phase 2: Policy Type sync.
+
+Phase 1 property-value sync is complete and the manual Annual Premium input is now in place. Now build Policy Type sync across the dashboard.
+
+Goal:
+Keep insurance policy type consistent across matching properties based on:
+1. property use / occupancy
+2. property type
+
+Policy type rules:
+- Primary Residence + non-condo/townhouse property → HO3
+- Secondary Home + non-condo/townhouse property → HO3
+- Investment Property + non-condo/townhouse property → DP3
+- Any Condo / Condominium / Townhouse / Townhome → HO6, regardless of occupancy
+
+Short version:
+- Primary or Secondary → HO3 unless Condo/Townhouse → HO6
+- Investment → DP3 unless Condo/Townhouse → HO6
+
+Apply this across:
+- Insurance tab
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Auto-created Insurance scenarios
+- Manual Insurance add-property flow
+- Dashboard Insurance overview cards
+- Insurance detailed view
+
+Use existing Supabase columns:
+- insurance_scenarios.policy_type
+- insurance_scenarios.policy_type_source
+
+I already ran SQL for those fields. Do not request a migration unless a different missing column is found.
+
+Create or update shared helper:
+getDefaultInsurancePolicyType({
+  occupancyType,
+  propertyUse,
+  propertyType,
+})
+
+Return:
+- "HO3"
+- "HO6"
+- "DP3"
+- null if insufficient data
+
+Property type matching:
+Treat these as HO6:
+- Condominium
+- Condo
+- Townhouse
+- Townhome
+- Town House
+- Attached Condo
+- Condo Unit
+
+Treat these as non-condo residential:
+- Single Family Residence
+- Single Family
+- Detached
+- Villa
+- Manufactured Home
+- Multi-Family
+- Duplex
+- Triplex
+- Quadplex
+- Other, unless clearly condo/townhouse
+
+When to sync:
+Run policy type sync when:
+1. Insurance scenario is manually created.
+2. Insurance scenario is auto-created from Purchase with Loan.
+3. Insurance scenario is auto-created from Purchase with Cash.
+4. Insurance scenario is auto-created from Refinance.
+5. Property use / occupancy changes in any source tab.
+6. Property type changes in any source tab.
+7. Zillow/property cache returns property type.
+8. User selects Primary / Secondary / Investment.
+
+Manual override protection:
+If user manually changes policy type in Insurance:
+- save policy_type_source = "manual"
+- do not overwrite it with auto rules later
+
+If auto defaulted:
+- save policy_type_source = "default_rule"
+
+If policy_type_source is blank/null:
+- apply default rule if occupancy/property type can determine the result
+- save policy_type_source = "default_rule"
+
+If existing policy_type_source = "manual":
+- display manual value
+- do not overwrite
+
+Examples:
+1. Primary + Single Family Residence → HO3
+2. Secondary + Single Family Residence → HO3
+3. Primary + Condo → HO6
+4. Secondary + Townhouse → HO6
+5. Investment + Single Family Residence → DP3
+6. Investment + Condo → HO6
+7. Investment + Townhouse → HO6
+
+Insurance overview cards:
+Fix/update the Insurance dashboard overview so every property card displays policy_type under Policy Type.
+It should match the detailed view.
+If blank but determinable from occupancy/property type, backfill and display HO3/HO6/DP3.
+
+Insurance detailed view:
+- Show the current policy_type.
+- Allow manual change if the UI already supports it.
+- Manual change must set policy_type_source = "manual".
+- Persist after refresh/logout/login.
+
+Auto-created Insurance rows:
+When Insurance is created from Purchase with Loan, Purchase with Cash, or Refinance:
+- copy occupancy/property use
+- copy property type if available
+- apply default policy type helper
+- save policy_type
+- save policy_type_source = "default_rule"
+
+Do not break:
+- Phase 1 property-value sync
+- manual Annual Premium input
+- premium_source manual protection
+- Coverage A/Rebuild Cost sync
+- annual/monthly premium calculation
+- Purchase with Loan save/load
+- Purchase with Cash save/load
+- Refinance save/load
+- Insurance save/load
+- Sell Your Home
+- Market Analysis gating
+
+Debug logs:
+Add temporary logs:
+- [policy-type-sync] source tab
+- [policy-type-sync] user id
+- [policy-type-sync] normalized property key
+- [policy-type-sync] occupancy/property use
+- [policy-type-sync] property type
+- [policy-type-sync] existing policy type
+- [policy-type-sync] existing policy_type_source
+- [policy-type-sync] computed policy type
+- [policy-type-sync] skipped manual override
+- [policy-type-sync] saved policy type
+- [policy-type-sync] save error
+
+Acceptance test:
+1. Create/update Purchase with Loan: Primary + Single Family → Insurance shows HO3.
+2. Create/update Purchase with Loan: Secondary + Single Family → Insurance shows HO3.
+3. Create/update Purchase with Loan: Primary + Condo → Insurance shows HO6.
+4. Create/update Purchase with Loan: Primary + Townhouse → Insurance shows HO6.
+5. Create/update Purchase with Loan: Investment + Single Family → Insurance shows DP3.
+6. Create/update Purchase with Loan: Investment + Condo → Insurance shows HO6.
+7. Repeat same key tests from Purchase with Cash.
+8. Repeat same key tests from Refinance.
+9. In Insurance overview, confirm Policy Type card value is not blank and matches detailed view.
+10. Manually change Policy Type in Insurance.
+11. Confirm policy_type_source = "manual".
+12. Change occupancy/property type in another tab.
+13. Confirm manual policy type is not overwritten.
+14. Refresh/logout/login.
+15. Confirm policy type persists and overview/detail match.
+
+Please make the smallest safe code change possible and tell me:
+- Which shared policy type helper was created or updated
+- Which flows now call the helper
+- How condo/townhouse detection works
+- How Primary/Secondary defaults to HO3
+- How Investment defaults to DP3
+- How HO6 overrides by property type
+- How Insurance overview card display was fixed
+- How manual overrides are protected
+- Confirmation that no new SQL migration was needed
+- Which files/functions were changed
+```

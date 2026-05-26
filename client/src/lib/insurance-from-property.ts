@@ -123,13 +123,27 @@ export function ensureInsuranceForAddress(
     propertyType,
   });
 
+  // Policy-type sync trace (Phase 2). Mirrors the [property-value-sync]
+  // log surface so the acceptance test can grep one prefix per concern.
+  console.log("[policy-type-sync] source tab", { sourceType });
+  console.log("[policy-type-sync] normalized property key", { key: incomingKey });
+  console.log("[policy-type-sync] occupancy/property use", { occupancyType });
+  console.log("[policy-type-sync] property type", { propertyType });
+  console.log("[policy-type-sync] computed policy type", { computed: defaultPolicyType });
+
   if (existingIdx >= 0) {
     const existing = insuranceScenarios[existingIdx];
     console.log("[insurance-auto-create] existing insurance found true/false", { found: true });
 
+    console.log("[policy-type-sync] existing policy type", { existing: existing.policyType ?? null });
+    console.log("[policy-type-sync] existing policy_type_source", { source: existing.policyTypeSource ?? null });
+
     // Respect manual policy-type overrides — only refresh the carried
     // snapshots if those differ, never touch the policyType itself.
     const manualLocked = existing.policyTypeSource === "manual";
+    if (manualLocked) {
+      console.log("[policy-type-sync] skipped manual override", { id: existing.id });
+    }
 
     const nextOccupancy = occupancyType ?? existing.occupancyType;
     const nextPropertyType = propertyType ?? existing.propertyType;
@@ -167,6 +181,11 @@ export function ensureInsuranceForAddress(
       next: updated.policyType,
       manualLocked,
     });
+    if (policyTypeChange) {
+      console.log("[policy-type-sync] saved policy type", {
+        id: existing.id, policyType: updated.policyType, source: "default_rule",
+      });
+    }
     const nextScenarios = insuranceScenarios.slice();
     nextScenarios[existingIdx] = updated;
     return {
@@ -202,6 +221,12 @@ export function ensureInsuranceForAddress(
       ? { policyType: defaultPolicyType, policyTypeSource: "default_rule" as const }
       : {}),
   };
+
+  if (defaultPolicyType) {
+    console.log("[policy-type-sync] saved policy type", {
+      id: created.id, policyType: defaultPolicyType, source: "default_rule",
+    });
+  }
 
   return {
     scenarios: [...insuranceScenarios, created],

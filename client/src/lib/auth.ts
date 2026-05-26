@@ -1692,8 +1692,10 @@ function autoCreateInsuranceFromAddresses(
 ): void {
   if (!_session?.id) {
     console.log("[insurance-auto-create] skipped reason", { reason: "no_auth" });
+    console.log("[policy-type-sync] user id", { userId: null });
     return;
   }
+  console.log("[policy-type-sync] user id", { userId: _session.id });
   if (addresses.length === 0) return;
   const { scenarios, changed } = ensureInsuranceForAddresses(
     addresses,
@@ -1704,8 +1706,10 @@ function autoCreateInsuranceFromAddresses(
   // Supabase write all stay consistent with the manual-add path.
   void saveInsuranceScenarios(scenarios).then(
     () => console.log("[insurance-auto-create] save ok", { count: scenarios.length }),
-    (err: any) =>
-      console.warn("[insurance-auto-create] save failed", { error: err?.message ?? String(err) }),
+    (err: any) => {
+      console.warn("[insurance-auto-create] save failed", { error: err?.message ?? String(err) });
+      console.error("[policy-type-sync] save error", { message: err?.message ?? String(err) });
+    },
   );
 }
 
