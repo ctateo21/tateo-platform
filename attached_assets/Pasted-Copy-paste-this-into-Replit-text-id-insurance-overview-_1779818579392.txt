@@ -1,0 +1,132 @@
+Copy/paste this into Replit:
+
+```text id="insurance-overview-occupancy-policy-type-live-update"
+Fix the Insurance dashboard property card so changing Primary / Secondary / Investment updates the Policy Type shown on the same card.
+
+Current issue:
+Inside Dashboard → Insurance, each property address card has an occupancy/property-use dropdown:
+- Primary
+- Secondary
+- Investment
+
+When I change this dropdown, the Policy Type shown on the same property card does not update.
+
+Expected behavior:
+When the user changes the occupancy dropdown on the Insurance property card overview:
+
+Primary:
+- If property type is Single Family / non-condo / non-townhouse → Policy Type = HO3
+- If property type is Condo/Townhouse → Policy Type = HO6
+
+Secondary:
+- If property type is Single Family / non-condo / non-townhouse → Policy Type = HO3
+- If property type is Condo/Townhouse → Policy Type = HO6
+
+Investment:
+- If property type is Single Family / non-condo / non-townhouse → Policy Type = DP3
+- If property type is Condo/Townhouse → Policy Type = HO6
+
+Core fix:
+The Insurance overview card occupancy dropdown must recalculate the Policy Type immediately and update the same card UI.
+
+Required behavior:
+1. User changes occupancy dropdown on Insurance overview card.
+2. Card immediately updates occupancy value.
+3. If `policy_type_source !== "manual"`, recalculate policy type using:
+
+`getDefaultInsurancePolicyType({ occupancyType, propertyUse, propertyType })`
+
+4. Update the Policy Type display on the same overview card immediately.
+5. Save both occupancy and policy type to `insurance_scenarios`.
+6. Detailed view for that property should show the same updated values.
+7. Values must persist after refresh/logout/login.
+
+Save to `insurance_scenarios`:
+- `occupancy_type`
+- `occupancy_type_source = "manual"`
+- `policy_type`, if recalculated
+- `policy_type_source = "default_rule"`, if recalculated
+- `user_answer_sources.occupancy_type = "manual"`
+- `updated_at`
+
+Manual override protection:
+If `policy_type_source = "manual"`:
+- Do not recalculate or overwrite `policy_type`
+- Still save the changed occupancy
+- Keep the manually selected policy type visible
+
+If `policy_type_source` is blank, null, default, or default_rule:
+- Recalculate policy type from occupancy + property type
+- Save and display the recalculated value
+
+Important:
+Do not only update the detailed view.
+Do not only update Supabase.
+The Policy Type text/value on the Insurance overview card must change immediately after the dropdown changes.
+
+Likely bug:
+The overview card’s policy type display is probably reading from a stale `ins.policyType` value or fallback display value and is not being recomputed after the occupancy dropdown state changes.
+
+Fix options:
+- Update the local Insurance scenarios state after the dropdown change with the recalculated `policyType`
+- Or make the card display derive from the current card occupancy + property type when policy type is not manual
+- Prefer updating the saved scenario state so overview and detail stay consistent
+
+Do not create duplicates:
+- Update the existing insurance row by scenario id
+- If id is missing, use `user_id + normalized_property_key`
+- Do not insert a new row
+
+Property type source:
+Use the property type already associated with the Insurance scenario/card.
+If missing, use the same fallback currently used by the detailed view or dashboard backfill.
+
+Policy type helper:
+Use the existing helper:
+`getDefaultInsurancePolicyType`
+
+Do not create a second separate policy-type formula.
+
+Debug logs:
+Add temporary logs:
+- `[insurance-overview-occupancy] selected occupancy`
+- `[insurance-overview-occupancy] property type`
+- `[insurance-overview-occupancy] prior policy type`
+- `[insurance-overview-occupancy] prior policy_type_source`
+- `[insurance-overview-occupancy] recalculated policy type`
+- `[insurance-overview-occupancy] updated local card state`
+- `[insurance-overview-occupancy] saved to insurance_scenarios`
+- `[insurance-overview-occupancy] skipped policy update because manual`
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Insurance.
+3. Find a property card with:
+   - property type = Single Family or non-condo
+   - policy type = HO3
+4. Change occupancy dropdown from Primary to Investment.
+5. Confirm Policy Type on the same card immediately changes to DP3.
+6. Open detailed view.
+7. Confirm occupancy = Investment and policy type = DP3.
+8. Refresh.
+9. Confirm card still shows Investment and DP3.
+10. Log out/log back in.
+11. Confirm card still shows Investment and DP3.
+12. Change occupancy back to Primary.
+13. Confirm card changes Policy Type back to HO3 if not manual.
+14. Change property type to Condo/Townhouse.
+15. Confirm card changes Policy Type to HO6 if not manual.
+16. Manually change Policy Type in detailed view.
+17. Confirm `policy_type_source = manual`.
+18. Change occupancy on overview card again.
+19. Confirm manually selected Policy Type is not overwritten.
+
+Please make the smallest safe code change possible and tell me:
+- Which Insurance overview card component was changed
+- Why the occupancy dropdown did not update the Policy Type display
+- How the card now recalculates policy type
+- How local card state is updated immediately
+- How the value is saved to `insurance_scenarios`
+- How manual policy type overrides are protected
+- Which files/functions were changed
+```

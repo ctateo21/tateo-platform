@@ -929,8 +929,21 @@ function buildInsuranceRows(
     if (override) {
       occupancy = override;
       occupancySource = "manual_override";
+    } else if (entry.insurance?.occupancyTypeSource === "manual" && entry.insurance.occupancyType) {
+      // Insurance card / detail-view manual pick (server-side lock).
+      // Survives refresh/logout/login on any device — localStorage
+      // override is per-device, so we fall back to the persisted
+      // `insurance_scenarios.occupancy_type` whenever the user marked
+      // it manual.
+      occupancy = entry.insurance.occupancyType as OccupancyType;
+      occupancySource = "manual_override";
     } else if (newestRefi) {
       occupancy = newestRefi.propertyType;
+      occupancySource = "refinance";
+    } else if (entry.insurance?.occupancyType) {
+      // Auto-defaulted from a prior Purchase/Refi sync — still better
+      // than "unknown" when the refi row has been deleted.
+      occupancy = entry.insurance.occupancyType as OccupancyType;
       occupancySource = "refinance";
     }
 
@@ -1324,16 +1337,25 @@ function InsuranceRowCard({
   const monthly = typeof annual === "number" ? annual / 12 : undefined;
   const occupancyBadgeClass = PROPERTY_TYPE_COLORS[row.occupancy] ?? "bg-muted text-muted-foreground border";
 
-  // Policy type: prefer the persisted value (manual or default_rule from
-  // a prior save), else compute on the fly from row context so the card
-  // matches what the detail page would show. The backfill effect above
-  // persists this same value back to Supabase asynchronously.
+  // Policy type display rules (spec: insurance-overview-occupancy-policy-type-live-update):
+  //   - If `policyTypeSource === "manual"`, ALWAYS show the persisted
+  //     `ins.policyType` — never recompute, never overwrite. This is
+  //     the user's explicit pick from the detail view.
+  //   - Otherwise compute live from the current row occupancy +
+  //     propertyType so a dropdown change updates this label
+  //     immediately (the handler's setInsurance() may not have
+  //     re-rendered the new policyType yet on the first frame; the
+  //     localStorage override + overrideBump always have). Fall back
+  //     to the persisted value, then "—".
   const purchaseType = row.purchaseMatches[0]?.propertyType ?? ins?.propertyType;
   const occForRule = row.occupancy === "unknown" ? undefined : row.occupancy;
-  const policyTypeDisplay =
-    ins?.policyType ??
-    getDefaultInsurancePolicyType({ occupancyType: occForRule, propertyType: purchaseType }) ??
-    null;
+  const policyManual = ins?.policyTypeSource === "manual";
+  const computedPolicy = !policyManual
+    ? getDefaultInsurancePolicyType({ occupancyType: occForRule, propertyType: purchaseType })
+    : null;
+  const policyTypeDisplay = policyManual
+    ? (ins?.policyType ?? null)
+    : (computedPolicy ?? ins?.policyType ?? null);
 
   return (
     <Card className="hover:shadow-md transition-shadow group">
