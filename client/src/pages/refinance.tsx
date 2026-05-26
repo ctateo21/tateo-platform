@@ -47,6 +47,11 @@ function analysisToTrackedLoan(
     addedAt: now,
     balanceAsOf: now,
     propertyType,
+    // Phase 2: populate the dedicated occupancy column on first add so
+    // future code paths can stop relying on the legacy `propertyType`
+    // field (which historically held the occupancy value). Stored on
+    // tracked_loans.occupancy_type via the 2026_05_27 migration.
+    occupancyType: propertyType,
     loanType: "conventional",
     loanNumber,
     creditScore,

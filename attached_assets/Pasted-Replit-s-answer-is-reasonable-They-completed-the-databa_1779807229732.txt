@@ -1,0 +1,227 @@
+Replit’s answer is reasonable. They completed the **database + plumbing**, but not the **UI capture**, so the policy defaults still cannot work reliably until users can set the missing fields.
+
+Next prompt should be the UI wiring only. Send this:
+
+```text id="policy-type-ui-capture"
+Now wire the UI inputs needed for the policy type sync fields that were just added.
+
+I already understand the schema/plumbing was completed with:
+
+- purchase_scenarios.occupancy_type
+- cash_buy_scenarios.property_type
+- tracked_loans.occupancy_type
+- tracked_loans.physical_property_type
+
+Now add the UI capture fields so the policy type sync can actually work.
+
+Goal:
+Users need to be able to set the required occupancy/property type values in the relevant tabs so Insurance policy type can correctly default to:
+
+- Primary or Secondary + non-condo/townhouse → HO3
+- Investment + non-condo/townhouse → DP3
+- Condo/Townhouse/Townhome → HO6 regardless of occupancy
+
+Part 1 — Purchase with Loan
+
+Add or wire Occupancy / Property Use to save into:
+
+purchase_scenarios.occupancy_type
+
+Location:
+Purchase with Loan questionnaire, where property use / occupancy is already asked or should be asked.
+
+Options:
+- Primary
+- Secondary
+- Investment
+
+Behavior:
+- If user selects Primary, save occupancy_type = "primary"
+- If user selects Secondary, save occupancy_type = "secondary"
+- If user selects Investment, save occupancy_type = "investment"
+- Persist after refresh/logout/login.
+- When Purchase with Loan auto-creates/updates Insurance, pass occupancy_type to the policy type helper.
+- If Investment + Single Family, Insurance should default to DP3.
+- If Primary/Secondary + Single Family, Insurance should default to HO3.
+- If any occupancy + Condo/Townhouse, Insurance should default to HO6.
+
+Do not hardcode Purchase with Loan as primary anymore.
+
+Part 2 — Purchase with Cash
+
+Add a Property Type select that saves into:
+
+cash_buy_scenarios.property_type
+
+Location:
+Purchase with Cash detail view near the address/property details area.
+
+Options:
+- Single Family Residence
+- Townhouse
+- Condominium
+- Villa
+- Manufactured Home
+- Multi-Family
+- Duplex
+- Triplex
+- Quadplex
+- Other
+
+Behavior:
+- Default to Zillow/property cache property type if available.
+- If no Zillow property type exists, default to Single Family Residence.
+- User can manually change it.
+- Persist after refresh/logout/login.
+- When Purchase with Cash auto-creates/updates Insurance, pass property_type to the policy type helper.
+- Cash Buy Investment + Single Family → DP3
+- Cash Buy Investment + Condo/Townhouse → HO6
+- Cash Buy Primary/Secondary + Single Family → HO3
+
+If Purchase with Cash does not yet have an Occupancy / Property Use select, add one too and save it to the existing cash_buy occupancy field:
+- Primary
+- Secondary
+- Investment
+
+Part 3 — Refinance
+
+Add a Physical Property Type select separate from occupancy/property use.
+
+Save physical property type into:
+
+tracked_loans.physical_property_type
+
+Keep occupancy/property use saved into:
+
+tracked_loans.occupancy_type
+
+Important:
+Do not keep using one field for both occupancy and physical property type.
+
+Location:
+Refinance detailed loan view near property details / occupancy / estimated home value.
+
+Fields:
+1. Occupancy / Property Use
+Options:
+- Primary
+- Secondary
+- Investment
+
+2. Physical Property Type
+Options:
+- Single Family Residence
+- Townhouse
+- Condominium
+- Villa
+- Manufactured Home
+- Multi-Family
+- Duplex
+- Triplex
+- Quadplex
+- Other
+
+Behavior:
+- Occupancy selection saves to tracked_loans.occupancy_type.
+- Physical property type selection saves to tracked_loans.physical_property_type.
+- If Zillow/property cache has physical property type, default from that.
+- If no Zillow property type exists, default to Single Family Residence.
+- Persist both after refresh/logout/login.
+- When Refinance auto-creates/updates Insurance, pass both values to the policy type helper.
+- Refinance Investment + Single Family → DP3
+- Refinance Primary + Condo/Townhouse → HO6
+- Refinance Primary/Secondary + Single Family → HO3
+
+Part 4 — Insurance policy type refresh after changes
+
+Whenever the user changes:
+- occupancy/property use
+- physical property type
+
+in Purchase with Loan, Purchase with Cash, or Refinance:
+
+Update the matching Insurance scenario for the same user_id + normalized_property_key unless:
+
+insurance_scenarios.policy_type_source = "manual"
+
+If policy_type_source is manual:
+- do not overwrite policy_type
+- log skipped manual override
+
+If policy_type_source is blank/default_rule:
+- recompute policy_type using getDefaultInsurancePolicyType()
+- save policy_type
+- save policy_type_source = "default_rule"
+
+Part 5 — Zillow/property cache defaults
+
+Where property type is available from Zillow/property cache:
+- seed property type selects from Zillow
+- normalize values to app options
+- allow user manual override
+- persist manual override
+
+Examples:
+- CONDO → Condominium
+- CONDOMINIUM → Condominium
+- TOWNHOUSE / TOWNHOME → Townhouse
+- SINGLE_FAMILY → Single Family Residence
+- MULTI_FAMILY → Multi-Family
+- MANUFACTURED → Manufactured Home
+
+Part 6 — Manual override protection
+
+If user manually changes physical property type in Cash Buy or Refinance:
+- preserve the selected value
+- do not overwrite from Zillow later unless the user resets it
+
+If user manually changes Insurance policy type:
+- policy_type_source = "manual"
+- source tab changes should not overwrite it
+
+Part 7 — Do not break existing features
+
+Do not break:
+- Phase 1 property value sync
+- Annual Premium manual input
+- Coverage A/Rebuild Cost sync
+- Insurance premium 0.75% default
+- Purchase with Loan save/load
+- Purchase with Cash save/load
+- Refinance mortgage statement upload
+- Insurance auto-create
+- Insurance overview policy type display
+- Sell Your Home
+- Market Analysis gating
+
+Acceptance test:
+1. Purchase with Loan: Primary + Single Family → Insurance policy type HO3.
+2. Purchase with Loan: Secondary + Single Family → Insurance policy type HO3.
+3. Purchase with Loan: Investment + Single Family → Insurance policy type DP3.
+4. Purchase with Loan: Primary + Condo → Insurance policy type HO6.
+5. Purchase with Loan: Investment + Condo → Insurance policy type HO6.
+6. Purchase with Cash: Primary + Single Family → HO3.
+7. Purchase with Cash: Investment + Single Family → DP3.
+8. Purchase with Cash: Investment + Condo/Townhouse → HO6.
+9. Refinance: Primary + Single Family → HO3.
+10. Refinance: Investment + Single Family → DP3.
+11. Refinance: Primary + Condo/Townhouse → HO6.
+12. Manually change Insurance policy type.
+13. Confirm policy_type_source = manual.
+14. Change source tab occupancy/property type.
+15. Confirm manual Insurance policy type is not overwritten.
+16. Refresh/logout/login.
+17. Confirm all occupancy/property type values persist.
+18. Confirm Insurance overview and detail show matching policy type.
+
+Please make the smallest safe code change possible and tell me:
+- Which UI fields were added
+- Where Purchase with Loan occupancy is saved
+- Where Cash Buy property type is saved
+- Where Refinance occupancy is saved
+- Where Refinance physical property type is saved
+- How Zillow property type seeds the selects
+- How policy type updates after field changes
+- How manual overrides are protected
+- Which files/functions were changed
+```

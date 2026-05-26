@@ -12,8 +12,10 @@ import {
   Minus, Clock, DollarSign, AlertCircle, Wallet, ArrowLeftRight,
   Banknote, Pencil, Check, X, Info, Landmark, Home, Building2, Sparkles,
 } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { calculateRefinance, calculateMonthlyPayment, formatCurrency, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
 import { priceLoan } from "@/lib/mortgage-pricing";
+import { PHYSICAL_PROPERTY_TYPE_OPTIONS } from "@/lib/property-type-options";
 
 export interface MortgageAnalysis {
   loanBalance: number;
@@ -354,12 +356,33 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   // round-trips the corrected loan type.
   function handlePropertyTypeChange(pt: PropertyType) {
     setPropertyType(pt);
-    const updates: Partial<TrackedLoan> = { propertyType: pt };
+    // Phase 2: mirror occupancy into the dedicated column alongside the
+    // legacy `propertyType` field so the Insurance auto-default rule
+    // can read a clean occupancy value (DP3 for Investment, etc.).
+    const updates: Partial<TrackedLoan> = { propertyType: pt, occupancyType: pt };
     if (pt !== "primary" && VA_FHA_PRIMARY_ONLY.includes(loanType)) {
       setLoanType("conventional");
       updates.loanType = "conventional";
     }
     onUpdate(updates);
+  }
+
+  // Phase 2: Physical Property Type — separate from occupancy. Drives
+  // Condo/Townhouse → HO6 in the Insurance auto-default rule. Stored
+  // on tracked_loans.physical_property_type via the 2026_05_27
+  // migration. Defaults to "Single Family Residence" for new/legacy
+  // rows; survives refresh/login because we hydrate from the loan prop.
+  const [physicalPropertyType, setPhysicalPropertyTypeLocal] = useState<string>(
+    loan.physicalPropertyType ?? "Single Family Residence",
+  );
+  useEffect(() => {
+    const incoming = loan.physicalPropertyType ?? "Single Family Residence";
+    if (incoming !== physicalPropertyType) setPhysicalPropertyTypeLocal(incoming);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loan.physicalPropertyType]);
+  function handlePhysicalPropertyTypeChange(v: string) {
+    setPhysicalPropertyTypeLocal(v);
+    onUpdate({ physicalPropertyType: v });
   }
   function handleLoanTypeChange(lt: LoanType) {
     if (!isLoanTypeAllowed(lt, propertyType)) return;
@@ -474,6 +497,27 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
               </button>
             ))}
             {rateAdj > 0 && <span className="text-xs text-amber-600">+{rateAdj.toFixed(3)}% LLPA for {PROPERTY_TYPE_LABELS[propertyType].toLowerCase()}</span>}
+          </div>
+
+          {/* Phase 2: Physical Property Type — separate from Property Use
+              (occupancy) above. Drives Condo / Townhouse → HO6 in the
+              Insurance auto-default rule. */}
+          <div className="flex items-center gap-3 flex-wrap" data-testid="selector-physical-property-type">
+            <span className="text-sm font-medium text-muted-foreground">Property Type:</span>
+            <Select value={physicalPropertyType} onValueChange={handlePhysicalPropertyTypeChange}>
+              <SelectTrigger className="h-8 text-xs w-[200px]" data-testid="select-refi-physical-property-type">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PHYSICAL_PROPERTY_TYPE_OPTIONS.map(opt => (
+                  <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                ))}
+                {physicalPropertyType &&
+                  !PHYSICAL_PROPERTY_TYPE_OPTIONS.includes(physicalPropertyType as any) && (
+                    <SelectItem value={physicalPropertyType}>{physicalPropertyType}</SelectItem>
+                  )}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Loan type selector — VA/FHA disabled when not primary */}

@@ -28,6 +28,7 @@ import { estimateAnnualTax } from "@/lib/county-tax-estimator";
 import { calculateDefaultHomeownersInsurance } from "@/lib/insurance-default";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { PHYSICAL_PROPERTY_TYPE_OPTIONS, zillowToPhysicalPropertyType } from "@/lib/property-type-options";
 import PropertyInsuranceSimulator, {
   DEFAULT_INSURANCE_FACTORS, getInsRegionFromAddress, calcInsurancePremium,
   type InsuranceFactors,
@@ -90,6 +91,9 @@ interface LookedUpPropertyLite {
   isSold?: boolean;
   hoaMonthly?: number | null;
   photos?: string[];
+  /** Zillow `homeType` (e.g. "CONDO", "TOWNHOUSE", "SINGLE_FAMILY")
+   *  — Phase 2 uses this to seed the Physical Property Type select. */
+  propertyType?: string | null;
 }
 
 function inferPriceSource(
@@ -397,6 +401,15 @@ export default function CashBuyPage() {
           // Photos: always refresh from Zillow (cached or fresh).
           if (primary) next.primaryPhotoUrl = primary;
           if (photos.length > 0) next.propertyPhotos = photos;
+          // Phase 2: seed Physical Property Type from Zillow homeType,
+          // but never overwrite a value the user has already picked.
+          // We treat any existing prev.propertyType as the user's pick
+          // (the only other writer is this same Zillow path, which is
+          // gated by `zillowFiredRef` to run at most once per session).
+          if (!prev.propertyType) {
+            const mapped = zillowToPhysicalPropertyType(p.propertyType);
+            if (mapped) next.propertyType = mapped;
+          }
           return next;
         });
 
@@ -446,6 +459,15 @@ export default function CashBuyPage() {
       // concept for taxes in Phase 2.
       propertyTaxes: computeAnnualTaxes(prev.address, prev.purchasePrice ?? 0, occ),
     }));
+  }
+
+  // Phase 2: physical property type select. Saved to
+  // cash_buy_scenarios.property_type via the 2026_05_27 migration and
+  // fed to the Insurance auto-default rule so Condo / Townhouse force
+  // HO6. The Zillow merge above only seeds when prev.propertyType is
+  // empty, so a manual pick here permanently sticks.
+  function setPropertyType(pt: string) {
+    setScenario(prev => ({ ...prev, propertyType: pt }));
   }
 
   function setClosingCosts(v: number) {
@@ -691,6 +713,28 @@ export default function CashBuyPage() {
                 <p className="text-[11px] text-muted-foreground">
                   Primary residences get homestead tax rates; secondary &amp; investment use
                   non-homestead rates.
+                </p>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Property Type</Label>
+                <Select
+                  value={scenario.propertyType ?? "Single Family Residence"}
+                  onValueChange={setPropertyType}
+                >
+                  <SelectTrigger className="h-9 text-sm" data-testid="select-cash-property-type"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PHYSICAL_PROPERTY_TYPE_OPTIONS.map(opt => (
+                      <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                    ))}
+                    {scenario.propertyType &&
+                      !PHYSICAL_PROPERTY_TYPE_OPTIONS.includes(scenario.propertyType as any) && (
+                        <SelectItem value={scenario.propertyType}>{scenario.propertyType}</SelectItem>
+                      )}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Condo / Townhouse defaults Insurance to HO6.
                 </p>
               </div>
 

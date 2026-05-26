@@ -2033,6 +2033,15 @@ export default function Estimate() {
       downPaymentAmount: dpAmt,
       interestRate: saved.interestRate ?? base.interestRate,
       loanType,
+      // Phase 2: restore the user's saved Occupancy / Property Use so
+      // refresh/logout/login round-trips it and the Insurance default
+      // rule (HO3 / HO6 / DP3) re-evaluates from the correct value.
+      occupancy:
+        saved.occupancyType === "primary" ||
+        saved.occupancyType === "secondary" ||
+        saved.occupancyType === "investment"
+          ? saved.occupancyType
+          : base.occupancy,
       annualTaxes: Math.round(price * 0.015),
       annualHOIns: calculateDefaultHomeownersInsurance(price).annualInsurance,
       // Restore saved Property Type + provenance so a "manual" pick
@@ -2886,6 +2895,11 @@ export default function Estimate() {
           loanType: inputs.loanType,
           propertyType: inputs.propertyType,
           propertyTypeSource: inputs.propertyTypeSource,
+          // Phase 2: persist the user-picked Occupancy / Property Use so
+          // the Insurance auto-default rule can pick DP3 for Investment
+          // purchases (and HO3 for Primary/Secondary). Stored on
+          // purchase_scenarios.occupancy_type via the 2026_05_27 migration.
+          occupancyType: inputs.occupancy,
           hasDeferredStudentLoans: inputs.hasDeferredStudentLoans ?? false,
           deferredStudentLoanBalance: inputs.deferredStudentLoanBalance ?? 0,
           // Discount Points: persist the user's slider position so
@@ -2917,6 +2931,7 @@ export default function Estimate() {
             && cur.loanType === next.loanType
             && (cur.propertyType ?? undefined) === next.propertyType
             && (cur.propertyTypeSource ?? undefined) === next.propertyTypeSource
+            && (cur.occupancyType ?? undefined) === next.occupancyType
             && (cur.hasDeferredStudentLoans ?? false) === next.hasDeferredStudentLoans
             && (cur.deferredStudentLoanBalance ?? 0) === next.deferredStudentLoanBalance
             && (cur.discountPointsPct ?? 0) === next.discountPointsPct
