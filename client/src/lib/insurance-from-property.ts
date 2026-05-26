@@ -138,18 +138,52 @@ export function ensureInsuranceForAddress(
     console.log("[policy-type-sync] existing policy type", { existing: existing.policyType ?? null });
     console.log("[policy-type-sync] existing policy_type_source", { source: existing.policyTypeSource ?? null });
 
-    // Respect manual policy-type overrides — only refresh the carried
-    // snapshots if those differ, never touch the policyType itself.
+    // Respect manual overrides. Three independent locks:
+    //   - policyTypeSource === "manual"     → never touch policyType
+    //   - occupancyTypeSource === "manual"  → never touch occupancyType
+    //                                         AND don't let the source
+    //                                         occupancy drive the
+    //                                         policy-type recompute
+    //                                         (would otherwise revert
+    //                                         a card-side Primary →
+    //                                         Investment swap the next
+    //                                         time Purchase/Refi sync
+    //                                         fires).
+    //   - propertyTypeSource === "manual"   → same, for propertyType.
     const manualLocked = existing.policyTypeSource === "manual";
+    const manualOccupancy = existing.occupancyTypeSource === "manual";
+    const manualPropertyType = existing.propertyTypeSource === "manual";
     if (manualLocked) {
       console.log("[policy-type-sync] skipped manual override", { id: existing.id });
     }
+    if (manualOccupancy) {
+      console.log("[policy-type-sync] skipped manual occupancy override", { id: existing.id });
+    }
+    if (manualPropertyType) {
+      console.log("[policy-type-sync] skipped manual property type override", { id: existing.id });
+    }
 
-    const nextOccupancy = occupancyType ?? existing.occupancyType;
-    const nextPropertyType = propertyType ?? existing.propertyType;
+    // When the user locked occupancy / propertyType on the Insurance
+    // card or detail view, keep their value AND recompute policy type
+    // against THEIR value, not the incoming source-scenario value.
+    const nextOccupancy = manualOccupancy
+      ? existing.occupancyType
+      : (occupancyType ?? existing.occupancyType);
+    const nextPropertyType = manualPropertyType
+      ? existing.propertyType
+      : (propertyType ?? existing.propertyType);
+    // Re-resolve the default policy type against the post-lock values
+    // so a manual Investment lock recomputes to DP3 even when the
+    // source scenario passes "primary".
+    const effectivePolicyType = (manualOccupancy || manualPropertyType)
+      ? getDefaultInsurancePolicyType({
+          occupancyType: nextOccupancy,
+          propertyType: nextPropertyType,
+        })
+      : defaultPolicyType;
 
     const policyTypeChange =
-      !manualLocked && defaultPolicyType && defaultPolicyType !== existing.policyType;
+      !manualLocked && effectivePolicyType && effectivePolicyType !== existing.policyType;
     const snapshotChange =
       nextOccupancy !== existing.occupancyType ||
       nextPropertyType !== existing.propertyType;
@@ -172,7 +206,7 @@ export function ensureInsuranceForAddress(
       ...(nextOccupancy ? { occupancyType: nextOccupancy as any } : {}),
       ...(nextPropertyType ? { propertyType: nextPropertyType } : {}),
       ...(policyTypeChange
-        ? { policyType: defaultPolicyType!, policyTypeSource: "default_rule" }
+        ? { policyType: effectivePolicyType!, policyTypeSource: "default_rule" as const }
         : {}),
     };
     console.log("[insurance-auto-create] updating defaults on existing row", {

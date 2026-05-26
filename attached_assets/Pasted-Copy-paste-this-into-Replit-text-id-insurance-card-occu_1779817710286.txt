@@ -1,0 +1,133 @@
+Copy/paste this into Replit:
+
+```text id="insurance-card-occupancy-policy-autosave-fix"
+Fix Insurance tab property card occupancy change so policy type updates and saves.
+
+Current issue:
+On Dashboard → Insurance, when I change a property card from Primary to Investment, the policy type does not change from HO3 to DP3.
+
+Expected behavior:
+When a user changes occupancy/property use on the Insurance property card:
+
+Primary → Investment:
+- If property type is Single Family / non-condo / non-townhouse:
+  - policy type should change from HO3 to DP3
+- Save occupancy_type = "investment"
+- Save occupancy_type_source = "manual"
+- Save policy_type = "DP3"
+- Save policy_type_source = "default_rule" unless policy type was manually overridden
+- Persist after refresh/logout/login
+
+Primary or Secondary:
+- If property type is Single Family / non-condo / non-townhouse:
+  - policy type should be HO3
+
+Condo/Townhouse:
+- Any occupancy should be HO6
+
+Important:
+If `policy_type_source = "manual"`, do not overwrite the policy type.
+But if policy type was auto/defaulted, changing occupancy should recalculate policy type.
+
+Likely bug:
+The Insurance overview/card occupancy selector is saving only `occupancy_type`, but it is not recalculating `policy_type`, or it is not saving the recalculated policy type back to `insurance_scenarios`.
+
+Required fix:
+Find the Insurance overview/card component where occupancy/property use is changed.
+
+When occupancy changes:
+1. Update local card state immediately.
+2. Set:
+   - occupancy_type = selected value
+   - occupancy_type_source = "manual"
+   - user_answer_sources.occupancy_type = "manual"
+3. If policy_type_source is not "manual":
+   - call `getDefaultInsurancePolicyType({ occupancyType, propertyType })`
+   - update policy_type to the calculated value
+   - set policy_type_source = "default_rule"
+4. Save the updated row to `insurance_scenarios`.
+5. Make sure the overview card reflects the new policy type immediately.
+6. Make sure the detailed view reflects the same policy type.
+7. Persist after refresh/logout/login.
+
+Policy type rules:
+- Primary + Single Family/non-condo → HO3
+- Secondary + Single Family/non-condo → HO3
+- Investment + Single Family/non-condo → DP3
+- Any Condo/Townhouse/Townhome → HO6
+
+Property type matching:
+Treat as HO6:
+- Condo
+- Condominium
+- Townhouse
+- Townhome
+- Town House
+- Town Home
+- Attached Condo
+- Condo Unit
+
+Treat as non-condo:
+- Single Family Residence
+- Single Family
+- Detached
+- Villa
+- Manufactured Home
+- Multi-Family
+- Duplex
+- Triplex
+- Quadplex
+- Other unless clearly condo/townhouse
+
+Save requirements:
+Save to `insurance_scenarios`:
+- occupancy_type
+- occupancy_type_source
+- policy_type
+- policy_type_source
+- user_answer_sources
+- updated_at
+
+Use the existing row:
+- scenario id if available
+- otherwise user_id + normalized_property_key
+
+Do not create duplicate Insurance rows.
+
+Debug logs:
+Add temporary logs:
+- `[insurance-card-occupancy] selected occupancy`
+- `[insurance-card-occupancy] property type`
+- `[insurance-card-occupancy] prior policy type`
+- `[insurance-card-occupancy] prior policy_type_source`
+- `[insurance-card-occupancy] recalculated policy type`
+- `[insurance-card-occupancy] skipped policy because manual`
+- `[insurance-card-occupancy] save ok/error`
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Insurance.
+3. Find a property card with property type Single Family and policy type HO3.
+4. Change occupancy from Primary to Investment.
+5. Confirm policy type immediately changes to DP3 on the card.
+6. Open detailed view.
+7. Confirm policy type is DP3 there too.
+8. Refresh.
+9. Confirm occupancy remains Investment and policy type remains DP3.
+10. Log out and log back in.
+11. Confirm occupancy remains Investment and policy type remains DP3.
+12. Change property type to Condo/Townhouse.
+13. Confirm policy type changes to HO6 if policy_type_source is not manual.
+14. Manually change policy type.
+15. Confirm policy_type_source = manual.
+16. Change occupancy again.
+17. Confirm manual policy type is not overwritten.
+
+Please make the smallest safe code change possible and tell me:
+- Which Insurance card component was changed
+- Why occupancy change was not updating policy type
+- How policy type recalculation is now triggered
+- How the value is saved to `insurance_scenarios`
+- How manual policy type overrides are protected
+- Which files/functions were changed
+```
