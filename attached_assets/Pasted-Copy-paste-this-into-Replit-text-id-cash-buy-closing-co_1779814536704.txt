@@ -1,0 +1,221 @@
+Copy/paste this into Replit:
+
+```text id="cash-buy-closing-costs-and-ongoing-costs-fix"
+Fix Purchase with Cash calculations and simplify closing costs.
+
+Current issue:
+The Purchase with Cash tab has three problems:
+
+1. After the purchase price shows up, closing costs are not being factored into the total amount needed.
+2. The page asks for closing costs twice:
+   - Estimated Closing Costs
+   - Closing Costs Percent
+   It should only have one closing cost control.
+3. Ongoing Costs → Property Taxes is no longer calculating correctly like it did before.
+
+Scope:
+Purchase with Cash only.
+
+Do not change Purchase with Loan, Refinance, Insurance, or Sell Your Home unless needed for shared helper compatibility.
+
+Problem 1 — Closing costs must increase total cash needed
+
+Expected behavior:
+Purchase with Cash total cash needed / cash to close should include:
+
+Purchase Price
++ Buyer Closing Costs
++ Any other buyer-paid cash costs
+- Seller Concessions, if applicable and currently supported
+= Total Cash Needed / Cash to Close
+
+Example:
+Purchase price = $500,000
+Closing costs = 2.00%
+Buyer closing costs = $10,000
+Total cash needed = $510,000 before seller concessions or other adjustments
+
+Closing costs should not just display as a side number. They must increase the total amount needed to buy the home.
+
+Problem 2 — Replace duplicate closing cost inputs with one control
+
+Current issue:
+The Purchase with Cash tab asks for:
+- Estimated Closing Costs
+- Closing Costs Percent
+
+That is confusing and duplicative.
+
+Requested change:
+Use one Closing Costs control only.
+
+The control should allow the user to switch between:
+- Percent
+- Dollar Amount
+
+Default:
+- Mode = Percent
+- Percent = 2.00%
+
+Behavior:
+If mode = Percent:
+- buyer_closing_costs = purchase_price × closing_costs_percent / 100
+- default closing_costs_percent = 2.00
+
+If mode = Dollar Amount:
+- buyer_closing_costs = user-entered dollar amount
+- implied percent can be shown if helpful, but should not be the primary input
+
+Display:
+Label should be something like:
+“Estimated Closing Costs”
+
+Under/next to it:
+- Percent / Dollar toggle
+- If percent mode: show `2.00% / $10,000`
+- If dollar mode: show `$10,000 / 2.00%`
+
+Important:
+- Remove or hide the duplicate separate “Closing Costs Percent” row.
+- Keep only one user-facing closing cost input/control.
+- Do not double-count closing costs.
+- Do not save two conflicting values.
+- Keep existing persistence behavior, but map it cleanly:
+  - closing_costs_mode
+  - closing_costs_percent
+  - buyer_closing_costs or estimated_closing_costs
+
+If the database already has equivalent fields, reuse them.
+Do not create duplicate columns unless needed.
+
+Problem 3 — Fix Ongoing Costs property tax calculation
+
+Current issue:
+Ongoing Costs → Property Taxes is not calculating correctly like it did before.
+
+Expected behavior:
+Annual property taxes should be calculated or loaded correctly based on the property/purchase data.
+
+Use this priority:
+1. If user manually entered annual property taxes:
+   - use the manual value
+   - do not overwrite it
+2. If Zillow/property cache or tax scraper provides annual property taxes:
+   - use that value
+3. If no tax data exists:
+   - calculate estimate from existing app tax logic
+   - use the same logic Purchase with Loan uses if applicable
+   - if occupancy/homestead matters, use the selected occupancy/property use
+4. If no value can be calculated:
+   - show blank or clear placeholder, not an incorrect number
+
+Ongoing Costs should display:
+- Annual Property Taxes
+- Monthly Property Taxes = annual / 12
+
+If purchase price changes:
+- If taxes are default/estimated, recalculate
+- If taxes are manual, preserve manual value
+
+If occupancy changes:
+- If taxes are default/estimated and the app has homestead/occupancy tax logic, recalculate
+- If taxes are manual, preserve manual value
+
+Manual source protection:
+If user edits property taxes:
+- property_taxes_source = "manual"
+- do not overwrite from Zillow/defaults
+
+If taxes come from Zillow/cache:
+- property_taxes_source = "zillow" or "property_cache"
+
+If taxes are estimated:
+- property_taxes_source = "default" or "estimated"
+
+Persistence:
+All changed values must save and reload after refresh/logout/login:
+- closing_costs_mode
+- closing_costs_percent
+- buyer_closing_costs / estimated_closing_costs
+- property_taxes
+- property_taxes_source
+- purchase_price
+- occupancy_type
+- user_answer_sources if used
+
+Important:
+- Do not break the recently fixed Cash Buy persistence.
+- Do not break Cash Buy insurance default.
+- Do not break Insurance auto-create from Cash Buy.
+- Do not break Phase 1 property value sync.
+- Do not break Phase 2 policy type sync.
+- Do not duplicate Cash Buy rows.
+- Do not overwrite manual values with Zillow/default values.
+
+Suggested calculation structure:
+Create/clean up helper logic in cash-buy.tsx:
+
+closingCostsAmount =
+  closingCostsMode === "percent"
+    ? purchasePrice * closingCostsPercent / 100
+    : closingCostsDollarAmount
+
+cashToClose =
+  purchasePrice
+  + closingCostsAmount
+  - sellerConcessionsAmount
+  + otherBuyerCostsIfAny
+
+Property tax display:
+annualTaxes = resolvedAnnualPropertyTaxes
+monthlyTaxes = annualTaxes / 12
+
+Acceptance test:
+1. Log in.
+2. Go to Purchase with Cash.
+3. Open or add a property.
+4. Set purchase price = $500,000.
+5. Confirm Estimated Closing Costs defaults to 2.00%.
+6. Confirm closing costs amount = $10,000.
+7. Confirm total cash needed / cash to close includes purchase price + closing costs = $510,000 before other adjustments.
+8. Confirm there is only one Closing Costs input/control.
+9. Confirm there is no duplicate “Closing Costs Percent” row.
+10. Switch Closing Costs to Dollar Amount.
+11. Enter $12,000.
+12. Confirm total cash needed uses $12,000.
+13. Switch back to Percent.
+14. Confirm percent mode works cleanly.
+15. Confirm Ongoing Costs → Property Taxes shows the correct annual value.
+16. Confirm monthly property taxes = annual / 12.
+17. Manually edit annual property taxes.
+18. Confirm manual tax value persists and is not overwritten.
+19. Refresh/logout/login.
+20. Confirm purchase price, closing cost mode/value, tax value, and total cash needed remain correct.
+21. Confirm no duplicate Cash Buy scenario rows are created.
+
+Debug logs:
+Add temporary logs:
+- [cash-buy-closing-costs] mode
+- [cash-buy-closing-costs] percent
+- [cash-buy-closing-costs] dollar amount
+- [cash-buy-closing-costs] final amount
+- [cash-buy-cash-to-close] purchase price
+- [cash-buy-cash-to-close] closing costs included
+- [cash-buy-cash-to-close] final cash needed
+- [cash-buy-taxes] source
+- [cash-buy-taxes] annual taxes
+- [cash-buy-taxes] monthly taxes
+- [cash-buy-taxes] manual override true/false
+
+Please make the smallest safe code change possible and tell me:
+- Why closing costs were not increasing total cash needed
+- Which duplicate closing cost input was removed/merged
+- How the percent/dollar toggle was implemented
+- How 2.00% default is set
+- How cash to close now includes closing costs
+- Why property taxes were calculating incorrectly
+- How property tax calculation was fixed
+- How manual tax/closing cost values are protected
+- Whether a Supabase migration is needed
+- Which files/functions were changed
+```

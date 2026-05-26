@@ -490,31 +490,108 @@ export default function CashBuyPage() {
   }
 
   function setClosingCosts(v: number) {
+    // Dollar-mode entry. Stamps the source as "manual" so the bootstrap
+    // effect below won't recompute it from percent.
     setScenario(prev => ({ ...prev, closingCosts: v, closingCostsSource: "manual" }));
-  }
-  function resetClosingToPercent() {
-    setScenario(prev => {
-      const pct = prev.closingCostsPercent ?? DEFAULT_CLOSING_PERCENT;
-      return {
-        ...prev,
-        closingCostsSource: "default_percent",
-        closingCosts: Math.round((prev.purchasePrice ?? 0) * (pct / 100)),
-      };
-    });
   }
   function setClosingCostsPercent(pct: number) {
     setScenario(prev => {
-      const next: CashBuyScenario = { ...prev, closingCostsPercent: pct };
-      if ((prev.closingCostsSource ?? "default_percent") === "default_percent") {
-        next.closingCosts = Math.round((prev.purchasePrice ?? 0) * (pct / 100));
-      }
+      const next: CashBuyScenario = {
+        ...prev,
+        closingCostsPercent: pct,
+        // Editing the percent implies the user wants percent-mode behavior,
+        // even if they had previously typed a manual dollar amount.
+        closingCostsSource: "default_percent",
+        closingCosts: Math.round((prev.purchasePrice ?? 0) * (pct / 100)),
+      };
       return next;
+    });
+  }
+  function setClosingMode(mode: "percent" | "dollar") {
+    setScenario(prev => {
+      if (mode === "percent") {
+        const pct = prev.closingCostsPercent ?? DEFAULT_CLOSING_PERCENT;
+        return {
+          ...prev,
+          closingCostsSource: "default_percent",
+          closingCostsPercent: pct,
+          closingCosts: Math.round((prev.purchasePrice ?? 0) * (pct / 100)),
+        };
+      }
+      // Switching to dollar mode preserves the current dollar amount.
+      return { ...prev, closingCostsSource: "manual" };
     });
   }
 
   function setHoaMonthly(v: number) {
     setScenario(prev => ({ ...prev, hoaMonthly: v, hoaSource: "manual" }));
   }
+
+  // ─── Bootstrap effect: defaults for closing costs and property taxes ───
+  // Why: when a scenario loads from Supabase, it can have a non-zero
+  // `purchasePrice` but `closingCosts = 0` and `propertyTaxes = 0`
+  // (older rows, or rows where the price came in via cross-tab sync
+  // without running the price-change handler). The handlers in
+  // setPurchasePrice / setOccupancy / Zillow merge only fire on those
+  // specific events — so without this effect a loaded scenario stays
+  // stuck at $0 closing / $0 taxes until the user nudges the slider.
+  //
+  // Rules:
+  // 1. closingCostsSource = "manual" → never overwrite (user-entered $).
+  // 2. propertyTaxesSource = "manual" → never overwrite.
+  // 3. Otherwise recompute from price (and address/occupancy for taxes)
+  //    and only setScenario if the computed value actually differs, to
+  //    avoid an autosave loop.
+  useEffect(() => {
+    const price = scenario.purchasePrice ?? 0;
+    if (price <= 0) return;
+    const patch: Partial<CashBuyScenario> = {};
+
+    if ((scenario.closingCostsSource ?? "default_percent") !== "manual") {
+      const pct = scenario.closingCostsPercent ?? DEFAULT_CLOSING_PERCENT;
+      const expected = Math.round(price * (pct / 100));
+      if ((scenario.closingCosts ?? 0) !== expected) {
+        patch.closingCosts = expected;
+        patch.closingCostsPercent = pct;
+        patch.closingCostsSource = "default_percent";
+        console.debug("[cash-buy-closing-costs] mode", "percent");
+        console.debug("[cash-buy-closing-costs] percent", pct);
+        console.debug("[cash-buy-closing-costs] final amount", expected);
+      }
+    } else {
+      console.debug("[cash-buy-closing-costs] mode", "dollar");
+      console.debug("[cash-buy-closing-costs] dollar amount", scenario.closingCosts ?? 0);
+    }
+
+    if (scenario.propertyTaxesSource !== "manual" &&
+        scenario.address && scenario.address !== "Unknown Address") {
+      const expected = computeAnnualTaxes(
+        scenario.address, price, scenario.occupancyType ?? "primary",
+      );
+      if (expected > 0 && (scenario.propertyTaxes ?? 0) !== expected) {
+        patch.propertyTaxes = expected;
+        console.debug("[cash-buy-taxes] manual override true/false", false);
+        console.debug("[cash-buy-taxes] source", "default");
+        console.debug("[cash-buy-taxes] annual taxes", expected);
+        console.debug("[cash-buy-taxes] monthly taxes", Math.round(expected / 12));
+      }
+    } else if (scenario.propertyTaxesSource === "manual") {
+      console.debug("[cash-buy-taxes] manual override true/false", true);
+      console.debug("[cash-buy-taxes] source", "manual");
+      console.debug("[cash-buy-taxes] annual taxes", scenario.propertyTaxes ?? 0);
+    }
+
+    if (Object.keys(patch).length > 0) {
+      setScenario(prev => ({ ...prev, ...patch }));
+    }
+    // NOTE: do not include scenario.closingCosts / scenario.propertyTaxes
+    // in the dep list — the equality check inside is the loop guard.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    scenario.purchasePrice, scenario.address, scenario.occupancyType,
+    scenario.closingCostsSource, scenario.closingCostsPercent,
+    scenario.propertyTaxesSource,
+  ]);
 
   // Tracks whether the user has actively engaged the insurance
   // simulator (changed region/roof/wind/etc). Until they do, we
@@ -553,6 +630,20 @@ export default function CashBuyPage() {
   const closing = scenario.closingCosts ?? 0;
   const concessionApplied = sellerConcessionsApplied(scenario);
   const ctc = cashToCloseOf(scenario);
+  // Derived from `closingCostsSource` — that field is the single source
+  // of truth for the percent/dollar toggle and survives the round-trip
+  // through Supabase via the 2026_05_27 column.
+  const closingMode: "percent" | "dollar" =
+    scenario.closingCostsSource === "manual" ? "dollar" : "percent";
+
+  // Debug: trace the cash-to-close math whenever any input changes.
+  useEffect(() => {
+    if (!scenario.id || price <= 0) return;
+    console.debug("[cash-buy-cash-to-close] purchase price", price);
+    console.debug("[cash-buy-cash-to-close] closing costs included", closing);
+    console.debug("[cash-buy-cash-to-close] seller concessions applied", concessionApplied);
+    console.debug("[cash-buy-cash-to-close] final cash needed", ctc);
+  }, [scenario.id, price, closing, concessionApplied, ctc]);
 
   // PostHog: scenario_calculated (cash_buy). Fires once per scenario id the
   // first time the cash-to-close result is meaningful (price > 0).
@@ -766,40 +857,53 @@ export default function CashBuyPage() {
                 </p>
               </div>
 
-              <NumRow
-                label="Estimated Closing Costs"
-                hint={`Title, recording, doc stamps, inspection, appraisal — buyer side.`}
-                value={closing}
-                onChange={setClosingCosts}
-                min={0} max={closingMax} step={100} prefix="$"
-                badge={
-                  scenario.closingCostsSource === "manual"
-                    ? (
-                      <button
-                        type="button"
-                        onClick={resetClosingToPercent}
-                        className="text-[10px] text-primary underline-offset-2 hover:underline"
-                      >
-                        Reset to {(scenario.closingCostsPercent ?? DEFAULT_CLOSING_PERCENT).toFixed(2)}%
-                      </button>
-                    )
-                    : (
-                      <Badge variant="outline" className="text-[10px] font-normal h-5">
-                        Auto ({(scenario.closingCostsPercent ?? DEFAULT_CLOSING_PERCENT).toFixed(2)}% of price)
-                      </Badge>
-                    )
-                }
-              />
-
-              {scenario.closingCostsSource !== "manual" && (
-                <NumRow
-                  label="Closing-cost percent"
-                  hint="Default 2% of purchase price. Change this to scale the auto value."
-                  value={scenario.closingCostsPercent ?? DEFAULT_CLOSING_PERCENT}
-                  onChange={setClosingCostsPercent}
-                  min={0} max={6} step={0.05} suffix="%" decimals={2}
-                />
-              )}
+              {/* Estimated Closing Costs — single control with Percent/Dollar toggle.
+                  Mirrors the seller-concessions pattern. closingCostsSource is
+                  the mode signal: "default_percent" = percent mode (auto-recompute
+                  from price), "manual" = dollar mode (frozen at user-entered $). */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-xs font-medium">Estimated Closing Costs</Label>
+                  <div className="flex rounded-md border bg-background text-[11px] overflow-hidden">
+                    <button
+                      type="button"
+                      data-testid="btn-closing-mode-percent"
+                      className={`px-2.5 py-1 ${closingMode === "percent" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+                      onClick={() => setClosingMode("percent")}
+                    >
+                      Percentage
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="btn-closing-mode-dollar"
+                      className={`px-2.5 py-1 border-l ${closingMode === "dollar" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+                      onClick={() => setClosingMode("dollar")}
+                    >
+                      Dollar Amount
+                    </button>
+                  </div>
+                </div>
+                {closingMode === "percent" ? (
+                  <NumRow
+                    label="Percent of Price"
+                    hint={`≈ ${formatCurrency(closing)} on the current purchase price.`}
+                    value={scenario.closingCostsPercent ?? DEFAULT_CLOSING_PERCENT}
+                    onChange={setClosingCostsPercent}
+                    min={0} max={6} step={0.05} suffix="%" decimals={2}
+                  />
+                ) : (
+                  <NumRow
+                    label="Dollar Amount"
+                    hint={`≈ ${(price > 0 ? (closing / price * 100) : 0).toFixed(2)}% of purchase price.`}
+                    value={closing}
+                    onChange={setClosingCosts}
+                    min={0} max={closingMax} step={100} prefix="$"
+                  />
+                )}
+                <p className="text-[11px] text-muted-foreground">
+                  Title, recording, doc stamps, inspection, appraisal — buyer side. Included in Total Cash Needed.
+                </p>
+              </div>
 
               {/* Seller concessions toggle */}
               <div className="space-y-2 pt-2 border-t">
@@ -854,9 +958,9 @@ export default function CashBuyPage() {
             <CardContent className="space-y-4">
               <NumRow
                 label="Annual Property Taxes"
-                hint={scenario.propertyTaxesSource === "manual"
+                hint={`${scenario.propertyTaxesSource === "manual"
                   ? "Manually entered. Editing price or property use won't overwrite this."
-                  : "Auto-estimated from the Purchase tab's county-aware rates. Updates when price or property use changes."}
+                  : "Auto-estimated from county-aware rates. Updates when price or property use changes."} · ≈ ${formatCurrency(Math.round((scenario.propertyTaxes ?? 0) / 12))}/mo`}
                 value={scenario.propertyTaxes ?? 0}
                 onChange={setPropertyTaxes}
                 min={0} max={50_000} step={50} prefix="$"
