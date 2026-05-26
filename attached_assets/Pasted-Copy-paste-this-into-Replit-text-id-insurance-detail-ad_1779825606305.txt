@@ -1,0 +1,131 @@
+Copy/paste this into Replit:
+
+```text id="insurance-detail-address-tabs-sync"
+Fix the Insurance detailed view top address tabs so they show all Insurance properties from the overview tab.
+
+Current issue:
+When I am inside the detailed view of an Insurance property address, the top tab/address selector area near “+ Add Property” does not show all the other Insurance addresses that are shown on the Insurance overview tab.
+
+Expected behavior:
+The Insurance detailed view should show the same list of Insurance properties/addresses that appears on the Insurance overview tab.
+
+If Insurance overview shows:
+- 123 Main St
+- 456 Oak Ave
+- 789 Pine Dr
+
+Then the detailed view top address tab/selector should also show:
+- 123 Main St
+- 456 Oak Ave
+- 789 Pine Dr
+- + Add Property
+
+Scope:
+Dashboard → Insurance → detailed property view
+
+Requirements:
+1. The detailed view address tabs/list should be sourced from the same saved Insurance scenarios used by the Insurance overview tab.
+2. Do not use a separate filtered list that misses some properties.
+3. Include all saved `insurance_scenarios` for the logged-in user.
+4. Include properties that were:
+   - manually added in Insurance
+   - auto-created from Purchase with Loan
+   - auto-created from Purchase with Cash
+   - auto-created from Refinance
+5. Each address tab should navigate to the detailed Insurance view for that address.
+6. The currently selected address should be highlighted/active.
+7. The `+ Add Property` button should remain visible.
+8. Adding a new property should update both:
+   - Insurance overview list
+   - detailed view top address tabs/list
+
+Matching/source of truth:
+Use:
+- `insurance_scenarios`
+- `user_id`
+- `normalized_property_key`
+- `full_address` / address field used by the overview
+
+Do not create duplicate rows.
+Do not show duplicate addresses.
+If multiple duplicate insurance rows already exist for the same normalized property key:
+- show only one address in the top tabs/list
+- prefer the newest or the one currently used by the overview
+- do not delete/merge duplicates in this task unless necessary
+- report duplicates separately
+
+Likely bug:
+The overview tab and detailed view are probably using different scenario lists or different filters. The detailed view top address tabs may only be reading URL/address state or a local detail-only scenario array.
+
+Fix:
+Make the detailed view address tabs use the same Insurance scenario source/list as the overview tab.
+
+Suggested approach:
+Create/reuse a shared selector/helper:
+`getInsuranceScenarioList()`
+
+or reuse:
+`getInsuranceScenarios()`
+
+Then use that same list in both:
+- Insurance overview cards
+- Insurance detailed view top address tabs
+
+Address navigation:
+When a user clicks an address tab in detailed view:
+- navigate to `/insurance?address=[encoded address]`
+- or use the existing detailed view route pattern
+- do not lose the current dashboard context
+- load the selected Insurance scenario from `insurance_scenarios`
+
+Data consistency:
+If a property is visible on the Insurance overview card, it must also appear in the detailed view top address tabs.
+If a property appears in the detailed view top address tabs, it should also be visible on the Insurance overview card.
+
+Do not break:
+- Insurance overview cards
+- detailed view calculations
+- policy type persistence
+- premium persistence
+- Coverage A persistence
+- manual overrides
+- duplicate prevention
+- + Add Property
+- auto-created Insurance scenarios
+- Purchase/Cash Buy/Refinance sync
+
+Debug logs:
+Add temporary logs:
+- `[insurance-address-tabs] overview count`
+- `[insurance-address-tabs] detail tab count`
+- `[insurance-address-tabs] addresses`
+- `[insurance-address-tabs] active address`
+- `[insurance-address-tabs] missing from detail`
+- `[insurance-address-tabs] duplicate hidden`
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Insurance overview.
+3. Count the property address cards shown.
+4. Open one Insurance detailed view.
+5. Confirm the top address tabs/list shows the same addresses as the overview.
+6. Confirm the current address is active/highlighted.
+7. Click another address tab.
+8. Confirm it navigates to that property’s Insurance detailed view.
+9. Click `+ Add Property`.
+10. Add a new property.
+11. Confirm the new property appears on both:
+    - Insurance overview tab
+    - detailed view top address tabs/list
+12. Refresh/logout/login.
+13. Confirm both places still show the same property addresses.
+14. Confirm no duplicate address tabs appear.
+
+Please make the smallest safe code change possible and tell me:
+- Which detailed view address tab/list component was changed
+- Which scenario list/source it now uses
+- Why the detail tabs were missing some overview addresses
+- How duplicates are hidden
+- How address tab navigation works
+- Which files/functions were changed
+```

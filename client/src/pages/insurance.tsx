@@ -573,6 +573,85 @@ export default function InsuranceDashboard() {
     setLocation(`/insurance?address=${encodeURIComponent(target)}`, { replace: true });
   }, [isAuthenticated, addressParam, setLocation]);
 
+  // ── Address-tab hydration (spec: insurance-detail-address-tabs-sync) ─────
+  // The top scenario tabs need to mirror the Insurance overview cards.
+  // Without this, `scenarios` only ever contains the single tab the user
+  // arrived on (initial useState above), so a user with three saved
+  // Insurance properties would still only see one tab in the detail view.
+  //
+  // We hydrate once per mount when the user is authenticated and an
+  // address is in the URL. We dedupe by normalized address (same key the
+  // overview's `buildInsuranceRows` uses) so duplicate insurance_scenarios
+  // rows collapse to a single tab — we never delete the underlying rows
+  // here (spec: "do not delete/merge duplicates in this task").
+  const didHydrateTabsRef = useRef(false);
+  useEffect(() => {
+    if (didHydrateTabsRef.current) return;
+    if (!isAuthenticated) return;
+    if (!addressParam) return; // wait for the auto-jump above to land us on an address
+    const saved = getInsuranceScenarios();
+    if (saved.length === 0) return;
+    didHydrateTabsRef.current = true;
+
+    // Use the SAME normalization primitive the overview uses
+    // (`normalizePropertyKey` from lib/property-key.ts — same helper
+    // `buildInsuranceRows` and `insurance_scenarios.normalized_property_key`
+    // are keyed on). Plain `trim().toLowerCase()` would let "123 Main St"
+    // and "123 main st, st petersburg, fl" land in different buckets and
+    // produce parity drift vs the overview cards.
+    const keyFor = (addr: string) => normalizePropertyKey(addr).key
+      || (addr ?? "").trim().toLowerCase();
+    const activeKey = keyFor(addressParam);
+    const seen = new Map<string, string>(); // key → address (kept tab)
+    const tabs: Scenario[] = [];
+    let activeId = "";
+    let dupCount = 0;
+    for (const s of saved) {
+      const addr = (s.address ?? "").trim();
+      if (!addr) continue;
+      const k = keyFor(addr);
+      if (!k) continue;
+      if (seen.has(k)) {
+        dupCount += 1;
+        console.log("[insurance-address-tabs] duplicate hidden", { address: addr, key: k });
+        continue;
+      }
+      seen.set(k, addr);
+      const id = s.id || `sc_saved_${tabs.length}`;
+      tabs.push({ id, address: addr, savedSettings: null });
+      if (activeKey && activeKey === k) activeId = id;
+    }
+    // URL address isn't in saved scenarios yet (e.g. brand-new property the
+    // user navigated into but hasn't saved) — keep it as a tab so we don't
+    // strand them on a blank UI.
+    if (activeKey && !seen.has(activeKey)) {
+      const id = `sc_current_${Date.now()}`;
+      tabs.unshift({ id, address: addressParam, savedSettings: null });
+      seen.set(activeKey, addressParam);
+      activeId = id;
+    }
+    if (!activeId) activeId = tabs[0].id;
+
+    // Parity check: any overview-source address whose normalized key is
+    // not represented in the detail tab set. Should be empty after the
+    // dedupe loop above — this log exists so we can spot drift quickly.
+    const tabKeys = new Set(tabs.map(t => keyFor(t.address)));
+    const missing = saved
+      .map(s => ({ address: (s.address ?? "").trim(), key: keyFor((s.address ?? "").trim()) }))
+      .filter(x => x.address && x.key && !tabKeys.has(x.key));
+    console.log("[insurance-address-tabs] overview count", saved.length);
+    console.log("[insurance-address-tabs] detail tab count", tabs.length);
+    console.log("[insurance-address-tabs] addresses", tabs.map(t => t.address));
+    console.log("[insurance-address-tabs] active address",
+      tabs.find(t => t.id === activeId)?.address);
+    console.log("[insurance-address-tabs] missing from detail", missing);
+    if (dupCount > 0) {
+      console.log("[insurance-address-tabs] duplicates collapsed", dupCount);
+    }
+    setScenarios(tabs);
+    setActiveScenarioId(activeId);
+  }, [isAuthenticated, addressParam]);
+
   // Wire Google autocomplete onto the empty-state inline input. Mirrors the
   // existing address-edit autocomplete pattern (uses addressInputRef /
   // addressAcRef) — these refs are mutually exclusive because the edit
