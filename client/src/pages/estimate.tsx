@@ -1929,12 +1929,12 @@ export default function Estimate() {
       amiLoadedRef.current = true;
       setInputs((p) => {
         if (p.monthlyIncomeSource === "manual") {
-          console.log("[ami-default] skipped because manual income exists", {
+          console.log("[purchase-ami] skipped because manual income exists", {
             monthlyIncome: p.monthlyIncome,
           });
           return p;
         }
-        console.log("[ami-default] applied because income blank or default", {
+        console.log("[purchase-ami] applied because income blank or default", {
           amiMonthly: amiData.monthlyAMI,
           priorSource: p.monthlyIncomeSource ?? "default",
         });
@@ -2004,6 +2004,25 @@ export default function Estimate() {
       });
       console.debug("[purchase-new-scenario] property fields reset");
       console.debug("[purchase-new-scenario] new address applied", addr);
+      // Borrower/user-level Page 1 + Page 2 answers belong to the user,
+      // not the property, so carry them into the new home search. Only a
+      // MANUALLY entered income is carried forward — an AMI/default income
+      // is county-specific, so a brand-new address should re-default it.
+      const carriedIncome =
+        source.monthlyIncomeSource === "manual" && typeof source.monthlyIncome === "number"
+          ? { monthlyIncome: source.monthlyIncome, monthlyIncomeSource: "manual" as const }
+          : {};
+      console.debug("[purchase-profile-prefill] applied to new scenario", {
+        occupancy: source.occupancyType,
+        monthlyIncome:
+          "monthlyIncome" in carriedIncome ? carriedIncome.monthlyIncome : "(re-defaulted)",
+        monthlyDebts: source.monthlyDebts,
+        creditScore: source.creditScore,
+        reserves: source.reserves,
+        isVeteran: source.isVeteran,
+        hasMortgage: source.hasMortgage,
+        hasRentalIncome: source.hasRentalIncome,
+      });
       return {
         ...base,
         loanType: carriedLoanType,
@@ -2023,6 +2042,38 @@ export default function Estimate() {
             ? source.discountPointsPct
             : base.discountPointsPct,
         ),
+        // ── Page 1 borrower-level carry-forward ──
+        occupancy: source.occupancyType ?? base.occupancy,
+        monthlyDebts:
+          typeof source.monthlyDebts === "number" ? source.monthlyDebts : base.monthlyDebts,
+        creditScore:
+          typeof source.creditScore === "number" ? source.creditScore : base.creditScore,
+        reserves: typeof source.reserves === "number" ? source.reserves : base.reserves,
+        ...carriedIncome,
+        // ── Page 2 borrower-level carry-forward ──
+        isVeteran: typeof source.isVeteran === "boolean" ? source.isVeteran : base.isVeteran,
+        vaDisability:
+          typeof source.vaDisability === "boolean" ? source.vaDisability : base.vaDisability,
+        vaDisabilityRating100:
+          typeof source.vaDisabilityRating100 === "boolean"
+            ? source.vaDisabilityRating100
+            : base.vaDisabilityRating100,
+        vaLoanUse: source.vaLoanUse ?? base.vaLoanUse,
+        hasMortgage:
+          typeof source.hasMortgage === "boolean" ? source.hasMortgage : base.hasMortgage,
+        currentLoanFHA:
+          typeof source.currentLoanFHA === "boolean"
+            ? source.currentLoanFHA
+            : base.currentLoanFHA,
+        hasRentalIncome:
+          typeof source.hasRentalIncome === "boolean"
+            ? source.hasRentalIncome
+            : base.hasRentalIncome,
+        monthlyRentalIncome:
+          typeof source.monthlyRentalIncome === "number"
+            ? source.monthlyRentalIncome
+            : base.monthlyRentalIncome,
+        rentalType: source.rentalType ?? base.rentalType,
       };
     }
     const price = saved.price ?? base.purchasePrice;
@@ -3159,14 +3210,19 @@ export default function Estimate() {
           if (!same) {
             const updated = [...existing];
             updated[idx] = { ...cur, ...next };
+            console.debug("[purchase-scenario-save] scenario id", cur.id);
+            console.debug("[purchase-scenario-save] write ok (existing)");
             savePurchaseScenarios(updated);
             didWrite = true;
           }
         } else {
+          const newId = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          console.debug("[purchase-scenario-save] scenario id", newId);
+          console.debug("[purchase-scenario-save] write ok (new)");
           savePurchaseScenarios([
             ...existing,
             {
-              id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+              id: newId,
               savedAt: new Date().toISOString(),
               ...next,
             },
@@ -3216,8 +3272,15 @@ export default function Estimate() {
       }
     };
   }, [
-    isAuthenticated, address,
-    inputs.purchasePrice, inputs.downPaymentPct, inputs.interestRate, inputs.loanType,
+    // Depend on the WHOLE inputs object so EVERY user-editable field on
+    // Pages 1-4 triggers the debounced autosave — not just price / down
+    // payment / rate / loan type. Previously borrower-level Page 1 fields
+    // (credit score, reserves, occupancy), most Page 2 qualification
+    // answers, and Page 3 fields (property type, taxes/insurance/HOA when
+    // they didn't move a watched calc output) never re-ran this effect, so
+    // their edits silently failed to persist. The "same" check above still
+    // prevents redundant writes when nothing actually changed.
+    isAuthenticated, address, inputs,
     calc.totalHousing, calc.cashToClose, calc.dti, calc.qualifies,
   ]);
 

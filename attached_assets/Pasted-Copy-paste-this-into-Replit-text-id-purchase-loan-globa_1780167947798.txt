@@ -1,0 +1,354 @@
+Copy/paste this into Replit:
+
+```text id="purchase-loan-global-user-answers-autosave-prefill"
+Fix Purchase with Loan autosave and prefill behavior for Pages 1–4.
+
+Current issue:
+When a logged-in user enters data on Purchase with Loan Pages 1–3, the data is not reliably:
+1. autosaving to Supabase
+2. persisting after logout/login
+3. prepopulating when the user searches another home
+
+This is especially a problem for borrower/user-level data that should carry forward across new home searches.
+
+Goal:
+For logged-in users, every user-entered or user-adjusted field in Purchase with Loan Pages 1–4 must autosave and reload exactly as entered.
+
+There are two types of data:
+
+1. Borrower/user-level data:
+This should save and prepopulate into future Purchase with Loan searches because it belongs to the user, not the property.
+
+2. Property/scenario-level data:
+This should save to the specific property scenario because it belongs to that specific address/home.
+
+Part 1 — Borrower/user-level fields must autosave and carry forward
+
+These fields should autosave and prepopulate when the user searches another home:
+
+Page 1:
+- Property use / occupancy
+- Monthly income
+- Base Monthly Debts
+- Total Monthly Debts
+- Credit Score
+- Available reserves / assets
+
+Page 2:
+- All answers to any questions on Page 2
+- Veteran / VA eligible
+- VA disability / 100% rating
+- Owns a home
+- Deferred student loans yes/no
+- Deferred student loan balance
+- Student loan monthly debt adjustment
+- Rental income questions
+- Any other Page 2 qualification questions
+
+Expected behavior:
+1. User logs in.
+2. User enters these answers once.
+3. The values autosave.
+4. User logs out and logs back in.
+5. The values are still there.
+6. User searches a new home in Purchase with Loan.
+7. These values prepopulate automatically in the new home search.
+8. User can still edit them for the new home.
+9. If user edits them, the new edited values become the latest borrower profile answers.
+
+Preferred implementation:
+Create or use a shared borrower profile answer source for Purchase with Loan.
+
+Possible approaches:
+A. Use an existing profile/user table if one exists.
+B. Use the most recent saved `purchase_scenarios` row as the source for borrower-level defaults.
+C. Add a `purchase_borrower_profiles` table if needed.
+
+Use the smallest safe approach.
+
+Important:
+Do not rely only on the currently open property scenario for borrower-level data. These answers need to carry forward to new Purchase with Loan home searches.
+
+Part 2 — Property/scenario-level fields must autosave per address
+
+Page 3:
+Most of this page is pulled from Zillow, but if the user adjusts ANY data on this page, the adjusted data must autosave to that specific `purchase_scenarios` row and reload after logout/login.
+
+Examples:
+- Purchase price
+- Property type
+- Loan type
+- Down payment mode
+- Down payment percent
+- Down payment dollar amount
+- Seller concessions mode
+- Seller concessions percent
+- Seller concessions dollar amount
+- Annual property taxes
+- Homeowners insurance
+- HOA / condo fees
+- Estimated closing costs
+- Interest rate if editable
+- Loan term if editable
+- Discount points if present
+- Any other editable Page 3 field
+
+Rule:
+Zillow/property cache can populate the initial value, but once the user changes a field, that user value must win and persist.
+
+Page 4:
+This is the See My Estimates page.
+
+If the user adjusts ANY data on Page 4, that data must autosave to the same `purchase_scenarios` row and reload after logout/login.
+
+Examples:
+- Loan type dropdown
+- Down payment
+- Seller concessions
+- Discount points
+- Estimated closing costs
+- Taxes
+- Homeowners insurance
+- HOA
+- Interest rate / final rate if editable
+- Any editable field on the estimate cards
+- Any Review Your Answers edit
+
+Rule:
+Calculated values can recalculate from saved user inputs, but the user-adjusted inputs must save.
+
+Part 3 — Source protection
+
+Add or use source tracking so defaults do not overwrite user-entered values.
+
+Use existing:
+- `user_answer_sources` jsonb, if available
+- individual source columns, if already available
+
+When user changes a field:
+- source = "manual"
+- save the value
+- do not overwrite it with defaults later
+
+When a value comes from AMI:
+- source = "ami_default"
+
+When a value comes from Zillow:
+- source = "zillow"
+
+When a value is copied from a prior scenario/user profile:
+- source = "copied_from_prior" or "profile"
+
+Manual values must not be overwritten by:
+- AMI defaults
+- Zillow/property cache
+- copied prior scenario values
+- default loan type rules
+- default down payment rules
+- default insurance rules
+- default tax rules
+
+Part 4 — AMI monthly income issue
+
+Monthly income must never reset to county AMI after the user manually enters it.
+
+AMI should only be used for:
+- first-time default if monthly income is blank
+- AMI eligibility comparison
+
+If the user enters monthly income:
+- save monthly income
+- mark monthly income source = manual
+- calculate annual income = monthly income × 12
+- use that annual income for AMI discount eligibility
+
+Do not set monthly income = county AMI / 12 after a manual value exists.
+
+Part 5 — New home search prefill behavior
+
+When a logged-in user starts a new Purchase with Loan search:
+
+If the user has previously entered borrower/user-level answers:
+- prefill Page 1 and Page 2 with the latest borrower/user-level answers
+
+But property-specific fields should come from the new address/Zillow:
+- address
+- normalized property key
+- purchase price/Zestimate
+- property type
+- photos
+- taxes, unless user edits
+- HOA, unless user edits
+- insurance estimate, unless user edits
+
+Do not copy old property-specific values from a prior home into a new home unless they are intended user preferences.
+
+Example:
+Previous home:
+- Monthly income = $8,000
+- Credit score = 742
+- Monthly debts = $500
+- Available reserves = $60,000
+
+New home search:
+- These borrower values should prepopulate.
+- New address should get new Zillow data.
+- Purchase price should come from the new home, not old home.
+- Property photos should come from the new home.
+
+Part 6 — Supabase/schema
+
+Inspect current schema and tell me if SQL is needed.
+
+Required persistence locations:
+- Borrower/user-level answers must be saved somewhere durable and reusable across new Purchase with Loan searches.
+- Scenario-level answers must save to `purchase_scenarios`.
+
+If existing tables/columns are enough, use them.
+If not, provide one complete SQL migration before coding.
+
+Potential borrower-level fields:
+- property_use_default
+- monthly_income
+- base_monthly_debts
+- total_monthly_debts
+- credit_score
+- available_reserves
+- veteran_status
+- va_disability
+- owns_home
+- deferred_student_loans
+- deferred_student_loan_balance
+- borrower_answer_sources jsonb
+- updated_at
+
+Potential scenario-level fields:
+- purchase_price
+- property_type
+- loan_type
+- down_payment_mode
+- down_payment_percent
+- down_payment_amount
+- seller_concessions_mode
+- seller_concessions_percent
+- seller_concessions_amount
+- annual_property_taxes
+- annual_homeowners_insurance
+- hoa_monthly
+- estimated_closing_costs
+- discount_points_percent
+- user_answer_sources jsonb
+
+Do not create duplicate columns if equivalent fields already exist.
+
+Part 7 — Autosave requirements
+
+Every user-editable field on Purchase with Loan Pages 1–4 should autosave.
+
+Requirements:
+1. Autosave after field change.
+2. Debounce if needed.
+3. Save to the existing scenario row.
+4. Do not create duplicate scenarios.
+5. Update `updated_at`.
+6. No blocking save prompt.
+7. Values persist after refresh/logout/login.
+8. Borrower/user-level values prepopulate on new home searches.
+
+Part 8 — Audit/fix these areas
+
+Inspect and fix:
+- Purchase with Loan Page 1 state
+- Purchase with Loan Page 2 state
+- Purchase with Loan Page 3 state
+- Purchase with Loan Page 4 state
+- Review Your Answers state
+- `purchase_scenarios` row mapper
+- frontend → Supabase mapper
+- Supabase → frontend mapper
+- `persistPurchaseScenarios`
+- Purchase with Loan dashboard loader
+- new address/new scenario creation logic
+- copied prior scenario logic
+- AMI default logic
+- Zillow/property cache hydration logic
+
+Part 9 — Debug logs
+
+Add temporary logs:
+
+Borrower-level:
+- `[purchase-profile-save] changed field`
+- `[purchase-profile-save] value`
+- `[purchase-profile-save] source`
+- `[purchase-profile-save] save ok/error`
+- `[purchase-profile-load] loaded borrower defaults`
+- `[purchase-profile-prefill] applied to new scenario`
+
+Scenario-level:
+- `[purchase-scenario-save] page`
+- `[purchase-scenario-save] changed field`
+- `[purchase-scenario-save] value`
+- `[purchase-scenario-save] source`
+- `[purchase-scenario-save] scenario id`
+- `[purchase-scenario-save] upsert ok/error`
+- `[purchase-scenario-load] loaded scenario fields`
+- `[purchase-default] skipped because manual value exists`
+- `[purchase-default] applied because field blank`
+- `[purchase-zillow] skipped because manual value exists`
+- `[purchase-ami] skipped because manual income exists`
+
+Acceptance test:
+
+A. Existing scenario persistence
+1. Log in.
+2. Open Purchase with Loan.
+3. Open an existing saved property.
+4. Page 1: change:
+   - Property use
+   - Monthly income
+   - Base Monthly Debts
+   - Total Monthly Debts
+   - Credit Score
+   - Available reserves
+5. Page 2: answer/change every question shown.
+6. Page 3: adjust purchase price, property type, loan type, down payment, seller concessions, taxes, insurance, HOA, and any other editable field.
+7. Page 4: adjust loan type, down payment, seller concessions, discount points, and any editable estimate field.
+8. Refresh.
+9. Confirm all changed values remain.
+10. Log out.
+11. Log back in.
+12. Confirm all changed values remain.
+
+B. New home prefill behavior
+1. While logged in, search a new home in Purchase with Loan.
+2. Confirm Page 1 and Page 2 borrower/user-level answers prepopulate from the prior/latest saved answers.
+3. Confirm Page 3 property-specific fields come from the new Zillow/property data.
+4. Confirm old home’s purchase price/photos/address do not carry into the new home.
+5. Change borrower answers again.
+6. Search another new home.
+7. Confirm the latest borrower answers prepopulate.
+
+C. Manual override protection
+1. Manually enter monthly income = $8,000.
+2. Change county/address.
+3. Confirm monthly income does not reset to AMI.
+4. Manually edit purchase price.
+5. Refresh/logout/login.
+6. Confirm Zillow does not overwrite it.
+7. Manually edit homeowners insurance/taxes/HOA.
+8. Refresh/logout/login.
+9. Confirm defaults do not overwrite them.
+
+Please make the smallest safe code change possible and tell me:
+- Whether SQL is needed
+- Where borrower/user-level answers are stored
+- Which Page 1 fields autosave and prepopulate
+- Which Page 2 fields autosave and prepopulate
+- Which Page 3 fields autosave per scenario
+- Which Page 4 fields autosave per scenario
+- How new home searches prefill borrower data
+- How Zillow/AMI/default overwrites are prevented
+- Which save/load mappers were changed
+- Which files/functions were changed
+```
