@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { Share2, Save, Loader2, LayoutDashboard } from "lucide-react";
+import { Share2, Save, Loader2, LayoutDashboard, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import AuthDialog from "@/components/ui/auth-dialog";
 import { useAuth } from "@/context/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import {
+  downloadScenarioPdf,
+  type ScenarioPdfContent,
+} from "@/lib/scenario-pdf";
 
 // Maps each detail-view flow to the stable dashboard tab ID the
 // MY DASHBOARD button should land on. These IDs come from
@@ -54,6 +58,23 @@ export interface ScenarioActionsProps {
    * logged-in users and after a successful auth-then-save replay.
    */
   onSave?: () => void | Promise<void>;
+  /**
+   * Supplies the data for the "Download PDF" button. Called at click
+   * time (and again on a post-auth replay) so it reads the page's
+   * current state. Return `null` when there's nothing to export
+   * (e.g. no address yet) and the button will toast instead. When
+   * omitted, the Download PDF button is hidden.
+   */
+  getPdfData?: () => ScenarioPdfContent | null;
+  /**
+   * Custom PDF handler. When provided it takes precedence over
+   * `getPdfData` — used by flows that already have a richer, purpose-
+   * built PDF generator (e.g. Purchase with Loan reuses its existing
+   * branded estimate PDF). Like `getPdfData`, the Download PDF button
+   * is hidden unless one of these is supplied, and it's auth-gated +
+   * replayed after login the same way.
+   */
+  onDownloadPdf?: () => void;
   /** Compact buttons (icon-only on narrow screens). Default true. */
   compact?: boolean;
 }
@@ -69,6 +90,8 @@ const FLOW_LABEL: Record<ScenarioActionsProps["scenarioType"], string> = {
 export default function ScenarioActions({
   scenarioType,
   onSave,
+  getPdfData,
+  onDownloadPdf,
   compact = true,
 }: ScenarioActionsProps) {
   const { user } = useAuth();
@@ -83,7 +106,11 @@ export default function ScenarioActions({
   const pendingDashboardRef = useRef(false);
   /** Action the user wanted to take before being prompted to log in.
    *  Replayed automatically once `isAuthenticated` flips true. */
-  const pendingActionRef = useRef<"save" | "share" | null>(null);
+  const pendingActionRef = useRef<"save" | "share" | "pdf" | null>(null);
+  /** Snapshot of the `getPdfData` closure taken at click time, so the
+   *  post-auth replay exports the user's pre-auth draft state rather
+   *  than whatever the parent rehydrated after login. */
+  const pendingPdfSnapshotRef = useRef<(() => void) | null>(null);
   /** Snapshot of the `onSave` closure taken at click time, before
    *  the auth dialog opens. Replaying this exact reference (instead
    *  of the latest `onSave` prop) preserves the parent's pre-auth
@@ -111,6 +138,64 @@ export default function ScenarioActions({
     } finally {
       setSaving(false);
     }
+  }
+
+  function runGenericPdf(getFn: () => ScenarioPdfContent | null) {
+    let content: ScenarioPdfContent | null = null;
+    try {
+      content = getFn();
+    } catch {
+      content = null;
+    }
+    if (!content || !content.address || !content.address.trim()) {
+      toast({
+        title: "Nothing to download yet",
+        description: "Add a property address to generate a PDF summary.",
+        variant: "destructive",
+      });
+      return;
+    }
+    downloadScenarioPdf({ scenarioType, ...content });
+  }
+
+  // Run the PDF export. A page may supply a custom generator
+  // (`onDownloadPdf`, takes precedence) or structured data
+  // (`getPdfData`). Optional overrides let the post-auth replay run
+  // the exact closures captured at click time.
+  function doDownloadPdf(opts?: {
+    custom?: (() => void) | null;
+    getFn?: (() => ScenarioPdfContent | null) | null;
+  }) {
+    const custom = opts?.custom ?? onDownloadPdf;
+    const getFn = opts?.getFn ?? getPdfData;
+    try {
+      if (custom) {
+        custom();
+      } else if (getFn) {
+        runGenericPdf(getFn);
+        return;
+      } else {
+        return;
+      }
+      toast({
+        title: "PDF downloaded",
+        description: `Your ${FLOW_LABEL[scenarioType]} summary is ready to share.`,
+      });
+    } catch (err) {
+      toast({
+        title: "Could not create PDF",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
+    }
+  }
+
+  /** Capture the exact PDF action to replay after login, binding the
+   *  current closures so the replay uses pre-auth draft state. */
+  function buildPdfRunner(): () => void {
+    const custom = onDownloadPdf ?? null;
+    const getFn = getPdfData ?? null;
+    return () => doDownloadPdf({ custom, getFn });
   }
 
   function doShare() {
@@ -151,6 +236,11 @@ export default function ScenarioActions({
       void doSave(snapshot);
     }
     if (pending === "share") doShare();
+    if (pending === "pdf") {
+      const runner = pendingPdfSnapshotRef.current;
+      pendingPdfSnapshotRef.current = null;
+      runner?.();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
@@ -202,6 +292,18 @@ export default function ScenarioActions({
     void doSave();
   }
 
+  function handleDownloadPdf() {
+    if (!isAuthenticated) {
+      pendingActionRef.current = "pdf";
+      // Capture the current PDF closures so the replay after login
+      // exports the parent's pre-auth draft state.
+      pendingPdfSnapshotRef.current = buildPdfRunner();
+      setAuthOpen(true);
+      return;
+    }
+    doDownloadPdf();
+  }
+
   function handleShare() {
     // Share always copies the current URL — every detail view
     // already hydrates from URL params, so the URL is a working
@@ -240,6 +342,19 @@ export default function ScenarioActions({
           <Share2 className="h-3.5 w-3.5" />
           <span className={compact ? "hidden sm:inline" : ""}>Share</span>
         </Button>
+        {(getPdfData || onDownloadPdf) && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 h-8 sm:h-9"
+            onClick={handleDownloadPdf}
+            data-testid={`button-download-pdf-${scenarioType}`}
+            title="Download a PDF summary of this scenario"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span className={compact ? "hidden sm:inline" : ""}>Download PDF</span>
+          </Button>
+        )}
         <Button
           size="sm"
           className="gap-1.5 h-8 sm:h-9 bg-secondary hover:bg-secondary/90 text-white"
@@ -266,6 +381,7 @@ export default function ScenarioActions({
           if (!next && !isAuthenticated) {
             pendingActionRef.current = null;
             pendingSaveSnapshotRef.current = null;
+            pendingPdfSnapshotRef.current = null;
             pendingDashboardRef.current = false;
           }
           setAuthOpen(next);

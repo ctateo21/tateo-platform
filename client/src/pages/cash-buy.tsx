@@ -737,7 +737,48 @@ export default function CashBuyPage() {
             {/* Share + Save buttons — auth-gated for logged-out users;
                 draft state survives the auth dialog because the
                 dialog renders inside this component tree. */}
-            <ScenarioActions scenarioType="cash_buy" />
+            <ScenarioActions
+              scenarioType="cash_buy"
+              getPdfData={() => {
+                if (
+                  !scenario.address ||
+                  !scenario.address.trim() ||
+                  scenario.address === "Unknown Address"
+                ) {
+                  return null;
+                }
+                const ongoingMonthly = Math.round(
+                  (scenario.propertyTaxes ?? 0) / 12 +
+                    insMidpoint / 12 +
+                    (scenario.hoaMonthly ?? 0),
+                );
+                return {
+                  address: scenario.address,
+                  sections: [
+                    {
+                      heading: "Purchase",
+                      rows: [
+                        { label: "Purchase price", value: formatCurrency(price) },
+                        { label: "Estimated closing costs", value: formatCurrency(closing) },
+                        { label: "Seller concessions", value: formatCurrency(concessionApplied) },
+                        { label: "Cash to close / total cash needed", value: formatCurrency(ctc) },
+                      ],
+                    },
+                    {
+                      heading: "Ongoing Costs",
+                      rows: [
+                        { label: "Annual property taxes", value: formatCurrency(scenario.propertyTaxes ?? 0) },
+                        { label: "Homeowners insurance (annual)", value: formatCurrency(insMidpoint) },
+                        { label: "Monthly HOA", value: formatCurrency(scenario.hoaMonthly ?? 0) },
+                        { label: "Ongoing monthly costs", value: formatCurrency(ongoingMonthly) },
+                      ],
+                    },
+                  ],
+                  disclaimer:
+                    "These are estimates only based on regional data, property characteristics, and standard assumptions. Actual costs vary by specific property, title company, and market conditions. Not a binding quote.",
+                };
+              }}
+            />
           </div>
         </div>
 

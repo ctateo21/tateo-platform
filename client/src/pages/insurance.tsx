@@ -1180,6 +1180,70 @@ export default function InsuranceDashboard() {
                   Supabase write returns OK. */}
               <ScenarioActions
                 scenarioType="insurance"
+                getPdfData={() => {
+                  if (!address || !address.trim()) return null;
+                  const annualPremium =
+                    manualAnnualPremium != null
+                      ? manualAnnualPremium
+                      : Math.round(calc.mid);
+                  // Occupancy / structure type aren't held in component
+                  // state — derive them from the saved source scenarios
+                  // for this address, mirroring the default-policy helper.
+                  const pdfKey = address.trim().toLowerCase();
+                  const pdfPurchase = getPurchaseScenarios().find(
+                    p => (p.address ?? "").trim().toLowerCase() === pdfKey,
+                  );
+                  const pdfCash = getCashBuyScenarios().find(
+                    c => (c.address ?? "").trim().toLowerCase() === pdfKey,
+                  );
+                  const pdfLoan = getTrackedLoans().find(
+                    l => (l.propertyAddress ?? "").trim().toLowerCase() === pdfKey,
+                  );
+                  const occupancy =
+                    pdfCash?.occupancyType ??
+                    (pdfLoan?.propertyType as string | undefined) ??
+                    (pdfPurchase ? "primary" : undefined);
+                  const propertyType =
+                    pdfPurchase?.propertyType ?? pdfLoan?.physicalPropertyType;
+                  const POLICY_LABELS: Record<string, string> = {
+                    HO3: "HO-3 (Homeowners)",
+                    HO6: "HO-6 (Condo / Townhome)",
+                    DP3: "DP-3 (Dwelling / Rental)",
+                  };
+                  const OCCUPANCY_LABELS: Record<string, string> = {
+                    primary: "Primary residence",
+                    secondary: "Secondary home",
+                    investment: "Investment property",
+                  };
+                  return {
+                    address,
+                    sections: [
+                      {
+                        heading: "Policy Summary",
+                        rows: [
+                          { label: "Policy type", value: policyType ? POLICY_LABELS[policyType] ?? policyType : "—" },
+                          { label: "Occupancy", value: occupancy ? OCCUPANCY_LABELS[occupancy] ?? occupancy : "—" },
+                          { label: "Property type", value: propertyType || "—" },
+                          { label: "Coverage A / Rebuild cost", value: fmt(rebuild) },
+                          { label: "Annual premium", value: fmt(annualPremium) },
+                          { label: "Monthly premium", value: fmt(calc.monthly) },
+                          { label: `Hurricane deductible (${calc.hurrPct.toFixed(0)}%)`, value: fmt(calc.hurrDeductible) },
+                        ],
+                      },
+                      {
+                        heading: "Discounts / Mitigation",
+                        rows: [
+                          { label: "Roof", value: calc.roofEffect.label },
+                          { label: "Wind mitigation", value: calc.windEffect.label },
+                          { label: "Hurricane deductible", value: calc.hurrEffect.label },
+                          { label: "Construction", value: calc.constEffect.label },
+                        ],
+                      },
+                    ],
+                    disclaimer:
+                      "These are estimates only based on regional data, property characteristics, and standard assumptions. Results vary by specific property inspection and market availability. Not a binding quote. Coverage is not effective until confirmed by a licensed agent. Tateo Insurance Corp (Company) - License #L132640. Paul Christian Tateo (Agent) - License #W142842.",
+                  };
+                }}
                 onSave={async () => {
                   if (!address || !address.trim()) {
                     throw new Error("Enter an address before saving.");

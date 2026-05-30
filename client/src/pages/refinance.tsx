@@ -461,6 +461,49 @@ export default function Refinance() {
           <div className="ml-auto">
             <ScenarioActions
               scenarioType="refinance"
+              getPdfData={() => {
+                const matched = trackedLoans.filter(
+                  l =>
+                    !address ||
+                    (l.propertyAddress ?? "").trim().toLowerCase() ===
+                      address.trim().toLowerCase(),
+                );
+                const list = matched.length > 0 ? matched : trackedLoans;
+                if (list.length === 0) return null;
+                const pdfAddress = address || list[0].propertyAddress || "";
+                if (!pdfAddress.trim()) return null;
+                const fmtUsd = (n: number) =>
+                  new Intl.NumberFormat("en-US", {
+                    style: "currency",
+                    currency: "USD",
+                    maximumFractionDigits: 0,
+                  }).format(n || 0);
+                const sections = list.map((loan, i) => {
+                  const homeValue = loan.estimatedHomeValue ?? 0;
+                  const balance = loan.loanBalance ?? 0;
+                  const ltv = homeValue > 0 ? (balance / homeValue) * 100 : 0;
+                  return {
+                    heading:
+                      list.length > 1
+                        ? `Loan ${i + 1}${loan.lender ? ` — ${loan.lender}` : ""}`
+                        : "Current Loan",
+                    rows: [
+                      { label: "Estimated home value", value: fmtUsd(homeValue) },
+                      { label: "Current loan balance", value: fmtUsd(balance) },
+                      { label: "Current monthly payment", value: fmtUsd(loan.monthlyPayment ?? 0) },
+                      { label: "Current principal & interest", value: fmtUsd(loan.currentPI ?? 0) },
+                      { label: "Current interest rate", value: `${(loan.currentRate ?? 0).toFixed(3)}%` },
+                      { label: "Current loan-to-value (LTV)", value: `${ltv.toFixed(1)}%` },
+                    ],
+                  };
+                });
+                return {
+                  address: pdfAddress,
+                  sections,
+                  disclaimer:
+                    "These are estimates only based on your uploaded statement, regional data, and standard assumptions. New-loan rates, terms, and savings shown on screen are illustrative and subject to credit approval and market conditions. Not a binding quote or commitment to lend.",
+                };
+              }}
               onSave={async () => {
                 if (trackedLoans.length === 0) {
                   throw new Error(

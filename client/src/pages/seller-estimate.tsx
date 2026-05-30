@@ -512,7 +512,56 @@ export default function SellerEstimatePage() {
               {saveStatus === "saved"  && (<><Save className="h-3 w-3 text-green-600" /> Saved</>)}
               {saveStatus === "error"  && (<><AlertCircle className="h-3 w-3 text-destructive" /> Save failed</>)}
             </div>
-            <ScenarioActions scenarioType="seller" />
+            <ScenarioActions
+              scenarioType="seller"
+              getPdfData={() => {
+                if (!scenario.address || !scenario.address.trim()) return null;
+                const STATUS_LABELS: Record<string, string> = {
+                  draft: "Draft",
+                  reviewing: "Reviewing",
+                  ready_to_list: "Ready to List",
+                  listed: "Listed",
+                  sold: "Sold",
+                };
+                const STATUS_MESSAGES: Record<string, string> = {
+                  draft:
+                    "This is a working draft. Numbers may change as you refine your inputs and request a full market analysis.",
+                  reviewing:
+                    "Your estimate is under review. A Havo agent can confirm pricing with a full comparative market analysis.",
+                  ready_to_list:
+                    "This estimate is ready to list. Connect with a Havo agent to finalize your listing strategy.",
+                  listed: "This property is currently listed.",
+                  sold: "This property has been sold.",
+                };
+                return {
+                  address: scenario.address,
+                  sections: [
+                    {
+                      heading: "Net Proceeds Estimate",
+                      rows: [
+                        { label: "Estimated sale price", value: formatCurrency(sale) },
+                        { label: "Mortgage payoff", value: formatCurrency(scenario.mortgagePayoff ?? 0) },
+                        { label: `Realtor commission (${commissionPct}%)`, value: formatCurrency(commissionDollars) },
+                        { label: "Seller closing costs", value: formatCurrency(closingDollars) },
+                        { label: "Buyer concessions", value: formatCurrency(scenario.buyerConcessions ?? 0) },
+                        { label: "Post-inspection credits / repairs", value: formatCurrency(scenario.repairBudget ?? 0) },
+                        { label: "Other selling costs", value: formatCurrency(scenario.otherSellingCosts ?? 0) },
+                        { label: "Estimated net proceeds", value: formatCurrency(net) },
+                      ],
+                    },
+                    {
+                      heading: "Status",
+                      rows: [
+                        { label: "Listing status", value: STATUS_LABELS[scenario.status] ?? "Draft" },
+                      ],
+                    },
+                  ],
+                  statusNote: STATUS_MESSAGES[scenario.status] ?? STATUS_MESSAGES.draft,
+                  disclaimer:
+                    "These are estimates only based on regional data, recent comparable sales, and standard assumptions. Actual net proceeds vary by final sale price, negotiated terms, and closing costs. Not a guarantee of sale price or proceeds.",
+                };
+              }}
+            />
           </div>
         </div>
 

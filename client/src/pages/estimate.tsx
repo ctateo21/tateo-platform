@@ -1,5 +1,6 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import ScenarioActions from "@/components/scenario-actions";
+import { buildScenarioFileName } from "@/lib/scenario-pdf";
 import { estimateAnnualTax, getCountyTaxLink, getCountyName } from "@/lib/county-tax-estimator";
 import { getConventionalAmiRateDiscount } from "@/lib/ami-discount";
 import { useQuery } from "@tanstack/react-query";
@@ -1785,7 +1786,7 @@ export default function Estimate() {
       doc.text(`Page ${i} of ${totalPages}`, W - margin, pageH - 16, { align: "right" });
     }
 
-    doc.save(`Havo-Estimate-${address.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 40)}.pdf`);
+    doc.save(buildScenarioFileName("purchase", address));
   }
 
   // Lead capture dialog
@@ -3500,7 +3501,10 @@ export default function Estimate() {
                   Draft state (inputs, scenarios, Zillow cache)
                   survives the dialog because it renders inside this
                   component tree. */}
-              <ScenarioActions scenarioType="purchase" />
+              <ScenarioActions
+                scenarioType="purchase"
+                onDownloadPdf={generateEstimatePDF}
+              />
             </div>
           </div>
         </div>

@@ -1,0 +1,193 @@
+Copy/paste this into Replit:
+
+```text
+Add a Download PDF button next to the Share button on every saved home/scenario detail view.
+
+Current issue:
+When a user is logged in and viewing a specific home address/scenario, there is a Share button, but there is no Download button.
+
+Goal:
+Add a Download PDF button so users can download a clean PDF summary of the current scenario on their phone and send it to someone.
+
+Scope:
+Add this to every detailed home/scenario view where the Share button already appears:
+- Purchase with Loan detail view
+- Purchase with Cash detail view
+- Refinance detail view
+- Insurance detail view
+- Sell Your Home detail view
+
+Location:
+Place the Download PDF button next to the existing Share button.
+
+Suggested button order:
+- My Dashboard
+- Share
+- Download PDF
+
+or:
+
+- My Dashboard
+- Download PDF
+- Share
+
+Keep it clean and mobile-friendly.
+
+Button label:
+“Download PDF”
+
+Icon:
+Use a download icon if available, such as Download from lucide-react.
+
+Behavior:
+When clicked:
+1. Generate a PDF summary of the current address/scenario.
+2. Download it directly to the user’s device.
+3. File name should include the scenario type and address if possible.
+
+Example filenames:
+- purchase-with-loan-4311-63rd-way-n.pdf
+- purchase-with-cash-4311-63rd-way-n.pdf
+- refinance-4311-63rd-way-n.pdf
+- insurance-4311-63rd-way-n.pdf
+- sell-your-home-4311-63rd-way-n.pdf
+
+PDF content:
+The PDF should be clean, readable, and client-facing.
+
+Include:
+- Tateo & Co branding/name
+- Scenario type
+- Property address
+- Date generated
+- Main summary numbers from the current screen
+- Important assumptions/disclaimers for that scenario type
+
+For Purchase with Loan PDF, include:
+- Purchase price
+- Down payment
+- Loan amount
+- Loan type
+- Interest rate
+- Principal & Interest
+- Estimated taxes
+- Estimated homeowners insurance
+- HOA
+- Seller concessions
+- Discount points
+- Estimated cash to close
+- Estimated monthly payment
+- DTI/qualification status if shown
+
+For Purchase with Cash PDF, include:
+- Purchase price
+- Estimated closing costs
+- Seller concessions
+- Cash to close / total cash needed
+- Annual property taxes
+- Homeowners insurance
+- HOA
+- Ongoing monthly costs
+
+For Refinance PDF, include:
+- Estimated home value
+- Current loan balance
+- Current payment, if available
+- New loan estimate, if shown
+- Rate
+- Term
+- LTV
+- Estimated monthly payment
+- Estimated cash-out or savings, if shown
+
+For Insurance PDF, include:
+- Property address
+- Policy type
+- Occupancy
+- Property type
+- Coverage A / Rebuild Cost
+- Annual premium
+- Monthly premium
+- Deductibles
+- Discounts/mitigation selections, if shown
+- Insurance disclosure:
+  “These are estimates only based on regional data, property characteristics, and standard assumptions. Results vary by specific property inspection and market availability. Not a binding quote. Coverage not effective until confirmed by a licensed agent. Tateo Insurance Corp (Company) - License #L132640. Paul Christian Tateo (Agent) - License #W142842.”
+
+For Sell Your Home PDF, include:
+- Estimated sale price
+- Mortgage payoff
+- Realtor commission
+- Seller closing costs
+- Buyer concessions
+- Post Inspection Credits / Repair Costs
+- Other selling costs
+- Estimated net proceeds
+- Status
+- Market analysis message if Draft/Ready/List status applies
+
+Implementation:
+Use the smallest safe approach.
+
+Preferred:
+- Reuse existing scenario detail data/state already rendered on the page.
+- Do not refetch everything if the current component already has the data.
+- Add a shared utility/helper so all detail pages use one PDF generation pattern.
+
+Suggested helper:
+`downloadScenarioPdf({ scenarioType, address, sections, fileName })`
+
+Options:
+Use whichever PDF library is already installed.
+If none exists, install a lightweight browser PDF library such as:
+- jspdf
+- html2canvas + jspdf, if rendering from DOM is easier
+
+Preferred output:
+A clean text-based PDF is fine for now.
+Do not over-engineer a full designed report in this first pass.
+
+Mobile behavior:
+- Must work on mobile browsers.
+- Clicking Download PDF should trigger a file download or open the PDF in a way the user can save/share from their phone.
+- Do not rely on desktop-only behavior.
+
+Logged-in behavior:
+- Button should show when logged in and viewing a saved/current scenario.
+- If logged out and PDF download is clicked, require login/create account first, using the same auth gating pattern as Save/Share if available.
+- Preserve the current scenario after login.
+
+Do not break:
+- Share button
+- Save Scenario button
+- My Dashboard button
+- Existing scenario calculations
+- Supabase save/load
+- Mobile layout
+- Existing auth flow
+
+Acceptance test:
+1. Log in.
+2. Open Purchase with Loan detail view.
+3. Confirm Download PDF appears next to Share.
+4. Click Download PDF.
+5. Confirm a PDF downloads and includes the key Purchase with Loan numbers.
+6. Repeat for Purchase with Cash.
+7. Repeat for Refinance.
+8. Repeat for Insurance.
+9. Repeat for Sell Your Home.
+10. Test on mobile-sized viewport.
+11. Confirm Share still works.
+12. Confirm Save still works.
+13. Confirm My Dashboard still works.
+14. Confirm no calculations changed.
+15. Confirm no Supabase data changed from downloading a PDF.
+
+Please make the smallest safe code change possible and tell me:
+- Which shared PDF helper was created
+- Which detail pages now show Download PDF
+- Which library was used
+- What fields are included for each scenario type
+- How mobile download is handled
+- How logged-out auth gating works, if applicable
+- Which files/functions were changed
+```
