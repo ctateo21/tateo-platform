@@ -111,18 +111,64 @@ function getKnownPropertyValueForAddress(address: string): number {
     s => (s.address ?? "").trim().toLowerCase() === key
   );
   if (ins?.annualPremium && ins.annualPremium > 0) {
-    return Math.round(ins.annualPremium / DEFAULT_HOMEOWNERS_INSURANCE_PERCENT);
+    // annualPremium ≈ coverageA × 0.75% = (propertyValue × multiplier) × 0.75%.
+    // Divide the multiplier back out so this returns the FULL property value,
+    // consistent with the Purchase/Cash/Loan branches above. Callers
+    // (defaultRebuildFor) then re-apply the multiplier exactly once — without
+    // this an HO6 premium-only row would be halved twice (→ 25%).
+    const { policyType } = resolvePolicyTypeForAddress(address);
+    const multiplier = (policyType ? getInsuranceCoverageMultiplier(policyType) : 1) || 1;
+    return Math.round(ins.annualPremium / (DEFAULT_HOMEOWNERS_INSURANCE_PERCENT * multiplier));
   }
 
   return 0;
 }
 
+// Resolve the policy type (HO3 / HO6 / DP3) for an address from saved
+// insurance state, then a matching Purchase / Cash / Loan scenario, then
+// the shared default rule. Module-level so both the Rebuild Cost seeding
+// (`defaultRebuildFor`) and the component can share one implementation.
+function resolvePolicyTypeForAddress(addr: string): {
+  policyType: InsurancePolicyType | "";
+  source: "default_rule" | "manual" | null;
+} {
+  if (!addr) return { policyType: "", source: null };
+  const key = addr.trim().toLowerCase();
+  const ins = getInsuranceScenarios().find(
+    s => (s.address ?? "").trim().toLowerCase() === key
+  );
+  if (ins?.policyType) {
+    return { policyType: ins.policyType, source: ins.policyTypeSource ?? "default_rule" };
+  }
+  // Fall back to deriving from a matching source scenario.
+  const purchase = getPurchaseScenarios().find(
+    p => (p.address ?? "").trim().toLowerCase() === key
+  );
+  const cash = getCashBuyScenarios().find(
+    c => (c.address ?? "").trim().toLowerCase() === key
+  );
+  const loan = getTrackedLoans().find(
+    l => (l.propertyAddress ?? "").trim().toLowerCase() === key
+  );
+  const occupancy =
+    cash?.occupancyType ?? (loan?.propertyType as any) ?? (purchase ? "primary" : undefined);
+  const propertyType = purchase?.propertyType;
+  const def = getDefaultInsurancePolicyType({ occupancyType: occupancy, propertyType });
+  return { policyType: def ?? "", source: def ? "default_rule" : null };
+}
+
 function defaultRebuildFor(address: string, priceParam: string | null): number {
   const fromScenarios = getKnownPropertyValueForAddress(address);
-  if (fromScenarios > 0) return fromScenarios;
   const fromParam = priceParam ? parseInt(priceParam, 10) : 0;
-  if (fromParam && fromParam > 0) return fromParam;
-  return 0;
+  const baseValue = fromScenarios > 0 ? fromScenarios : (fromParam > 0 ? fromParam : 0);
+  if (baseValue <= 0) return 0;
+  // Seed Rebuild Cost / Coverage A using the policy-type multiplier so an
+  // HO6 (condo/townhome) property defaults to 50% of the property value
+  // pulled from Zillow, while HO3 / DP3 / unknown stay at the full value.
+  // Spec: insurance-ho6-half-coverage-and-premium.
+  const { policyType } = resolvePolicyTypeForAddress(address);
+  const multiplier = policyType ? getInsuranceCoverageMultiplier(policyType) : 1;
+  return Math.round(baseValue * multiplier);
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -219,18 +265,24 @@ export default function InsuranceDashboard() {
   const params = new URLSearchParams(search);
   const addressParam = params.get("address") || "";
   const priceParam = params.get("price");
-  // Default Coverage A / Rebuild Cost from (in order): saved
-  // InsuranceScenario.coverageA (preserves Phase 1 sync writes and any
-  // manual override across logout/login), then saved Purchase / Cash
-  // Buy / Refinance scenario value, ?price= URL param, existing
-  // Insurance scenario premium ÷ 0.75%, else 0.
+  // Default Coverage A / Rebuild Cost from (in order): a MANUAL
+  // InsuranceScenario.coverageA override (preserves a user-typed value
+  // across logout/login), then the policy-type-aware default derived
+  // from the saved Purchase / Cash Buy / Refinance scenario value,
+  // ?price= URL param, or existing Insurance scenario premium ÷ 0.75%.
+  // Auto-seeded ("default" source) coverageA is intentionally NOT used
+  // here — it is recomputed via `defaultRebuildFor` so the policy-type
+  // multiplier (HO6 → 50%) is always applied, even to values seeded
+  // before the multiplier existed. This is idempotent for already-correct
+  // values (base × multiplier === stored value).
   function initialRebuildFor(addr: string, price: string | null): number {
     const key = (addr ?? "").trim().toLowerCase();
     if (key) {
       const ins = getInsuranceScenarios().find(
         s => (s.address ?? "").trim().toLowerCase() === key
       );
-      if (ins && typeof ins.coverageA === "number" && ins.coverageA > 0) {
+      if (ins && ins.coverageASource === "manual"
+          && typeof ins.coverageA === "number" && ins.coverageA > 0) {
         return ins.coverageA;
       }
     }
@@ -308,34 +360,8 @@ export default function InsuranceDashboard() {
   // Hydrates from a saved InsuranceScenario when present (so a manual
   // override survives logout/login). When the user picks a value from
   // the Select, we mark policyTypeSource = "manual" and persist on save.
-  function resolvePolicyTypeForAddress(addr: string): {
-    policyType: InsurancePolicyType | "";
-    source: "default_rule" | "manual" | null;
-  } {
-    if (!addr) return { policyType: "", source: null };
-    const key = addr.trim().toLowerCase();
-    const ins = getInsuranceScenarios().find(
-      s => (s.address ?? "").trim().toLowerCase() === key
-    );
-    if (ins?.policyType) {
-      return { policyType: ins.policyType, source: ins.policyTypeSource ?? "default_rule" };
-    }
-    // Fall back to deriving from a matching source scenario.
-    const purchase = getPurchaseScenarios().find(
-      p => (p.address ?? "").trim().toLowerCase() === key
-    );
-    const cash = getCashBuyScenarios().find(
-      c => (c.address ?? "").trim().toLowerCase() === key
-    );
-    const loan = getTrackedLoans().find(
-      l => (l.propertyAddress ?? "").trim().toLowerCase() === key
-    );
-    const occupancy =
-      cash?.occupancyType ?? (loan?.propertyType as any) ?? (purchase ? "primary" : undefined);
-    const propertyType = purchase?.propertyType;
-    const def = getDefaultInsurancePolicyType({ occupancyType: occupancy, propertyType });
-    return { policyType: def ?? "", source: def ? "default_rule" : null };
-  }
+  // (Resolution logic lives in the module-level `resolvePolicyTypeForAddress`
+  // so Rebuild Cost seeding and this component stay in lockstep.)
   const initialPolicy = resolvePolicyTypeForAddress(addressParam);
   const [policyType, setPolicyType] = useState<InsurancePolicyType | "">(initialPolicy.policyType);
   const [policyTypeSource, setPolicyTypeSource] = useState<"default_rule" | "manual" | null>(
