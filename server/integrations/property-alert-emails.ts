@@ -130,7 +130,7 @@ function buildUserEmail(
       `Good news on ${address} — ${reason}\n\n` +
       `Open your saved estimate to see how this changes your monthly payment, ` +
       `then chat with our team if you'd like to lock or refinance.\n\n` +
-      `— Tateo & Co\n\n` +
+      `— Havo\n\n` +
       `Note: live rates change throughout the day and depend on credit, loan ` +
       `program, and property details. Please verify the final rate before locking.`;
     const html =
@@ -138,7 +138,7 @@ function buildUserEmail(
       `<p>Good news on <strong>${esc(address)}</strong> — ${esc(reason)}</p>` +
       `<p>Open your saved estimate to see how this changes your monthly payment, ` +
       `then chat with our team if you'd like to lock or refinance.</p>` +
-      `<p>— Tateo &amp; Co</p>` +
+      `<p>— Havo</p>` +
       `<p style="color:#666;font-size:12px">Live rates change throughout the day ` +
       `and depend on credit, loan program, and property details. Please verify the ` +
       `final rate before locking.</p>`;
@@ -155,14 +155,14 @@ function buildUserEmail(
     `${greeting}\n\n` +
     `Heads up on ${address} — ${reason}\n\n` +
     `Open your saved property to revisit your numbers or run a fresh estimate.\n\n` +
-    `— Tateo & Co\n\n` +
+    `— Havo\n\n` +
     `Note: listing prices change frequently and our cache may lag the MLS by up ` +
     `to a day. Please verify the current asking price before acting.`;
   const html =
     `<p>${esc(greeting)}</p>` +
     `<p>Heads up on <strong>${esc(address)}</strong> — ${esc(reason)}</p>` +
     `<p>Open your saved property to revisit your numbers or run a fresh estimate.</p>` +
-    `<p>— Tateo &amp; Co</p>` +
+    `<p>— Havo</p>` +
     `<p style="color:#666;font-size:12px">Listing prices change frequently and our ` +
     `cache may lag the MLS by up to a day. Please verify the current asking price ` +
     `before acting.</p>`;

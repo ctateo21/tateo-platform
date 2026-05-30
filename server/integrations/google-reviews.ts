@@ -157,7 +157,7 @@ export function getMockReviews(): GoogleReview[] {
       author_name: "Jennifer R.",
       service: "Mortgage Services",
       rating: 5,
-      text: "Working with Tateo & Co on our mortgage was a game-changer! They secured us a fantastic rate and made the entire process smooth and stress-free.",
+      text: "Working with Havo on our mortgage was a game-changer! They secured us a fantastic rate and made the entire process smooth and stress-free.",
       time: new Date().getTime() / 1000,
       relative_time_description: "1 month ago"
     },
@@ -173,7 +173,7 @@ export function getMockReviews(): GoogleReview[] {
       author_name: "Sarah L.",
       service: "Insurance",
       rating: 5,
-      text: "Tateo & Co helped us find the perfect insurance coverage for our new home at a competitive rate. Their attention to detail ensured we had all the protection we needed.",
+      text: "Havo helped us find the perfect insurance coverage for our new home at a competitive rate. Their attention to detail ensured we had all the protection we needed.",
       time: new Date().getTime() / 1000,
       relative_time_description: "3 months ago"
     },
@@ -189,7 +189,7 @@ export function getMockReviews(): GoogleReview[] {
       author_name: "Amanda K.",
       service: "Home Services",
       rating: 5,
-      text: "The home services team at Tateo & Co was fantastic! They helped us coordinate all the work needed on our new property and found reliable contractors at reasonable prices.",
+      text: "The home services team at Havo was fantastic! They helped us coordinate all the work needed on our new property and found reliable contractors at reasonable prices.",
       time: new Date().getTime() / 1000,
       relative_time_description: "1 week ago"
     },
@@ -197,7 +197,7 @@ export function getMockReviews(): GoogleReview[] {
       author_name: "James W.",
       service: "Construction",
       rating: 5,
-      text: "Working with Tateo & Co on our home renovation was an excellent experience. They managed the project timeline effectively and kept everything within budget.",
+      text: "Working with Havo on our home renovation was an excellent experience. They managed the project timeline effectively and kept everything within budget.",
       time: new Date().getTime() / 1000,
       relative_time_description: "2 weeks ago"
     },
@@ -205,7 +205,7 @@ export function getMockReviews(): GoogleReview[] {
       author_name: "Rebecca T.",
       service: "Mortgage Services",
       rating: 5,
-      text: "I was worried about qualifying for a mortgage with my credit history, but Tateo & Co found the perfect loan program for me. They were patient and explained everything clearly.",
+      text: "I was worried about qualifying for a mortgage with my credit history, but Havo found the perfect loan program for me. They were patient and explained everything clearly.",
       time: new Date().getTime() / 1000,
       relative_time_description: "3 weeks ago"
     },
@@ -213,7 +213,7 @@ export function getMockReviews(): GoogleReview[] {
       author_name: "Thomas B.",
       service: "Real Estate",
       rating: 5,
-      text: "Selling our home with Tateo & Co exceeded our expectations. Their marketing strategy resulted in multiple offers and we sold above asking price!",
+      text: "Selling our home with Havo exceeded our expectations. Their marketing strategy resulted in multiple offers and we sold above asking price!",
       time: new Date().getTime() / 1000,
       relative_time_description: "1 month ago"
     },
@@ -221,7 +221,7 @@ export function getMockReviews(): GoogleReview[] {
       author_name: "Emily C.",
       service: "Insurance",
       rating: 5,
-      text: "Tateo & Co saved us hundreds on our home and auto insurance by bundling policies. Their knowledge of available discounts was impressive.",
+      text: "Havo saved us hundreds on our home and auto insurance by bundling policies. Their knowledge of available discounts was impressive.",
       time: new Date().getTime() / 1000,
       relative_time_description: "6 weeks ago"
     },
@@ -229,7 +229,7 @@ export function getMockReviews(): GoogleReview[] {
       author_name: "Kevin P.",
       service: "Property Management",
       rating: 5,
-      text: "As a landlord with multiple properties, I appreciate how Tateo & Co handles tenant relations and maintenance issues promptly. They've made property ownership much less stressful.",
+      text: "As a landlord with multiple properties, I appreciate how Havo handles tenant relations and maintenance issues promptly. They've made property ownership much less stressful.",
       time: new Date().getTime() / 1000,
       relative_time_description: "2 months ago"
     }

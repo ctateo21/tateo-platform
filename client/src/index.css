@@ -3,77 +3,77 @@
 @tailwind utilities;
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 20 14.3% 4.1%;
-  --muted: 60 4.8% 95.9%;
-  --muted-foreground: 25 5.3% 44.7%;
+  --background: 40 33% 97%; /* Havo cream #F8F6F1 */
+  --foreground: 224 61% 15%; /* Havo navy #0F1B3D */
+  --muted: 40 20% 93%;
+  --muted-foreground: 218 16% 42%;
   --popover: 0 0% 100%;
-  --popover-foreground: 20 14.3% 4.1%;
+  --popover-foreground: 224 61% 15%;
   --card: 0 0% 100%;
-  --card-foreground: 20 14.3% 4.1%;
-  --border: 20 5.9% 90%;
-  --input: 20 5.9% 90%;
-  --primary: 209 72% 23%; /* Tateo blue #123764 */
+  --card-foreground: 224 61% 15%;
+  --border: 220 22% 88%;
+  --input: 220 22% 88%;
+  --primary: 176 100% 36%; /* Havo teal #00B6A9 */
   --primary-foreground: 0 0% 100%;
-  --secondary: 25 91% 58%; /* Tateo orange #f58634 */
+  --secondary: 11 100% 65%; /* Havo coral #FF6B4A */
   --secondary-foreground: 0 0% 100%;
-  --accent: 39 86% 58%; /* Tateo gold #f4b330 */
-  --accent-foreground: 0 0% 100%;
+  --accent: 41 100% 67%; /* Havo gold #FFCB57 */
+  --accent-foreground: 224 61% 15%;
   --destructive: 0 84.2% 60.2%;
   --destructive-foreground: 60 9.1% 97.8%;
-  --ring: 200 85% 30%;
-  --radius: 0.5rem;
+  --ring: 176 100% 36%;
+  --radius: 0.75rem;
   
   --sidebar-background: 0 0% 100%;
-  --sidebar-foreground: 0 0% 3.9%;
-  --sidebar-primary: 200 85% 30%;
-  --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 0 0% 97%;
-  --sidebar-accent-foreground: 0 0% 3.9%;
-  --sidebar-border: 0 0% 89.8%;
-  --sidebar-ring: 0 0% 3.9%;
-  --chart-1: 20 14.3% 4.1%;
-  --chart-2: 24 9.8% 10%;
-  --chart-3: 200 85% 30%;
-  --chart-4: 27 100% 50%;
-  --chart-5: 21 83% 55%;
+  --sidebar-foreground: 224 61% 15%;
+  --sidebar-primary: 176 100% 36%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 40 33% 96%;
+  --sidebar-accent-foreground: 224 61% 15%;
+  --sidebar-border: 220 22% 88%;
+  --sidebar-ring: 176 100% 36%;
+  --chart-1: 176 100% 36%; /* teal */
+  --chart-2: 11 100% 65%;  /* coral */
+  --chart-3: 224 61% 15%;  /* navy */
+  --chart-4: 41 100% 67%;  /* gold */
+  --chart-5: 271 89% 66%;  /* purple */
 }
 
 .dark {
-  --background: 240 10% 3.9%;
-  --foreground: 0 0% 98%;
-  --muted: 240 3.7% 15.9%;
-  --muted-foreground: 240 5% 64.9%;
-  --popover: 240 10% 3.9%;
-  --popover-foreground: 0 0% 98%;
-  --card: 240 10% 3.9%;
-  --card-foreground: 0 0% 98%;
-  --border: 240 3.7% 15.9%;
-  --input: 240 3.7% 15.9%;
-  --primary: 209 72% 33%; /* Tateo blue - brighter for dark mode */
-  --primary-foreground: 0 0% 100%;
-  --secondary: 25 91% 68%; /* Tateo orange - brighter for dark mode */
-  --secondary-foreground: 0 0% 100%;
-  --accent: 39 86% 68%; /* Tateo gold - brighter for dark mode */
-  --accent-foreground: 0 0% 100%;
+  --background: 224 61% 11%; /* deep Havo navy */
+  --foreground: 40 33% 97%;
+  --muted: 224 40% 18%;
+  --muted-foreground: 220 14% 70%;
+  --popover: 224 55% 13%;
+  --popover-foreground: 40 33% 97%;
+  --card: 224 55% 13%;
+  --card-foreground: 40 33% 97%;
+  --border: 224 30% 24%;
+  --input: 224 30% 24%;
+  --primary: 176 90% 44%; /* Havo teal - brighter for dark mode */
+  --primary-foreground: 224 61% 11%;
+  --secondary: 11 100% 68%; /* Havo coral - brighter for dark mode */
+  --secondary-foreground: 224 61% 11%;
+  --accent: 41 100% 70%; /* Havo gold - brighter for dark mode */
+  --accent-foreground: 224 61% 11%;
   --destructive: 0 62.8% 30.6%;
   --destructive-foreground: 0 0% 98%;
-  --ring: 200 85% 40%;
-  --radius: 0.5rem;
+  --ring: 176 90% 44%;
+  --radius: 0.75rem;
   
-  --sidebar-background: 240 10% 3.9%;
-  --sidebar-foreground: 0 0% 98%;
-  --sidebar-primary: 200 85% 40%;
-  --sidebar-primary-foreground: 0 0% 98%;
-  --sidebar-accent: 240 3.7% 15.9%;
-  --sidebar-accent-foreground: 0 0% 98%;
-  --sidebar-border: 240 3.7% 15.9%;
-  --sidebar-ring: 240 4.9% 83.9%;
-  --chart-1: 0 0% 98%;
-  --chart-2: 240 5% 64.9%;
-  --chart-3: 200 85% 40%;
-  --chart-4: 27 100% 50%;
-  --chart-5: 21 83% 65%;
+  --sidebar-background: 224 55% 13%;
+  --sidebar-foreground: 40 33% 97%;
+  --sidebar-primary: 176 90% 44%;
+  --sidebar-primary-foreground: 224 61% 11%;
+  --sidebar-accent: 224 40% 18%;
+  --sidebar-accent-foreground: 40 33% 97%;
+  --sidebar-border: 224 30% 24%;
+  --sidebar-ring: 176 90% 44%;
+  --chart-1: 176 90% 44%;
+  --chart-2: 11 100% 68%;
+  --chart-3: 40 33% 90%;
+  --chart-4: 41 100% 70%;
+  --chart-5: 271 89% 72%;
 }
 
 @layer base {
@@ -91,6 +91,10 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight;
   }
 }
 

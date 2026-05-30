@@ -987,7 +987,7 @@ export default function InsuranceDashboard() {
 
   return (
     <>
-      <Helmet><title>Insurance Estimate — {address || "Tateo & Co"}</title></Helmet>
+      <Helmet><title>Insurance Estimate — {address || "Havo"}</title></Helmet>
 
       {showInsuranceEmptyState ? (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">

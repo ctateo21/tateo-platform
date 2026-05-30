@@ -117,8 +117,10 @@ export default function Header() {
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         <div className="flex items-center">
           <Link href={user ? "/dashboard" : "/"} className="flex items-center">
-            <div className="bg-primary px-3 py-2 rounded-md mr-2">
-              <span className="text-white font-bold text-sm">Tateo & Co</span>
+            <div className="bg-[#0F1B3D] px-3.5 py-2 rounded-lg mr-2">
+              <span className="text-white font-display font-extrabold text-lg leading-none tracking-tight">
+                havo<span className="text-primary">.</span>
+              </span>
             </div>
           </Link>
         </div>
@@ -195,7 +197,7 @@ export default function Header() {
           )}
 
           <Button
-            className="bg-black hover:bg-gray-800 text-white border border-black"
+            className="bg-[#0F1B3D] hover:bg-[#0A1330] text-white border border-[#0F1B3D]"
             onClick={handleScheduleClick}
             data-testid="schedule-call-desktop"
           >
@@ -213,8 +215,10 @@ export default function Header() {
           </SheetTrigger>
           <SheetContent side="right" className="w-[300px] sm:w-[400px]">
             <div className="flex items-center mb-6">
-              <div className="bg-primary px-3 py-2 rounded-md mr-2">
-                <span className="text-white font-bold text-sm">Tateo & Co</span>
+              <div className="bg-[#0F1B3D] px-3.5 py-2 rounded-lg mr-2">
+                <span className="text-white font-display font-extrabold text-lg leading-none tracking-tight">
+                  havo<span className="text-primary">.</span>
+                </span>
               </div>
             </div>
 
@@ -297,7 +301,7 @@ export default function Header() {
               )}
 
               <Button
-                className="bg-black hover:bg-gray-800 text-white border border-black w-full mt-4"
+                className="bg-[#0F1B3D] hover:bg-[#0A1330] text-white border border-[#0F1B3D] w-full mt-4"
                 onClick={handleScheduleClick}
                 data-testid="schedule-call-mobile"
               >

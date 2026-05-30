@@ -88,7 +88,7 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Welcome to Tateo & Co</DialogTitle>
+          <DialogTitle>Welcome to Havo</DialogTitle>
           <DialogDescription>
             Save and revisit your property scenarios anytime.
           </DialogDescription>

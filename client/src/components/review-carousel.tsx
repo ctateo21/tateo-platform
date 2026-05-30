@@ -77,7 +77,7 @@ export function ReviewCarousel({ reviews, autoplayDelay = 15000 }: ReviewCarouse
                     <div>
                       <h3 className="font-semibold text-primary">{review.author_name}</h3>
                       <p className="text-sm text-gray-500">
-                        {review.service || 'Tateo & Co Services'}
+                        {review.service || 'Havo Services'}
                         <span className="ml-2 text-gray-400">•</span>
                         <span className="ml-2 text-gray-400">{review.relative_time_description}</span>
                       </p>

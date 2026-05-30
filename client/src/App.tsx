@@ -1,5 +1,5 @@
 import { Switch, Route, useLocation } from "wouter";
-import { useEffect, lazy, Suspense } from "react";
+import { useEffect } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/queryClient";
 import { Toaster } from "@/components/ui/toaster";
@@ -28,8 +28,6 @@ import CashBuy from "./pages/cash-buy";
 import SelectService from "./pages/select-service";
 import NotFound from "./pages/not-found";
 
-const Havo = lazy(() => import("./pages/havo"));
-
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -38,11 +36,6 @@ function App() {
           <ServicesProvider>
             <ScrollToTop />
             <Switch>
-              <Route path="/havo">
-                <Suspense fallback={null}>
-                  <Havo />
-                </Suspense>
-              </Route>
               <Route>
                 <div className="flex flex-col min-h-screen">
                   <Header />

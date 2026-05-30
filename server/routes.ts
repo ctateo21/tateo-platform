@@ -433,7 +433,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get Google Reviews for Tateo & Co
+  // Get Google Reviews for Havo
   app.get("/api/reviews/google", async (req, res) => {
     try {
       // Check if Google Maps API key is configured
@@ -455,19 +455,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const reviews = getMockReviews();
       
       if (reviews && reviews.length > 0) {
-        console.log(`Successfully fetched ${reviews.length} Google reviews for Tateo & Co`);
+        console.log(`Successfully fetched ${reviews.length} Google reviews for Havo`);
         return res.json({ 
           success: true, 
           reviews,
           isDemoData: true,
-          message: "Successfully fetched Tateo & Co reviews"
+          message: "Successfully fetched Havo reviews"
         });
       } else {
-        console.error("No reviews found for Tateo & Co");
+        console.error("No reviews found for Havo");
         return res.status(200).json({ 
           success: false,
-          error: "No reviews found for Tateo & Co",
-          message: "Tateo & Co has no reviews on Google yet. Please check back later.",
+          error: "No reviews found for Havo",
+          message: "Havo has no reviews on Google yet. Please check back later.",
           reviews: []
         });
       }
@@ -484,7 +484,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(200).json({ 
         success: false,
         error: errorMessage,
-        message: "Could not fetch Tateo & Co reviews at this time. Please try again later.",
+        message: "Could not fetch Havo reviews at this time. Please try again later.",
         reviews: []
       });
     }
@@ -921,7 +921,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const code = String(Math.floor(100000 + Math.random() * 900000));
       _verifyCodes.set(e164, { code, expiresAt: Date.now() + 10 * 60 * 1000 });
       if (isTwilioConfigured) {
-        await sendSms(e164, `Your Tateo & Co verification code is: ${code}`);
+        await sendSms(e164, `Your Havo verification code is: ${code}`);
         res.json({ ok: true, smsEnabled: true });
       } else {
         // Twilio not configured — skip SMS, return auto-verify code so frontend can bypass the step
@@ -1399,7 +1399,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         email: inviteeEmail,
         phone: "",
         agent,
-        messageHeader: `Invited by ${inviterFullName} (${inviterEmail}) to share their Tateo & Co account.`,
+        messageHeader: `Invited by ${inviterFullName} (${inviterEmail}) to share their Havo account.`,
       }).catch(err => console.error("[FUB] invite-user invitee failed:", err.message));
 
       // Add a note to the inviter's FUB record too.

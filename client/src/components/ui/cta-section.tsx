@@ -35,7 +35,7 @@ export default function CTASection() {
             What Our Clients Say
           </h2>
           <p className="text-gray-600 text-lg max-w-2xl mx-auto">
-            Don't just take our word for it. Here's what real clients have to say about their experience with Tateo & Co.
+            Don't just take our word for it. Here's what real clients have to say about their experience with Havo.
           </p>
         </div>
         

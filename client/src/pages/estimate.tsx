@@ -1655,7 +1655,7 @@ export default function Estimate() {
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(20);
     doc.setFont("helvetica", "bold");
-    doc.text("Tateo & Co", margin, 35);
+    doc.text("Havo", margin, 35);
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
     doc.text("Home Cost & Qualification Estimate", margin, 52);
@@ -1781,11 +1781,11 @@ export default function Estimate() {
       doc.setFont("helvetica", "normal");
       doc.setTextColor(160, 160, 160);
       hLine(pageH - 30);
-      doc.text("Tateo & Co · admin@tateoco.com · (813) 214-8356 · This estimate is for informational purposes only.", margin, pageH - 16);
+      doc.text("Havo · admin@tateoco.com · (813) 214-8356 · This estimate is for informational purposes only.", margin, pageH - 16);
       doc.text(`Page ${i} of ${totalPages}`, W - margin, pageH - 16, { align: "right" });
     }
 
-    doc.save(`Tateo-Estimate-${address.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 40)}.pdf`);
+    doc.save(`Havo-Estimate-${address.replace(/[^a-zA-Z0-9]/g, "-").slice(0, 40)}.pdf`);
   }
 
   // Lead capture dialog
@@ -5244,13 +5244,13 @@ export default function Estimate() {
               onClick={() => {
                 const subject = encodeURIComponent(`Home Cost Estimate — ${address}`);
                 const body = encodeURIComponent(
-                  `Hi,\n\nHere is your Home Cost & Qualification Estimate from Tateo & Co for:\n${address}\n\n` +
+                  `Hi,\n\nHere is your Home Cost & Qualification Estimate from Havo for:\n${address}\n\n` +
                   `Monthly Payment: ${fmt(calc.totalHousing)}\n` +
                   `Cash to Close: ${fmt(calc.cashToClose)}\n` +
                   `Total DTI: ${fmtPct(calc.dti)}\n` +
                   `Qualification: ${calc.qualifies ? "Likely Qualifies" : "Needs Review"}\n\n` +
                   `View full estimate: ${window.location.href}\n\n` +
-                  `— Tateo & Co\nadmin@tateoco.com | (813) 214-8356`
+                  `— Havo\nadmin@tateoco.com | (813) 214-8356`
                 );
                 window.location.href = `mailto:?subject=${subject}&body=${body}`;
                 setShareDialogOpen(false);

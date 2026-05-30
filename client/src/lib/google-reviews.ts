@@ -17,11 +17,11 @@ interface GooglePlace {
 
 // We use the Window interface extension from script-loader.ts
 
-// Google Place ID for Tateo & Co
+// Google Place ID for Havo
 const TATEO_PLACE_ID = 'ChIJJeg0Ii09QIYRgiNHNcTlf_c'; // Replace with your actual Place ID
 
 /**
- * Initialize Google Maps API and fetch reviews for Tateo & Co
+ * Initialize Google Maps API and fetch reviews for Havo
  */
 export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
   // Make sure we're using the correct environment variable name
@@ -58,7 +58,7 @@ function getPlaceReviews(placeId: string): Promise<GoogleReview[]> {
         // Add a service type to each review (assuming all are general reviews)
         const reviewsWithService = place.reviews.map((review: any) => ({
           ...review,
-          service: 'Tateo & Co Services'
+          service: 'Havo Services'
         }));
         resolve(reviewsWithService);
       } else {

@@ -108,7 +108,7 @@ export default function SelectService() {
   return (
     <>
       <Helmet>
-        <title>Choose a Service — Tateo & Co</title>
+        <title>Choose a Service — Havo</title>
       </Helmet>
 
       <section className="min-h-[calc(100vh-140px)] flex flex-col items-center justify-center px-4 py-16 bg-gradient-to-br from-gray-50 to-white">
