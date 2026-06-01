@@ -1520,12 +1520,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         inFlight = fetchZillowProperty(addressOrUrl);
         inFlightZillow.set(cacheKey, inFlight);
-        inFlight.finally(() => {
-          // Clear only if the slot still points at this same promise.
-          if (inFlightZillow.get(cacheKey) === inFlight) {
-            inFlightZillow.delete(cacheKey);
-          }
-        });
+        // Clear the dedup slot when the scrape settles. The `.finally()`
+        // returns a NEW promise that rejects in lockstep with `inFlight`
+        // when the scrape fails (e.g. "No Zillow results found"); without
+        // the trailing `.catch()` that rejection is unhandled and Node 20
+        // treats it as fatal, crashing the whole server. The real error is
+        // still surfaced to the request via the `await inFlight` below.
+        void inFlight
+          .finally(() => {
+            // Clear only if the slot still points at this same promise.
+            if (inFlightZillow.get(cacheKey) === inFlight) {
+              inFlightZillow.delete(cacheKey);
+            }
+          })
+          .catch(() => {});
       }
       property = await inFlight;
       console.log(`[zillow-photos] normalized photo count=${(property.photos ?? []).length}`);
@@ -1570,7 +1578,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .then(({ error }) => {
           if (error) console.warn("[zillow-lookup] cache write failed:", error.message);
           else console.log(`[zillow-lookup] cache WRITE key=${cacheKey} sold=${property.isSold ?? false}`);
-        });
+        })
+        // Fire-and-forget: a transport-level rejection here must not become
+        // an unhandled rejection (fatal under Node 20's default).
+        .catch((e: any) => console.warn("[zillow-lookup] cache write rejected:", e?.message ?? e));
     }
 
     return res.json({ cached: false, property });
