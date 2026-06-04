@@ -34,7 +34,11 @@ import {
   setOccupancyOverride,
   type OccupancyType,
 } from "@/lib/property-key";
-import { getDefaultInsurancePolicyType } from "@/lib/insurance-policy-type";
+import {
+  getDefaultInsurancePolicyType,
+  resolveInsurancePropertyTypeForAddress,
+  isCondoOrTownhomePropertyType,
+} from "@/lib/insurance-policy-type";
 import { calculateDefaultHomeownersInsurance } from "@/lib/insurance-default";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -1052,6 +1056,10 @@ function InsuranceTab() {
             // Seed Insurance-tab annualPremium with 0.75% of value
             // for any newly-created rows (spec: insurance-default-075-percent).
             propertyValue: p.price ?? undefined,
+            // Carry the Zillow-derived physical property type so the
+            // Insurance row's policy type defaults correctly (condo /
+            // townhome → HO6). Never overwrites a manual pick downstream.
+            propertyType: p.propertyType,
           })),
         ...cb
           .filter(c => c.address && c.address.trim().length > 0)
@@ -1060,6 +1068,8 @@ function InsuranceTab() {
             sourceScenarioId: c.id,
             address: c.address,
             propertyValue: c.purchasePrice ?? undefined,
+            propertyType: c.propertyType,
+            occupancyType: c.occupancyType as string | undefined,
           })),
         ...tl
           .filter(l => l.propertyAddress && l.propertyAddress.trim().length > 0)
@@ -1068,6 +1078,8 @@ function InsuranceTab() {
             sourceScenarioId: l.id,
             address: l.propertyAddress,
             propertyValue: l.estimatedHomeValue ?? undefined,
+            // Refinance scenarios carry occupancy (not a physical type).
+            occupancyType: l.propertyType as string | undefined,
           })),
       ];
       if (addresses.length === 0) return;
@@ -1120,20 +1132,73 @@ function InsuranceTab() {
     for (const row of rows) {
       const ins = row.insurance;
       if (!ins) continue;
-      if (ins.policyType) continue;             // already set (auto or manual)
-      if (ins.policyTypeSource === "manual") continue;
-      const purchaseType = row.purchaseMatches[0]?.propertyType;
+      // Resolve the property type for THIS address from the highest-
+      // priority available source: manual insurance pick → Zillow-derived
+      // type carried on a Purchase/Cash/Refi scenario → existing insurance
+      // snapshot → Single Family fallback. (Cash-buy-only condos are
+      // covered because the backfill sync above seeds ins.propertyType.)
+      // Dashboard refiMatches (loan-tracker TrackedLoan) carry occupancy
+      // only — no physical property type — so they are not a property-type
+      // source here. Purchase matches carry the Zillow-derived type.
+      const resolved = resolveInsurancePropertyTypeForAddress({
+        insurancePropertyType: ins.propertyType,
+        insurancePropertyTypeSource: ins.propertyTypeSource,
+        sourcePropertyTypes: row.purchaseMatches.map(p => p.propertyType),
+      });
       const occ = row.occupancy === "unknown" ? undefined : row.occupancy;
       const def = getDefaultInsurancePolicyType({
         occupancyType: occ,
-        propertyType: purchaseType ?? ins.propertyType,
+        propertyType: resolved.propertyType,
       });
+      const policyManual = ins.policyTypeSource === "manual";
+      const condoForcesHO6 =
+        def === "HO6" && isCondoOrTownhomePropertyType(resolved.propertyType);
+
+      console.log("[insurance-policy-zillow] address", ins.address);
+      console.log("[insurance-policy-zillow] insurance property type", ins.propertyType ?? null);
+      console.log("[insurance-policy-zillow] resolved property type", resolved.propertyType, "via", resolved.source);
+      console.log("[insurance-policy-zillow] occupancy", occ ?? null);
+      console.log("[insurance-policy-zillow] prior policy type", ins.policyType ?? null);
+      console.log("[insurance-policy-zillow] policy_type_source", ins.policyTypeSource ?? null);
+      console.log("[insurance-policy-zillow] computed policy type", def ?? null);
+
+      if (policyManual) {
+        console.log("[insurance-policy-zillow] skipped because policy manual", ins.id);
+        continue;
+      }
       if (!def) continue;
+
+      // Persist a property-type snapshot when one isn't stored yet (so
+      // cash-buy-only rows keep the Zillow type across reloads). Never
+      // overwrites a manual property-type pick.
+      const needsPropertyTypeSeed =
+        !ins.propertyType && resolved.source !== "fallback";
+
+      // Update policy type when it's missing OR when a condo/townhome
+      // property type must force HO6 over a stale non-manual value
+      // (spec example 5: overview shows HO3 → must become HO6).
+      const needsPolicyUpdate =
+        (!ins.policyType && !!def) ||
+        (condoForcesHO6 && ins.policyType !== "HO6");
+
+      if (!needsPolicyUpdate && !needsPropertyTypeSeed) continue;
+
       next = next.map(s =>
         s.id === ins.id
-          ? { ...s, policyType: def, policyTypeSource: "default_rule" as const }
+          ? {
+              ...s,
+              ...(needsPolicyUpdate
+                ? { policyType: def, policyTypeSource: "default_rule" as const }
+                : {}),
+              ...(needsPropertyTypeSeed
+                ? { propertyType: resolved.propertyType, propertyTypeSource: "default" as const }
+                : {}),
+            }
           : s
       );
+      if (needsPolicyUpdate) {
+        console.log("[insurance-policy-zillow] saved policy type", { id: ins.id, policyType: def });
+      }
       changed = true;
     }
     if (changed) {
@@ -1181,7 +1246,11 @@ function InsuranceTab() {
       next === "primary" || next === "secondary" || next === "investment"
         ? next
         : undefined;
-    const propertyType = row?.purchaseMatches[0]?.propertyType ?? ins.propertyType;
+    const propertyType = resolveInsurancePropertyTypeForAddress({
+      insurancePropertyType: ins.propertyType,
+      insurancePropertyTypeSource: ins.propertyTypeSource,
+      sourcePropertyTypes: (row?.purchaseMatches ?? []).map(p => p.propertyType),
+    }).propertyType;
     const policyManual = ins.policyTypeSource === "manual";
     console.log("[insurance-overview-occupancy] property type", propertyType ?? null);
     console.log("[insurance-overview-occupancy] prior policy type", ins.policyType ?? null);
@@ -1347,7 +1416,11 @@ function InsuranceRowCard({
   //     re-rendered the new policyType yet on the first frame; the
   //     localStorage override + overrideBump always have). Fall back
   //     to the persisted value, then "—".
-  const purchaseType = row.purchaseMatches[0]?.propertyType ?? ins?.propertyType;
+  const purchaseType = resolveInsurancePropertyTypeForAddress({
+    insurancePropertyType: ins?.propertyType,
+    insurancePropertyTypeSource: ins?.propertyTypeSource,
+    sourcePropertyTypes: row.purchaseMatches.map(p => p.propertyType),
+  }).propertyType;
   const occForRule = row.occupancy === "unknown" ? undefined : row.occupancy;
   const policyManual = ins?.policyTypeSource === "manual";
   const computedPolicy = !policyManual

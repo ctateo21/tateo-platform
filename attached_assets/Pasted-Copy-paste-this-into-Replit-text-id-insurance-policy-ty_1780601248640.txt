@@ -1,0 +1,192 @@
+Copy/paste this into Replit:
+
+```text id="insurance-policy-type-zillow-property-type-confirmation"
+Fix Insurance policy type logic so it always checks the Zillow-scraped property type for the address before defaulting policy type.
+
+Current issue:
+Policy Type should be based on the property type scraped from Zillow/property cache for that address.
+
+If Zillow/property cache says the property is:
+- Townhome
+- Townhouse
+- Condo
+- Condominium
+
+then Policy Type should be HO6.
+
+Goal:
+Every time Insurance policy type is pulled, calculated, displayed, created, updated, or synced, confirm the property type from the Zillow-scraped data for that address.
+
+Required rule:
+If the property type from Zillow/property cache is townhome, townhouse, condo, or condominium, then policy_type must default to HO6 unless the user manually changed policy type.
+
+Policy type rules:
+1. If property type is Condo / Condominium / Townhome / Townhouse:
+   - policy_type = HO6
+2. Else if occupancy is Investment:
+   - policy_type = DP3
+3. Else if occupancy is Primary or Secondary:
+   - policy_type = HO3
+
+HO6 property type matches:
+Treat all of these as HO6:
+- condo
+- condominium
+- condo unit
+- attached condo
+- townhome
+- townhouse
+- town house
+- town home
+- attached townhouse
+- attached townhome
+
+Use case-insensitive matching.
+
+Zillow/property cache priority:
+When calculating policy type, property type source priority should be:
+
+1. User-selected property type in Insurance, if manually changed and property_type_source = "manual"
+2. Zillow/property cache property type for the exact address
+3. Property type copied from Purchase with Loan / Purchase with Cash / Refinance for the same normalized_property_key
+4. Existing insurance_scenarios.property_type
+5. Fallback to Single Family Residence only if nothing else exists
+
+Important:
+Zillow/property cache data should be checked by:
+- normalized_property_key
+- full address/address match fallback
+
+Do not rely on stale/default Single Family if Zillow says Condo/Townhome.
+
+Manual override protection:
+If policy_type_source = "manual":
+- do not overwrite the manually selected policy_type
+- still update/display property_type if the user changes it manually or Zillow data is backfilled
+- but do not auto-change policy_type
+
+If property_type_source = "manual":
+- use the manual property type first
+- if manual property type is Condo/Townhome, policy_type should be HO6 unless policy_type_source = "manual"
+
+When to apply:
+Apply this logic anywhere policy type is determined:
+- Insurance overview cards
+- Insurance detailed view
+- Insurance row/card policy type display
+- Insurance row/card autosave
+- Insurance detail policy type dropdown defaults
+- auto-created Insurance scenario from Purchase with Loan
+- auto-created Insurance scenario from Purchase with Cash
+- auto-created Insurance scenario from Refinance
+- property-value/policy sync
+- any dashboard backfill effect for missing policy_type
+- any helper that returns policy type
+
+Update the shared helper:
+Use or update the existing:
+
+getDefaultInsurancePolicyType({
+  occupancyType,
+  propertyUse,
+  propertyType,
+})
+
+Make sure it:
+- checks condo/townhome first
+- returns HO6 before any occupancy logic
+- then returns DP3 for investment
+- then returns HO3 for primary/secondary
+
+Also add a helper if needed:
+resolveInsurancePropertyTypeForAddress({
+  normalizedPropertyKey,
+  address,
+  insuranceScenario,
+  propertyCache,
+  purchaseScenario,
+  cashBuyScenario,
+  trackedLoan
+})
+
+This helper should return the best property type using the priority list above.
+
+Critical examples:
+1. Zillow says property_type = Townhouse and occupancy = Investment:
+   - policy_type = HO6, not DP3
+
+2. Zillow says property_type = Condo and occupancy = Primary:
+   - policy_type = HO6, not HO3
+
+3. Zillow says property_type = Single Family and occupancy = Investment:
+   - policy_type = DP3
+
+4. Zillow says property_type = Single Family and occupancy = Primary:
+   - policy_type = HO3
+
+5. Zillow says property_type = Condominium and Insurance overview card currently says HO3:
+   - update to HO6 unless policy_type_source = "manual"
+
+6. User manually selected policy_type = DP3:
+   - do not overwrite even if Zillow says Condo, but log that manual policy type is protected
+
+Persistence:
+When Zillow/property cache confirms property type:
+- save insurance_scenarios.property_type if blank or not manual
+- save property_type_source = "zillow" or "property_cache"
+- recalculate policy_type to HO6 if property type is condo/townhome and policy_type_source is not manual
+- save policy_type
+- save policy_type_source = "default_rule"
+- update updated_at
+
+Do not create duplicates:
+Use existing Insurance row by:
+- scenario id, or
+- user_id + normalized_property_key
+
+Do not create new Insurance rows while backfilling property type or policy type.
+
+Debug logs:
+Add temporary logs:
+- [insurance-policy-zillow] address
+- [insurance-policy-zillow] normalized property key
+- [insurance-policy-zillow] zillow property type
+- [insurance-policy-zillow] insurance property type
+- [insurance-policy-zillow] resolved property type
+- [insurance-policy-zillow] occupancy
+- [insurance-policy-zillow] prior policy type
+- [insurance-policy-zillow] policy_type_source
+- [insurance-policy-zillow] computed policy type
+- [insurance-policy-zillow] saved policy type
+- [insurance-policy-zillow] skipped because policy manual
+
+Acceptance test:
+1. Use a property where Zillow/property cache says Townhouse.
+2. Open Dashboard → Insurance overview.
+3. Confirm Policy Type shows HO6.
+4. Open Insurance detailed view.
+5. Confirm Policy Type shows HO6.
+6. Set occupancy to Investment.
+7. Confirm Policy Type stays HO6 because Townhouse overrides Investment.
+8. Use a property where Zillow/property cache says Condo or Condominium.
+9. Confirm Policy Type shows HO6.
+10. Use a property where Zillow/property cache says Single Family.
+11. Set occupancy to Investment.
+12. Confirm Policy Type shows DP3.
+13. Set occupancy to Primary.
+14. Confirm Policy Type shows HO3.
+15. Refresh/logout/login.
+16. Confirm policy type persists.
+17. Manually change policy type.
+18. Confirm policy_type_source = manual.
+19. Confirm Zillow/property cache no longer overwrites manual policy type.
+
+Please make the smallest safe code change possible and tell me:
+- Which Zillow/property cache field is used for property type
+- Which helper was updated or created
+- How condo/townhome detection works
+- How property type is resolved for each address
+- How HO6 overrides occupancy
+- How manual policy type overrides are protected
+- Which files/functions were changed
+```

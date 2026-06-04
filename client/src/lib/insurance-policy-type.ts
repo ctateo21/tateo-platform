@@ -91,3 +91,96 @@ export function getDefaultInsurancePolicyType(
 
   return null;
 }
+
+// ── Property-type resolution for an address ─────────────────────────
+/**
+ * Resolve the single best physical property type to use when computing
+ * an insurance policy type for a given address, following the spec
+ * priority order:
+ *
+ *   1. User-selected property type on the Insurance row, when
+ *      `propertyTypeSource === "manual"`.
+ *   2. Zillow / property_cache property type for the exact address.
+ *   3. Property type copied from a Purchase-with-Loan / Purchase-with-Cash
+ *      / Refinance scenario for the same normalized property key.
+ *   4. The existing (non-manual) Insurance row snapshot.
+ *   5. Fallback to "Single Family Residence" only if nothing else exists.
+ *
+ * IMPORTANT: a condo / townhome signal from ANY non-manual source wins
+ * over a stale / default "Single Family Residence", so we never miss the
+ * HO6 case just because one source defaulted (spec:
+ * "Do not rely on stale/default Single Family if Zillow says Condo/Townhome").
+ *
+ * Client note: the Zillow / property_cache property type reaches the
+ * client as the Purchase / Cash-Buy scenario `propertyType` (the
+ * normalized `homeType` from `/api/zillow-property-lookup`, mapped via
+ * `zillowToPhysicalPropertyType` when the lookup is applied). Callers
+ * that have a direct property_cache value may pass it as
+ * `propertyCachePropertyType`; otherwise the source-scenario values
+ * carry the same Zillow-derived type.
+ */
+export type InsurancePropertyTypeSource =
+  | "manual"
+  | "property_cache"
+  | "source_scenario"
+  | "insurance_scenario"
+  | "fallback";
+
+export const FALLBACK_INSURANCE_PROPERTY_TYPE = "Single Family Residence";
+
+export interface ResolveInsurancePropertyTypeInput {
+  /** Property type stored on the Insurance row (any source). */
+  insurancePropertyType?: PropertyTypeInput;
+  /** Provenance of `insurancePropertyType` — "manual" locks it in. */
+  insurancePropertyTypeSource?: string | null;
+  /** Zillow / property_cache property type for the exact address, when
+   *  the caller has it directly. */
+  propertyCachePropertyType?: PropertyTypeInput;
+  /** Property types from matching Purchase / Cash / Refinance scenarios
+   *  for the same normalized property key, in priority order. */
+  sourcePropertyTypes?: PropertyTypeInput[];
+  /** Override the "Single Family Residence" fallback if needed. */
+  fallback?: string;
+}
+
+export interface ResolveInsurancePropertyTypeResult {
+  propertyType: string;
+  source: InsurancePropertyTypeSource;
+}
+
+export function resolveInsurancePropertyTypeForAddress(
+  input: ResolveInsurancePropertyTypeInput,
+): ResolveInsurancePropertyTypeResult {
+  const fallback = input.fallback ?? FALLBACK_INSURANCE_PROPERTY_TYPE;
+  const clean = (v: PropertyTypeInput): string => (v ?? "").toString().trim();
+
+  // 1. Manual property-type pick always wins.
+  const manual = clean(input.insurancePropertyType);
+  if (input.insurancePropertyTypeSource === "manual" && manual) {
+    return { propertyType: manual, source: "manual" };
+  }
+
+  // Ordered, non-manual candidates with provenance.
+  const candidates: Array<{ value: string; source: InsurancePropertyTypeSource }> = [];
+  const cache = clean(input.propertyCachePropertyType);
+  if (cache) candidates.push({ value: cache, source: "property_cache" });
+  for (const sp of input.sourcePropertyTypes ?? []) {
+    const v = clean(sp);
+    if (v) candidates.push({ value: v, source: "source_scenario" });
+  }
+  const insVal = clean(input.insurancePropertyType);
+  if (insVal) candidates.push({ value: insVal, source: "insurance_scenario" });
+
+  // 2. A condo/townhome signal from ANY non-manual source overrides a
+  //    stale / default Single Family.
+  const condo = candidates.find((c) => isCondoOrTownhomePropertyType(c.value));
+  if (condo) return { propertyType: condo.value, source: condo.source };
+
+  // 3-5. Otherwise first available in priority order.
+  if (candidates.length > 0) {
+    return { propertyType: candidates[0].value, source: candidates[0].source };
+  }
+
+  // 6. Nothing known — Single Family fallback.
+  return { propertyType: fallback, source: "fallback" };
+}

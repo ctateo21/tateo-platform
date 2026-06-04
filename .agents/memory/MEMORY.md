@@ -1,0 +1,1 @@
+- [Insurance policy type & property-type resolution](insurance-policy-type.md) — condo/townhome→HO6 resolution priority, Zillow-type-on-client, dual TrackedLoan gotcha, manual locks.

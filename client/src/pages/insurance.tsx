@@ -11,6 +11,7 @@ import {
 } from "@/lib/insurance-default";
 import {
   getDefaultInsurancePolicyType,
+  resolveInsurancePropertyTypeForAddress,
   INSURANCE_POLICY_TYPE_LABELS,
   type InsurancePolicyType,
 } from "@/lib/insurance-policy-type";
@@ -87,28 +88,43 @@ const NEUTRAL_FACTOR_PRODUCT =
 // other scenario tabs (Purchase with Loan, Cash Buy, Refinance) and
 // any existing Insurance scenario for that same address. Returns 0
 // if nothing is known so callers can fall back to URL ?price=.
+// Match two addresses by normalized property key (so differently
+// formatted strings for the SAME property correlate), falling back to
+// exact trimmed/lowercased equality when either address can't be parsed.
+// Never collapses onto an empty key.
+function isSamePropertyAddress(
+  a: string | undefined | null,
+  b: string | undefined | null,
+): boolean {
+  const ka = normalizePropertyKey(a).key;
+  const kb = normalizePropertyKey(b).key;
+  if (ka && kb) return ka === kb;
+  const sa = (a ?? "").trim().toLowerCase();
+  const sb = (b ?? "").trim().toLowerCase();
+  return !!sa && sa === sb;
+}
+
 function getKnownPropertyValueForAddress(address: string): number {
   if (!address) return 0;
-  const key = address.trim().toLowerCase();
-  if (!key) return 0;
+  if (!address.trim()) return 0;
 
   const purchase = getPurchaseScenarios().find(
-    p => (p.address ?? "").trim().toLowerCase() === key
+    p => isSamePropertyAddress(p.address, address)
   );
   if (purchase?.price && purchase.price > 0) return purchase.price;
 
   const cash = getCashBuyScenarios().find(
-    c => (c.address ?? "").trim().toLowerCase() === key
+    c => isSamePropertyAddress(c.address, address)
   );
   if (cash?.purchasePrice && cash.purchasePrice > 0) return cash.purchasePrice;
 
   const loan = getTrackedLoans().find(
-    l => (l.propertyAddress ?? "").trim().toLowerCase() === key
+    l => isSamePropertyAddress(l.propertyAddress, address)
   );
   if (loan?.estimatedHomeValue && loan.estimatedHomeValue > 0) return loan.estimatedHomeValue;
 
   const ins = getInsuranceScenarios().find(
-    s => (s.address ?? "").trim().toLowerCase() === key
+    s => isSamePropertyAddress(s.address, address)
   );
   if (ins?.annualPremium && ins.annualPremium > 0) {
     // annualPremium ≈ coverageA × 0.75% = (propertyValue × multiplier) × 0.75%.
@@ -132,28 +148,46 @@ function resolvePolicyTypeForAddress(addr: string): {
   policyType: InsurancePolicyType | "";
   source: "default_rule" | "manual" | null;
 } {
-  if (!addr) return { policyType: "", source: null };
-  const key = addr.trim().toLowerCase();
+  if (!addr || !addr.trim()) return { policyType: "", source: null };
   const ins = getInsuranceScenarios().find(
-    s => (s.address ?? "").trim().toLowerCase() === key
+    s => isSamePropertyAddress(s.address, addr)
   );
+  // A manual policy-type pick always wins — never recompute or override.
+  if (ins?.policyType && ins.policyTypeSource === "manual") {
+    return { policyType: ins.policyType, source: "manual" };
+  }
+  // Gather matching source scenarios for the SAME normalized property key
+  // (address fallback). Their `propertyType` carries the Zillow /
+  // property_cache physical type (Purchase/Cash/Refi were seeded from
+  // `/api/zillow-property-lookup`). Refinance physical type lives on
+  // `physicalPropertyType` (its `propertyType` is occupancy).
+  const purchase = getPurchaseScenarios().find(
+    p => isSamePropertyAddress(p.address, addr)
+  );
+  const cash = getCashBuyScenarios().find(
+    c => isSamePropertyAddress(c.address, addr)
+  );
+  const loan = getTrackedLoans().find(
+    l => isSamePropertyAddress(l.propertyAddress, addr)
+  );
+  const occupancy =
+    cash?.occupancyType ?? (loan?.propertyType as any) ?? ins?.occupancyType ?? (purchase ? "primary" : undefined);
+  const resolved = resolveInsurancePropertyTypeForAddress({
+    insurancePropertyType: ins?.propertyType,
+    insurancePropertyTypeSource: ins?.propertyTypeSource,
+    sourcePropertyTypes: [purchase?.propertyType, cash?.propertyType, loan?.physicalPropertyType],
+  });
+  const def = getDefaultInsurancePolicyType({
+    occupancyType: occupancy,
+    propertyType: resolved.propertyType,
+  });
+  // Condo / townhome forces HO6 over any stale, non-manual persisted
+  // value (spec example 5). Otherwise keep the persisted policy type if
+  // present, else use the freshly computed default.
+  if (def === "HO6") return { policyType: "HO6", source: "default_rule" };
   if (ins?.policyType) {
     return { policyType: ins.policyType, source: ins.policyTypeSource ?? "default_rule" };
   }
-  // Fall back to deriving from a matching source scenario.
-  const purchase = getPurchaseScenarios().find(
-    p => (p.address ?? "").trim().toLowerCase() === key
-  );
-  const cash = getCashBuyScenarios().find(
-    c => (c.address ?? "").trim().toLowerCase() === key
-  );
-  const loan = getTrackedLoans().find(
-    l => (l.propertyAddress ?? "").trim().toLowerCase() === key
-  );
-  const occupancy =
-    cash?.occupancyType ?? (loan?.propertyType as any) ?? (purchase ? "primary" : undefined);
-  const propertyType = purchase?.propertyType;
-  const def = getDefaultInsurancePolicyType({ occupancyType: occupancy, propertyType });
   return { policyType: def ?? "", source: def ? "default_rule" : null };
 }
 
