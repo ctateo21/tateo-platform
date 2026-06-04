@@ -1,0 +1,115 @@
+Copy/paste this into Replit:
+
+```text id="conventional-condo-rate-adjustment"
+Add a Conventional condo rate adjustment.
+
+Current request:
+For whatever base pricing logic already exists, increase Conventional interest rates by 0.300% when the property type is Condo / Condominium.
+
+This adjustment should be internal only. Do not show a separate user-facing line item, label, tooltip, or explanation saying the rate was increased because it is a condo.
+
+Scope:
+Purchase with Loan rate calculation.
+
+Apply only to:
+- Conventional loans
+- Property type = Condo / Condominium / Condo Unit / Attached Condo
+
+Do not apply to:
+- FHA
+- VA
+- USDA
+- DSCR
+- Bank Statement
+- Any other loan type unless explicitly conventional
+
+Property type matching:
+Treat all of these as condo:
+- Condo
+- Condominium
+- Condo Unit
+- Attached Condo
+- Condominium Unit
+
+Use case-insensitive matching.
+
+Adjustment:
+After the existing Conventional base rate and all existing pricing parameters are calculated, add:
+
++0.300%
+
+Example:
+Existing Conventional rate before condo adjustment = 6.500%
+Property type = Condominium
+Final rate before discount points = 6.800%
+
+Important calculation order:
+1. Calculate existing base rate using current logic:
+   - credit score
+   - LTV
+   - occupancy
+   - AMI discount
+   - existing Conventional -0.100% adjustment
+   - loan term
+   - all current pricing rules
+2. If loan type is Conventional and property type is condo/condominium:
+   - add 0.300%
+3. Then apply discount points buydown after this adjustment.
+4. Final displayed rate should still round to 3 decimals.
+
+Rate fields:
+If these fields exist, preserve their meaning:
+- `rate_before_discount_points` should include the condo adjustment
+- `rate_after_discount_points` should reflect condo-adjusted rate minus discount point buydown
+- displayed interest rate should be final bought-down rate if discount points apply
+
+User-facing UI:
+- Do not show “Condo adjustment”
+- Do not show “+0.300%”
+- Do not explain that condos receive a higher rate
+- Just show the resulting final interest rate normally
+
+Persistence:
+If rates are saved to `purchase_scenarios`, save the final calculated rate normally.
+No new Supabase field should be needed unless current rate storage requires one.
+
+Do not break:
+- FHA/VA/USDA rates
+- DSCR rates
+- Bank Statement rates
+- AMI income discount
+- discount points
+- loan type dropdown on Page 4
+- payment calculation
+- DTI calculation
+- cash to close
+- Purchase with Loan save/load persistence
+- property type pulled from Zillow
+- user-edited property type
+
+Acceptance test:
+1. Go to Purchase with Loan.
+2. Select Conventional loan.
+3. Set property type to Single Family.
+4. Note the calculated rate.
+5. Change property type to Condominium.
+6. Confirm the Conventional rate increases by exactly 0.300% before discount points.
+7. Add 1.0 discount point.
+8. Confirm discount point buydown applies after the condo adjustment.
+9. Change loan type to FHA.
+10. Confirm FHA rate does not receive the +0.300% condo adjustment.
+11. Change loan type to VA.
+12. Confirm VA rate does not receive the +0.300% condo adjustment.
+13. Change loan type to DSCR.
+14. Confirm DSCR rate does not receive the +0.300% condo adjustment.
+15. Confirm no user-facing label or explanation mentions the condo rate adjustment.
+
+Please make the smallest safe code change possible and tell me:
+- Which rate helper/function was changed
+- How condo/condominium property type is detected
+- Where the +0.300% is applied in the calculation order
+- Confirmation that only Conventional loans receive this adjustment
+- Confirmation that discount points still apply after this adjustment
+- Confirmation that no user-facing disclosure/label was added
+- Which files/functions were changed
+```

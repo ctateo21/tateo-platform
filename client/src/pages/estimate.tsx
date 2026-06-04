@@ -590,6 +590,16 @@ function occupancyRateAdj(occupancy: "primary" | "secondary" | "investment", dow
   return 0;
 }
 
+/** Condo detection for the Conventional condo pricing add-on. Matches
+ *  every condo variant (Condo / Condominium / Condo Unit / Attached
+ *  Condo / Condominium Unit) case-insensitively — all of them contain
+ *  the substring "condo". Townhouse is intentionally NOT matched: the
+ *  condo rate add-on applies to condos only. */
+function isCondoRateAdjPropertyType(propertyType?: string | null): boolean {
+  if (!propertyType) return false;
+  return propertyType.toLowerCase().includes("condo");
+}
+
 function fullRate(
   base: number,
   score: number,
@@ -598,6 +608,7 @@ function fullRate(
   loanType?: string,
   monthlyIncome?: number | null,
   annualAMI?: number | null,
+  propertyType?: string | null,
 ): number {
   // FHA, VA, and USDA share the same credit-score adjustment table
   // (`fhaCreditAdjustment`). Conventional / DSCR / Bank Statement
@@ -629,6 +640,16 @@ function fullRate(
     occupancy,
   });
   rate -= amiDiscount.discountPercent;
+  // Conventional condo pricing add-on: +0.300%. Internal only — there
+  // is NO user-facing line item, label, tooltip, or explanation for
+  // this. Applied AFTER the base rate, credit, occupancy, the -0.100%
+  // Conventional concession, and the AMI discount, but BEFORE the
+  // discount-points buydown (which runs downstream on the stored
+  // `inputs.interestRate`). Gated strictly on Conventional, so FHA /
+  // VA / USDA / DSCR / Bank Statement never receive it.
+  if (loanType === "conventional" && isCondoRateAdjPropertyType(propertyType)) {
+    rate += 0.3;
+  }
   if (loanType === "dscr") {
     console.debug("[dscr-pricing] conventional rate used", base);
     console.debug("[dscr-pricing] final DSCR rate", Math.round((rate) * 1000) / 1000);
@@ -2406,7 +2427,7 @@ export default function Estimate() {
   useEffect(() => {
     if (liveRates && !ratesLoadedRef.current) {
       ratesLoadedRef.current = true;
-      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI) }));
+      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType) }));
     }
   }, [liveRates]);
 
@@ -2423,10 +2444,25 @@ export default function Estimate() {
     if (inputs.loanType !== "conventional" || inputs.occupancy !== "primary") return;
     setInputs((p) => {
       const baseRate = (rates as any)[p.loanType] ?? rates.conventional;
-      const next = fullRate(baseRate, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI);
+      const next = fullRate(baseRate, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType);
       return next === p.interestRate ? p : { ...p, interestRate: next };
     });
   }, [inputs.monthlyIncome, amiData?.annualAMI, inputs.loanType, inputs.occupancy]);
+
+  // Recompute the rate whenever the property type changes so the
+  // Conventional condo pricing add-on (+0.300%) is applied/removed
+  // immediately when the user toggles between (e.g.) Single Family and
+  // Condominium, or when a Zillow lookup fills in the property type.
+  // `fullRate` recomputes from the live base rate every call, so this
+  // can never double-apply. Non-condo / non-Conventional combos resolve
+  // to the same rate and short-circuit via the identity check.
+  useEffect(() => {
+    setInputs((p) => {
+      const baseRate = (rates as any)[p.loanType] ?? rates.conventional;
+      const next = fullRate(baseRate, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType);
+      return next === p.interestRate ? p : { ...p, interestRate: next };
+    });
+  }, [inputs.propertyType]);
 
   // Auto-recalculate property taxes whenever the address changes
   const taxAddressRef = useRef<string>("");
@@ -2480,7 +2516,7 @@ export default function Estimate() {
       return {
         ...p,
         loanType: lt,
-        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, lt, p.monthlyIncome, amiData?.annualAMI),
+        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, lt, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
         downPaymentPct: newDown,
       };
     });
@@ -2515,7 +2551,7 @@ export default function Estimate() {
         ...p,
         occupancy: occ,
         loanType: forcedLoan,
-        interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan, p.monthlyIncome, amiData?.annualAMI),
+        interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
         downPaymentPct: newDown,
         rentalType: occ === "investment" ? p.rentalType : null,
         annualTaxes: computePropertyTax(address, p.purchasePrice, occ, p.vaDisabilityRating100),
@@ -2553,7 +2589,7 @@ export default function Estimate() {
         ...p,
         creditScore: score,
         loanType: autoLoanType,
-        interestRate: fullRate(baseRate, score, p.occupancy, p.downPaymentPct, autoLoanType, p.monthlyIncome, amiData?.annualAMI),
+        interestRate: fullRate(baseRate, score, p.occupancy, p.downPaymentPct, autoLoanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
       };
     });
   }
@@ -2625,7 +2661,7 @@ export default function Estimate() {
         downPaymentPct: newDown,
         downPaymentAmount: Math.round(p.purchasePrice * (newDown / 100)),
         downPaymentMode: "percent",
-        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, rec, p.monthlyIncome, amiData?.annualAMI),
+        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, rec, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
       };
     });
     // NOTE: No FHA-DPA / `uses_dpa` / `dpa_type` fields exist in the
@@ -2654,7 +2690,7 @@ export default function Estimate() {
         downPaymentPct: newDown,
         downPaymentMode: "percent",
         downPaymentAmount: newAmt,
-        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown, p.loanType, p.monthlyIncome, amiData?.annualAMI),
+        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
       };
     });
   }
@@ -2680,7 +2716,7 @@ export default function Estimate() {
         downPaymentAmount: finalAmt,
         downPaymentPct: finalPct,
         downPaymentMode: "amount",
-        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, finalPct, p.loanType, p.monthlyIncome, amiData?.annualAMI),
+        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, finalPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
       };
     });
   }
@@ -3967,7 +4003,7 @@ export default function Estimate() {
                             vaDisability: null,
                             vaDisabilityRating100: null,
                             vaLoanUse: null,
-                            interestRate: fullRate(rates.conventional, p.creditScore, p.occupancy, p.downPaymentPct, "conventional"),
+                            interestRate: fullRate(rates.conventional, p.creditScore, p.occupancy, p.downPaymentPct, "conventional", p.monthlyIncome, amiData?.annualAMI, p.propertyType),
                             annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, null),
                           }))}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
