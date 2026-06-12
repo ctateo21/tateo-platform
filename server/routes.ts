@@ -1875,6 +1875,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   function hasFreeAccess(email: string | null | undefined): boolean {
     const list = [
       "admin@tateoco.com",
+      "courtney@tateoco.com",
+      "zhornsby22@gmail.com",
+      "paul@mymarcoisland.com",
+      "coreyfranklin21@yahoo.com",
+      "kellypozda22@gmail.com",
       ...(process.env.COMP_ACCESS_EMAILS || "")
         .split(",")
         .map((s) => s.trim().toLowerCase())
