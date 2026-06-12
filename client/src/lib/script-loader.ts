@@ -68,25 +68,13 @@ export async function loadGoogleMapsApi(apiKey: string): Promise<void> {
   });
 }
 
-// Add types for global Google Maps API
+// Add types for global Google Maps API. Typed as `any` to stay
+// consistent with the other `window.google` declaration (see
+// address-search.tsx) — a single shared shape avoids TS2717 "subsequent
+// property declarations must have the same type" conflicts.
 declare global {
   interface Window {
-    google?: {
-      maps?: {
-        places?: {
-          Autocomplete: new (input: HTMLInputElement, options?: object) => any;
-          PlacesService: any;
-          PlacesServiceStatus: {
-            OK: string;
-            ZERO_RESULTS: string;
-            OVER_QUERY_LIMIT: string;
-            REQUEST_DENIED: string;
-            INVALID_REQUEST: string;
-            UNKNOWN_ERROR: string;
-          };
-        };
-      };
-    };
+    google?: any;
     initGoogleMapsCallback?: () => void;
   }
 }

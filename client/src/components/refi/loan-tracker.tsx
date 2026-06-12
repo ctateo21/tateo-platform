@@ -52,6 +52,14 @@ export interface TrackedLoan {
   addedAt: string;
   balanceAsOf?: string;
   propertyType: PropertyType;
+  /** Phase 2: dedicated occupancy field, mirrored alongside the legacy
+   *  `propertyType` field. Stored on `tracked_loans.occupancy_type` via
+   *  the 2026_05_27 migration. */
+  occupancyType?: PropertyType;
+  /** Phase 2: physical structure type ("Single Family Residence",
+   *  "Condo", "Townhouse", ...) — separate from occupancy. Stored on
+   *  `tracked_loans.physical_property_type` via the 2026_05_27 migration. */
+  physicalPropertyType?: string;
   loanType?: LoanType;
   loanNumber?: string;
   /** FICO score used by the shared rate engine. Stored once per

@@ -1995,7 +1995,7 @@ function persistSellerScenarios(s: SellerScenario[]) {
       const stripped = new Set<string>();
       const buildPayload = () => s.map(x => {
         const row: Record<string, any> = sellerToRow(x, userId);
-        for (const col of stripped) delete row[col];
+        for (const col of Array.from(stripped)) delete row[col];
         return row;
       });
       console.log("[seller-save] upsert", {
@@ -2268,7 +2268,7 @@ function persistTrackedLoans(loans: TrackedLoan[]) {
       const stripped = new Set<string>();
       const buildRows = () => loans.map(l => {
         const row: Record<string, any> = trackedLoanToRow(l, userId);
-        for (const col of stripped) delete row[col];
+        for (const col of Array.from(stripped)) delete row[col];
         return row;
       });
       // Try up to 1 + N attempts where N is the number of optional cols
