@@ -1854,9 +1854,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/subscription/status — live-checks Stripe so cancellations /
   // renewals are reflected without webhooks. Falls back to the stored
   // status if Stripe is unreachable.
+  // Emails that get full access with no paywall (comped accounts).
+  // admin@tateoco.com is always included; extra addresses can be added
+  // via the COMP_ACCESS_EMAILS env var (comma-separated).
+  function hasFreeAccess(email: string | null | undefined): boolean {
+    const list = [
+      "admin@tateoco.com",
+      ...(process.env.COMP_ACCESS_EMAILS || "")
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean),
+    ];
+    return list.includes((email || "").toLowerCase());
+  }
+
   app.get("/api/subscription/status", async (req, res) => {
     const user = await requireUser(req, res);
     if (!user) return;
+    // Comped accounts skip Stripe entirely and always read as active.
+    if (hasFreeAccess(user.email)) {
+      return res.json({ active: true, status: "comped" });
+    }
     try {
       const rows = await db
         .select()
