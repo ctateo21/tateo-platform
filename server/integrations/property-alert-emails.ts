@@ -305,3 +305,80 @@ export async function sendPropertyAlertEmails(
 
   return { userStatus: userResult.status, fubStatus: fubResult.status };
 }
+
+// ============================================================================
+// Transactional emails — account welcome + internal new-scenario alert.
+// Both reuse the same Resend pattern (getResend + sendOne) and are best-effort:
+// they return a SendStatus and never throw, so callers can fire-and-forget
+// with .catch() without ever crashing the main request flow.
+// ============================================================================
+
+const HAVO_NAVY = "#13294b";
+
+/** Sent when a new account is created. Best-effort — never throws. */
+export async function sendWelcomeEmail(args: {
+  to: string;
+  firstName?: string;
+}): Promise<{ status: SendStatus; error: string | null }> {
+  if (!args.to) return { status: "skipped", error: "no recipient" };
+
+  const dashboardUrl = `${process.env.APP_URL ?? ""}/dashboard`;
+  const name = args.firstName?.trim();
+  const heading = name ? `Welcome, ${name}!` : "Welcome!";
+  const subject = "Welcome to Havo — you're all set";
+
+  const text =
+    `${heading}\n\n` +
+    `Your account is ready. Any scenario you saved is waiting in your dashboard.\n\n` +
+    `Go to My Dashboard: ${dashboardUrl}\n\n` +
+    `Havo · Every Step Home · Tateo Insurance Corp · License #L132640`;
+
+  const html =
+    `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto">` +
+    `<p style="font-size:22px;font-weight:bold;color:${HAVO_NAVY};margin:0 0 16px">Havo</p>` +
+    `<h1 style="font-size:20px;color:${HAVO_NAVY};margin:0 0 12px">${esc(heading)}</h1>` +
+    `<p style="font-size:15px;color:#333;line-height:1.5;margin:0 0 24px">` +
+    `Your account is ready. Any scenario you saved is waiting in your dashboard.</p>` +
+    `<p style="margin:0 0 28px">` +
+    `<a href="${esc(dashboardUrl)}" style="display:inline-block;background:${HAVO_NAVY};` +
+    `color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;` +
+    `padding:12px 24px;border-radius:6px">Go to My Dashboard</a></p>` +
+    `<p style="font-size:12px;color:#888;margin:0">Havo · Every Step Home · ` +
+    `Tateo Insurance Corp · License #L132640</p>` +
+    `</div>`;
+
+  return sendOne({ to: args.to, subject, html, text });
+}
+
+/** Sent to the internal team whenever any scenario is saved. Best-effort. */
+export async function sendInternalAlert(args: {
+  scenarioType: string;
+  userEmail: string;
+  address: string;
+  summary: string;
+}): Promise<{ status: SendStatus; error: string | null }> {
+  const to = process.env.INTERNAL_ALERT_EMAIL;
+  if (!to) return { status: "skipped", error: "INTERNAL_ALERT_EMAIL not set" };
+
+  const subject = `New ${args.scenarioType} — ${args.address}`;
+  const fubSearchUrl =
+    `https://app.followupboss.com/2/people?q=${encodeURIComponent(args.userEmail)}`;
+
+  const text =
+    `User: ${args.userEmail}\n` +
+    `Type: ${args.scenarioType}\n` +
+    `Property: ${args.address}\n` +
+    `Summary: ${args.summary}\n\n` +
+    `Find contact in Follow Up Boss: ${fubSearchUrl}`;
+
+  const html =
+    `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">` +
+    `<p><strong>User:</strong> ${esc(args.userEmail)}</p>` +
+    `<p><strong>Type:</strong> ${esc(args.scenarioType)}</p>` +
+    `<p><strong>Property:</strong> ${esc(args.address)}</p>` +
+    `<p><strong>Summary:</strong> ${esc(args.summary)}</p>` +
+    `<p><a href="${esc(fubSearchUrl)}">Find this contact in Follow Up Boss</a></p>` +
+    `</div>`;
+
+  return sendOne({ to, subject, html, text });
+}

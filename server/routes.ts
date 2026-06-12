@@ -35,6 +35,7 @@ import {
   getSubscriptionStatus,
   isActiveStatus,
 } from "./stripe";
+import { sendWelcomeEmail, sendInternalAlert } from "./integrations/property-alert-emails";
 import { getOrGenerateMarketAnalysis, type ListingInput } from "./integrations/listing-market-analysis";
 import { enrichListingFromPropertyCache } from "./integrations/listing-enrichment";
 import {
@@ -979,6 +980,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("[FUB] Failed to create contact:", err.message)
       );
 
+      // Welcome email (non-blocking — never crash the verify if email fails)
+      sendWelcomeEmail({ to: email, firstName }).catch(err =>
+        console.error("[welcome-email] failed:", err?.message ?? err)
+      );
+
       res.json({ ok: true });
     } catch (err: any) {
       console.error("verify error:", err);
@@ -1273,13 +1279,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (notifyRateLimited(ip)) {
         return res.status(429).json({ error: "Too many notifications. Please wait a moment." });
       }
-      const { firstName, lastName, email, phone, agent, address, scenarioDetails, referral } = z.object({
+      const { firstName, lastName, email, phone, agent, address, scenarioType, scenarioDetails, referral } = z.object({
         firstName: z.string().min(1),
         lastName: z.string().min(1),
         email: z.string().email(),
         phone: z.string().optional().default(""),
         agent: z.string().optional(),
         address: z.string().min(1),
+        scenarioType: z.string().optional().default("Scenario"),
         scenarioDetails: z.string().optional(),
         referral: referralSchema,
       }).parse(req.body);
@@ -1298,6 +1305,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         referral,
         messageHeader: `Customer added another property to their dashboard: ${address}`,
       }).catch(err => console.error("[FUB] notify-new-scenario failed:", err.message));
+
+      // Internal team alert (non-blocking — never crash the request if email fails)
+      sendInternalAlert({
+        scenarioType,
+        userEmail: email,
+        address,
+        summary: scenarioDetails ?? "",
+      }).catch(err => console.error("[internal-alert] notify-new-scenario failed:", err?.message ?? err));
 
       res.json({ ok: true });
     } catch (err: any) {

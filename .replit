@@ -37,3 +37,9 @@ waitForPort = 5000
 
 [agent]
 integrations = ["styling_shadcn:1.0.0", "github:1.0.0", "stripe:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+INTERNAL_ALERT_EMAIL = "christian@tateoco.com"
+APP_URL = "https://havofl.com"

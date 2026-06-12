@@ -22,7 +22,7 @@ Single plan "Havo Pro" $20/month, no annual. Stripe sandbox ("Havo LLC").
 - `ToolGate` wraps the 5 tools; `select-service` public; `dashboard` behind account+sub `ProtectedRoute`.
 
 ### Comped / free-access accounts
-`GET /api/subscription/status` short-circuits to `{active:true, status:"comped"}` for allowlisted emails via `hasFreeAccess()` — `admin@tateoco.com` is hardcoded; extra emails via `COMP_ACCESS_EMAILS` env (comma-separated). Status is the single gate source for both ToolGate and ProtectedRoute, so this one check grants full no-paywall access everywhere.
+`GET /api/subscription/status` short-circuits to `{active:true, status:"comped"}` for allowlisted emails via `hasFreeAccess()` — the owner's admin email is hardcoded (see the helper in `server/routes.ts`); extra emails via `COMP_ACCESS_EMAILS` env (comma-separated). Status is the single gate source for both ToolGate and ProtectedRoute, so this one check grants full no-paywall access everywhere.
 
 **Why:** owner explicitly preferred simplicity over server-side enforcement.
 **Accepted limitations (do not re-litigate without owner ask):** backend tool APIs are NOT subscription-gated (direct API calls bypass), and the anonymous limit is resettable by clearing localStorage. The free-home gate relies on in-page address changes keeping `?address` in sync (true for estimate/insurance/refinance; cash-buy keeps address in internal state so its in-page property swap can evade the gate).

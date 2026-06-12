@@ -1551,6 +1551,7 @@ export default function Estimate() {
           phone: sessionUser.phone || "",
           agent: sessionUser.agent || "Team",
           address: addr,
+          scenarioType: "Purchase",
           scenarioDetails: buildScenarioDetails(),
           referral: getStoredReferralSource() ?? undefined,
         }),
