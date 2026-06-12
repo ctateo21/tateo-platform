@@ -977,7 +977,7 @@ function MarketAnalysisSection({
         // sets `generating: true`).
         const isPending =
           body.generating === true ||
-          next.status === "generating" ||
+          (next.status as string) === "generating" ||
           (typeof (next as any).id === "string" && (next as any).id.startsWith("pending_"));
         if (pollTimerRef.current) { clearTimeout(pollTimerRef.current); pollTimerRef.current = null; }
         if (isPending) {
@@ -1118,7 +1118,7 @@ function MarketAnalysisSection({
     analysis.showing_summary
   ));
   const isPreparing = !!(analysis && (
-    analysis.status === "generating" ||
+    (analysis.status as string) === "generating" ||
     (typeof (analysis as any).id === "string" && (analysis as any).id.startsWith("pending_"))
   ));
 

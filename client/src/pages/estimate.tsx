@@ -501,6 +501,10 @@ interface Scenario {
    * the baseline — i.e., the user hasn't manually touched it.
    */
   baselineInputs?: Inputs;
+  /** Property photos fetched from the Zillow/cache lookup for this scenario. */
+  propertyPhotos?: string[];
+  /** Primary (hero) photo URL for the property, when available. */
+  primaryPhotoUrl?: string;
 }
 
 function makeDefaultInputs(price = 350000): Inputs {
@@ -1819,7 +1823,7 @@ export default function Estimate() {
     const { purchasePrice, downPaymentPct, loanType, interestRate } = inputs;
     const c = calc;
     const money = (n: number) => "$" + Math.round(n).toLocaleString();
-    const loanLabel = loanType === "conventional" ? "Conventional" : loanType === "fha" ? "FHA" : loanType === "va" ? "VA" : loanType === "usda" ? "USDA" : loanType === "dscr" ? "DSCR" : loanType === "bank_statement" ? "Bank Statement" : loanType.toUpperCase();
+    const loanLabel = loanType === "conventional" ? "Conventional" : loanType === "fha" ? "FHA" : loanType === "va" ? "VA" : loanType === "usda" ? "USDA" : loanType === "dscr" ? "DSCR" : loanType === "bank_statement" ? "Bank Statement" : (loanType as string).toUpperCase();
     return [
       `Purchase Price: ${money(purchasePrice)}`,
       `Down Payment: ${money(c.downPaymentAmt)} (${Number(downPaymentPct).toFixed(1)}%)`,

@@ -31,7 +31,7 @@ function lockKey(listingId: string, weekOfStr: string) {
 
 export function isGenerating(listingId: string, weekOfStr?: string): boolean {
   if (weekOfStr) return inflight.has(lockKey(listingId, weekOfStr));
-  for (const k of inflight.keys()) if (k.startsWith(listingId + "::")) return true;
+  for (const k of Array.from(inflight.keys())) if (k.startsWith(listingId + "::")) return true;
   return false;
 }
 

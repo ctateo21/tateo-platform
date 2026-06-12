@@ -598,7 +598,7 @@ export default function InsuranceDashboard() {
     if (!showAddressPrompt) return;
     const timer = setTimeout(() => {
       if (!newScenarioInputRef.current) return;
-      loadGoogleMapsApi().then(() => {
+      loadGoogleMapsApi((import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || "").then(() => {
         const ac = new (window as any).google.maps.places.Autocomplete(
           newScenarioInputRef.current, { types: ["address"] }
         );

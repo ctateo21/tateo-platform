@@ -358,7 +358,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       const html = await response.text();
 
-      function extractRate(text: string, label: string): number | null {
+      const extractRate = (text: string, label: string): number | null => {
         // Find the "30 Yr. <label>" heading, then grab the first rate% within the next 1000 chars
         const anchor = `30 Yr. ${label}`;
         const headIdx = text.indexOf(anchor);
@@ -600,7 +600,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         coverageAmount: params.type === 'property' ? "$500,000" : "$100,000",
         address: params.address,
         placeId: params.placeId,
-        propertyType: params.propertyType || 'primary',
+        propertyType: (params.propertyType as InsuranceFormData["propertyType"]) || 'primary',
         notes: ""
       };
       
@@ -1564,21 +1564,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Only successful scrapes are cached.
     if (supabaseAdmin) {
       console.log(`[zillow-photos] saving to property cache key=${cacheKey} photos=${(property.photos ?? []).length}`);
-      void supabaseAdmin
-        .from("property_cache")
-        .upsert(
-          {
-            cache_key: cacheKey,
-            normalized: property,
-            raw: property.rawZillowData,
-            fetched_at: new Date().toISOString(),
-          },
-          { onConflict: "cache_key" },
-        )
-        .then(({ error }) => {
-          if (error) console.warn("[zillow-lookup] cache write failed:", error.message);
-          else console.log(`[zillow-lookup] cache WRITE key=${cacheKey} sold=${property.isSold ?? false}`);
-        })
+      void Promise.resolve(
+        supabaseAdmin
+          .from("property_cache")
+          .upsert(
+            {
+              cache_key: cacheKey,
+              normalized: property,
+              raw: property.rawZillowData,
+              fetched_at: new Date().toISOString(),
+            },
+            { onConflict: "cache_key" },
+          )
+          .then(({ error }) => {
+            if (error) console.warn("[zillow-lookup] cache write failed:", error.message);
+            else console.log(`[zillow-lookup] cache WRITE key=${cacheKey} sold=${property.isSold ?? false}`);
+          })
+      )
         // Fire-and-forget: a transport-level rejection here must not become
         // an unhandled rejection (fatal under Node 20's default).
         .catch((e: any) => console.warn("[zillow-lookup] cache write rejected:", e?.message ?? e));

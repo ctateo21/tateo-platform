@@ -66,7 +66,13 @@ export class MemStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = this.userIdCounter++;
     const createdAt = new Date();
-    const user: User = { ...insertUser, id, createdAt };
+    const user: User = {
+      ...insertUser,
+      id,
+      createdAt,
+      phone: insertUser.phone ?? null,
+      contactPreference: insertUser.contactPreference ?? null,
+    };
     this.users.set(id, user);
     return user;
   }
@@ -75,7 +81,14 @@ export class MemStorage implements IStorage {
   async createSubmission(insertSubmission: InsertSubmission): Promise<Submission> {
     const id = this.submissionIdCounter++;
     const createdAt = new Date();
-    const submission: Submission = { ...insertSubmission, id, createdAt };
+    const submission: Submission = {
+      ...insertSubmission,
+      id,
+      createdAt,
+      userId: insertSubmission.userId ?? null,
+      status: insertSubmission.status ?? null,
+      selectedServices: [...insertSubmission.selectedServices],
+    };
     this.submissions.set(id, submission);
     return submission;
   }
@@ -103,7 +116,13 @@ export class MemStorage implements IStorage {
   async createIntegrationRequest(insertRequest: InsertIntegrationRequest): Promise<IntegrationRequest> {
     const id = this.integrationRequestIdCounter++;
     const createdAt = new Date();
-    const request: IntegrationRequest = { ...insertRequest, id, createdAt };
+    const request: IntegrationRequest = {
+      ...insertRequest,
+      id,
+      createdAt,
+      status: insertRequest.status ?? null,
+      responseData: insertRequest.responseData ?? null,
+    };
     this.integrationRequests.set(id, request);
     return request;
   }
@@ -190,7 +209,7 @@ export class DatabaseStorage implements IStorage {
   async createSubmission(insertSubmission: InsertSubmission): Promise<Submission> {
     const [submission] = await db
       .insert(submissions)
-      .values(insertSubmission)
+      .values(insertSubmission as typeof submissions.$inferInsert)
       .returning();
     return submission;
   }

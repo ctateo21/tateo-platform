@@ -665,7 +665,7 @@ export default function CashBuyPage() {
     : zillowStatus === "error" ? "error"
     : zillowStatus ? "loaded" : "idle";
 
-  const effectiveFactors: InsuranceFactors = scenario.insuranceFactors ?? {
+  const effectiveFactors: InsuranceFactors = (scenario.insuranceFactors as InsuranceFactors | undefined) ?? {
     regionKey: getInsRegionFromAddress(scenario.address),
     ...DEFAULT_INSURANCE_FACTORS,
   };
