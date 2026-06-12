@@ -26,6 +26,9 @@ import Refinance from "./pages/refinance";
 import SellerEstimate from "./pages/seller-estimate";
 import CashBuy from "./pages/cash-buy";
 import SelectService from "./pages/select-service";
+import Subscribe from "./pages/subscribe";
+import SubscribeSuccess from "./pages/subscribe-success";
+import ProtectedRoute from "./components/protected-route";
 import NotFound from "./pages/not-found";
 
 function App() {
@@ -42,14 +45,30 @@ function App() {
                   <main className="flex-grow">
                     <Switch>
                       <Route path="/" component={Home} />
-                      <Route path="/dashboard" component={Dashboard} />
                       <Route path="/settings" component={Settings} />
-                      <Route path="/insurance" component={Insurance} />
-                      <Route path="/estimate" component={Estimate} />
-                      <Route path="/refinance" component={Refinance} />
-                      <Route path="/seller" component={SellerEstimate} />
-                      <Route path="/cash-buy" component={CashBuy} />
-                      <Route path="/select-service" component={SelectService} />
+                      <Route path="/subscribe" component={Subscribe} />
+                      <Route path="/subscribe/success" component={SubscribeSuccess} />
+                      <Route path="/dashboard">
+                        <ProtectedRoute><Dashboard /></ProtectedRoute>
+                      </Route>
+                      <Route path="/insurance">
+                        <ProtectedRoute><Insurance /></ProtectedRoute>
+                      </Route>
+                      <Route path="/estimate">
+                        <ProtectedRoute><Estimate /></ProtectedRoute>
+                      </Route>
+                      <Route path="/refinance">
+                        <ProtectedRoute><Refinance /></ProtectedRoute>
+                      </Route>
+                      <Route path="/seller">
+                        <ProtectedRoute><SellerEstimate /></ProtectedRoute>
+                      </Route>
+                      <Route path="/cash-buy">
+                        <ProtectedRoute><CashBuy /></ProtectedRoute>
+                      </Route>
+                      <Route path="/select-service">
+                        <ProtectedRoute><SelectService /></ProtectedRoute>
+                      </Route>
                       <Route component={NotFound} />
                     </Switch>
                   </main>

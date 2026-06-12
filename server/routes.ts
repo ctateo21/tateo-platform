@@ -26,6 +26,15 @@ import { fetchGoogleReviews, getMockReviews } from "./integrations/google-review
 import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
 import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
 import { supabaseAdmin } from "./supabase";
+import { db } from "./db";
+import { userSubscriptions } from "@shared/schema";
+import { eq } from "drizzle-orm";
+import {
+  createSubscriptionCheckout,
+  retrieveCheckoutSession,
+  getSubscriptionStatus,
+  isActiveStatus,
+} from "./stripe";
 import { getOrGenerateMarketAnalysis, type ListingInput } from "./integrations/listing-market-analysis";
 import { enrichListingFromPropertyCache } from "./integrations/listing-enrichment";
 import {
@@ -1749,6 +1758,137 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     return data.user;
   }
+
+  // ── Havo Pro subscription (Stripe Managed Payments) ────────────────
+  // POST /api/subscription/create-checkout-session — returns a Stripe
+  // Checkout URL for the $20/mo Havo Pro plan. The userId comes from the
+  // verified session, never the body.
+  app.post("/api/subscription/create-checkout-session", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    try {
+      const origin = (req.headers.origin as string | undefined)
+        || `${req.protocol}://${req.get("host")}`;
+      const successUrl = `${origin}/subscribe/success?session_id={CHECKOUT_SESSION_ID}`;
+      const cancelUrl = `${origin}/subscribe`;
+      const { url } = await createSubscriptionCheckout({
+        userId: user.id,
+        email: user.email,
+        successUrl,
+        cancelUrl,
+      });
+      // Ensure a row exists so status checks have something to read.
+      await db
+        .insert(userSubscriptions)
+        .values({ userId: user.id, email: user.email ?? null, status: "pending" })
+        .onConflictDoUpdate({
+          target: userSubscriptions.userId,
+          set: { email: user.email ?? null, updatedAt: new Date() },
+        });
+      return res.json({ url });
+    } catch (e: any) {
+      console.error("[subscription] create-checkout-session error:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "Unknown error" });
+    }
+  });
+
+  // POST /api/subscription/confirm — called on return from Checkout. We
+  // verify the session belongs to this user, then persist the customer /
+  // subscription ids and status.
+  app.post("/api/subscription/confirm", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const sessionId = String(req.body?.sessionId ?? "").trim();
+    if (!sessionId) return res.status(400).json({ error: "sessionId is required" });
+    try {
+      const session = await retrieveCheckoutSession(sessionId);
+      // Strictly require the session to belong to this user and to be the
+      // subscription checkout we created — never trust a permissive fallback.
+      if (session.client_reference_id !== user.id) {
+        return res.status(403).json({ error: "Session does not belong to this user" });
+      }
+      if (session.mode !== "subscription") {
+        return res.status(400).json({ error: "Not a subscription checkout session" });
+      }
+      const customerId = typeof session.customer === "string"
+        ? session.customer
+        : session.customer?.id ?? null;
+      const sub = session.subscription;
+      const subscriptionId = typeof sub === "string" ? sub : sub?.id ?? null;
+      const status: string = (typeof sub === "object" && sub?.status)
+        ? sub.status
+        : (session.payment_status === "paid" ? "active" : "incomplete");
+      const periodEndSec = (typeof sub === "object" && typeof sub?.current_period_end === "number")
+        ? sub.current_period_end
+        : null;
+      const currentPeriodEnd = periodEndSec ? new Date(periodEndSec * 1000) : null;
+
+      await db
+        .insert(userSubscriptions)
+        .values({
+          userId: user.id,
+          email: user.email ?? null,
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: subscriptionId,
+          status,
+          currentPeriodEnd,
+        })
+        .onConflictDoUpdate({
+          target: userSubscriptions.userId,
+          set: {
+            email: user.email ?? null,
+            stripeCustomerId: customerId,
+            stripeSubscriptionId: subscriptionId,
+            status,
+            currentPeriodEnd,
+            updatedAt: new Date(),
+          },
+        });
+      return res.json({ active: isActiveStatus(status), status });
+    } catch (e: any) {
+      console.error("[subscription] confirm error:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "Unknown error" });
+    }
+  });
+
+  // GET /api/subscription/status — live-checks Stripe so cancellations /
+  // renewals are reflected without webhooks. Falls back to the stored
+  // status if Stripe is unreachable.
+  app.get("/api/subscription/status", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    try {
+      const rows = await db
+        .select()
+        .from(userSubscriptions)
+        .where(eq(userSubscriptions.userId, user.id));
+      const row = rows[0];
+      if (!row || !row.stripeSubscriptionId) {
+        return res.json({ active: false, status: row?.status ?? "inactive" });
+      }
+      try {
+        const snap = await getSubscriptionStatus(row.stripeSubscriptionId);
+        const currentPeriodEnd = snap.currentPeriodEnd
+          ? new Date(snap.currentPeriodEnd * 1000)
+          : null;
+        await db
+          .update(userSubscriptions)
+          .set({ status: snap.status, currentPeriodEnd, updatedAt: new Date() })
+          .where(eq(userSubscriptions.userId, user.id));
+        return res.json({
+          active: isActiveStatus(snap.status),
+          status: snap.status,
+          currentPeriodEnd: snap.currentPeriodEnd,
+        });
+      } catch (stripeErr: any) {
+        console.warn("[subscription] status live-check failed, using stored:", stripeErr?.message);
+        return res.json({ active: isActiveStatus(row.status), status: row.status });
+      }
+    } catch (e: any) {
+      console.error("[subscription] status error:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "Unknown error" });
+    }
+  });
 
   function isAdminEmail(email: string | null | undefined): boolean {
     const adminEmails = (process.env.MARKET_ANALYSIS_ADMIN_EMAILS || "")

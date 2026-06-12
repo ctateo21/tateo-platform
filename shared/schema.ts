@@ -55,6 +55,19 @@ export const questionnaireResponses = pgTable("questionnaire_responses", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Stripe subscription state, keyed by Supabase auth user id (uuid).
+// Written by the subscription confirm/status routes; read to gate access.
+export const userSubscriptions = pgTable("user_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  email: text("email"),
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  status: text("status").notNull().default("inactive"),
+  currentPeriodEnd: timestamp("current_period_end"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Schema for user input validation
 export const insertUserSchema = createInsertSchema(users)
   .omit({
