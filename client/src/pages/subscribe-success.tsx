@@ -58,7 +58,8 @@ export default function SubscribeSuccess() {
           <CheckCircle2 className="h-12 w-12 mx-auto text-primary mb-4" />
           <h1 className="text-2xl font-semibold mb-2">You're all set!</h1>
           <p className="text-muted-foreground mb-6">
-            Welcome to Havo Pro. Taking you to your dashboard…
+            Welcome to Havo Pro — your 7-day free trial has started. Taking you
+            to your dashboard…
           </p>
           <Button asChild>
             <Link href="/dashboard">Go to Dashboard</Link>

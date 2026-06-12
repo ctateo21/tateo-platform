@@ -52,16 +52,22 @@ export default function Subscribe() {
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold mb-2">Havo Pro</h1>
         <p className="text-muted-foreground">
-          One simple plan. Full access to every tool.
+          Start with a 7-day free trial. Full access to every tool.
         </p>
       </div>
 
       <Card className="border-2 border-primary/30 shadow-lg">
         <CardHeader className="text-center pb-2">
+          <div className="inline-flex items-center justify-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary mb-3 mx-auto">
+            7 days free
+          </div>
           <div className="flex items-baseline justify-center gap-1">
             <span className="text-4xl font-bold">$20</span>
             <span className="text-muted-foreground">/month</span>
           </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            after your free trial
+          </p>
         </CardHeader>
         <CardContent className="space-y-5">
           <ul className="space-y-3">
@@ -110,7 +116,7 @@ export default function Subscribe() {
                   Redirecting…
                 </>
               ) : (
-                "Subscribe"
+                "Start 7-day free trial"
               )}
             </Button>
           )}
@@ -118,7 +124,8 @@ export default function Subscribe() {
       </Card>
 
       <p className="text-xs text-muted-foreground text-center mt-6">
-        Secure payment powered by Stripe. Cancel anytime.
+        Secure payment powered by Stripe. You won't be charged during your
+        7-day trial, and you can cancel anytime.
       </p>
 
       <AuthDialog open={authOpen} onOpenChange={setAuthOpen} />

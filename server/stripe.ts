@@ -16,6 +16,8 @@ const PRODUCT_NAME = "Havo Pro";
 const PRODUCT_DESCRIPTION = "Full access to Havo's real estate tools.";
 const PRICE_UNIT_AMOUNT = 2000; // $20.00 in cents
 const PRICE_CURRENCY = "usd";
+// Free trial length before the first $20 charge.
+const TRIAL_PERIOD_DAYS = 7;
 // SaaS / general digital service tax code.
 const TAX_CODE = "txcd_10103100";
 
@@ -143,7 +145,15 @@ export async function createSubscriptionCheckout(
     managed_payments: { enabled: true },
     client_reference_id: args.userId,
     metadata: { userId: args.userId },
-    subscription_data: { metadata: { userId: args.userId } },
+    // 7-day free trial: the card is collected now but not charged until
+    // the trial ends, at which point Stripe automatically bills $20/mo.
+    subscription_data: {
+      metadata: { userId: args.userId },
+      trial_period_days: TRIAL_PERIOD_DAYS,
+    },
+    // Force collecting a payment method up front so the subscription can
+    // auto-charge when the trial ends (otherwise Stripe may skip it).
+    payment_method_collection: "always",
     success_url: args.successUrl,
     cancel_url: args.cancelUrl,
   };

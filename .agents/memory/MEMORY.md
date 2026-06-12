@@ -1,1 +1,2 @@
 - [Insurance policy type & property-type resolution](insurance-policy-type.md) — condo/townhome→HO6 resolution priority, Zillow-type-on-client, dual TrackedLoan gotcha, manual locks.
+- [Havo Pro paywall & trial](havo-paywall.md) — $20/mo, Stripe Managed Payments (preview API, no SDK/webhooks), 7-day trial, one free anonymous home; gating is client-side by design.

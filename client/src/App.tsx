@@ -29,6 +29,7 @@ import SelectService from "./pages/select-service";
 import Subscribe from "./pages/subscribe";
 import SubscribeSuccess from "./pages/subscribe-success";
 import ProtectedRoute from "./components/protected-route";
+import ToolGate from "./components/tool-gate";
 import NotFound from "./pages/not-found";
 
 function App() {
@@ -52,23 +53,21 @@ function App() {
                         <ProtectedRoute><Dashboard /></ProtectedRoute>
                       </Route>
                       <Route path="/insurance">
-                        <ProtectedRoute><Insurance /></ProtectedRoute>
+                        <ToolGate><Insurance /></ToolGate>
                       </Route>
                       <Route path="/estimate">
-                        <ProtectedRoute><Estimate /></ProtectedRoute>
+                        <ToolGate><Estimate /></ToolGate>
                       </Route>
                       <Route path="/refinance">
-                        <ProtectedRoute><Refinance /></ProtectedRoute>
+                        <ToolGate><Refinance /></ToolGate>
                       </Route>
                       <Route path="/seller">
-                        <ProtectedRoute><SellerEstimate /></ProtectedRoute>
+                        <ToolGate><SellerEstimate /></ToolGate>
                       </Route>
                       <Route path="/cash-buy">
-                        <ProtectedRoute><CashBuy /></ProtectedRoute>
+                        <ToolGate><CashBuy /></ToolGate>
                       </Route>
-                      <Route path="/select-service">
-                        <ProtectedRoute><SelectService /></ProtectedRoute>
-                      </Route>
+                      <Route path="/select-service" component={SelectService} />
                       <Route component={NotFound} />
                     </Switch>
                   </main>
