@@ -1,4 +1,5 @@
 import { supabase, supabaseReady } from "./supabase";
+import { authedFetch } from "./authed-fetch";
 import {
   ensureInsuranceForAddresses,
   type BulkAddress,
@@ -1577,6 +1578,29 @@ if (supabaseReady) {
 }
 
 // ── Auth actions ──────────────────────────────────────────────────
+// Fire-and-forget notify to the server so Follow Up Boss is told about a
+// real signup or sign-in action. Deliberately NOT called from
+// hydrateFromSupabase / onAuthStateChange, so a session restore on page
+// refresh never produces a duplicate sign-in notification. Never throws —
+// a FUB hiccup must not block auth.
+async function notifyAccountEvent(
+  event: "account_created" | "account_signed_in",
+): Promise<void> {
+  try {
+    // authedFetch attaches the Supabase access token so the server can
+    // verify identity itself. The email/phone/name are derived from the
+    // verified session server-side — never trusted from the body.
+    await authedFetch("/api/leads/account-event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event }),
+    });
+    console.log("[login] fub notification queued");
+  } catch {
+    /* non-blocking — ignore network/FUB failures */
+  }
+}
+
 export async function register(
   name: string,
   email: string,
@@ -1585,13 +1609,17 @@ export async function register(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!supabaseReady) return NOT_CONFIGURED;
   const cleanEmail = email.toLowerCase().trim();
+  const cleanPhone = opts?.phone?.trim() || "";
+  console.log("[free-signup] started");
+  console.log("[free-signup] email", cleanEmail);
+  console.log("[free-signup] phone present", cleanPhone.length > 0);
   const { data, error } = await supabase.auth.signUp({
     email: cleanEmail,
     password,
     options: {
       data: {
         name: name.trim(),
-        phone: opts?.phone?.trim() || null,
+        phone: cleanPhone || null,
         agent: opts?.agent?.trim() || null,
       },
     },
@@ -1601,18 +1629,24 @@ export async function register(
   if (!data.session) {
     return { ok: false, error: "Check your email to confirm your account, then sign in." };
   }
+  console.log("[free-signup] auth user created");
   await hydrateFromSupabase();
+  console.log("[free-signup] profile saved");
+  void notifyAccountEvent("account_created");
   return { ok: true };
 }
 
 export async function login(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
   if (!supabaseReady) return NOT_CONFIGURED;
+  const cleanEmail = email.toLowerCase().trim();
   const { error } = await supabase.auth.signInWithPassword({
-    email: email.toLowerCase().trim(),
+    email: cleanEmail,
     password,
   });
   if (error) return { ok: false, error: error.message };
   await hydrateFromSupabase();
+  console.log("[login] successful");
+  void notifyAccountEvent("account_signed_in");
   return { ok: true };
 }
 

@@ -1,0 +1,676 @@
+Copy/paste this into Replit:
+
+````text id="free-one-run-auth-gated-save-share-download-fub"
+Update the app access model so users can run home numbers for free one time with no credit card required, while keeping Stripe code in place for future use.
+
+Current state:
+Stripe is already attached to the app.
+
+New desired behavior:
+For now, the app should be free to use without a credit card.
+
+Users should be able to:
+1. Enter a home address
+2. Run the home numbers one time
+3. View estimates/results
+
+without creating an account and without entering a credit card.
+
+But if the user wants to:
+- save any numbers
+- save a scenario
+- send/share any estimate
+- download any PDF
+- email/export estimates
+- access saved scenarios later
+
+then they must create a free account with:
+- email
+- phone number
+- password
+
+Their login should be:
+- email address
+- password they set
+
+Also:
+Notify my Follow Up Boss account when:
+1. a user creates an account
+2. a user signs into the account
+
+Keep Stripe code:
+- Do not delete Stripe code
+- Do not remove Stripe configuration
+- Do not remove Stripe components permanently
+- Keep it available for future paid plans
+- Disable or bypass Stripe paywall/payment requirements for now
+
+Goal:
+Free one-time estimate run.
+Free account required only for saving, sharing, sending, and downloading.
+No credit card required anywhere right now.
+
+PART 1 — Access rules
+
+Guest / logged-out user can:
+- enter an address
+- choose a service
+- run home numbers one time
+- view the results for that current session
+
+Guest / logged-out user cannot:
+- save scenario
+- save user inputs
+- access dashboard saved scenarios
+- download PDF
+- share/send estimate
+- email estimate
+- export estimate
+- return later and see saved numbers
+
+When guest clicks a protected action:
+Show account creation modal/page.
+
+Protected actions:
+- Save Scenario
+- Save numbers
+- Share
+- Send Estimate
+- Download PDF
+- Email estimate
+- Export PDF
+- Add to Dashboard
+- View saved dashboard
+- Any action that persists or sends user-specific data
+
+Modal copy:
+Title:
+“Create a free account to save and share this estimate”
+
+Body:
+“Your numbers are ready. Create a free account to save this scenario, download a PDF, or send the estimate.”
+
+Fields:
+- Email
+- Phone number
+- Password
+- Confirm password, if existing auth pattern uses it
+
+Button:
+“Create Free Account”
+
+Secondary option:
+“Already have an account? Log in”
+
+Do not mention Stripe.
+Do not ask for a credit card.
+
+PART 2 — Logged-in free account behavior
+
+Logged-in free account users can:
+- run home numbers
+- save scenarios
+- share/send estimates
+- download PDFs
+- access dashboard
+- return later and see saved numbers
+
+No Stripe subscription or payment check should block these actions.
+
+Any existing code like:
+- requiresActiveSubscription
+- hasPaidPlan
+- stripeCustomerRequired
+- checkoutRequired
+- subscriptionStatus === active
+- trialRequired
+
+should be bypassed for now or changed so free accounts are allowed.
+
+Preferred:
+Create a single feature flag/config value:
+
+`FREE_ACCESS_MODE = true`
+
+or use env:
+
+`VITE_FREE_ACCESS_MODE=true`
+
+When free access mode is true:
+- do not require Stripe checkout
+- do not require payment method
+- do not require subscription
+- allow logged-in users to save/share/download
+- leave Stripe code intact for future paid mode
+
+PART 3 — One-time guest run behavior
+
+Allow logged-out users to run one home estimate one time.
+
+Meaning:
+- They can enter an address and see numbers for the current session.
+- They do not need an account before seeing the first result.
+- Once results are shown, protected actions require account creation.
+
+Do not overcomplicate this with strict abuse prevention yet.
+
+Suggested:
+- Store guest estimate state in memory/sessionStorage only
+- Do not save guest scenarios to Supabase user tables
+- If they create an account, attach/save the current scenario to the new user after signup
+
+Important:
+When a guest creates an account from a result page:
+- preserve the current address
+- preserve the current calculated numbers
+- save the scenario to their new account if they clicked Save
+- after signup, return them to the same property/scenario page
+- do not make them re-enter the address
+
+PART 4 — Signup requirements
+
+Account creation fields:
+- email
+- phone
+- password
+
+Email:
+- required
+- valid email format
+- used as login username
+
+Phone:
+- required
+- validate as a phone number
+- store in user profile
+- normalize if helper exists
+- do not require SMS verification unless already built
+
+Password:
+- required
+- use existing Supabase/Auth password flow
+- do not create custom password storage
+- use Supabase Auth or existing auth provider
+
+If the app already uses Supabase Auth:
+- use Supabase email/password signup
+- store phone in profile table or user metadata
+
+Suggested user metadata:
+- phone
+- signup_source
+- first_address_searched
+- created_from_protected_action
+
+PART 5 — Supabase / SQL requirement
+
+Inspect the existing Supabase schema first.
+
+If all required fields already exist:
+- do not create new SQL
+- reuse existing columns
+- confirm no SQL was needed
+
+If fields are missing:
+- provide one complete SQL migration before coding
+- use `add column if not exists`
+- include source tracking fields where needed
+- do not create duplicate columns
+- do not weaken RLS
+
+Check for a profile table such as:
+- profiles
+- user_profiles
+- users
+- public.profiles
+
+Required stored user data:
+- user_id / auth user id
+- email
+- phone
+- created_at
+- updated_at
+- last_sign_in_at, if needed
+- fub_contact_id, optional if returned by FUB
+- signup_source, optional
+- first_address_searched, optional
+
+If no profile table exists, create one.
+
+Suggested SQL if needed:
+
+```sql
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  email text,
+  phone text,
+  fub_contact_id text,
+  signup_source text,
+  first_address_searched text,
+  last_sign_in_at timestamptz,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.profiles enable row level security;
+
+create policy if not exists "Users can view own profile"
+on public.profiles
+for select
+using (auth.uid() = id);
+
+create policy if not exists "Users can update own profile"
+on public.profiles
+for update
+using (auth.uid() = id)
+with check (auth.uid() = id);
+
+create policy if not exists "Users can insert own profile"
+on public.profiles
+for insert
+with check (auth.uid() = id);
+````
+
+If a profiles table already exists:
+
+* only add missing columns with `alter table ... add column if not exists`
+* do not duplicate the table
+
+PART 6 — Stripe behavior
+
+Keep Stripe code but disable payment enforcement.
+
+Do:
+
+* keep Stripe environment variables
+* keep Stripe checkout routes/components
+* keep Stripe webhook code
+* keep subscription tables if present
+* keep pricing page if present but do not force it during normal use
+
+Change:
+
+* any subscription/payment requirement should be disabled while free access mode is on
+* any “Subscribe to continue” modal should not appear
+* any “Add payment method” requirement should not appear
+* any route guard requiring Stripe should allow access for logged-in free users
+
+Suggested pattern:
+
+```ts
+const FREE_ACCESS_MODE = true;
+
+function canUseProtectedFeature(user) {
+  if (!user) return false;
+  if (FREE_ACCESS_MODE) return true;
+  return userHasActiveSubscription(user);
+}
+```
+
+Protected features should require auth, not payment, while `FREE_ACCESS_MODE = true`.
+
+PART 7 — Auth gating by action
+
+Update these flows:
+
+Save Scenario:
+
+* logged out → show free account modal
+* logged in → save normally
+* no Stripe check
+
+Share Estimate:
+
+* logged out → show free account modal
+* logged in → allow share/send normally
+* no Stripe check
+
+Download PDF:
+
+* logged out → show free account modal
+* logged in → allow download normally
+* no Stripe check
+
+Send Estimate:
+
+* logged out → show free account modal
+* logged in → allow send normally
+* no Stripe check
+
+Dashboard:
+
+* logged out → prompt login/signup
+* logged in → show saved scenarios
+* no Stripe check
+
+PART 8 — FUB notification on account creation
+
+When a user creates an account, notify Follow Up Boss.
+
+Use existing FUB integration if present.
+If none exists, add a server-side helper.
+
+Do not call FUB directly from frontend if it requires a private API key.
+Use backend/server route or serverless function.
+
+Required event:
+`account_created`
+
+Send to FUB:
+
+* email
+* phone
+* name, if available
+* first address searched, if available
+* source: Havo / Tateo platform
+* event/note: “User created a free account”
+* timestamp
+* scenario/service they were viewing, if available
+* signup route/protected action that triggered signup, if available
+
+Suggested FUB note:
+“User created a free account in the platform.”
+
+If creating/updating contact:
+
+* search by email first if helper exists
+* otherwise create contact
+* avoid duplicate contacts if possible
+* store returned FUB contact id in profile if available
+
+Environment variables:
+Use existing FUB env vars if present.
+If not, identify needed env vars, likely:
+
+* `FOLLOW_UP_BOSS_API_KEY`
+* `FOLLOW_UP_BOSS_SOURCE`
+* maybe `FOLLOW_UP_BOSS_ASSIGNED_USER_ID`
+
+Do not hardcode private API keys.
+
+PART 9 — FUB notification on sign in
+
+When a user signs into their account, notify Follow Up Boss.
+
+Required event:
+`account_signed_in`
+
+Send to FUB:
+
+* email
+* phone if known
+* timestamp
+* source: Havo / Tateo platform
+* event/note: “User signed into their account”
+* last address/scenario if available
+* user id
+
+Suggested FUB note:
+“User signed into their account.”
+
+Do not spam too aggressively:
+
+* Notify on successful login.
+* If the same user signs in repeatedly in a short time, optional debounce/dedupe is okay, but not required unless easy.
+* Do not notify on every page refresh if auth session is merely restored.
+* Only notify on actual login event.
+
+Important distinction:
+
+* Account created → notify once at signup
+* User signed in → notify on actual sign-in action
+* Session restored on refresh → do not notify
+
+PART 10 — Attach guest scenario after signup
+
+If a guest runs numbers, then clicks Save/Share/Download and creates a free account:
+
+After signup:
+
+1. Create user account
+2. Save phone to profile
+3. Notify FUB account_created
+4. Save the current scenario under the new user
+5. Continue the original action:
+
+   * if they clicked Save → save scenario
+   * if they clicked Download PDF → download PDF after account creation
+   * if they clicked Share/Send → open share/send flow after account creation
+6. Return to the same property/detail view
+
+Do not lose:
+
+* address
+* selected service tab
+* entered values
+* calculated results
+* uploaded data if applicable
+
+PART 11 — UI copy
+
+Replace any payment/paywall copy for now.
+
+Do not say:
+
+* “Subscribe”
+* “Start trial”
+* “Add payment method”
+* “Enter credit card”
+* “Upgrade to save”
+* “Payment required”
+
+Use:
+
+* “Create a free account”
+* “Save your estimate”
+* “Download your estimate”
+* “Send this estimate”
+* “Access your saved scenarios”
+
+Free account modal copy:
+
+Title:
+“Create a free account to save this estimate”
+
+Body:
+“Run numbers for free. Create an account only when you want to save, download, or send your estimate.”
+
+Fields:
+
+* Email
+* Phone
+* Password
+
+Button:
+“Create Free Account”
+
+PART 12 — Data persistence
+
+When a free account is created, saved scenarios must persist normally in Supabase.
+
+For all 5 services:
+
+* Purchase with Loan
+* Purchase with Cash
+* Refinance
+* Insurance
+* Sell Your Home
+
+Logged-in users must be able to save and reload scenario data without Stripe.
+
+If SQL is needed for any missing user profile/account fields:
+
+* provide SQL
+* run coding only after migration is accounted for
+
+Do not change the previously established rule:
+If a user changes any editable data point, save it so it can be reaccessed later.
+
+PART 13 — Do not break
+
+Do not break:
+
+* Stripe code for future use
+* existing auth
+* Supabase save/load
+* scenario calculations
+* one-time guest estimate flow
+* dashboard
+* share links
+* PDF download
+* Follow Up Boss integration if already present
+* mobile layout
+* route navigation
+* saved scenario persistence
+
+Do not remove Stripe files.
+Do not delete Stripe tables.
+Do not delete subscription code.
+Just disable enforcement with free access mode.
+
+PART 14 — Debug logs
+
+Add temporary logs:
+
+Access:
+
+* `[access-mode] free access mode enabled`
+* `[access-gate] action`
+* `[access-gate] user logged in`
+* `[access-gate] requires account`
+* `[access-gate] stripe bypassed`
+
+Signup:
+
+* `[free-signup] started`
+* `[free-signup] email`
+* `[free-signup] phone present`
+* `[free-signup] auth user created`
+* `[free-signup] profile saved`
+* `[free-signup] return action`
+* `[free-signup] scenario attached`
+
+Login:
+
+* `[login] successful`
+* `[login] fub notification queued`
+
+FUB:
+
+* `[fub] account_created start`
+* `[fub] account_created success/error`
+* `[fub] account_signed_in start`
+* `[fub] account_signed_in success/error`
+* `[fub] duplicate prevention result`
+
+Stripe:
+
+* `[stripe] code retained`
+* `[stripe] payment enforcement bypassed because free access mode`
+
+PART 15 — Acceptance tests
+
+Test A — Guest can run one estimate free
+
+1. Log out.
+2. Enter a property address.
+3. Select a service.
+4. Run the numbers.
+5. Confirm results are visible.
+6. Confirm no credit card is requested.
+7. Confirm no Stripe checkout appears.
+
+Test B — Guest cannot save without account
+
+1. While logged out and viewing results, click Save Scenario.
+2. Confirm free account modal appears.
+3. Confirm it asks for email, phone, and password.
+4. Confirm no credit card is requested.
+
+Test C — Guest creates free account and saves
+
+1. Enter email, phone, and password.
+2. Create free account.
+3. Confirm account is created.
+4. Confirm current scenario is saved.
+5. Confirm user remains on same property/results.
+6. Confirm no Stripe checkout appears.
+
+Test D — Download requires free account
+
+1. Log out.
+2. Run numbers.
+3. Click Download PDF.
+4. Confirm free account modal appears.
+5. Create account or log in.
+6. Confirm PDF download continues after auth.
+7. Confirm no credit card is requested.
+
+Test E — Share/send requires free account
+
+1. Log out.
+2. Run numbers.
+3. Click Share/Send.
+4. Confirm free account modal appears.
+5. Create account or log in.
+6. Confirm Share/Send continues after auth.
+7. Confirm no credit card is requested.
+
+Test F — Logged-in free user can use all protected features
+
+1. Log in as a free user.
+2. Run numbers.
+3. Save scenario.
+4. Download PDF.
+5. Share/send estimate.
+6. Access dashboard.
+7. Confirm no payment/subscription gate appears.
+
+Test G — Stripe code retained
+
+1. Search codebase for Stripe files/routes.
+2. Confirm Stripe code still exists.
+3. Confirm payment enforcement is bypassed only because free access mode is enabled.
+4. Confirm paid mode can be restored later by changing the flag.
+
+Test H — FUB account creation notification
+
+1. Create a new free account.
+2. Confirm FUB receives/creates/updates the contact.
+3. Confirm FUB note/event says user created a free account.
+4. Confirm email and phone are sent.
+
+Test I — FUB sign-in notification
+
+1. Log out.
+2. Log back in.
+3. Confirm FUB receives sign-in notification.
+4. Refresh page.
+5. Confirm refresh/session restore does not create another sign-in notification.
+
+Test J — Persistence
+
+1. Create account from a guest result.
+2. Save scenario.
+3. Log out.
+4. Log back in.
+5. Confirm saved scenario is still there.
+6. Confirm user-entered values remain.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* Which SQL migration was added, if any
+* How Stripe code was retained
+* How Stripe payment enforcement is bypassed
+* Which actions require a free account
+* Which actions remain available to guests
+* How phone number is stored
+* How guest scenario is preserved through signup
+* How FUB is notified on account creation
+* How FUB is notified on sign-in
+* Which env vars are required for FUB
+* Which files/functions were changed
+
+```
+```

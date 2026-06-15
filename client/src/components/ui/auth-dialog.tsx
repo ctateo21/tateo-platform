@@ -88,9 +88,15 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Welcome to Havo</DialogTitle>
+          <DialogTitle>
+            {defaultTab === "register"
+              ? "Create a free account to save this estimate"
+              : "Welcome back to Havo"}
+          </DialogTitle>
           <DialogDescription>
-            Save and revisit your property scenarios anytime.
+            {defaultTab === "register"
+              ? "Run your numbers for free. Create an account only when you want to save, download, or send your estimate."
+              : "Sign in to save, download, and revisit your property scenarios."}
           </DialogDescription>
         </DialogHeader>
 

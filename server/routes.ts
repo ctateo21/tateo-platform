@@ -1260,6 +1260,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Simple per-IP rate limiter for the notify endpoint (max 10/min per IP)
   const _notifyHits = new Map<string, number[]>();
+
+  // Dedupe window for account events (keyed by `${userId}:${event}`) so a
+  // rapid re-login doesn't spam Follow Up Boss with sign-in notes.
+  const _accountEventSeen = new Map<string, number>();
   function notifyRateLimited(ip: string): boolean {
     const now = Date.now();
     const windowMs = 60_000;
@@ -1318,6 +1322,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (err: any) {
       console.error("notify-new-scenario error:", err);
       res.status(400).json({ error: err.message || "Failed to notify agent" });
+    }
+  });
+
+  // POST /api/leads/account-event
+  // Notifies Follow Up Boss when a user creates a free account or signs in.
+  // Creates the contact if missing (account_created) or adds a note to the
+  // existing contact (typical for account_signed_in). Auth-required and
+  // non-blocking, with a short per-user dedupe on sign-ins. Only fired on
+  // real signup/sign-in actions by the client — never on a session
+  // restore/refresh — so sign-in notifications aren't duplicated on reload.
+  app.post("/api/leads/account-event", async (req, res) => {
+    // Identity is taken from the verified Supabase session, never the body —
+    // this endpoint cannot be used to forge CRM events for arbitrary emails.
+    const user = await requireUser(req, res);
+    if (!user) return;
+    try {
+      const { event } = z.object({
+        event: z.enum(["account_created", "account_signed_in"]),
+      }).parse(req.body);
+
+      const email = (user.email || "").toLowerCase().trim();
+      if (!email) return res.status(400).json({ error: "No email on session" });
+
+      // Dedupe: skip a repeat sign-in note within 5 minutes for the same
+      // user. account_created is naturally once per user.
+      const dedupeKey = `${user.id}:${event}`;
+      const now = Date.now();
+      const last = _accountEventSeen.get(dedupeKey) || 0;
+      if (event === "account_signed_in" && now - last < 5 * 60_000) {
+        console.log(`[fub] duplicate prevention result: skipped ${event} for ${user.id}`);
+        return res.status(202).json({ ok: true, deduped: true });
+      }
+      _accountEventSeen.set(dedupeKey, now);
+
+      const meta = (user.user_metadata || {}) as Record<string, any>;
+      const parts = String(meta.name || "").trim().split(/\s+/).filter(Boolean);
+      const firstName = parts[0] || "Havo";
+      const lastName = parts.slice(1).join(" ") || "User";
+      const phone = String(meta.phone || "");
+      const messageHeader =
+        event === "account_created"
+          ? "User created a free account in the platform."
+          : "User signed into their account.";
+
+      console.log(`[fub] ${event} start`);
+
+      // Non-blocking — never fail the request if FUB has an issue.
+      createFollowUpBossContact({
+        firstName,
+        lastName,
+        email,
+        phone,
+        agent: "Team",
+        messageHeader,
+      })
+        .then(() => console.log(`[fub] ${event} success`))
+        .catch((err) => console.error(`[fub] ${event} error:`, err.message));
+
+      res.status(202).json({ ok: true });
+    } catch (err: any) {
+      console.error("account-event error:", err);
+      res.status(400).json({ error: err.message || "Failed to record account event" });
     }
   });
 
@@ -1872,6 +1938,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Emails that get full access with no paywall (comped accounts).
   // admin@tateoco.com is always included; extra addresses can be added
   // via the COMP_ACCESS_EMAILS env var (comma-separated).
+  // While FREE_ACCESS_MODE is on, the app is free with a free account: no
+  // Stripe checkout, payment method, or subscription is enforced for any
+  // signed-in user. Stripe routes/webhooks/tables are all left intact —
+  // only enforcement is bypassed. Set FREE_ACCESS_MODE=false to restore
+  // paid mode. Defaults to ON.
+  const FREE_ACCESS_MODE = process.env.FREE_ACCESS_MODE !== "false";
+  if (FREE_ACCESS_MODE) {
+    console.log("[access-mode] free access mode enabled");
+    console.log("[stripe] code retained");
+  }
+
   function hasFreeAccess(email: string | null | undefined): boolean {
     const list = [
       "admin@tateoco.com",
@@ -1891,6 +1968,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/subscription/status", async (req, res) => {
     const user = await requireUser(req, res);
     if (!user) return;
+    // Free access mode: payment enforcement is bypassed for every signed-in
+    // user. Stripe is not contacted; the code below is preserved for paid mode.
+    if (FREE_ACCESS_MODE) {
+      console.log("[stripe] payment enforcement bypassed because free access mode");
+      return res.json({ active: true, status: "free_access" });
+    }
     // Comped accounts skip Stripe entirely and always read as active.
     if (hasFreeAccess(user.email)) {
       return res.json({ active: true, status: "comped" });

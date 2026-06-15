@@ -68,8 +68,11 @@ export default function ToolGate({ children }: { children: ReactNode }) {
 
   if (authLoading) return <CenterSpinner />;
 
-  // Signed-in users always require an active subscription (trial counts).
+  // Signed-in users get full tool access. With FREE_ACCESS_MODE on,
+  // useSubscription reports active without any Stripe call; the
+  // subscription redirect below is preserved for paid mode.
   if (user) {
+    console.log("[access-gate] user logged in");
     if (sub.isLoading) return <CenterSpinner />;
     if (!sub.data?.active) return <Redirect to="/subscribe" />;
     return <>{children}</>;
@@ -84,6 +87,7 @@ export default function ToolGate({ children }: { children: ReactNode }) {
   if (!freeAddress) return <>{children}</>;
   if (currentAddress && currentAddress === freeAddress) return <>{children}</>;
 
+  console.log("[access-gate] requires account");
   return (
     <div className="flex flex-col items-center justify-center py-32 px-6 text-center">
       <div className="rounded-full bg-muted p-4 mb-5">
@@ -91,8 +95,8 @@ export default function ToolGate({ children }: { children: ReactNode }) {
       </div>
       <h1 className="text-2xl font-semibold mb-2">You've used your free quote</h1>
       <p className="text-muted-foreground max-w-md mb-6">
-        Create a free account to quote another home. You'll get a 7-day free
-        trial with full access to every tool.
+        Create a free account to quote more homes, save your numbers, and
+        download or send estimates. No credit card required.
       </p>
       <Button size="lg" onClick={() => setAuthOpen(true)}>
         Create free account
