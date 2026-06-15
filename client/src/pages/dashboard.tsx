@@ -1934,12 +1934,14 @@ type DashboardTabValue = typeof VALID_TABS[number];
 // localStorage, and the data layer all keep working through the
 // rename. The new labels match the logged-out service picker on
 // `/select-service` so users see the same names end-to-end.
-const TAB_META: Record<DashboardTabValue, { label: string; icon: typeof Home }> = {
-  purchase:  { label: "Purchase with Loan", icon: Home },
-  refinance: { label: "Refinance",          icon: RefreshCw },
-  insurance: { label: "Insurance",          icon: Shield },
-  sellers:   { label: "Sell Your Home",     icon: Tag },
-  cash_buy:  { label: "Purchase with Cash", icon: Banknote },
+// `short` is the phone-width label so two tabs fit per row without
+// clipping; the full `label` shows from the `sm` breakpoint up.
+const TAB_META: Record<DashboardTabValue, { label: string; short: string; icon: typeof Home }> = {
+  purchase:  { label: "Purchase with Loan", short: "Loan",      icon: Home },
+  refinance: { label: "Refinance",          short: "Refi",      icon: RefreshCw },
+  insurance: { label: "Insurance",          short: "Insurance", icon: Shield },
+  sellers:   { label: "Sell Your Home",     short: "Sell",      icon: Tag },
+  cash_buy:  { label: "Purchase with Cash", short: "Cash",      icon: Banknote },
 };
 
 const TAB_CONTENT: Record<DashboardTabValue, () => JSX.Element> = {
@@ -2064,9 +2066,12 @@ function DashboardTabs() {
 
   return (
     <Tabs value={tab} onValueChange={handleChange}>
-      <TabsList className="mb-6">
+      {/* Mobile: 2-column grid (tabs wrap 2 / 2 / 1) so nothing overflows
+          off a phone screen. From the `sm` breakpoint up it reverts to the
+          original single horizontal row. */}
+      <TabsList className="mb-6 grid w-full grid-cols-2 gap-1 h-auto sm:inline-flex sm:w-auto sm:h-10 sm:gap-0">
         {tabOrder.map((id) => {
-          const { label, icon: Icon } = TAB_META[id];
+          const { label, short, icon: Icon } = TAB_META[id];
           const isDragging = dragId === id;
           const isOver = overId === id && dragId !== id;
           return (
@@ -2077,11 +2082,13 @@ function DashboardTabs() {
               onDragOver={(e) => handleDragOver(id, e)}
               onDrop={(e) => handleDrop(id, e)}
               onDragEnd={handleDragEnd}
-              className={`${isDragging ? "opacity-50" : ""} ${isOver ? "ring-2 ring-primary rounded-md" : ""}`}
+              className={`w-full sm:w-auto ${isDragging ? "opacity-50" : ""} ${isOver ? "ring-2 ring-primary rounded-md" : ""}`}
               title="Drag to reorder"
             >
-              <TabsTrigger value={id} className="gap-2 cursor-grab active:cursor-grabbing">
-                <Icon className="h-4 w-4" /> {label}
+              <TabsTrigger value={id} className="w-full sm:w-auto gap-2 cursor-grab active:cursor-grabbing">
+                <Icon className="h-4 w-4 shrink-0" />
+                <span className="sm:hidden">{short}</span>
+                <span className="hidden sm:inline">{label}</span>
               </TabsTrigger>
             </div>
           );
