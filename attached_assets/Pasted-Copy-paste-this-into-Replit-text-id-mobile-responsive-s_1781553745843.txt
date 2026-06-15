@@ -1,0 +1,172 @@
+Copy/paste this into Replit:
+
+```text id="mobile-responsive-service-tabs-compression"
+Improve the mobile responsive UI across the app so screens are more compressed, readable, and phone-friendly.
+
+Current issue:
+On mobile, several UI sections are too wide or stretched horizontally. Example: when viewing a home/scenario, the 5 service tabs are displayed in one horizontal line. That works on desktop, but on a phone it should wrap into a cleaner grid.
+
+Primary example:
+The 5 service tabs/services offered when viewing a home should display like this on mobile:
+
+Row 1:
+- Purchase with Loan
+- Purchase with Cash
+
+Row 2:
+- Refinance
+- Insurance
+
+Row 3:
+- Sell Your Home
+
+On desktop:
+- Keep the current horizontal layout if it looks good.
+
+Scope:
+Apply this responsive cleanup wherever the 5 service tabs/navigation buttons appear:
+- home/scenario detail view
+- dashboard property view
+- service selector area
+- any shared component used for Purchase with Loan, Purchase with Cash, Refinance, Insurance, Sell Your Home
+
+Mobile layout requirement:
+At phone width, use a 2-column grid:
+- 2 tabs on first row
+- 2 tabs on second row
+- 1 tab on third row
+- the 5th tab can either span both columns or stay aligned left, whichever looks cleaner
+
+Recommended CSS:
+Use responsive grid classes or CSS like:
+
+Mobile:
+- `grid-template-columns: repeat(2, minmax(0, 1fr))`
+- `gap: 8px`
+- buttons full-width inside each grid cell
+- compact padding
+- smaller font if needed
+
+Desktop:
+- keep current flex row or use:
+  `grid-template-columns: repeat(5, minmax(0, 1fr))`
+
+Breakpoint:
+Use the app’s existing responsive breakpoint pattern.
+Suggested:
+- mobile: below 640px
+- tablet/desktop: 640px and up
+
+Design requirements:
+1. No horizontal scrolling on mobile.
+2. No clipped text.
+3. No buttons overflowing off-screen.
+4. Buttons should be easy to tap.
+5. Active tab should still be obvious.
+6. Icons, if present, should stay aligned and not crowd the label.
+7. Text should wrap cleanly or use shorter mobile labels if needed.
+8. Maintain current desktop appearance.
+
+Mobile label options:
+If full labels are too long on mobile, use shorter labels only on small screens:
+
+Desktop:
+- Purchase with Loan
+- Purchase with Cash
+- Refinance
+- Insurance
+- Sell Your Home
+
+Mobile:
+- Loan
+- Cash
+- Refi
+- Insurance
+- Sell
+
+Only shorten labels if needed. Do not make the UI unclear.
+
+Also audit other mobile layout issues:
+While fixing the service tabs, quickly review the main home/scenario pages for obvious mobile overflow issues, including:
+- top action buttons like Share / Download PDF / My Dashboard
+- overview metric cards
+- detailed view summary cards
+- sliders
+- tab bars
+- net proceeds breakdowns
+- insurance detail cards
+- purchase estimate cards
+
+Do not redesign the entire app.
+Make focused responsive fixes where things are clearly overflowing or too wide.
+
+Top action buttons on mobile:
+If Share, Download PDF, My Dashboard, or similar buttons are in a row and cramped:
+- allow them to wrap
+- or stack them cleanly
+- or use a 2-column grid
+- keep desktop layout unchanged
+
+Metric cards on mobile:
+For cards showing multiple values:
+- stack metrics vertically or use 2-column mobile grids where appropriate
+- avoid tiny unreadable text
+- avoid horizontal scroll
+
+Sliders on mobile:
+For sliders with values beside them:
+- stack label/value above the slider
+- slider full width
+- keep desktop layout unchanged
+
+Implementation:
+Prefer updating shared components instead of one-off fixes.
+
+Likely components to inspect:
+- service tab component
+- scenario navigation tabs
+- dashboard service tabs
+- home detail layout wrapper
+- shared tab/button group component
+
+Do not break:
+- desktop layout
+- active tab state
+- tab navigation
+- dashboard routing
+- save/autosave logic
+- Share button
+- Download PDF button
+- mobile auth flow
+- service selection logic
+
+Acceptance test:
+1. Open the app on desktop.
+2. Go to a home/scenario detail view.
+3. Confirm the 5 service tabs still look good in one row.
+4. Switch to mobile viewport.
+5. Confirm the 5 service tabs display as:
+   - 2 on first row
+   - 2 on second row
+   - 1 on third row
+6. Confirm there is no horizontal scrolling.
+7. Confirm every tab is tappable.
+8. Confirm active tab styling still works.
+9. Confirm clicking each tab navigates correctly.
+10. Check Share / Download PDF / My Dashboard buttons on mobile.
+11. Confirm they do not overflow.
+12. Check overview metric cards on mobile.
+13. Confirm they fit the screen cleanly.
+14. Check sliders on mobile.
+15. Confirm they are readable and usable.
+16. Recheck desktop to confirm nothing got worse.
+
+Please make the smallest safe code change possible and tell me:
+- Which service tab/navigation component was changed
+- What mobile breakpoint was used
+- How the 5 tabs now wrap on mobile
+- Whether mobile labels were shortened
+- Which other mobile overflow issues were fixed
+- Confirmation desktop layout was preserved
+- Which files/functions were changed
+```
