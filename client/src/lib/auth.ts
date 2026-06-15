@@ -582,6 +582,26 @@ export interface TrackedLoan {
    *  sync helper. "statement" / "zillow" — reserved for upload / lookup
    *  flows. Stored on `tracked_loans.estimated_home_value_source`. */
   estimatedHomeValueSource?: "manual" | "statement" | "zillow" | "synced";
+  /** Refinance UI: which goal tab the user last had open. Persisted so
+   *  reload/login restores their chosen scenario. Stored on
+   *  `tracked_loans.refi_goal`. */
+  refiGoal?: "rate_term" | "cash_out" | "home_equity";
+  /** Refinance UI: "finance closing costs into the new loan" toggle.
+   *  Defaults to true. Stored on `tracked_loans.finance_fees`. */
+  financeFees?: boolean;
+  /** Refinance UI: "include escrow reserve" toggle. Defaults to false.
+   *  Stored on `tracked_loans.include_escrows`. */
+  includeEscrows?: boolean;
+  /** Refinance Cash-Out tab: the user-chosen new loan amount on the
+   *  slider (cash-out is derived from this minus the balance). Stored on
+   *  `tracked_loans.cash_out_new_loan_amount`. */
+  cashOutNewLoanAmount?: number;
+  /** Refinance Home-Equity tab: chosen 2nd-lien product. Stored on
+   *  `tracked_loans.home_equity_product`. */
+  homeEquityProduct?: "heloc" | "he_loan";
+  /** Refinance Home-Equity tab: the user-chosen borrow amount on the
+   *  slider. Stored on `tracked_loans.home_equity_borrow_amount`. */
+  homeEquityBorrowAmount?: number;
 }
 
 export type TrackedLoanType = "va" | "fha" | "conventional" | "dscr" | "bank_statement";
@@ -1272,6 +1292,30 @@ function rowToTrackedLoan(row: any): TrackedLoan {
       row.estimated_home_value_source === "synced"
         ? row.estimated_home_value_source
         : undefined,
+    refiGoal:
+      row.refi_goal === "rate_term" ||
+      row.refi_goal === "cash_out" ||
+      row.refi_goal === "home_equity"
+        ? row.refi_goal
+        : undefined,
+    financeFees: typeof row.finance_fees === "boolean" ? row.finance_fees : undefined,
+    includeEscrows: typeof row.include_escrows === "boolean" ? row.include_escrows : undefined,
+    cashOutNewLoanAmount: ((): number | undefined => {
+      const v = row.cash_out_new_loan_amount;
+      if (v === null || v === undefined) return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : undefined;
+    })(),
+    homeEquityProduct:
+      row.home_equity_product === "heloc" || row.home_equity_product === "he_loan"
+        ? row.home_equity_product
+        : undefined,
+    homeEquityBorrowAmount: ((): number | undefined => {
+      const v = row.home_equity_borrow_amount;
+      if (v === null || v === undefined) return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? n : undefined;
+    })(),
   };
 }
 function trackedLoanToRow(l: TrackedLoan, userId: string) {
@@ -1296,6 +1340,16 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     credit_score: typeof l.creditScore === "number" && l.creditScore > 0 ? l.creditScore : null,
     ...(l.estimatedHomeValueSource
       ? { estimated_home_value_source: l.estimatedHomeValueSource }
+      : {}),
+    ...(l.refiGoal ? { refi_goal: l.refiGoal } : {}),
+    ...(typeof l.financeFees === "boolean" ? { finance_fees: l.financeFees } : {}),
+    ...(typeof l.includeEscrows === "boolean" ? { include_escrows: l.includeEscrows } : {}),
+    ...(typeof l.cashOutNewLoanAmount === "number" && l.cashOutNewLoanAmount > 0
+      ? { cash_out_new_loan_amount: l.cashOutNewLoanAmount }
+      : {}),
+    ...(l.homeEquityProduct ? { home_equity_product: l.homeEquityProduct } : {}),
+    ...(typeof l.homeEquityBorrowAmount === "number" && l.homeEquityBorrowAmount >= 0
+      ? { home_equity_borrow_amount: l.homeEquityBorrowAmount }
       : {}),
   };
   console.log("[refi-save] tracked_loans payload loan_type", { loanId: l.id, loan_type: row.loan_type });
@@ -2309,6 +2363,8 @@ function autoCreateInsuranceFromAddresses(
 const TRACKED_LOAN_OPTIONAL_COLUMNS = [
   "loan_number", "credit_score", "loan_type", "balance_as_of",
   "occupancy_type", "physical_property_type",
+  "refi_goal", "finance_fees", "include_escrows",
+  "cash_out_new_loan_amount", "home_equity_product", "home_equity_borrow_amount",
 ] as const;
 
 export function extractMissingColumn(message: string): string | null {

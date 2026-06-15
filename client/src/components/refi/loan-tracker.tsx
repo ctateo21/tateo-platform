@@ -66,6 +66,15 @@ export interface TrackedLoan {
    *  tracked loan; defaults to 740 when missing. The refinance page's
    *  top-level credit-score input writes this on every tracked loan. */
   creditScore?: number;
+  /** Refinance UI inputs persisted to tracked_loans so the user's chosen
+   *  scenario survives refresh/login. See the matching fields in
+   *  lib/auth.ts's TrackedLoan for column mapping. */
+  refiGoal?: "rate_term" | "cash_out" | "home_equity";
+  financeFees?: boolean;
+  includeEscrows?: boolean;
+  cashOutNewLoanAmount?: number;
+  homeEquityProduct?: HeProduct;
+  homeEquityBorrowAmount?: number;
 }
 
 export interface LiveRate {
@@ -197,7 +206,7 @@ function FeeToggles({ idPrefix, financeFees, setFinanceFees, includeEscrows, set
   );
 }
 
-function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeValue, financeFees, includeEscrows, monthlyEscrow }: { loan: TrackedLoan; newRate: LiveRate; displayRate: number; homeValue: number; onChangeHomeValue: (v: number) => void; financeFees: boolean; includeEscrows: boolean; monthlyEscrow: number }) {
+function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeValue, financeFees, includeEscrows, monthlyEscrow, onPersistNewLoanAmount }: { loan: TrackedLoan; newRate: LiveRate; displayRate: number; homeValue: number; onChangeHomeValue: (v: number) => void; financeFees: boolean; includeEscrows: boolean; monthlyEscrow: number; onPersistNewLoanAmount: (v: number) => void }) {
   const [editing, setEditing] = useState(false);
   const [editInput, setEditInput] = useState(String(Math.round(homeValue)));
 
@@ -209,7 +218,11 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
     : Math.floor(ltvCap);
   const currentLTV = homeValue > 0 ? loan.loanBalance / homeValue : 1;
   const isLTVTooHigh = currentLTV >= CASH_OUT_MAX_LTV;
-  const [newLoanAmount, setNewLoanAmount] = useState(isLTVTooHigh ? loan.loanBalance : maxNewLoan);
+  const [newLoanAmount, setNewLoanAmount] = useState(() =>
+    typeof loan.cashOutNewLoanAmount === "number" && loan.cashOutNewLoanAmount > 0
+      ? loan.cashOutNewLoanAmount
+      : (isLTVTooHigh ? loan.loanBalance : maxNewLoan),
+  );
   const clampedLoan = Math.min(Math.max(newLoanAmount, loan.loanBalance), Math.max(maxNewLoan, loan.loanBalance));
   const cashOut = Math.max(0, clampedLoan - loan.loanBalance);
   const closingCosts = (clampedLoan * CLOSING_COST_PERCENT) / 100 + CLOSING_COST_FIXED;
@@ -286,7 +299,7 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
             <div><p className="text-xs text-muted-foreground">Combined LTV</p><p className={`font-semibold text-sm ${newLTV > CASH_OUT_MAX_LTV * 100 ? "text-red-500" : ""}`}>{newLTV.toFixed(1)}%</p></div>
           </div>
         </div>
-        <Slider min={loan.loanBalance} max={maxNewLoan} step={1000} value={[clampedLoan]} onValueChange={([val]) => setNewLoanAmount(val)} />
+        <Slider min={loan.loanBalance} max={maxNewLoan} step={1000} value={[clampedLoan]} onValueChange={([val]) => setNewLoanAmount(val)} onValueCommit={([val]) => onPersistNewLoanAmount(val)} />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
@@ -316,7 +329,7 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
 
 function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; liveRates: LiveRate[]; onRemove: () => void; onUpdate: (u: Partial<TrackedLoan>) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<"rate_term" | "cash_out" | "home_equity">("rate_term");
+  const [activeTab, setActiveTab] = useState<"rate_term" | "cash_out" | "home_equity">(loan.refiGoal ?? "rate_term");
   const [homeValue, setHomeValue] = useState(loan.estimatedHomeValue);
   // Persist user-edited estimated home value back to the TrackedLoan
   // (and downstream: tracked_loans table + matching seller scenario).
@@ -355,8 +368,40 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
     if (loan.propertyType !== propertyType) setPropertyType(loan.propertyType);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loan.propertyType]);
-  const [financeFees, setFinanceFees] = useState(true);
-  const [includeEscrows, setIncludeEscrows] = useState(false);
+  const [financeFees, setFinanceFees] = useState(loan.financeFees ?? true);
+  const [includeEscrows, setIncludeEscrows] = useState(loan.includeEscrows ?? false);
+  // Hydration sync (same rationale as loanType/propertyType above): the
+  // card doesn't remount when persisted rows arrive after async hydration,
+  // so mirror the persisted refi inputs into local state when the prop
+  // genuinely differs. Keyed on the prop so syncing the same value is a
+  // no-op and never clobbers a fresh user edit.
+  useEffect(() => {
+    const incoming = loan.refiGoal ?? "rate_term";
+    if (incoming !== activeTab) setActiveTab(incoming);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loan.refiGoal]);
+  useEffect(() => {
+    const incoming = loan.financeFees ?? true;
+    if (incoming !== financeFees) setFinanceFees(incoming);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loan.financeFees]);
+  useEffect(() => {
+    const incoming = loan.includeEscrows ?? false;
+    if (incoming !== includeEscrows) setIncludeEscrows(incoming);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loan.includeEscrows]);
+  function handleTabChange(tab: "rate_term" | "cash_out" | "home_equity") {
+    setActiveTab(tab);
+    onUpdate({ refiGoal: tab });
+  }
+  function handleFinanceFeesChange(v: boolean) {
+    setFinanceFees(v);
+    onUpdate({ financeFees: v });
+  }
+  function handleIncludeEscrowsChange(v: boolean) {
+    setIncludeEscrows(v);
+    onUpdate({ includeEscrows: v });
+  }
 
   // When the user switches property use away from primary, VA / FHA are
   // no longer allowed — fall back to conventional and toast the rule.
@@ -600,7 +645,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
           {/* Tab buttons */}
           <div className="flex rounded-md border overflow-hidden text-sm font-medium">
             {([["rate_term", "Rate & Term", ArrowLeftRight], ["cash_out", "Cash-Out Refi", Banknote], ["home_equity", "2nd Lien / Home Equity", Wallet]] as const).map(([tab, label, Icon]) => (
-              <button key={tab} onClick={() => setActiveTab(tab as any)} className={`flex-1 py-2 px-3 flex items-center justify-center gap-1.5 transition-colors text-xs ${activeTab === tab ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}>
+              <button key={tab} onClick={() => handleTabChange(tab as any)} className={`flex-1 py-2 px-3 flex items-center justify-center gap-1.5 transition-colors text-xs ${activeTab === tab ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}>
                 <Icon className="h-3.5 w-3.5" />{label}
               </button>
             ))}
@@ -626,9 +671,9 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
               <FeeToggles
                 idPrefix={`rt-${loan.id}`}
                 financeFees={financeFees}
-                setFinanceFees={setFinanceFees}
+                setFinanceFees={handleFinanceFeesChange}
                 includeEscrows={includeEscrows}
-                setIncludeEscrows={setIncludeEscrows}
+                setIncludeEscrows={handleIncludeEscrowsChange}
                 baseClosingCosts={rateTermBaseClosingCosts}
                 monthlyEscrow={monthlyEscrow}
               />
@@ -653,13 +698,13 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
           {/* Cash-Out */}
           {activeTab === "cash_out" && (
             <div className="space-y-4">
-              <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} displayRate={adjustedRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} />
+              <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} displayRate={adjustedRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} onPersistNewLoanAmount={v => onUpdate({ cashOutNewLoanAmount: v })} />
               <FeeToggles
                 idPrefix={`co-${loan.id}`}
                 financeFees={financeFees}
-                setFinanceFees={setFinanceFees}
+                setFinanceFees={handleFinanceFeesChange}
                 includeEscrows={includeEscrows}
-                setIncludeEscrows={setIncludeEscrows}
+                setIncludeEscrows={handleIncludeEscrowsChange}
                 baseClosingCosts={null}
                 monthlyEscrow={monthlyEscrow}
               />
@@ -669,7 +714,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
           {/* Home Equity */}
           {activeTab === "home_equity" && (
             <div className="space-y-4">
-              <HomeEquitySection loan={{ ...loan, loanBalance: currentBalance }} heRate={heRate} rateAdjustment={rateAdj} propertyType={propertyType} homeValue={homeValue} onChangeHomeValue={setHomeValue} />
+              <HomeEquitySection loan={{ ...loan, loanBalance: currentBalance }} heRate={heRate} rateAdjustment={rateAdj} propertyType={propertyType} homeValue={homeValue} onChangeHomeValue={setHomeValue} onPersistProduct={p => onUpdate({ homeEquityProduct: p })} onPersistBorrowAmount={v => onUpdate({ homeEquityBorrowAmount: v })} />
             </div>
           )}
         </div>
@@ -678,9 +723,17 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   );
 }
 
-function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeValue, onChangeHomeValue }: { loan: TrackedLoan; heRate: number; rateAdjustment: number; propertyType: PropertyType; homeValue: number; onChangeHomeValue: (v: number) => void }) {
-  const [product, setProduct] = useState<HeProduct>("heloc");
-  const [borrowAmount, setBorrowAmount] = useState(Infinity);
+function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeValue, onChangeHomeValue, onPersistProduct, onPersistBorrowAmount }: { loan: TrackedLoan; heRate: number; rateAdjustment: number; propertyType: PropertyType; homeValue: number; onChangeHomeValue: (v: number) => void; onPersistProduct: (p: HeProduct) => void; onPersistBorrowAmount: (v: number) => void }) {
+  const [product, setProduct] = useState<HeProduct>(loan.homeEquityProduct ?? "heloc");
+  const [borrowAmount, setBorrowAmount] = useState(
+    typeof loan.homeEquityBorrowAmount === "number" && loan.homeEquityBorrowAmount >= 0
+      ? loan.homeEquityBorrowAmount
+      : Infinity,
+  );
+  function handleProductChange(p: HeProduct) {
+    setProduct(p);
+    onPersistProduct(p);
+  }
   const [editing, setEditing] = useState(false);
   const [editInput, setEditInput] = useState(String(Math.round(homeValue)));
 
@@ -757,10 +810,10 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
       </div>
 
       <div className="flex rounded-md border overflow-hidden text-sm font-medium">
-        <button className={`flex-1 py-2 px-4 transition-colors ${product === "heloc" ? "bg-yellow-400 text-yellow-900 font-semibold" : "bg-background text-muted-foreground hover:bg-muted"}`} onClick={() => setProduct("heloc")}>
+        <button className={`flex-1 py-2 px-4 transition-colors ${product === "heloc" ? "bg-yellow-400 text-yellow-900 font-semibold" : "bg-background text-muted-foreground hover:bg-muted"}`} onClick={() => handleProductChange("heloc")}>
           HELOC <span className="text-xs font-normal opacity-80">(variable, interest-only draw)</span>
         </button>
-        <button className={`flex-1 py-2 px-4 transition-colors ${product === "he_loan" ? "bg-yellow-400 text-yellow-900 font-semibold" : "bg-background text-muted-foreground hover:bg-muted"}`} onClick={() => setProduct("he_loan")}>
+        <button className={`flex-1 py-2 px-4 transition-colors ${product === "he_loan" ? "bg-yellow-400 text-yellow-900 font-semibold" : "bg-background text-muted-foreground hover:bg-muted"}`} onClick={() => handleProductChange("he_loan")}>
           Fixed HE Loan <span className="text-xs font-normal opacity-80">({HE_LOAN_TERM_YEARS}-yr fully amortizing)</span>
         </button>
       </div>
@@ -783,7 +836,7 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
             <p className={`font-bold text-lg ${cltv > maxCltv ? "text-red-500" : ""}`}>{(cltv * 100).toFixed(1)}%</p>
           </div>
         </div>
-        <Slider min={0} max={maxHEAmount} step={1000} value={[clampedBorrow]} onValueChange={([val]) => setBorrowAmount(val)} />
+        <Slider min={0} max={maxHEAmount} step={1000} value={[clampedBorrow]} onValueChange={([val]) => setBorrowAmount(val)} onValueCommit={([val]) => onPersistBorrowAmount(val)} />
         <div className="flex justify-between text-xs text-muted-foreground"><span>$0</span><span>Max {formatCurrency(maxHEAmount)}</span></div>
         <p className="text-xs text-muted-foreground">Fees are paid from the proceeds at closing — they are not added to your 2nd lien balance, and there is no escrow account.</p>
       </div>
