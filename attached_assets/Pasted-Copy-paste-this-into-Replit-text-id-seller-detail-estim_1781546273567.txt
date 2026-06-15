@@ -1,0 +1,100 @@
+Copy/paste this into Replit:
+
+```text id="seller-detail-estimated-taxes-due-placeholder"
+Add Estimated Taxes Due to the Sell Your Home detailed view.
+
+Current state:
+The Sell Your Home overview rows/cards now show:
+
+Estimated Taxes Due: $0
+
+Current issue:
+When the user clicks into a Sell Your Home property detailed view, Estimated Taxes Due does not appear there.
+
+Requested change:
+Add the same Estimated Taxes Due field to the detailed Sell Your Home view in two places:
+
+1. Top right summary area
+Under the top right tab/card where it currently shows Estimated Net Proceeds, add:
+
+Estimated Taxes Due: $0
+
+2. Net Proceeds Breakdown section
+In the section where it says Net Proceeds Breakdown, add Estimated Taxes Due as a line item.
+
+Scope:
+Dashboard → Sell Your Home → click into individual home detailed view
+
+Display requirements:
+- Use the same placeholder value from the overview: `$0`
+- Label: “Estimated Taxes Due”
+- Place it under or near “Estimated Net Proceeds” in the top right summary card
+- Also show it inside the Net Proceeds Breakdown
+- Styling should match the existing breakdown line items
+
+Important:
+- This is still a placeholder only.
+- Do not calculate taxes yet.
+- Do not subtract Estimated Taxes Due from Net Proceeds yet.
+- Do not change the Net Proceeds calculation.
+- Do not change Market Analysis logic.
+- Do not change Seller status logic.
+- Do not change Supabase schema.
+- No SQL should be needed.
+
+Net Proceeds Breakdown:
+Add a new line item similar to the existing costs.
+
+Example:
+
+Estimated Sale Price: $XXX,XXX
+Mortgage Payoff: -$XX,XXX
+Realtor Commission: -$XX,XXX
+Seller Closing Costs: -$XX,XXX
+Buyer Concessions: -$XX,XXX
+Post Inspection Credits / Repair Costs: -$XX,XXX
+Other Selling Costs: -$XX,XXX
+Estimated Taxes Due: $0
+Estimated Net Proceeds: $XXX,XXX
+
+For now, Estimated Taxes Due should be display-only and should not affect the final Estimated Net Proceeds number.
+
+Data source:
+Use the same value shown on the overview tab.
+For now this can be hardcoded as `0`, but keep it easy to replace with a future calculation.
+
+Suggested helper:
+If useful, create a simple placeholder/helper:
+
+`getEstimatedSellerTaxesDue(sellerScenario)`
+
+Return:
+`0`
+
+Use this helper in both:
+- Sell Your Home overview card
+- Sell Your Home detailed view
+
+This will make the future calculation easier to plug in later.
+
+Acceptance test:
+1. Go to Dashboard → Sell Your Home.
+2. Confirm overview card shows Estimated Taxes Due: $0.
+3. Click into a home.
+4. Confirm the top right summary area under Estimated Net Proceeds shows Estimated Taxes Due: $0.
+5. Scroll to Net Proceeds Breakdown.
+6. Confirm Estimated Taxes Due appears as a line item.
+7. Confirm Estimated Net Proceeds did not change.
+8. Confirm Market Analysis did not change.
+9. Confirm refresh/logout/login does not break the display.
+10. Confirm mobile layout still looks clean.
+
+Please make the smallest safe code change possible and tell me:
+- Which Sell Your Home detailed view component was changed
+- Where Estimated Taxes Due was added in the top right summary
+- Where Estimated Taxes Due was added in Net Proceeds Breakdown
+- Confirmation it is still display-only and `$0`
+- Confirmation Net Proceeds calculation was not changed
+- Confirmation no SQL migration was needed
+- Which files/functions were changed
+```

@@ -53,6 +53,7 @@ import {
 } from "@/components/refi/loan-tracker";
 import { calculateRefinance, calculateMonthlyPayment, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
 import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-refinance";
+import { getEstimatedSellerTaxesDue } from "@/lib/seller-taxes";
 import {
   ensureInsuranceForAddresses,
   type BulkAddress,
@@ -2352,7 +2353,7 @@ function SellersTab() {
                     {/* Display-only placeholder — always $0 for now; real tax calc to come later. */}
                     <div>
                       <p className="text-xs text-muted-foreground">Estimated Taxes Due</p>
-                      <p className="font-semibold">$0</p>
+                      <p className="font-semibold">{fmtMoneyOrDash(getEstimatedSellerTaxesDue(s))}</p>
                     </div>
                   </div>
 

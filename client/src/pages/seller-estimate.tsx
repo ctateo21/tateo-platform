@@ -27,6 +27,7 @@ import {
 import { normalizePropertyKey } from "@/lib/property-key";
 import { posthog } from "@/lib/posthog";
 import { applySellerSalePriceToRefinance } from "@/lib/refinance-from-seller";
+import { getEstimatedSellerTaxesDue } from "@/lib/seller-taxes";
 import { apiRequest } from "@/lib/queryClient";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -672,6 +673,11 @@ export default function SellerEstimatePage() {
               <p className="text-xs text-muted-foreground mt-2">
                 After mortgage payoff, agent commission, closing costs, concessions, and repairs.
               </p>
+              {/* Display-only placeholder — does not affect Net Proceeds yet. */}
+              <div className="flex items-baseline justify-between gap-3 mt-3 pt-3 border-t">
+                <span className="text-sm font-medium text-muted-foreground">Estimated Taxes Due</span>
+                <span className="text-sm font-semibold">{formatCurrency(getEstimatedSellerTaxesDue(scenario))}</span>
+              </div>
             </CardContent>
           </Card>
           </div>
@@ -773,6 +779,8 @@ export default function SellerEstimatePage() {
                   <Row label="Buyer Concessions"      value={`− ${formatCurrency(scenario.buyerConcessions ?? 0)}`} />
                   <Row label="Post Inspection Credits / Repair Costs" value={`− ${formatCurrency(scenario.repairBudget ?? 0)}`} />
                   <Row label="Other Selling Costs"    value={`− ${formatCurrency(scenario.otherSellingCosts ?? 0)}`} />
+                  {/* Display-only placeholder — not subtracted from Net Proceeds yet. */}
+                  <Row label="Estimated Taxes Due"    value={formatCurrency(getEstimatedSellerTaxesDue(scenario))} />
                   <div className="flex items-center justify-between py-2 font-semibold">
                     <span>Estimated Net Proceeds</span>
                     <span className={net >= 0 ? "text-green-700" : "text-destructive"}>
