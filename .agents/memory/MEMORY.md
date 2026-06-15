@@ -3,3 +3,4 @@
 - [Transactional emails & scenario-save hook](transactional-emails.md) — Resend best-effort senders (skip without RESEND_API_KEY/ALERT_FROM_EMAIL); scenarios save client-side, notify-new-scenario is the only server save hook.
 - [Havo Pro paywall & trial](havo-paywall.md) — $20/mo, Stripe Managed Payments (preview API, no SDK/webhooks), 7-day trial, one free anonymous home; gating is client-side by design.
 - [Seller mortgage payoff resolution](seller-mortgage-payoff.md) — priority manual>statement>refinance>amortized>existing>zero; manual/statement never auto-overwritten (double-guarded).
+- [Seller net-proceeds shared helper](seller-net-proceeds-helper.md) — detail view, dashboard overview, and save handler must all use seller-net-proceeds.ts; gate "—" on hasSalePrice to avoid drift.

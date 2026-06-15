@@ -692,6 +692,10 @@ export default function SellerEstimatePage() {
   const commissionDollars = proceeds.realtorCommission;
   const closingDollars = proceeds.sellerClosingCosts;
   const net = proceeds.estimatedNetProceeds;
+  // When there's no sale price yet, the dashboard overview shows "—" for
+  // closing costs and net proceeds; mirror that here so the two surfaces
+  // stay identical instead of the detail view showing $0 / a negative.
+  const hasSalePrice = proceeds.hasSalePrice;
 
   // ── Estimated capital-gains tax estimate (drives the tax card, the
   //    top-right KPI, the breakdown line, and the net-proceeds subtraction). ──
@@ -950,11 +954,13 @@ export default function SellerEstimatePage() {
             </CardHeader>
             <CardContent>
               <div className="flex items-baseline justify-between gap-3 flex-wrap">
-                <div className={`text-4xl font-bold ${net >= 0 ? "text-green-700" : "text-destructive"}`}>
-                  {formatCurrency(net)}
+                <div className={`text-4xl font-bold ${!hasSalePrice ? "text-muted-foreground" : net >= 0 ? "text-green-700" : "text-destructive"}`}>
+                  {hasSalePrice ? formatCurrency(net) : "—"}
                 </div>
                 <Badge variant="outline" className="text-xs">
-                  Sale {formatCurrency(sale)} − Costs {formatCurrency(sale - net)}
+                  {hasSalePrice
+                    ? `Sale ${formatCurrency(sale)} − Costs ${formatCurrency(sale - net)}`
+                    : "Add an estimated sale price"}
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
@@ -1125,7 +1131,7 @@ export default function SellerEstimatePage() {
                   <Row label="Estimated Sale Price"   value={formatCurrency(sale)} positive />
                   <Row label="Mortgage Payoff"        value={`− ${formatCurrency(scenario.mortgagePayoff ?? 0)}`} />
                   <Row label={`Realtor Commission (${commissionPct.toFixed(1)}%)`} value={`− ${formatCurrency(commissionDollars)}`} />
-                  <Row label={`Seller Closing Costs (${closingPct.toFixed(2)}%)`} value={`− ${formatCurrency(closingDollars)}`} />
+                  <Row label={`Seller Closing Costs (${closingPct.toFixed(2)}%)`} value={hasSalePrice ? `− ${formatCurrency(closingDollars)}` : "—"} />
                   <Row label="Buyer Concessions"      value={`− ${formatCurrency(scenario.buyerConcessions ?? 0)}`} />
                   <Row label="Post Inspection Credits / Repair Costs" value={`− ${formatCurrency(scenario.repairBudget ?? 0)}`} />
                   <Row label="Other Selling Costs"    value={`− ${formatCurrency(scenario.otherSellingCosts ?? 0)}`} />
@@ -1133,8 +1139,8 @@ export default function SellerEstimatePage() {
                   <Row label="Estimated Taxes Due"    value={`− ${formatCurrency(taxEstimate.estimatedTaxesDue)}`} />
                   <div className="flex items-center justify-between py-2 font-semibold">
                     <span>Estimated Net Proceeds</span>
-                    <span className={net >= 0 ? "text-green-700" : "text-destructive"}>
-                      {formatCurrency(net)}
+                    <span className={!hasSalePrice ? "text-muted-foreground" : net >= 0 ? "text-green-700" : "text-destructive"}>
+                      {hasSalePrice ? formatCurrency(net) : "—"}
                     </span>
                   </div>
                 </dl>

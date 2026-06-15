@@ -1,0 +1,143 @@
+Copy/paste this into Replit:
+
+````text id="website-link-preview-front-facing-logo"
+Update the website’s front-facing/share-preview logo so whenever any website link is sent to a user, the preview image uses the lowercase “h” logo with the tagline:
+
+“One home journey.
+Everyone together.”
+
+Reference:
+Use the top-right logo from the uploaded brand board image:
+- lowercase “h” icon
+- tagline beneath it:
+  “One home journey.
+   Everyone together.”
+- clean lavender/light background
+- minimal, centered brand-preview style
+
+Goal:
+When someone shares any link from the website by text, email, iMessage, social media, Slack, etc., the link preview should show this front-facing logo image instead of the current/default image.
+
+Scope:
+Update website metadata for:
+- homepage
+- dashboard public/share pages
+- service pages
+- scenario/share links
+- any route that can be sent to a user
+
+This is specifically for:
+- Open Graph preview image
+- Twitter/X card image
+- browser/social unfurl image
+- default site preview image
+
+Implementation requirements:
+
+1. Create a clean preview image asset
+Use the top-right logo concept from the brand board:
+- lowercase “h” icon
+- tagline: “One home journey. Everyone together.”
+- recommended size: 1200 x 630 px
+- file name suggestion:
+  `/public/og-image.png`
+  or
+  `/public/havo-share-preview.png`
+
+If extracting from the uploaded image is not practical, recreate it as a clean static asset matching the top-right logo style.
+
+2. Update global metadata
+Add/update the site-wide metadata so link previews use this image.
+
+Include:
+
+```html
+<meta property="og:image" content="https://YOUR_DOMAIN.com/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:type" content="website" />
+
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="https://YOUR_DOMAIN.com/og-image.png" />
+````
+
+Use the actual deployed domain/environment variable if available.
+Do not hardcode localhost.
+
+3. Update title/description if needed
+   Use clean site-wide defaults:
+
+Title:
+“Havo | Every Step Home”
+
+Description:
+“One home journey. Everyone together.”
+
+If the app is still Tateo branded, use the current app name where appropriate, but the image should use the lowercase h logo/tagline from the reference.
+
+4. Apply to route-level metadata too
+   If the app has dynamic share/scenario pages, make sure those routes also use the same default Open Graph image unless they already have a specific property image.
+
+For example:
+
+* shared estimate links
+* saved scenario links
+* public property links
+* dashboard invite/share links
+
+If route-specific OG metadata exists, update the fallback/default image there too.
+
+5. Make sure the image URL is absolute
+   Social/link previews usually require an absolute URL.
+
+Use:
+
+* deployed domain from env if available
+* `VITE_PUBLIC_SITE_URL`
+* `PUBLIC_SITE_URL`
+* or existing site URL config
+
+Example:
+`${PUBLIC_SITE_URL}/og-image.png`
+
+6. Cache-busting
+   Because link previews cache aggressively, use a new file name or version if needed.
+
+Example:
+`/havo-og-v1.png`
+
+If existing previews are cached, tell me which URL to test and whether cache refresh tools are needed.
+
+7. Do not break
+   Do not break:
+
+* current routing
+* dashboard
+* share links
+* authentication
+* SEO title/description
+* favicon
+* existing logo inside the app header unless separately needed
+
+8. Acceptance test
+   After implementation:
+
+* Share the homepage URL by text/iMessage
+* Confirm the preview image shows the lowercase “h” logo and tagline
+* Share a scenario/share link
+* Confirm the same preview image appears
+* Test with Open Graph/Twitter preview debugger if possible
+* Confirm no broken image URLs
+* Confirm metadata uses the deployed public URL, not localhost
+
+Please make the smallest safe code change possible and tell me:
+
+* Which image asset was created
+* Where it was saved
+* Which metadata files/components were changed
+* Whether route-level share metadata was updated
+* What absolute URL is being used for `og:image`
+* How to test the link preview
+
+```
+```
