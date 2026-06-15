@@ -22,12 +22,14 @@ import { useAuth } from "@/context/auth-context";
 import {
   getSellerScenarios, saveSellerScenarios, isAuthHydrated, subscribeAuthChange,
   getTrackedLoans, saveTrackedLoans,
-  type SellerScenario, type SellerScenarioStatus,
+  type SellerScenario, type SellerScenarioStatus, type SellerFilingStatus,
 } from "@/lib/auth";
 import { normalizePropertyKey } from "@/lib/property-key";
 import { posthog } from "@/lib/posthog";
 import { applySellerSalePriceToRefinance } from "@/lib/refinance-from-seller";
-import { getEstimatedSellerTaxesDue } from "@/lib/seller-taxes";
+import { getEstimatedSellerTaxesDue, estimateSellerTaxes } from "@/lib/seller-taxes";
+import { Checkbox } from "@/components/ui/checkbox";
+import { CheckCircle2, ExternalLink as ExternalLinkIcon } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -61,10 +63,15 @@ const STATUS_OPTIONS: { value: SellerScenarioStatus; label: string }[] = [
 
 function netProceedsOf(s: Pick<SellerScenario,
   "estimatedSalePrice" | "mortgagePayoff" | "sellerClosingCosts" |
-  "realtorCommissionPct" | "buyerConcessions" | "repairBudget" | "otherSellingCosts"
+  "realtorCommissionPct" | "buyerConcessions" | "repairBudget" | "otherSellingCosts" |
+  "priorPurchasePrice" | "capitalImprovements" | "primaryResidence2of5" |
+  "filingStatus" | "assume1031Exchange"
 >): number {
   const sale = s.estimatedSalePrice ?? 0;
   const commission = sale * ((s.realtorCommissionPct ?? 0) / 100);
+  // Estimated capital-gains taxes are now a selling cost subtracted from
+  // net proceeds (computed from the same scenario inputs).
+  const taxes = getEstimatedSellerTaxesDue(s);
   return Math.round(
     sale -
     (s.mortgagePayoff ?? 0) -
@@ -72,7 +79,8 @@ function netProceedsOf(s: Pick<SellerScenario,
     commission -
     (s.buyerConcessions ?? 0) -
     (s.repairBudget ?? 0) -
-    (s.otherSellingCosts ?? 0)
+    (s.otherSellingCosts ?? 0) -
+    taxes
   );
 }
 
@@ -265,7 +273,10 @@ export default function SellerEstimatePage() {
 
     const hasPrice = scenario.estimatedSalePrice != null && scenario.estimatedSalePrice > 0;
     const hasPhoto = !!scenario.primaryPhotoUrl;
-    if (hasPrice && hasPhoto) {
+    // Prior purchase price (tax cost basis) is also resolved from the scrape,
+    // so only skip when sale price AND photo AND a basis are all present.
+    const hasPriorPrice = scenario.priorPurchasePrice != null && scenario.priorPurchasePrice > 0;
+    if (hasPrice && hasPhoto && hasPriorPrice) {
       // Nothing meaningful left to fetch.
       return;
     }
@@ -289,11 +300,51 @@ export default function SellerEstimatePage() {
           null;
         const photos = Array.isArray(p.photos) ? p.photos.filter((x: any) => typeof x === "string") : [];
 
+        // ── Resolve PRIOR purchase price (cost basis) from the scrape. ──
+        // Only use a real recorded sale — soldPrice, else the MOST RECENT
+        // "Sold" event in priceHistory. NEVER the Zestimate or list price.
+        const soldEvents = Array.isArray(p.priceHistory)
+          ? p.priceHistory.filter(
+              (h: any) =>
+                typeof h?.price === "number" &&
+                h.price > 0 &&
+                typeof h?.event === "string" &&
+                /sold/i.test(h.event),
+            )
+          : [];
+        // Sort newest-first by parsed date so we pick the latest sale, not the
+        // first one Zillow happened to list. Undated events sink to the bottom.
+        soldEvents.sort((a: any, b: any) => {
+          const da = a?.date ? Date.parse(a.date) : NaN;
+          const db = b?.date ? Date.parse(b.date) : NaN;
+          const va = Number.isNaN(da) ? -Infinity : da;
+          const vb = Number.isNaN(db) ? -Infinity : db;
+          return vb - va;
+        });
+        const historySold = soldEvents[0] ?? null;
+        const zPriorPurchase =
+          (typeof p.soldPrice === "number" && p.soldPrice > 0 && p.soldPrice) ||
+          (historySold ? historySold.price : null) ||
+          null;
+        console.debug("[seller-tax] address", scenario.address);
+        console.debug("[seller-tax] normalized property key", scenario.normalizedPropertyKey ?? null);
+        console.debug("[seller-tax] zillow prior purchase price raw", zPriorPurchase);
+
         setScenario(prev => {
           // Only fill fields the user hasn't already set.
           const next: SellerScenario = { ...prev };
           if ((next.estimatedSalePrice == null || next.estimatedSalePrice === 0) && zPrice != null) {
             next.estimatedSalePrice = Math.round(zPrice);
+          }
+          // Prior purchase price: fill from Zillow only when the user hasn't
+          // manually entered one. A "manual" source is never overwritten.
+          if (next.priorPurchasePriceSource === "manual") {
+            console.debug("[seller-tax] skipped prior purchase price because manual");
+          } else if (zPriorPurchase != null && (next.priorPurchasePrice == null || next.priorPurchasePrice <= 0)) {
+            next.priorPurchasePrice = Math.round(zPriorPurchase);
+            next.priorPurchasePriceSource = "zillow";
+            console.debug("[seller-tax] resolved prior purchase price", next.priorPurchasePrice);
+            console.debug("[seller-tax] prior purchase price source", "zillow");
           }
           if (!next.primaryPhotoUrl && photos[0]) {
             next.primaryPhotoUrl = photos[0];
@@ -348,6 +399,7 @@ export default function SellerEstimatePage() {
           ...scenario,
           updatedAt: new Date().toISOString(),
           netProceeds: netProceedsOf(scenario),
+          estimatedTaxesDue: getEstimatedSellerTaxesDue(scenario),
         };
         const idx = all.findIndex(s => s.id === stamped.id);
         const next = idx >= 0
@@ -414,6 +466,25 @@ export default function SellerEstimatePage() {
     });
   }
 
+  // ── Estimated-tax input handlers ──
+  // Most just set a field via update(); the prior purchase price additionally
+  // stamps its source "manual" so a later Zillow resolve never clobbers it.
+  function setPrimaryResidence(v: boolean) { update("primaryResidence2of5", v); }
+  function setFilingStatus(v: SellerFilingStatus) { update("filingStatus", v); }
+  function setAssume1031(v: boolean) { update("assume1031Exchange", v); }
+  function setCapitalImprovements(v: number) {
+    update("capitalImprovements", Math.max(0, Math.round(v)));
+  }
+  function setPriorPurchasePrice(v: number) {
+    setScenario(prev => ({
+      ...prev,
+      priorPurchasePrice: Math.max(0, Math.round(v)),
+      priorPurchasePriceSource: "manual",
+      updatedAt: new Date().toISOString(),
+    }));
+    console.debug("[seller-tax] prior purchase price source", "manual");
+  }
+
   // Move the seller-closing-costs percent slider. Stamps source as
   // "percent_manual" so the refinance auto-sync preserves the user's
   // chosen percent on future statement uploads.
@@ -461,6 +532,31 @@ export default function SellerEstimatePage() {
     ? (scenario.sellerClosingCosts ?? 0)
     : Math.round(sale * (closingPct / 100));
   const net = netProceedsOf({ ...scenario, sellerClosingCosts: closingDollars });
+
+  // ── Estimated capital-gains tax estimate (drives the tax card, the
+  //    top-right KPI, the breakdown line, and the net-proceeds subtraction). ──
+  const taxEstimate = estimateSellerTaxes(scenario);
+  const primaryResidence = scenario.primaryResidence2of5 ?? null;
+  const priorPrice = scenario.priorPurchasePrice ?? null;
+  const capImprovements = scenario.capitalImprovements ?? 0;
+  // Slider max: at least $250k, or the sale price when it's larger.
+  const capImprovementsMax = Math.max(250_000, Math.round(sale || 0));
+  useEffect(() => {
+    console.debug("[seller-tax] primary residence 2 of 5", primaryResidence);
+    console.debug("[seller-tax] filing status", scenario.filingStatus ?? null);
+    console.debug("[seller-tax] assume 1031", scenario.assume1031Exchange ?? false);
+    console.debug("[seller-tax] capital improvements", capImprovements);
+    console.debug("[seller-tax] estimated sale price", sale);
+    console.debug("[seller-tax] resolved prior purchase price", priorPrice);
+    console.debug("[seller-tax] prior purchase price source", scenario.priorPurchasePriceSource ?? "unknown");
+    console.debug("[seller-tax] adjusted cost basis", taxEstimate.adjustedCostBasis);
+    console.debug("[seller-tax] gross estimated gain", taxEstimate.grossEstimatedGain);
+    console.debug("[seller-tax] exclusion amount", taxEstimate.exclusionAmount);
+    console.debug("[seller-tax] taxable gain", taxEstimate.taxableGain);
+    console.debug("[seller-tax] estimated tax rate", taxEstimate.estimatedTaxRate);
+    console.debug("[seller-tax] estimated taxes due", taxEstimate.estimatedTaxesDue);
+    console.debug("[seller-tax-detail] estimated taxes due", taxEstimate.estimatedTaxesDue);
+  }, [primaryResidence, scenario.filingStatus, scenario.assume1031Exchange, capImprovements, sale, priorPrice, scenario.priorPurchasePriceSource, taxEstimate.estimatedTaxesDue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // PostHog: scenario_calculated (seller). Fires once per scenario id the
   // first time the projected sale price is meaningful (> 0).
@@ -646,6 +742,37 @@ export default function SellerEstimatePage() {
                   </Select>
                 </div>
 
+                {/* Primary residence question — drives the capital-gains
+                    exclusion below. Plain-language, Yes/No segmented. */}
+                <div>
+                  <Label className="text-xs text-muted-foreground">
+                    Have you lived here as your main home for at least 2 of the last 5 years?
+                  </Label>
+                  <div className="mt-1 grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant={primaryResidence === true ? "default" : "outline"}
+                      className="h-9"
+                      onClick={() => setPrimaryResidence(true)}
+                      data-testid="button-primary-residence-yes"
+                    >
+                      Yes
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={primaryResidence === false ? "default" : "outline"}
+                      className="h-9"
+                      onClick={() => setPrimaryResidence(false)}
+                      data-testid="button-primary-residence-no"
+                    >
+                      No
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    This decides whether you qualify for the home-sale tax break.
+                  </p>
+                </div>
+
                 {!isAuthenticated && (
                   <div className="flex gap-2 p-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-xs">
                     <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
@@ -671,13 +798,22 @@ export default function SellerEstimatePage() {
                 </Badge>
               </div>
               <p className="text-xs text-muted-foreground mt-2">
-                After mortgage payoff, agent commission, closing costs, concessions, and repairs.
+                After mortgage payoff, agent commission, closing costs, concessions, repairs, and estimated taxes.
               </p>
-              {/* Display-only placeholder — does not affect Net Proceeds yet. */}
+              {/* Estimated capital-gains taxes — now subtracted from Net Proceeds. */}
               <div className="flex items-baseline justify-between gap-3 mt-3 pt-3 border-t">
                 <span className="text-sm font-medium text-muted-foreground">Estimated Taxes Due</span>
-                <span className="text-sm font-semibold">{formatCurrency(getEstimatedSellerTaxesDue(scenario))}</span>
+                <span className="text-sm font-semibold">{formatCurrency(taxEstimate.estimatedTaxesDue)}</span>
               </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {taxEstimate.status === "needs_prior_purchase_price"
+                  ? "Add your previous purchase price below for a tax estimate."
+                  : taxEstimate.status === "needs_primary_residence_answer"
+                    ? "Answer the main-home question above for a tax estimate."
+                    : taxEstimate.estimatedTaxesDue <= 0
+                      ? "No capital-gains tax expected on this sale."
+                      : "See the Estimated Taxes section below for details."}
+              </p>
             </CardContent>
           </Card>
           </div>
@@ -700,6 +836,34 @@ export default function SellerEstimatePage() {
                   step={1000}
                   prefix="$"
                 />
+                <NumRow
+                  label="Previous Purchase Price"
+                  hint={
+                    scenario.priorPurchasePriceSource === "manual"
+                      ? "What you originally paid for the home. Used to estimate your gain."
+                      : scenario.priorPurchasePriceSource === "zillow" && priorPrice != null
+                        ? "Pulled from property data — edit if it's not right."
+                        : "What you originally paid for the home. Used to estimate your gain."
+                  }
+                  value={priorPrice ?? 0}
+                  onChange={setPriorPurchasePrice}
+                  min={0}
+                  max={sliderMax}
+                  step={1000}
+                  prefix="$"
+                />
+                {primaryResidence === true && (
+                  <NumRow
+                    label="Capital Improvements"
+                    hint="Big upgrades that add value (remodels, additions). Lowers your taxable gain."
+                    value={capImprovements}
+                    onChange={setCapitalImprovements}
+                    min={0}
+                    max={capImprovementsMax}
+                    step={1000}
+                    prefix="$"
+                  />
+                )}
                 <NumRow
                   label="Mortgage Payoff Balance"
                   hint="What you still owe on the home today."
@@ -779,8 +943,8 @@ export default function SellerEstimatePage() {
                   <Row label="Buyer Concessions"      value={`− ${formatCurrency(scenario.buyerConcessions ?? 0)}`} />
                   <Row label="Post Inspection Credits / Repair Costs" value={`− ${formatCurrency(scenario.repairBudget ?? 0)}`} />
                   <Row label="Other Selling Costs"    value={`− ${formatCurrency(scenario.otherSellingCosts ?? 0)}`} />
-                  {/* Display-only placeholder — not subtracted from Net Proceeds yet. */}
-                  <Row label="Estimated Taxes Due"    value={formatCurrency(getEstimatedSellerTaxesDue(scenario))} />
+                  {/* Estimated capital-gains taxes — subtracted from Net Proceeds. */}
+                  <Row label="Estimated Taxes Due"    value={`− ${formatCurrency(taxEstimate.estimatedTaxesDue)}`} />
                   <div className="flex items-center justify-between py-2 font-semibold">
                     <span>Estimated Net Proceeds</span>
                     <span className={net >= 0 ? "text-green-700" : "text-destructive"}>
@@ -791,6 +955,178 @@ export default function SellerEstimatePage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Estimated Taxes — full width below Row 1 + Row 2. Drives the
+              KPI + breakdown line above; estimate only, never tax advice. */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Estimated Capital-Gains Taxes</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {primaryResidence === null && (
+                <div className="flex gap-2 p-3 rounded-md bg-muted text-sm text-muted-foreground">
+                  <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>
+                    Answer the main-home question (top left) and add your previous
+                    purchase price to see an estimate.
+                  </span>
+                </div>
+              )}
+
+              {/* Primary residence path — filing status drives the exclusion. */}
+              {primaryResidence === true && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">How do you file your taxes?</Label>
+                  <div className="grid grid-cols-2 gap-2 max-w-xs">
+                    <Button
+                      type="button"
+                      variant={scenario.filingStatus === "single" ? "default" : "outline"}
+                      className="h-9"
+                      onClick={() => setFilingStatus("single")}
+                      data-testid="button-filing-single"
+                    >
+                      Single
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={scenario.filingStatus === "married" ? "default" : "outline"}
+                      className="h-9"
+                      onClick={() => setFilingStatus("married")}
+                      data-testid="button-filing-married"
+                    >
+                      Married
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    The IRS lets most people exclude up to{" "}
+                    <span className="font-medium">$250,000</span> of gain (single) or{" "}
+                    <span className="font-medium">$500,000</span> (married filing jointly)
+                    on the sale of a main home you've owned and lived in for at least
+                    2 of the last 5 years.
+                  </p>
+                  <div className="flex flex-wrap gap-3 text-xs">
+                    <a
+                      href="https://www.irs.gov/taxtopics/tc701"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      IRS Topic 701: Sale of your home <ExternalLinkIcon className="h-3 w-3" />
+                    </a>
+                    <a
+                      href="https://www.irs.gov/taxtopics/tc409"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-primary hover:underline"
+                    >
+                      IRS Topic 409: Capital gains and losses <ExternalLinkIcon className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* Non-primary path — optional 1031 exchange. */}
+              {primaryResidence === false && (
+                <div className="space-y-2">
+                  <p className="text-xs text-muted-foreground">
+                    Because this isn't your main home, the home-sale exclusion doesn't
+                    apply and the whole gain may be taxable. If you plan to reinvest the
+                    proceeds into another investment property, a{" "}
+                    <span className="font-medium">1031 exchange</span> may let you defer
+                    the tax.
+                  </p>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <Checkbox
+                      checked={scenario.assume1031Exchange === true}
+                      onCheckedChange={c => setAssume1031(c === true)}
+                      className="mt-0.5"
+                      data-testid="checkbox-assume-1031"
+                    />
+                    <span className="text-sm">
+                      Estimate assuming a qualifying 1031 exchange (defers the gain)
+                    </span>
+                  </label>
+                  <a
+                    href="https://www.irs.gov/businesses/small-businesses-self-employed/like-kind-exchanges-real-estate-tax-tips"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    IRS: Like-kind (1031) exchanges <ExternalLinkIcon className="h-3 w-3" />
+                  </a>
+                </div>
+              )}
+
+              {/* Result — green/red checklist + the estimated number. */}
+              {primaryResidence !== null && (
+                <div className="rounded-lg border p-4 space-y-3">
+                  {taxEstimate.status === "needs_prior_purchase_price" ? (
+                    <div className="flex gap-2 text-sm text-muted-foreground">
+                      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                      <span>Add your previous purchase price above to estimate taxes.</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="space-y-1.5 text-sm">
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span>Adjusted cost basis</span>
+                          <span className="font-medium text-foreground">{formatCurrency(taxEstimate.adjustedCostBasis)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span>Estimated gain</span>
+                          <span className="font-medium text-foreground">{formatCurrency(taxEstimate.grossEstimatedGain)}</span>
+                        </div>
+                        {taxEstimate.exclusionAmount > 0 && (
+                          <div className="flex items-center justify-between text-muted-foreground">
+                            <span>Exclusion applied</span>
+                            <span className="font-medium text-foreground">− {formatCurrency(taxEstimate.excludedGain)}</span>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between text-muted-foreground">
+                          <span>Potential taxable gain</span>
+                          <span className="font-medium text-foreground">{formatCurrency(taxEstimate.taxableGain)}</span>
+                        </div>
+                      </div>
+                      {taxEstimate.checklistItems.length > 0 && (
+                        <ul className="space-y-1.5">
+                          {taxEstimate.checklistItems.map((item, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm">
+                              {item.tone === "green" ? (
+                                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                              ) : item.tone === "red" ? (
+                                <AlertCircle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+                              ) : (
+                                <AlertCircle className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
+                              )}
+                              <span>{item.text}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="flex items-baseline justify-between pt-3 border-t">
+                        <span className="text-sm font-medium">Estimated Taxes Due</span>
+                        <span className={`text-2xl font-bold ${taxEstimate.estimatedTaxesDue > 0 ? "text-destructive" : "text-green-700"}`}>
+                          {formatCurrency(taxEstimate.estimatedTaxesDue)}
+                        </span>
+                      </div>
+                      {taxEstimate.estimatedTaxesDue > 0 && (
+                        <p className="text-[11px] text-muted-foreground">
+                          Estimated at a {Math.round(taxEstimate.estimatedTaxRate * 100)}% long-term
+                          capital-gains rate. Your actual rate depends on your income.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                This is a simplified estimate for planning only — not tax advice. It
+                doesn't account for your income, state taxes, depreciation, or other
+                details. Talk to a qualified tax professional before making decisions.
+              </p>
+            </CardContent>
+          </Card>
 
           {/* Market Analysis — full width below Row 1 + Row 2.
               Lazy-loads on mount; the backend decides cache-vs-regenerate

@@ -2128,7 +2128,8 @@ function computeSellerNetProceeds(s: SellerScenario): number | null {
     commission -
     (s.buyerConcessions ?? 0) -
     (s.repairBudget ?? 0) -
-    (s.otherSellingCosts ?? 0);
+    (s.otherSellingCosts ?? 0) -
+    getEstimatedSellerTaxesDue(s);
   return Math.round(total);
 }
 
@@ -2350,10 +2351,14 @@ function SellersTab() {
                         {fmtMoneyOrDash(net)}
                       </p>
                     </div>
-                    {/* Display-only placeholder — always $0 for now; real tax calc to come later. */}
+                    {/* Estimated capital-gains taxes — now subtracted from Net Proceeds. */}
                     <div>
                       <p className="text-xs text-muted-foreground">Estimated Taxes Due</p>
-                      <p className="font-semibold">{fmtMoneyOrDash(getEstimatedSellerTaxesDue(s))}</p>
+                      <p className="font-semibold">
+                        {s.priorPurchasePrice == null || s.priorPurchasePrice <= 0 || s.primaryResidence2of5 == null
+                          ? "—"
+                          : fmtMoneyOrDash(getEstimatedSellerTaxesDue(s))}
+                      </p>
                     </div>
                   </div>
 

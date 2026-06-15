@@ -219,6 +219,24 @@ alter table public.seller_scenarios
 alter table public.seller_scenarios
   add column if not exists seller_closing_costs_percent numeric default 1.85;
 
+-- Estimated capital-gains tax inputs + result. Additive; see
+-- supabase/migrations/2026_06_15_seller_capital_gains_tax.sql.
+--   primary_residence_2_of_5  : true | false | null (unanswered)
+--   filing_status             : 'single' | 'married' | null
+--   assume_1031_exchange      : run numbers assuming a qualifying 1031 exchange
+--   capital_improvements      : added to cost basis (reduces taxable gain)
+--   prior_purchase_price      : basis source (Zillow/cache or manual)
+--   prior_purchase_price_source: 'zillow' | 'property_cache' | 'manual' | 'unknown'
+--   estimated_taxes_due       : derived snapshot (UI always recomputes)
+alter table public.seller_scenarios
+  add column if not exists primary_residence_2_of_5    boolean,
+  add column if not exists filing_status               text,
+  add column if not exists assume_1031_exchange         boolean default false,
+  add column if not exists capital_improvements         numeric default 0,
+  add column if not exists prior_purchase_price         numeric,
+  add column if not exists prior_purchase_price_source  text,
+  add column if not exists estimated_taxes_due          numeric default 0;
+
 alter table public.seller_scenarios enable row level security;
 drop policy if exists "seller_scenarios_owner" on public.seller_scenarios;
 create policy "seller_scenarios_owner" on public.seller_scenarios

@@ -1,0 +1,813 @@
+IRS guidance supports the core flow: primary-home gain exclusions may be up to $250,000 for an individual or $500,000 for married filing jointly, capital-gains rates depend on income, and 1031 exchanges generally defer gain recognition for qualifying investment/business real property. Use user-facing wording like “may qualify” and include a tax-professional disclaimer. ([IRS][1])
+
+Copy/paste this into Replit:
+
+```text id="seller-tax-estimate-primary-residence-1031-capital-improvements"
+Build the Sell Your Home estimated tax logic and UI.
+
+This is a connected feature. The inputs, Zillow purchase price, primary residence question, 1031 election, capital improvements, overview Estimated Taxes Due, detailed summary, and Net Proceeds Breakdown all need to work together.
+
+Goal:
+On the Sell Your Home tab, add a seller tax estimate flow that calculates Estimated Taxes Due based on:
+- whether the home was a primary residence for 2 of the last 5 years
+- whether the seller is single or married
+- the prior purchase price pulled from Zillow/property scraper/cache
+- the current estimated sale price
+- capital improvements entered by the user
+- whether a non-primary/investment seller wants to assume a 1031 exchange
+- placeholder 20% estimated federal long-term capital gains tax on taxable gain
+
+Important:
+This is an estimate only.
+Do not present this as tax advice.
+Use careful wording: “may qualify,” “estimated,” “potential taxable gain,” and “consult a tax professional.”
+
+Scope:
+Dashboard → Sell Your Home tab
+- Overview rows/cards
+- Detailed home view
+- Sale & Costs tab
+- Top right detailed summary card
+- Net Proceeds Breakdown section
+
+Existing state:
+The Sell Your Home overview currently has:
+- Net Proceeds
+- Estimated Taxes Due placeholder at $0
+
+Now replace the $0 placeholder with the actual calculated Estimated Taxes Due.
+
+Do not remove the placeholder structure. Upgrade it into a real calculation.
+
+PART 1 — Add question under status dropdown
+
+Location:
+Sell Your Home detailed view, near the top of the page.
+
+Under the status dropdown/status bar, add this question:
+
+“Was this a primary residence 2 of the last 5 years?”
+
+Answer options:
+- Yes
+- No
+
+Use a clean radio-button or segmented-button UI.
+
+Field:
+`primary_residence_2_of_5`
+
+Accepted values:
+- true
+- false
+- null
+
+Autosave:
+When the user selects Yes or No, autosave the answer to the seller scenario.
+
+PART 2 — If Yes, ask married or single
+
+If `primary_residence_2_of_5 = true`, show a follow-up question:
+
+“Are you filing as single or married filing jointly?”
+
+Options:
+- Single
+- Married
+
+Field:
+`filing_status`
+
+Accepted values:
+- single
+- married
+- null
+
+Autosave:
+When the user selects Single or Married, autosave the answer.
+
+User-facing explanation:
+Show a short explanatory card under the filing status question.
+
+Use this wording:
+
+“If this was your primary residence for 2 of the last 5 years, you may qualify to exclude up to $250,000 of capital gain as an individual or up to $500,000 if married filing jointly. This estimate is for planning only and should be reviewed with a tax professional.”
+
+Include a small hyperlink labeled:
+
+“IRS capital gains tax rates”
+
+This should open an official IRS page about capital gains rates in a new tab.
+
+Use this URL:
+https://www.irs.gov/taxtopics/tc409
+
+Also optionally include a second small link labeled:
+
+“IRS sale of home rules”
+
+Use this URL:
+https://www.irs.gov/taxtopics/tc701
+
+Do not overdo the tax explanation. Keep it short and clean.
+
+PART 3 — Pull prior purchase price from Zillow/property scraper/cache
+
+For each Sell Your Home scenario, resolve the prior purchase price for the address from the Zillow-scraped data or property cache.
+
+Field names may vary. Inspect the Zillow/property cache response for fields such as:
+- previous_purchase_price
+- prior_purchase_price
+- last_sold_price
+- last_sale_price
+- lastSoldPrice
+- priceHistory
+- homeFacts
+- zillow_data
+- raw_zillow_data
+- property_cache payload
+
+Priority:
+1. User manually entered prior purchase price if we add/manual field exists
+2. Zillow/property cache prior purchase price / last sold price for exact address
+3. Purchase scenario data for same normalized_property_key if available
+4. Seller scenario existing prior purchase price
+5. Null / unknown
+
+Use:
+- `normalized_property_key`
+- address fallback match
+
+Save resolved value to seller scenario:
+- `prior_purchase_price`
+- `prior_purchase_price_source = "zillow"` or `"property_cache"` if from scraper/cache
+- `prior_purchase_price_source = "manual"` if user manually changes it later
+- `prior_purchase_price_source = "unknown"` if not found
+
+If no prior purchase price is found:
+- show “Purchase price unavailable”
+- allow the user to manually enter prior purchase price
+- do not calculate tax until prior purchase price is available
+- Estimated Taxes Due should show `$0` or “Needs purchase price” depending on the UI area
+- Net Proceeds should not break
+
+Manual prior purchase price:
+Add an editable prior purchase price input somewhere logical in the detailed view, preferably near the tax estimate card or Sale & Costs tab.
+
+Label:
+“Previous Purchase Price”
+
+If Zillow value exists:
+- prefill it
+- show small text: “Pulled from property data”
+- allow user to edit it
+- if edited, mark source manual and do not overwrite with Zillow again
+
+PART 4 — Capital improvements slider/input
+
+Only show capital improvements if:
+`primary_residence_2_of_5 = true`
+
+Location:
+Sell Your Home detailed view → Sale & Costs tab
+
+Add a slider/input for:
+
+“Capital Improvements”
+
+Purpose:
+If the user enters any value, add it on top of their previous purchase price to increase cost basis and reduce estimated taxable gain.
+
+Field:
+`capital_improvements`
+
+Default:
+0
+
+UI:
+- Slider + dollar amount input is preferred
+- Allow direct dollar entry
+- Minimum: $0
+- Maximum: use a reasonable dynamic max:
+  - default max = $250,000
+  - if estimated sale price is high, max can be sale price
+- Step: $1,000 on slider
+- Direct input should allow exact dollars
+
+Autosave:
+When user changes Capital Improvements:
+- save `capital_improvements`
+- mark source manual
+- recalculate tax estimate immediately
+- update overview Estimated Taxes Due
+- update detailed summary Estimated Taxes Due
+- update Net Proceeds Breakdown
+
+Important:
+Only capital improvements should increase basis in this version.
+Do not build a full tax-basis worksheet yet.
+
+PART 5 — If No, show 1031 exchange explanation and checkbox
+
+If `primary_residence_2_of_5 = false`, show a 1031 explanation card.
+
+User-facing explanation:
+Use this wording:
+
+“If this was not your primary residence for 2 of the last 5 years, you may want to review whether a 1031 exchange applies. A 1031 exchange may allow qualifying investment or business real estate owners to defer capital gains taxes when exchanging into another like-kind property. This estimate is for planning only and should be reviewed with a tax professional.”
+
+Add a checkbox:
+
+“Run numbers assuming I complete a 1031 exchange”
+
+Field:
+`assume_1031_exchange`
+
+Accepted values:
+- true
+- false
+
+Default:
+false
+
+Autosave:
+When user checks/unchecks:
+- save immediately
+- recalculate taxes immediately
+
+1031 logic:
+If primary residence answer is No and checkbox is checked:
+- Estimated Taxes Due = $0
+- Taxable Gain = $0
+- show a green checkbox that tax estimate assumes a 1031 exchange
+- show a disclaimer that the exchange must qualify and be handled correctly
+
+If primary residence answer is No and checkbox is not checked:
+- calculate taxable gain based on current sale price vs adjusted basis
+- estimated tax = taxable gain × 20%
+
+IRS 1031 link:
+Add small hyperlink labeled:
+
+“IRS 1031 exchange rules”
+
+Use:
+https://www.irs.gov/businesses/small-businesses-self-employed/like-kind-exchanges-real-estate-tax-tips
+
+Open in new tab.
+
+PART 6 — Tax calculation rules
+
+Create a shared helper.
+
+Suggested helper:
+`calculateSellerEstimatedTaxesDue(input)`
+
+Input:
+- estimatedSalePrice
+- priorPurchasePrice
+- capitalImprovements
+- primaryResidence2Of5
+- filingStatus
+- assume1031Exchange
+- taxRate
+
+Output:
+- adjustedCostBasis
+- grossEstimatedGain
+- exclusionAmount
+- excludedGain
+- taxableGain
+- estimatedTaxRate
+- estimatedTaxesDue
+- status
+- messages
+- checklistItems
+
+Use these constants:
+- SINGLE_EXCLUSION = 250000
+- MARRIED_EXCLUSION = 500000
+- ESTIMATED_CAPITAL_GAINS_TAX_RATE = 0.20
+
+Version 1 calculation:
+```
+
+adjustedCostBasis = priorPurchasePrice + capitalImprovements
+
+grossEstimatedGain = max(0, estimatedSalePrice - adjustedCostBasis)
+
+```
+
+Primary residence Yes:
+```
+
+exclusionAmount = filingStatus === "married" ? 500000 : 250000
+excludedGain = min(grossEstimatedGain, exclusionAmount)
+taxableGain = max(0, grossEstimatedGain - exclusionAmount)
+estimatedTaxesDue = taxableGain * 0.20
+
+```
+
+Primary residence No:
+If assume1031Exchange = true:
+```
+
+exclusionAmount = 0
+excludedGain = 0
+taxableGain = 0
+estimatedTaxesDue = 0
+
+```
+
+If assume1031Exchange = false:
+```
+
+exclusionAmount = 0
+excludedGain = 0
+taxableGain = grossEstimatedGain
+estimatedTaxesDue = taxableGain * 0.20
+
+```
+
+Unknown primary residence answer:
+```
+
+estimatedTaxesDue = 0
+status = "needs_primary_residence_answer"
+
+```
+
+Missing prior purchase price:
+```
+
+estimatedTaxesDue = 0
+status = "needs_prior_purchase_price"
+
+```
+
+No gain:
+If estimatedSalePrice <= adjustedCostBasis:
+```
+
+grossEstimatedGain = 0
+taxableGain = 0
+estimatedTaxesDue = 0
+
+```
+
+Important:
+Do not subtract seller closing costs, commission, concessions, or other sale costs from the gain calculation in this version unless already explicitly built elsewhere. Use the user-requested version:
+current sale price vs what they bought it for, plus capital improvements.
+
+Keep this helper isolated so future tax calculation upgrades are easy.
+
+PART 7 — Green checkbox / red taxable gain UI
+
+In the detailed view tax estimate section, show a visual result.
+
+Primary residence Yes and gain under threshold:
+Example:
+- Filing status: Single
+- Gain: $180,000
+- Exclusion: $250,000
+Result:
+Show green checkbox:
+“Estimated gain is under the $250,000 exclusion.”
+
+Estimated Taxes Due:
+$0
+
+Primary residence Yes and gain over threshold:
+Example:
+- Filing status: Single
+- Gain: $300,000
+- Exclusion: $250,000
+- Taxable gain: $50,000
+Result:
+Show green checkbox:
+“$250,000 may be excluded.”
+
+Show red number:
+“Potential taxable gain: $50,000”
+
+Estimated Taxes Due:
+$10,000
+
+Primary residence Yes and married:
+Use $500,000 instead of $250,000.
+
+Primary residence No and 1031 checked:
+Show green checkbox:
+“Estimated taxes assume a qualifying 1031 exchange.”
+
+Estimated Taxes Due:
+$0
+
+Primary residence No and 1031 not checked:
+Show red taxable gain:
+“Potential taxable gain: $XXX,XXX”
+
+Estimated Taxes Due:
+taxableGain × 20%
+
+Use consistent formatting:
+- green checkbox for excluded/protected/deferred portion
+- red text for taxable gain
+- normal bold text for Estimated Taxes Due
+
+PART 8 — Overview card behavior
+
+Sell Your Home overview row/card should show:
+
+Estimated Taxes Due: $X
+
+This should now use the real helper calculation instead of hardcoded `$0`.
+
+Location:
+Right next to Net Proceeds.
+
+Example:
+Net Proceeds: $210,000
+Estimated Taxes Due: $10,000
+
+If taxes are $0:
+Estimated Taxes Due: $0
+
+If prior purchase price is missing:
+Estimated Taxes Due: Needs purchase price
+or keep `$0` with a small warning icon if that better fits the design.
+
+Keep the overview clean. Do not show the entire tax explanation on overview.
+
+Clicking into the detail view should show the full explanation/calculation.
+
+PART 9 — Detailed top right summary behavior
+
+In the Sell Your Home detailed view, under the top right summary card where it shows Estimated Net Proceeds, add:
+
+Estimated Taxes Due: $X
+
+This should match the overview value.
+
+If Estimated Taxes Due changes because the user changes:
+- primary residence answer
+- filing status
+- 1031 checkbox
+- capital improvements
+- estimated sale price
+- prior purchase price
+
+then the top right value should update immediately.
+
+PART 10 — Net Proceeds Breakdown behavior
+
+In the detailed view Net Proceeds Breakdown section, add Estimated Taxes Due as a line item.
+
+Important:
+Now that we are calculating Estimated Taxes Due, subtract it from Estimated Net Proceeds.
+
+Current/previous placeholder rule said not to subtract. Replace that rule now.
+
+New Net Proceeds calculation should include Estimated Taxes Due as a cost.
+
+Suggested breakdown:
+
+Estimated Sale Price: $XXX,XXX
+Mortgage Payoff: -$XX,XXX
+Realtor Commission: -$XX,XXX
+Seller Closing Costs: -$XX,XXX
+Buyer Concessions: -$XX,XXX
+Post Inspection Credits / Repair Costs: -$XX,XXX
+Other Selling Costs: -$XX,XXX
+Estimated Taxes Due: -$XX,XXX
+Estimated Net Proceeds: $XXX,XXX
+
+Formula:
+```
+
+estimatedNetProceeds =
+estimatedSalePrice
+
+* mortgagePayoff
+* realtorCommission
+* sellerClosingCosts
+* buyerConcessions
+* repairBudget
+* otherSellingCosts
+* estimatedTaxesDue
+
+```
+
+Make sure:
+- Overview Net Proceeds updates
+- Detailed top right Estimated Net Proceeds updates
+- Breakdown total matches the summary
+- Existing inputs still work
+
+PART 11 — Persistence / Supabase schema
+
+Inspect current `seller_scenarios` schema.
+
+If these fields already exist, use them.
+If missing, create one SQL migration before coding.
+
+Suggested new columns:
+```
+
+primary_residence_2_of_5 boolean
+filing_status text
+assume_1031_exchange boolean default false
+capital_improvements numeric default 0
+prior_purchase_price numeric
+prior_purchase_price_source text
+estimated_capital_gain numeric
+capital_gains_exclusion_amount numeric
+estimated_taxable_gain numeric
+estimated_capital_gains_tax_rate numeric default 0.20
+estimated_taxes_due numeric default 0
+seller_tax_inputs_source jsonb default '{}'::jsonb
+
+```
+
+Optional but useful:
+```
+
+estimated_seller_tax_result jsonb default '{}'::jsonb
+
+```
+
+If using JSON only is safer, store the detailed result there, but key fields like estimated_taxes_due should be easy to query/display.
+
+Validation:
+- `filing_status` should only be null, single, married
+- `estimated_capital_gains_tax_rate` defaults to 0.20
+- Do not create duplicate columns if equivalents exist
+
+RLS:
+Use existing RLS policy pattern for `seller_scenarios`.
+Do not weaken security.
+
+PART 12 — Autosave requirements
+
+Autosave all new seller tax fields:
+- primary_residence_2_of_5
+- filing_status
+- assume_1031_exchange
+- capital_improvements
+- prior_purchase_price if user edits it
+- estimated_taxes_due
+- related calculation fields if stored
+
+When user changes any relevant input:
+- autosave the input
+- recalculate
+- save the recalculated estimate
+- update UI immediately
+
+Relevant inputs:
+- estimated sale price
+- prior purchase price
+- capital improvements
+- primary residence answer
+- filing status
+- 1031 checkbox
+- mortgage payoff and other cost inputs for net proceeds display
+
+Do not create duplicate seller scenarios.
+
+PART 13 — Zillow/property cache integration
+
+Add or update a resolver:
+
+`resolveSellerPriorPurchasePrice({ sellerScenario, propertyCache, normalizedPropertyKey, address })`
+
+Responsibilities:
+- find prior purchase price from Zillow/property cache
+- save it if scenario does not already have manual value
+- do not overwrite manual prior purchase price
+- log where it came from
+- return null if unavailable
+
+Use exact address or normalized_property_key.
+
+If Zillow has multiple price history entries:
+- choose the most recent sold/purchase event that represents the current owner’s purchase if available
+- otherwise choose the most recent prior sale price
+- do not use current list price as prior purchase price
+- do not use Zestimate as prior purchase price
+
+Debug if ambiguous.
+
+PART 14 — User-facing disclaimers
+
+Add a small disclaimer near the tax estimate section:
+
+“This is an estimate for planning only and is not tax advice. Actual taxes depend on your filing status, income, basis, improvements, depreciation, exclusions, and other factors. Please consult a CPA or tax professional.”
+
+For primary residence:
+Show:
+“You may qualify to exclude up to $250,000 of gain as an individual or up to $500,000 if married filing jointly.”
+
+For capital gains rate:
+Show:
+“This tool uses a 20% placeholder estimate on taxable gain. Federal long-term capital gains rates vary based on taxable income.”
+
+Add hyperlink:
+“IRS capital gains tax rates”
+https://www.irs.gov/taxtopics/tc409
+
+For 1031:
+Show:
+“A 1031 exchange may defer gain for qualifying investment or business real estate. The exchange must meet IRS requirements.”
+
+Add hyperlink:
+“IRS 1031 exchange rules”
+https://www.irs.gov/businesses/small-businesses-self-employed/like-kind-exchanges-real-estate-tax-tips
+
+PART 15 — Do not break existing behavior
+
+Do not break:
+- Sell Your Home overview cards
+- Sell Your Home detailed view
+- status dropdown
+- Market Analysis gating
+- Market Analysis content
+- Estimated Sale Price slider/input
+- Mortgage Payoff
+- Realtor Commission
+- Seller Closing Costs
+- Buyer Concessions
+- Post Inspection Credits / Repair Costs
+- Other Selling Costs
+- existing Net Proceeds logic except adding Estimated Taxes Due
+- save/load persistence
+- logout/login persistence
+- normalized_property_key matching
+- Zillow data loading
+- mobile layout
+
+PART 16 — Debug logs
+
+Add temporary logs:
+
+Schema:
+- `[seller-tax] schema fields available`
+
+Zillow purchase price:
+- `[seller-tax] address`
+- `[seller-tax] normalized property key`
+- `[seller-tax] zillow prior purchase price raw`
+- `[seller-tax] resolved prior purchase price`
+- `[seller-tax] prior purchase price source`
+- `[seller-tax] skipped prior purchase price because manual`
+
+Inputs:
+- `[seller-tax] primary residence 2 of 5`
+- `[seller-tax] filing status`
+- `[seller-tax] assume 1031`
+- `[seller-tax] capital improvements`
+- `[seller-tax] estimated sale price`
+
+Calculation:
+- `[seller-tax] adjusted cost basis`
+- `[seller-tax] gross estimated gain`
+- `[seller-tax] exclusion amount`
+- `[seller-tax] taxable gain`
+- `[seller-tax] estimated tax rate`
+- `[seller-tax] estimated taxes due`
+
+Save/load:
+- `[seller-tax-save] changed field`
+- `[seller-tax-save] value`
+- `[seller-tax-save] save ok/error`
+- `[seller-tax-load] loaded tax fields`
+- `[seller-tax-overview] estimated taxes due`
+- `[seller-tax-detail] estimated taxes due`
+
+Net proceeds:
+- `[seller-net-proceeds] estimated taxes due included`
+- `[seller-net-proceeds] final net proceeds`
+
+PART 17 — Acceptance tests
+
+Test A — Primary residence, single, under exclusion
+1. Open Sell Your Home detailed view.
+2. Set Estimated Sale Price = $500,000.
+3. Set Previous Purchase Price = $300,000.
+4. Answer Yes to primary residence 2 of last 5 years.
+5. Select Single.
+6. Set Capital Improvements = $0.
+7. Confirm gross gain = $200,000.
+8. Confirm exclusion amount = $250,000.
+9. Confirm green checkbox says gain is under the $250,000 exclusion.
+10. Confirm taxable gain = $0.
+11. Confirm Estimated Taxes Due = $0.
+12. Confirm overview Estimated Taxes Due = $0.
+13. Confirm Net Proceeds includes $0 taxes.
+
+Test B — Primary residence, single, over exclusion
+1. Estimated Sale Price = $700,000.
+2. Previous Purchase Price = $300,000.
+3. Primary residence = Yes.
+4. Filing status = Single.
+5. Capital Improvements = $0.
+6. Confirm gross gain = $400,000.
+7. Confirm exclusion amount = $250,000.
+8. Confirm green checkbox for $250,000 exclusion.
+9. Confirm red potential taxable gain = $150,000.
+10. Confirm Estimated Taxes Due = $30,000.
+11. Confirm Estimated Taxes Due appears on overview.
+12. Confirm Estimated Taxes Due appears under detailed Estimated Net Proceeds.
+13. Confirm Estimated Taxes Due appears in Net Proceeds Breakdown.
+14. Confirm Net Proceeds is reduced by $30,000.
+
+Test C — Primary residence, married
+1. Use same numbers:
+   - sale price $700,000
+   - purchase price $300,000
+2. Primary residence = Yes.
+3. Filing status = Married.
+4. Confirm gross gain = $400,000.
+5. Confirm exclusion amount = $500,000.
+6. Confirm taxable gain = $0.
+7. Confirm Estimated Taxes Due = $0.
+
+Test D — Capital improvements reduce taxable gain
+1. Sale price = $700,000.
+2. Purchase price = $300,000.
+3. Primary residence = Yes.
+4. Filing status = Single.
+5. Capital Improvements = $100,000.
+6. Confirm adjusted basis = $400,000.
+7. Confirm gross gain = $300,000.
+8. Confirm exclusion = $250,000.
+9. Confirm taxable gain = $50,000.
+10. Confirm Estimated Taxes Due = $10,000.
+11. Confirm Net Proceeds reduced by $10,000.
+12. Refresh/logout/login and confirm capital improvements persist.
+
+Test E — Not primary, no 1031
+1. Sale price = $700,000.
+2. Purchase price = $300,000.
+3. Primary residence = No.
+4. Leave 1031 unchecked.
+5. Confirm gross gain = $400,000.
+6. Confirm taxable gain = $400,000.
+7. Confirm Estimated Taxes Due = $80,000.
+8. Confirm Net Proceeds reduced by $80,000.
+
+Test F — Not primary, with 1031
+1. Same numbers:
+   - sale price $700,000
+   - purchase price $300,000
+2. Primary residence = No.
+3. Check “Run numbers assuming I complete a 1031 exchange.”
+4. Confirm Estimated Taxes Due = $0.
+5. Confirm green checkbox says estimate assumes qualifying 1031 exchange.
+6. Confirm Net Proceeds no longer reduced by tax estimate.
+7. Uncheck 1031.
+8. Confirm Estimated Taxes Due returns to $80,000.
+
+Test G — Zillow purchase price
+1. Open a Sell Your Home property with Zillow/property cache prior purchase price.
+2. Confirm Previous Purchase Price is populated.
+3. Confirm source shows property data/Zillow.
+4. Confirm tax estimate calculates using that value.
+5. Manually edit Previous Purchase Price.
+6. Refresh/logout/login.
+7. Confirm manual value persists.
+8. Confirm Zillow does not overwrite manual value.
+
+Test H — Overview/detail consistency
+1. Change tax inputs in detail view.
+2. Go back to Sell Your Home overview.
+3. Confirm Estimated Taxes Due matches detail view.
+4. Confirm Net Proceeds matches detail view.
+5. Refresh/logout/login.
+6. Confirm values persist.
+
+PART 18 — Final report back
+
+Please make the smallest safe code change possible and tell me:
+
+- Whether SQL was needed
+- Which seller tax columns were added or reused
+- Where the primary residence question was added
+- Where filing status was added
+- Where the 1031 checkbox was added
+- Where capital improvements was added
+- Which Zillow/property cache field is used for previous purchase price
+- How prior purchase price is resolved
+- How manual prior purchase price is protected
+- Which helper calculates Estimated Taxes Due
+- How single vs married exclusion works
+- How 1031 changes taxes to $0
+- How capital improvements increase basis
+- How Estimated Taxes Due is shown on overview
+- How Estimated Taxes Due is shown in detailed top right summary
+- How Estimated Taxes Due is shown in Net Proceeds Breakdown
+- Confirmation that Net Proceeds now subtracts Estimated Taxes Due
+- Which files/functions were changed
+```
+
+[1]: https://www.irs.gov/taxtopics/tc701?utm_source=chatgpt.com "Topic no. 701, Sale of your home | Internal Revenue Service"

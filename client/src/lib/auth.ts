@@ -370,6 +370,12 @@ export type SellerClosingCostsSource =
   | "percent_manual"      // user moved the percent slider
   | "manual"              // legacy: user typed a dollar amount pre-migration
   | "default_1_percent";  // legacy: pre-1.85% default (still treated as overridable)
+// Estimated capital-gains tax fields (see lib/seller-taxes.ts).
+export type SellerFilingStatus = "single" | "married";
+// Where the prior purchase price (cost basis) came from. "manual" must never
+// be overwritten by a later Zillow / property-cache resolve.
+export type SellerPriorPurchasePriceSource =
+  | "zillow" | "property_cache" | "manual" | "unknown";
 
 export interface SellerScenario {
   id: string;
@@ -407,6 +413,22 @@ export interface SellerScenario {
    *  Keys are camelCase field names; values are arbitrary string tags.
    *  Persisted on seller_scenarios.user_answer_sources (jsonb). */
   userAnswerSources?: Record<string, string>;
+
+  // ── Estimated capital-gains tax inputs (see lib/seller-taxes.ts) ──
+  /** Was this a primary residence 2 of the last 5 years? null = unanswered. */
+  primaryResidence2of5?: boolean | null;
+  /** Filing status for the §121 exclusion. null = unanswered. */
+  filingStatus?: SellerFilingStatus | null;
+  /** Non-primary sellers: run numbers assuming a qualifying 1031 exchange. */
+  assume1031Exchange?: boolean;
+  /** Dollars of capital improvements added to cost basis. */
+  capitalImprovements?: number;
+  /** Prior purchase price (cost basis) — from Zillow/cache or manual entry. */
+  priorPurchasePrice?: number | null;
+  /** Where priorPurchasePrice came from. "manual" is never overwritten by Zillow. */
+  priorPurchasePriceSource?: SellerPriorPurchasePriceSource;
+  /** Latest computed estimated taxes due snapshot. UI always recomputes. */
+  estimatedTaxesDue?: number;
 }
 
 export type CashBuyOccupancyType = "primary" | "secondary" | "investment";
@@ -1006,6 +1028,18 @@ function rowToSeller(row: any): SellerScenario {
       row.user_answer_sources && typeof row.user_answer_sources === "object"
         ? row.user_answer_sources as Record<string, string>
         : undefined,
+    // ── Estimated capital-gains tax fields ──
+    primaryResidence2of5:
+      typeof row.primary_residence_2_of_5 === "boolean" ? row.primary_residence_2_of_5 : null,
+    filingStatus:
+      row.filing_status === "single" || row.filing_status === "married"
+        ? row.filing_status as SellerFilingStatus : null,
+    assume1031Exchange: row.assume_1031_exchange === true,
+    capitalImprovements: row.capital_improvements != null ? Number(row.capital_improvements) : 0,
+    priorPurchasePrice: row.prior_purchase_price != null ? Number(row.prior_purchase_price) : null,
+    priorPurchasePriceSource:
+      (row.prior_purchase_price_source ?? undefined) as SellerPriorPurchasePriceSource | undefined,
+    estimatedTaxesDue: row.estimated_taxes_due != null ? Number(row.estimated_taxes_due) : undefined,
   };
 }
 function sellerToRow(s: SellerScenario, userId: string) {
@@ -1036,6 +1070,14 @@ function sellerToRow(s: SellerScenario, userId: string) {
     repair_budget_source:        s.repairBudgetSource ?? null,
     other_selling_costs_source:  s.otherSellingCostsSource ?? null,
     user_answer_sources:         s.userAnswerSources ?? null,
+    // ── Estimated capital-gains tax fields ──
+    primary_residence_2_of_5:    s.primaryResidence2of5 ?? null,
+    filing_status:               s.filingStatus ?? null,
+    assume_1031_exchange:        s.assume1031Exchange ?? false,
+    capital_improvements:        s.capitalImprovements ?? 0,
+    prior_purchase_price:        s.priorPurchasePrice ?? null,
+    prior_purchase_price_source: s.priorPurchasePriceSource ?? null,
+    estimated_taxes_due:         s.estimatedTaxesDue ?? null,
   };
 }
 // Maps a Supabase `cash_buy_scenarios` row to the in-memory shape used
@@ -1991,6 +2033,14 @@ function persistSellerScenarios(s: SellerScenario[]) {
         "mortgage_payoff_source",
         "realtor_commission_source",
         "seller_closing_costs_source",
+        // Estimated capital-gains tax columns (2026_06_15 migration).
+        "primary_residence_2_of_5",
+        "filing_status",
+        "assume_1031_exchange",
+        "capital_improvements",
+        "prior_purchase_price",
+        "prior_purchase_price_source",
+        "estimated_taxes_due",
       ] as const;
       const stripped = new Set<string>();
       const buildPayload = () => s.map(x => {
