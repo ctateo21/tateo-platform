@@ -2330,7 +2330,7 @@ function SellersTab() {
 
                   {/* Required row stats — always rendered with "—" when unset,
                       per task spec ("never empty boxes"). */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm flex-1">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-2 text-sm flex-1">
                     <div>
                       <p className="text-xs text-muted-foreground">Est. Sale Price</p>
                       <p className="font-semibold">{fmtMoneyOrDash(s.estimatedSalePrice)}</p>
@@ -2348,6 +2348,11 @@ function SellersTab() {
                       <p className={`font-semibold ${net == null ? "" : net >= 0 ? "text-green-700" : "text-destructive"}`}>
                         {fmtMoneyOrDash(net)}
                       </p>
+                    </div>
+                    {/* Display-only placeholder — always $0 for now; real tax calc to come later. */}
+                    <div>
+                      <p className="text-xs text-muted-foreground">Estimated Taxes Due</p>
+                      <p className="font-semibold">$0</p>
                     </div>
                   </div>
 
