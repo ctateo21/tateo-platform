@@ -54,6 +54,7 @@ import {
 import { calculateRefinance, calculateMonthlyPayment, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
 import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-refinance";
 import { getEstimatedSellerTaxesDue } from "@/lib/seller-taxes";
+import { calculateSellerNetProceeds, resolveSellerClosingCosts } from "@/lib/seller-net-proceeds";
 import {
   ensureInsuranceForAddresses,
   type BulkAddress,
@@ -2117,20 +2118,12 @@ const SELLER_STATUS_CLASS: Record<SellerScenarioStatus, string> = {
   sold:          "bg-green-50 text-green-700 border-green-200",
 };
 
+// Net proceeds for the overview row/card. Delegates to the SAME shared
+// helper the detail view uses so the two surfaces can never drift; returns
+// null (shown as "—") when there's no sale price yet.
 function computeSellerNetProceeds(s: SellerScenario): number | null {
-  const sale = s.estimatedSalePrice;
-  if (sale == null) return null;
-  const commission = sale * ((s.realtorCommissionPct ?? 0) / 100);
-  const total =
-    sale -
-    (s.mortgagePayoff ?? 0) -
-    (s.sellerClosingCosts ?? 0) -
-    commission -
-    (s.buyerConcessions ?? 0) -
-    (s.repairBudget ?? 0) -
-    (s.otherSellingCosts ?? 0) -
-    getEstimatedSellerTaxesDue(s);
-  return Math.round(total);
+  if (s.estimatedSalePrice == null) return null;
+  return calculateSellerNetProceeds(s).estimatedNetProceeds;
 }
 
 // "—" fallback for unset numeric/date row fields — matches the dashboard
@@ -2154,9 +2147,31 @@ function SellersTab() {
   const [showAddSearch, setShowAddSearch] = useState(false);
   const [persistError, setPersistError] = useState<string | null>(null);
 
+  // Log what the overview rendered for each row — used to confirm the
+  // overview shows the same numbers the detail view saved.
+  function logOverviewLoad(list: SellerScenario[]) {
+    console.log("[seller-overview-load] row count", list.length);
+    for (const s of list) {
+      console.log("[seller-overview-load] address", s.address);
+      console.log("[seller-overview-load] estimated sale price", s.estimatedSalePrice ?? 0);
+      console.log("[seller-overview-load] closing costs",
+        s.estimatedSalePrice == null ? null : resolveSellerClosingCosts(s));
+      console.log("[seller-overview-load] mortgage payoff", s.mortgagePayoff ?? 0);
+      console.log("[seller-overview-load] estimated taxes due", getEstimatedSellerTaxesDue(s));
+      console.log("[seller-overview-load] estimated net proceeds", computeSellerNetProceeds(s));
+    }
+  }
+
   useEffect(() => {
-    setScenarios(getSellerScenarios());
-    const unsub = subscribeAuthChange(() => setScenarios(getSellerScenarios()));
+    const initial = getSellerScenarios();
+    setScenarios(initial);
+    logOverviewLoad(initial);
+    const unsub = subscribeAuthChange(() => {
+      const next = getSellerScenarios();
+      setScenarios(next);
+      console.log("[seller-detail-to-overview-sync] updated local scenario list");
+      logOverviewLoad(next);
+    });
     const unsubErr = subscribePersistenceError(e => {
       if (e.table !== "seller_scenarios") return;
       setPersistError(e.message);
@@ -2339,7 +2354,9 @@ function SellersTab() {
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Closing Costs</p>
-                      <p className="font-semibold">{fmtMoneyOrDash(s.sellerClosingCosts)}</p>
+                      <p className="font-semibold">
+                        {s.estimatedSalePrice == null ? EMDASH : formatCurrency(resolveSellerClosingCosts(s))}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Payoff</p>

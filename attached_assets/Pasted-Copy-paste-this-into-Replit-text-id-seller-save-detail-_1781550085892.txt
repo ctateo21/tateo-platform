@@ -1,0 +1,250 @@
+Copy/paste this into Replit:
+
+```text id="seller-save-detail-values-sync-to-overview"
+Fix Sell Your Home so saved detailed-view numbers populate correctly into the overview row/card.
+
+Current issue:
+When a user is inside the Sell Your Home detailed view and saves a scenario, the numbers from the detailed view are not reliably showing on the Sell Your Home overview row/card.
+
+Goal:
+When the user saves a Sell Your Home scenario from the detailed view, the overview row/card for that same property should immediately update with the same numbers shown in the detailed view.
+
+Scope:
+Dashboard → Sell Your Home
+- detailed home view
+- Save Scenario button / save handler
+- autosave handler if present
+- overview row/card list
+- Supabase save/load mapper
+- seller_scenarios row mapper
+
+Fields that must sync from detailed view to overview:
+- Estimated Sale Price
+- Closing Costs
+- Mortgage Payoff / Payoff
+- Net Proceeds
+- Estimated Taxes Due
+
+Expected behavior:
+1. User opens Sell Your Home detailed view for a property.
+2. User changes any relevant numbers.
+3. User clicks Save Scenario.
+4. The scenario saves to Supabase.
+5. User goes back to Sell Your Home overview.
+6. The overview row/card shows the same numbers as the detailed view.
+
+Required overview fields:
+- Est Sales Price = detailed view estimated sale price
+- Closing Costs = detailed view seller closing costs / closing costs
+- Payoff = detailed view mortgage payoff
+- Net Proceeds = detailed view estimated net proceeds
+- Estimated Taxes Due = detailed view estimated taxes due
+
+Important:
+The overview should not use stale calculated values, placeholder values, or old local state after save.
+
+Source of truth:
+The detailed view calculation should be the source of truth at save time.
+
+When saving from detail view, persist the full calculated seller scenario to `seller_scenarios`, including:
+- estimated_sale_price
+- seller_closing_costs
+- mortgage_payoff
+- estimated_taxes_due
+- estimated_net_proceeds
+- updated_at
+
+If field names are different in the current schema, use the existing equivalent names.
+
+Do not create duplicate columns if equivalent fields already exist.
+
+Save behavior:
+When Save Scenario is clicked:
+1. Gather the latest detailed view state.
+2. Run/reuse the same calculation helper used by the detail view.
+3. Persist both raw inputs and calculated outputs.
+4. Update the local seller scenario list/cache.
+5. Navigate back to overview or leave user in detail view, but either way the overview must show updated values.
+
+Autosave behavior:
+If Sell Your Home has autosave, the same sync should happen on autosave too.
+
+The overview should update when:
+- user clicks Save Scenario
+- user changes Estimated Sale Price
+- user changes Closing Costs
+- user changes Mortgage Payoff
+- user changes Estimated Taxes Due inputs
+- user changes any input that affects Net Proceeds
+- user refreshes/logs out/logs back in
+
+Net Proceeds formula:
+Use the same formula already used in the detailed view, but make sure Estimated Taxes Due is included if that feature has been implemented.
+
+Expected:
+estimatedNetProceeds =
+  estimatedSalePrice
+  - mortgagePayoff
+  - realtorCommission
+  - sellerClosingCosts
+  - buyerConcessions
+  - repairBudget
+  - otherSellingCosts
+  - estimatedTaxesDue
+
+If your current helper already calculates this, reuse it. Do not duplicate the formula in multiple places unless necessary.
+
+Estimated Taxes Due:
+The overview should use the same `estimated_taxes_due` value shown in the detailed view.
+
+If the tax calculation is not complete yet:
+- keep the value as `$0`
+- but still persist and display the same value in both detail and overview
+
+If the tax calculation is complete:
+- show the calculated value
+- subtract it from Net Proceeds
+- ensure overview and detail match
+
+Closing Costs:
+Make sure the overview “Closing Costs” field matches the detailed view’s seller closing costs value.
+
+If there are multiple closing cost fields, clarify in code by mapping overview Closing Costs to the same value used in the detailed Net Proceeds Breakdown line item:
+- `seller_closing_costs`
+or the existing equivalent field.
+
+Mortgage Payoff:
+Make sure overview Payoff uses the same value as detailed view Mortgage Payoff.
+
+This should reflect whichever source produced the payoff:
+- manual entry
+- mortgage statement
+- Refinance scenario
+- amortized estimate
+- existing saved value
+
+Persistence:
+Inspect `seller_scenarios` and the current seller scenario mapper.
+
+Make sure these fields are included in both directions:
+
+Frontend → Supabase:
+- estimated_sale_price
+- seller_closing_costs
+- mortgage_payoff
+- estimated_taxes_due
+- estimated_net_proceeds
+- updated_at
+
+Supabase → Frontend:
+- estimated_sale_price
+- seller_closing_costs
+- mortgage_payoff
+- estimated_taxes_due
+- estimated_net_proceeds
+
+If `estimated_net_proceeds` is not stored and is only derived:
+- either store it on save
+- or make the overview derive it from the same saved inputs
+- but the displayed number must match the detailed view
+
+Preferred:
+Use a shared helper:
+
+`calculateSellerNetProceeds(sellerScenario)`
+
+Return:
+- estimatedSalePrice
+- sellerClosingCosts
+- mortgagePayoff
+- estimatedTaxesDue
+- estimatedNetProceeds
+- breakdown
+
+Use this helper in:
+- detailed view
+- overview row/card
+- save handler
+
+This prevents detail and overview from drifting.
+
+Do not break:
+- Sell Your Home detail view
+- overview row/card layout
+- status dropdown
+- Market Analysis gating
+- Market Analysis content
+- mortgage payoff logic
+- estimated taxes due logic
+- capital gains/1031 logic
+- save/load persistence
+- logout/login persistence
+- normalized_property_key matching
+- mobile layout
+
+Debug logs:
+Add temporary logs:
+
+Save:
+- `[seller-save] scenario id`
+- `[seller-save] address`
+- `[seller-save] estimated sale price`
+- `[seller-save] closing costs`
+- `[seller-save] mortgage payoff`
+- `[seller-save] estimated taxes due`
+- `[seller-save] estimated net proceeds`
+- `[seller-save] save ok/error`
+
+Overview load:
+- `[seller-overview-load] row count`
+- `[seller-overview-load] address`
+- `[seller-overview-load] estimated sale price`
+- `[seller-overview-load] closing costs`
+- `[seller-overview-load] mortgage payoff`
+- `[seller-overview-load] estimated taxes due`
+- `[seller-overview-load] estimated net proceeds`
+
+Sync:
+- `[seller-detail-to-overview-sync] updated local scenario list`
+- `[seller-detail-to-overview-sync] matched by scenario id`
+- `[seller-detail-to-overview-sync] matched by normalized property key`
+
+Acceptance test:
+1. Log in.
+2. Go to Dashboard → Sell Your Home.
+3. Open a property detailed view.
+4. Change Estimated Sale Price.
+5. Change Closing Costs.
+6. Change Mortgage Payoff.
+7. Change any tax input or Estimated Taxes Due-related value.
+8. Confirm detailed view Net Proceeds updates.
+9. Click Save Scenario.
+10. Go back to Sell Your Home overview.
+11. Confirm overview row/card shows the same:
+    - Est Sales Price
+    - Closing Costs
+    - Payoff
+    - Net Proceeds
+    - Estimated Taxes Due
+12. Refresh the page.
+13. Confirm overview still shows the saved numbers.
+14. Log out and log back in.
+15. Confirm overview still shows the saved numbers.
+16. Reopen detailed view.
+17. Confirm detailed view and overview match.
+18. Change Mortgage Payoff again.
+19. Save again.
+20. Confirm overview updates again.
+21. Confirm no duplicate seller rows/cards were created.
+
+Please make the smallest safe code change possible and tell me:
+- Which save handler was changed
+- Which overview row/card component was changed
+- Which fields were added to the seller scenario mapper
+- Whether `estimated_net_proceeds` is stored or derived
+- Which helper calculates Net Proceeds
+- How Estimated Taxes Due is included
+- How the local overview list updates after saving detail
+- Whether any SQL migration was needed
+- Which files/functions were changed
+```

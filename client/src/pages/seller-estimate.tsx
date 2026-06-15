@@ -29,6 +29,11 @@ import { normalizePropertyKey } from "@/lib/property-key";
 import { posthog } from "@/lib/posthog";
 import { applySellerSalePriceToRefinance } from "@/lib/refinance-from-seller";
 import { resolveSellerMortgagePayoff } from "@/lib/seller-mortgage-payoff";
+import {
+  calculateSellerNetProceeds,
+  resolveSellerClosingCosts,
+  DEFAULT_SELLER_CLOSING_PCT,
+} from "@/lib/seller-net-proceeds";
 import { MortgageStatementUpload, type ExtractedStatement } from "@/components/seller/mortgage-statement-upload";
 import { getEstimatedSellerTaxesDue, estimateSellerTaxes } from "@/lib/seller-taxes";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -65,10 +70,6 @@ function makeId(): string {
   return `seller_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/** Default percent for the Seller Closing Costs slider. Must mirror the
- *  same constant in `seller-from-refinance.ts`. */
-const DEFAULT_SELLER_CLOSING_PCT = 1.85;
-
 const STATUS_OPTIONS: { value: SellerScenarioStatus; label: string }[] = [
   { value: "draft",         label: "Draft" },
   { value: "reviewing",     label: "Reviewing" },
@@ -76,29 +77,6 @@ const STATUS_OPTIONS: { value: SellerScenarioStatus; label: string }[] = [
   { value: "listed",        label: "Listed" },
   { value: "sold",          label: "Sold" },
 ];
-
-function netProceedsOf(s: Pick<SellerScenario,
-  "estimatedSalePrice" | "mortgagePayoff" | "sellerClosingCosts" |
-  "realtorCommissionPct" | "buyerConcessions" | "repairBudget" | "otherSellingCosts" |
-  "priorPurchasePrice" | "capitalImprovements" | "primaryResidence2of5" |
-  "filingStatus" | "assume1031Exchange"
->): number {
-  const sale = s.estimatedSalePrice ?? 0;
-  const commission = sale * ((s.realtorCommissionPct ?? 0) / 100);
-  // Estimated capital-gains taxes are now a selling cost subtracted from
-  // net proceeds (computed from the same scenario inputs).
-  const taxes = getEstimatedSellerTaxesDue(s);
-  return Math.round(
-    sale -
-    (s.mortgagePayoff ?? 0) -
-    (s.sellerClosingCosts ?? 0) -
-    commission -
-    (s.buyerConcessions ?? 0) -
-    (s.repairBudget ?? 0) -
-    (s.otherSellingCosts ?? 0) -
-    taxes
-  );
-}
 
 // ─── Small numeric slider+input row (lightweight, no external dep) ──
 
@@ -495,21 +473,32 @@ export default function SellerEstimatePage() {
         // writes that landed between the change and this fire (other tab,
         // background hydration, etc.) before we delete-then-upsert.
         const all = getSellerScenarios();
+        // Persist the SAME calculated outputs the detail view shows, via
+        // the shared helper, so the overview row/card reads identical
+        // numbers (canonical closing costs + net proceeds + taxes).
+        const calc = calculateSellerNetProceeds(scenario);
         const stamped: SellerScenario = {
           ...scenario,
           updatedAt: new Date().toISOString(),
-          netProceeds: netProceedsOf(scenario),
-          estimatedTaxesDue: getEstimatedSellerTaxesDue(scenario),
+          sellerClosingCosts: calc.sellerClosingCosts,
+          netProceeds: calc.estimatedNetProceeds,
+          estimatedTaxesDue: calc.estimatedTaxesDue,
         };
+        console.log("[seller-save] scenario id", stamped.id);
+        console.log("[seller-save] address", stamped.address);
+        console.log("[seller-save] estimated sale price", stamped.estimatedSalePrice ?? 0);
+        console.log("[seller-save] closing costs", stamped.sellerClosingCosts ?? 0);
+        console.log("[seller-save] mortgage payoff", stamped.mortgagePayoff ?? 0);
+        console.log("[seller-save] estimated taxes due", stamped.estimatedTaxesDue ?? 0);
+        console.log("[seller-save] estimated net proceeds", stamped.netProceeds ?? 0);
         console.log("[seller-payoff-save] source", stamped.mortgagePayoffSource ?? "(none)");
         console.log("[seller-payoff-save] value", stamped.mortgagePayoff ?? 0);
-        console.log("[seller-net-proceeds] mortgage payoff included", stamped.mortgagePayoff ?? 0);
         const idx = all.findIndex(s => s.id === stamped.id);
         const next = idx >= 0
           ? all.map(s => s.id === stamped.id ? stamped : s)
           : [stamped, ...all];
         saveSellerScenarios(next);
-        console.log("[seller-payoff-save] save ok");
+        console.log("[seller-save] save ok");
         // Seller → refinance value mirroring used to live here; it is now
         // handled globally by the Phase 1 cross-tab sync helper
         // (`syncPropertyValueAcrossTabs`) which fires from the diff-watcher
@@ -523,7 +512,7 @@ export default function SellerEstimatePage() {
           }, 1500);
         }
       } catch (err) {
-        console.log("[seller-payoff-save] save error", err);
+        console.log("[seller-save] save error", err);
         console.warn("[seller] auto-save failed:", err);
         if (isMountedRef.current) setSaveStatus("error");
       }
@@ -696,12 +685,13 @@ export default function SellerEstimatePage() {
 
   const sale = scenario.estimatedSalePrice ?? 0;
   const commissionPct = scenario.realtorCommissionPct ?? 0;
-  const commissionDollars = Math.round(sale * (commissionPct / 100));
   const closingPct = scenario.sellerClosingCostsPercent ?? DEFAULT_SELLER_CLOSING_PCT;
-  const closingDollars = scenario.sellerClosingCostsSource === "manual"
-    ? (scenario.sellerClosingCosts ?? 0)
-    : Math.round(sale * (closingPct / 100));
-  const net = netProceedsOf({ ...scenario, sellerClosingCosts: closingDollars });
+  // Single source of truth shared with the dashboard overview row/card so
+  // the two surfaces can never drift. Everything below renders from this.
+  const proceeds = calculateSellerNetProceeds(scenario);
+  const commissionDollars = proceeds.realtorCommission;
+  const closingDollars = proceeds.sellerClosingCosts;
+  const net = proceeds.estimatedNetProceeds;
 
   // ── Estimated capital-gains tax estimate (drives the tax card, the
   //    top-right KPI, the breakdown line, and the net-proceeds subtraction). ──
