@@ -1,0 +1,317 @@
+Yes, you may need SQL **only if Supabase does not already have columns for every editable field and source tracking**.
+
+The app needs two things:
+
+1. **A saved value column** for every user-editable field.
+2. **A source column or `user_answer_sources` JSON field** so Zillow/default/API data does not overwrite manual user edits.
+
+Copy/paste this into Replit:
+
+```text
+Audit all 5 service tabs and confirm whether Supabase has the needed fields to persist every user-edited value.
+
+Context:
+Each property has 5 service tabs:
+1. Purchase with Loan
+2. Purchase with Cash
+3. Refinance
+4. Insurance
+5. Sell Your Home
+
+Each tab has preset/default values that come from different sources:
+- Zillow scraper/property cache
+- user profile defaults
+- loan/pricing defaults
+- insurance defaults
+- refinance data
+- seller scenario defaults
+- calculations
+
+That defaulting behavior should stay.
+
+But if a user changes ANY editable data point, that new value must automatically save and become the source of truth for that property/service. When the user returns later, refreshes, logs out/logs back in, or views the overview card, the user-entered value must still be there.
+
+Goal:
+For every editable field across all 5 service tabs:
+- save the user-entered value
+- mark it as manual
+- reload it in detail view
+- show it on the service overview card if that field appears there
+- prevent Zillow/default/API logic from overwriting it
+- persist after refresh/logout/login
+
+Question:
+Do we need SQL added to Supabase?
+
+Task:
+Audit the current Supabase schema and tell me exactly whether SQL is needed.
+
+Do not guess.
+
+Check these tables:
+- purchase_scenarios
+- cash_buy_scenarios
+- tracked_loans
+- insurance_scenarios
+- seller_scenarios
+- any user/profile table used for borrower defaults
+
+For each table, check whether it has:
+1. columns for every editable field
+2. source tracking columns OR `user_answer_sources jsonb`
+3. frontend → Supabase mapper support
+4. Supabase → frontend mapper support
+5. autosave support
+6. overview card support
+7. detail view support
+
+Important principle:
+Preset/default data can populate the first time, but once the user manually changes a value, that manual value must win.
+
+Source priority should be:
+1. manual user input
+2. uploaded document/statement value, if applicable
+3. synced value from another service tab, if applicable
+4. Zillow/property cache
+5. default assumptions
+6. blank/fallback
+
+Manual source protection:
+If a field source is manual, never overwrite it with:
+- Zillow data
+- default values
+- AMI values
+- insurance defaults
+- loan defaults
+- refinance defaults
+- seller defaults
+- copied values from another scenario
+- recalculated defaults
+
+Use:
+- individual source columns where they already exist
+- `user_answer_sources` JSON where individual columns do not exist
+
+Preferred:
+Use `user_answer_sources` or similar JSON source tracking to avoid adding a separate source column for every single field unless individual source columns already exist.
+
+Required behavior by service:
+
+PURCHASE WITH LOAN
+
+All editable values must autosave and persist.
+
+Borrower/user-level values should also prefill into future home searches:
+- property use / occupancy
+- monthly income
+- base monthly debts
+- total monthly debts
+- credit score
+- available reserves
+- Page 2 qualification answers
+
+Scenario/property-level values should save only to the specific property:
+- purchase price
+- property type
+- loan type
+- down payment
+- seller concessions
+- property taxes
+- homeowners insurance
+- HOA
+- closing costs
+- interest rate if editable
+- discount points
+- any Page 3 editable field
+- any Page 4 editable field
+
+Check whether `purchase_scenarios` has all needed columns and `user_answer_sources`.
+
+PURCHASE WITH CASH
+
+All editable values must autosave and persist:
+- purchase price
+- property type
+- occupancy/property use
+- closing costs
+- seller concessions
+- property taxes
+- homeowners insurance
+- HOA
+- ongoing monthly costs
+- cash to close
+- any editable estimate field
+
+Check whether `cash_buy_scenarios` has all needed columns and source tracking.
+
+REFINANCE
+
+All editable values must autosave and persist:
+- estimated home value
+- current mortgage balance
+- current payment
+- rate
+- term
+- loan type
+- cash out amount
+- taxes
+- insurance
+- HOA
+- uploaded statement values
+- any editable refinance estimate field
+
+Check whether `tracked_loans` has all needed columns and source tracking.
+
+INSURANCE
+
+All editable values must autosave and persist:
+- policy type
+- property type
+- occupancy
+- Coverage A / rebuild cost
+- annual premium
+- monthly premium if stored
+- carrier
+- deductibles
+- discounts
+- mitigation answers
+- quote detail fields
+- any editable insurance detail field
+
+Check whether `insurance_scenarios` has all needed columns and source tracking.
+
+SELL YOUR HOME
+
+All editable values must autosave and persist:
+- estimated sale price
+- mortgage payoff
+- seller closing costs
+- realtor commission
+- buyer concessions
+- repair credits / post inspection credits
+- other selling costs
+- estimated taxes due
+- estimated net proceeds
+- primary residence 2 of 5 answer
+- filing status
+- 1031 checkbox
+- prior purchase price
+- capital improvements
+- status
+- market analysis status/data where applicable
+
+Check whether `seller_scenarios` has all needed columns and source tracking.
+
+Overview/detail sync:
+For every service:
+- detail view and overview card must use the same saved scenario data
+- overview should not calculate from stale local state
+- when user saves or autosaves in detail view, overview must update
+- after refresh/logout/login, overview and detail should still match
+
+Required audit output:
+Give me a clear report:
+
+For each service table:
+1. Fields already present
+2. Fields missing
+3. Source tracking present or missing
+4. Mapper gaps
+5. Autosave gaps
+6. Overview/detail sync gaps
+7. Whether SQL is needed
+
+If SQL is needed:
+Provide one complete Supabase migration.
+
+Do not provide partial SQL.
+Do not include duplicate columns.
+Use `add column if not exists`.
+Use safe defaults.
+Do not weaken RLS.
+
+Potential SQL pattern:
+- Add missing editable fields
+- Add `user_answer_sources jsonb default '{}'::jsonb` if missing
+- Add specific source fields only where the app already expects them
+- Add `updated_at` if missing
+- Do not create duplicate tables unless absolutely necessary
+
+After SQL, update code:
+1. frontend state
+2. frontend → Supabase mapper
+3. Supabase → frontend mapper
+4. autosave handlers
+5. detail view loaders
+6. overview card loaders
+7. default/Zillow hydration guards
+8. save scenario handlers
+9. local scenario cache update after save
+
+Debug logs:
+Add temporary logs:
+
+For all services:
+- `[manual-save] service`
+- `[manual-save] table`
+- `[manual-save] scenario id`
+- `[manual-save] field`
+- `[manual-save] value`
+- `[manual-save] source`
+- `[manual-save] save ok/error`
+
+Loading:
+- `[manual-load] service`
+- `[manual-load] field`
+- `[manual-load] value`
+- `[manual-load] source`
+
+Default protection:
+- `[default-skip] service`
+- `[default-skip] field`
+- `[default-skip] reason: manual value exists`
+
+Overview/detail sync:
+- `[overview-sync] service`
+- `[overview-sync] field`
+- `[overview-sync] value`
+- `[detail-sync] service`
+- `[detail-sync] field`
+- `[detail-sync] value`
+
+Acceptance test:
+1. Log in.
+2. Open each of the 5 service tabs for a property.
+3. Change every editable field.
+4. Confirm autosave fires.
+5. Refresh.
+6. Confirm the values remain.
+7. Log out and log back in.
+8. Confirm the values remain.
+9. Go to the overview for each service.
+10. Confirm overview values match detail values.
+11. Search a new property.
+12. Confirm user-level borrower fields prefill where appropriate.
+13. Confirm property-specific fields come from the new property/Zillow unless manually changed.
+14. Confirm manual values are never overwritten by defaults.
+15. Confirm no duplicate scenario rows/cards are created.
+
+Please report back with:
+- Whether SQL was needed
+- Exact SQL migration if needed
+- Which tables were missing fields
+- Which fields were missing
+- Which mappers were updated
+- Which autosave handlers were updated
+- How manual source protection works
+- How overview/detail sync works
+- Which files/functions were changed
+```
+
+My read based on everything you have already added: **you probably do not need one giant new table**, but you may still need **missing columns or missing mapper fields** in each service table. The most likely issue is not just SQL — it is usually one of these:
+
+1. the column exists, but the frontend does not send it to Supabase
+2. Supabase saves it, but the loader does not map it back into state
+3. overview cards use old calculated state instead of saved scenario state
+4. Zillow/default effects overwrite the saved manual value
+5. source tracking is missing or not respected
