@@ -23,10 +23,13 @@ import {
   getSellerScenarios, saveSellerScenarios, isAuthHydrated, subscribeAuthChange,
   getTrackedLoans, saveTrackedLoans,
   type SellerScenario, type SellerScenarioStatus, type SellerFilingStatus,
+  type TrackedLoan,
 } from "@/lib/auth";
 import { normalizePropertyKey } from "@/lib/property-key";
 import { posthog } from "@/lib/posthog";
 import { applySellerSalePriceToRefinance } from "@/lib/refinance-from-seller";
+import { resolveSellerMortgagePayoff } from "@/lib/seller-mortgage-payoff";
+import { MortgageStatementUpload, type ExtractedStatement } from "@/components/seller/mortgage-statement-upload";
 import { getEstimatedSellerTaxesDue, estimateSellerTaxes } from "@/lib/seller-taxes";
 import { Checkbox } from "@/components/ui/checkbox";
 import { CheckCircle2, ExternalLink as ExternalLinkIcon } from "lucide-react";
@@ -40,6 +43,19 @@ function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency", currency: "USD", maximumFractionDigits: 0,
   }).format(n);
+}
+
+/** Muted note shown under the Mortgage Payoff input describing where the
+ *  value came from. Returns null when there's nothing worth saying. */
+function payoffSourceNote(src: string | undefined): string | null {
+  switch (src) {
+    case "manual": return "Entered by you";
+    case "statement": return "Pulled from uploaded mortgage statement";
+    case "refinance":
+    case "refinance_statement": return "Pulled from Refinance scenario";
+    case "amortized_estimate": return "Estimated from last sale history";
+    default: return null;
+  }
 }
 
 function makeId(): string {
@@ -196,6 +212,10 @@ export default function SellerEstimatePage() {
 
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [zillowStatus, setZillowStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  // Refinance tracked loans (for the Mortgage Payoff "pull from Refinance"
+  // source) and last-recorded sale (for the amortized-estimate source).
+  const [trackedLoans, setTrackedLoans] = useState<TrackedLoan[]>(() => getTrackedLoans());
+  const [lastSold, setLastSold] = useState<{ price: number | null; date: string | null } | null>(null);
   const zillowTriedRef = useRef(false);
   const isMountedRef = useRef(true);
   useEffect(() => () => { isMountedRef.current = false; }, []);
@@ -238,6 +258,10 @@ export default function SellerEstimatePage() {
             repairBudgetSource: persisted.repairBudgetSource,
             otherSellingCostsSource: persisted.otherSellingCostsSource,
           });
+          console.debug("[seller-payoff-load] loaded mortgage payoff", {
+            value: persisted.mortgagePayoff,
+            source: persisted.mortgagePayoffSource,
+          });
           setScenario(persisted);
           // Seed the reverse-sync gate from the persisted value so
           // the first post-hydration autosave doesn't fire seller→refi
@@ -262,6 +286,67 @@ export default function SellerEstimatePage() {
       // to persist. Showing a small inline notice below the form is enough.
     }
   }, [isAuthenticated]);
+
+  // Keep the Refinance tracked-loans list fresh (it loads after auth
+  // hydration on a hard refresh) so the Mortgage Payoff resolver can
+  // find a matching loan.
+  useEffect(() => {
+    const sync = () => setTrackedLoans(getTrackedLoans());
+    sync();
+    const unsub = subscribeAuthChange(sync);
+    return () => unsub();
+  }, []);
+
+  // ── Mortgage Payoff resolution ────────────────────────────────────
+  // Resolves Mortgage Payoff from the shared resolver whenever the
+  // Refinance loans or last-sold data become available. Honors the
+  // strict priority and NEVER overrides a manual/statement value (the
+  // setScenario callback re-checks `prev` source as a final guard).
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    if (!scenario.address || scenario.address === "Unknown Address") return;
+    const R = resolveSellerMortgagePayoff({
+      sellerScenario: scenario,
+      trackedLoans,
+      propertyCache: lastSold ?? undefined,
+      normalizedPropertyKey: scenario.normalizedPropertyKey,
+      address: scenario.address,
+      today: new Date(),
+    });
+    setScenario(prev => {
+      const cur = prev.mortgagePayoffSource;
+      if (cur === "manual" || cur === "statement") return prev; // locked
+      if (R.source === "refinance") {
+        const already =
+          prev.mortgagePayoff === R.value &&
+          (cur === "refinance" || cur === "refinance_statement");
+        if (already) return prev;
+        return {
+          ...prev,
+          mortgagePayoff: R.value,
+          mortgagePayoffSource: "refinance",
+          mortgagePayoffEstimateInputs: undefined,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      if (R.source === "amortized_estimate") {
+        // Don't downgrade a refinance pull to an estimate (e.g. if the
+        // loans list is briefly empty during hydration).
+        const overridable = cur == null || cur === "amortized_estimate";
+        if (!overridable) return prev;
+        if (prev.mortgagePayoff === R.value && cur === "amortized_estimate") return prev;
+        return {
+          ...prev,
+          mortgagePayoff: R.value,
+          mortgagePayoffSource: "amortized_estimate",
+          mortgagePayoffEstimateInputs: R.estimateInputs as Record<string, unknown> | undefined,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackedLoans, lastSold, scenario.id, scenario.address]);
 
   // ── Background Zillow pre-fill ────────────────────────────────────
   // Fire once per address on this page; skip when the user already has a
@@ -326,6 +411,21 @@ export default function SellerEstimatePage() {
           (typeof p.soldPrice === "number" && p.soldPrice > 0 && p.soldPrice) ||
           (historySold ? historySold.price : null) ||
           null;
+        // Last recorded sale (price + date) feeds the amortized payoff
+        // estimate. We need BOTH a price and a parseable date; the
+        // priceHistory "Sold" event carries both, so prefer it.
+        const lastSoldPrice =
+          (historySold && typeof historySold.price === "number" && historySold.price > 0
+            ? historySold.price
+            : (typeof p.soldPrice === "number" && p.soldPrice > 0 ? p.soldPrice : null));
+        const lastSoldDate =
+          (historySold && typeof historySold.date === "string" && historySold.date) ||
+          (typeof p.dateSold === "string" && p.dateSold) ||
+          (typeof p.lastSoldDate === "string" && p.lastSoldDate) ||
+          null;
+        if (isMountedRef.current) {
+          setLastSold({ price: lastSoldPrice, date: lastSoldDate });
+        }
         console.debug("[seller-tax] address", scenario.address);
         console.debug("[seller-tax] normalized property key", scenario.normalizedPropertyKey ?? null);
         console.debug("[seller-tax] zillow prior purchase price raw", zPriorPurchase);
@@ -401,11 +501,15 @@ export default function SellerEstimatePage() {
           netProceeds: netProceedsOf(scenario),
           estimatedTaxesDue: getEstimatedSellerTaxesDue(scenario),
         };
+        console.log("[seller-payoff-save] source", stamped.mortgagePayoffSource ?? "(none)");
+        console.log("[seller-payoff-save] value", stamped.mortgagePayoff ?? 0);
+        console.log("[seller-net-proceeds] mortgage payoff included", stamped.mortgagePayoff ?? 0);
         const idx = all.findIndex(s => s.id === stamped.id);
         const next = idx >= 0
           ? all.map(s => s.id === stamped.id ? stamped : s)
           : [stamped, ...all];
         saveSellerScenarios(next);
+        console.log("[seller-payoff-save] save ok");
         // Seller → refinance value mirroring used to live here; it is now
         // handled globally by the Phase 1 cross-tab sync helper
         // (`syncPropertyValueAcrossTabs`) which fires from the diff-watcher
@@ -419,6 +523,7 @@ export default function SellerEstimatePage() {
           }, 1500);
         }
       } catch (err) {
+        console.log("[seller-payoff-save] save error", err);
         console.warn("[seller] auto-save failed:", err);
         if (isMountedRef.current) setSaveStatus("error");
       }
@@ -483,6 +588,71 @@ export default function SellerEstimatePage() {
       updatedAt: new Date().toISOString(),
     }));
     console.debug("[seller-tax] prior purchase price source", "manual");
+  }
+
+  // Apply an uploaded-statement balance. Locks the value as "statement"
+  // so refinance/amortization never auto-overwrite it (only a manual
+  // edit or an explicit Reset can change it).
+  function applyStatementBalance(s: ExtractedStatement) {
+    setScenario(prev => ({
+      ...prev,
+      mortgagePayoff: s.balance,
+      mortgagePayoffSource: "statement",
+      mortgagePayoffEstimateInputs: undefined,
+      mortgageStatementMetadata: {
+        lender: s.lender ?? null,
+        balance: s.balance,
+        fileName: s.fileName ?? null,
+        confidence: s.confidence ?? null,
+        uploadedAt: new Date().toISOString(),
+      },
+      updatedAt: new Date().toISOString(),
+    }));
+    console.log("[seller-payoff-save] source", "statement");
+    console.log("[seller-payoff-save] value", s.balance);
+    toast({
+      title: "Mortgage balance updated",
+      description: `Pulled ${formatCurrency(s.balance)} from your statement.`,
+    });
+  }
+
+  // "Reset / Recalculate": ignore the manual/statement lock and re-run
+  // the resolver (refinance match first, then amortized estimate).
+  function recalcPayoff() {
+    const R = resolveSellerMortgagePayoff({
+      sellerScenario: scenario,
+      trackedLoans,
+      propertyCache: lastSold ?? undefined,
+      normalizedPropertyKey: scenario.normalizedPropertyKey,
+      address: scenario.address,
+      today: new Date(),
+      ignoreManualLock: true,
+    });
+    if (R.source !== "refinance" && R.source !== "refinance_statement" && R.source !== "amortized_estimate") {
+      toast({
+        title: "Nothing to recalculate from",
+        description: "No matching Refinance scenario or recorded sale was found for this property.",
+      });
+      return;
+    }
+    const nextSource = R.source === "amortized_estimate" ? "amortized_estimate" : "refinance";
+    setScenario(prev => ({
+      ...prev,
+      mortgagePayoff: R.value,
+      mortgagePayoffSource: nextSource,
+      mortgagePayoffEstimateInputs:
+        R.source === "amortized_estimate" ? (R.estimateInputs as Record<string, unknown> | undefined) : undefined,
+      mortgageStatementMetadata: undefined,
+      updatedAt: new Date().toISOString(),
+    }));
+    console.log("[seller-payoff-save] source", nextSource);
+    console.log("[seller-payoff-save] value", R.value);
+    toast({
+      title: "Mortgage payoff recalculated",
+      description: nextSource === "refinance"
+        ? `Pulled ${formatCurrency(R.value)} from your Refinance scenario.`
+        : `Estimated ${formatCurrency(R.value)} from the last recorded sale.`,
+    });
   }
 
   // Move the seller-closing-costs percent slider. Stamps source as
@@ -874,6 +1044,32 @@ export default function SellerEstimatePage() {
                   step={1000}
                   prefix="$"
                 />
+                {/* Mortgage payoff source note + statement upload + reset. */}
+                <div className="-mt-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    {payoffSourceNote(scenario.mortgagePayoffSource) ? (
+                      <span className="text-xs text-muted-foreground">
+                        {payoffSourceNote(scenario.mortgagePayoffSource)}
+                      </span>
+                    ) : <span />}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={recalcPayoff}
+                    >
+                      Reset / Recalculate
+                    </Button>
+                  </div>
+                  {scenario.mortgagePayoffSource === "amortized_estimate" && (
+                    <p className="text-[11px] text-muted-foreground leading-snug">
+                      Estimated payoff only. Actual payoff may differ based on refinances,
+                      extra payments, fees, escrow, and your lender's payoff quote.
+                    </p>
+                  )}
+                  <MortgageStatementUpload onExtracted={applyStatementBalance} />
+                </div>
                 <NumRow
                   label="Realtor Commission"
                   hint={`≈ ${formatCurrency(commissionDollars)} at ${commissionPct.toFixed(1)}%`}

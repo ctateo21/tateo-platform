@@ -1,0 +1,432 @@
+Copy/paste this into Replit:
+
+```text id="seller-mortgage-payoff-refi-amortization-statement"
+Update Sell Your Home mortgage payoff logic so it can pull or estimate the mortgage balance from three sources.
+
+Current issue:
+On the Sell Your Home tab, Mortgage Payoff is currently user-entered/defaulted, but it should be smarter.
+
+Goal:
+For each Sell Your Home property, determine Mortgage Payoff using this priority:
+
+1. If the same property address exists in the Refinance tab, bring over the current mortgage balance from that Refinance scenario.
+2. If no matching Refinance scenario exists, estimate the mortgage balance using an amortization calculation from the property’s last sold date to today.
+3. Allow the user to upload a current mortgage statement and extract the current mortgage balance, the same way the Refinance tab already does.
+
+Scope:
+Dashboard → Sell Your Home
+- overview cards/rows
+- detailed home view
+- Sale & Costs tab
+- Net Proceeds Breakdown
+- Estimated Net Proceeds calculation
+- Mortgage Payoff input/autosave
+
+Mortgage Payoff source priority:
+Use this order:
+
+1. Manual user-entered Mortgage Payoff
+2. Mortgage statement uploaded by user
+3. Matching Refinance scenario mortgage balance
+4. Amortized estimate from Zillow/property cache last sold data
+5. Existing seller_scenarios.mortgage_payoff value
+6. Fallback to $0 if nothing is available
+
+Manual override protection:
+If user manually edits Mortgage Payoff in Sell Your Home:
+- set `mortgage_payoff_source = "manual"`
+- do not overwrite it with Refinance, amortization, Zillow, or statement parsing
+- preserve after refresh/logout/login
+
+If user uploads a mortgage statement:
+- set `mortgage_payoff_source = "statement"`
+- save the extracted balance
+- do not overwrite it with Refinance or amortization unless user chooses reset/recalculate
+
+PART 1 — Pull mortgage balance from Refinance tab if same property exists
+
+When a Sell Your Home scenario loads, check whether the same property exists in Refinance/tracked loans.
+
+Match by:
+1. normalized_property_key
+2. exact normalized address fallback
+3. full_address fallback only if normalized key is missing
+
+Look in the Refinance/tracked loans data for fields like:
+- current_mortgage_balance
+- mortgage_balance
+- unpaid_principal_balance
+- current_loan_balance
+- loan_balance
+- principal_balance
+- payoff_balance
+
+Use whichever field the Refinance tab currently uses for mortgage balance.
+
+If a match exists:
+- copy that mortgage balance into Sell Your Home Mortgage Payoff
+- save it to `seller_scenarios.mortgage_payoff`
+- set `mortgage_payoff_source = "refinance"`
+- update `updated_at`
+- recalculate Net Proceeds immediately
+
+Do not create duplicate seller scenarios.
+Do not create duplicate refinance scenarios.
+Do not overwrite if `mortgage_payoff_source = "manual"` or `"statement"`.
+
+Display:
+If the value came from Refinance, show a small muted note near Mortgage Payoff:
+“Pulled from Refinance scenario”
+
+PART 2 — If no Refinance match exists, estimate payoff using amortization
+
+If no Refinance scenario exists for the same address, estimate the current mortgage balance using Zillow/property cache data.
+
+Required inputs:
+- prior purchase price / last sold price
+- last sold date / purchase date
+- current date
+- assumed initial loan amount
+
+User request:
+Assume the purchase price as the initial loan amount value on the purchase date.
+
+So:
+initialLoanAmount = lastSoldPrice
+
+Use Zillow/property cache fields such as:
+- last_sold_price
+- last_sale_price
+- prior_purchase_price
+- previous_purchase_price
+- lastSoldPrice
+- priceHistory sale amount
+- last_sold_date
+- last_sale_date
+- prior_purchase_date
+- previous_purchase_date
+- lastSoldDate
+- priceHistory sale date
+
+Important:
+Do not use Zestimate or current list price as prior purchase price.
+Do not use current estimated sale price as initial loan amount.
+
+If multiple price history entries exist:
+- use the most recent prior sale event
+- extract sale date and sale price
+- ignore listing events, price changes, tax assessments, and Zestimate values
+
+Amortization assumptions:
+Because we do not know the original loan terms, use these defaults for now:
+- Loan amount = last sold price
+- Term = 30 years
+- Interest rate = 6.50% annual fixed rate
+- Start date = last sold date
+- Current date = today
+- Payments made monthly
+- Assume no extra principal payments
+- Assume no refinances
+- Assume no escrow in balance
+- Estimated balance cannot be below $0
+
+Create a shared helper:
+
+`estimateMortgageBalanceFromSale({
+  originalLoanAmount,
+  annualInterestRate,
+  termYears,
+  loanStartDate,
+  asOfDate
+})`
+
+Formula:
+- monthlyRate = annualInterestRate / 12
+- totalPayments = termYears * 12
+- paymentsMade = number of full months between loanStartDate and today
+- monthlyPayment = P * [r(1+r)^n] / [(1+r)^n - 1]
+- remainingBalance = P * [((1+r)^n - (1+r)^p) / ((1+r)^n - 1)]
+
+Where:
+- P = originalLoanAmount
+- r = monthlyRate
+- n = totalPayments
+- p = paymentsMade
+
+If monthlyRate is 0:
+- remainingBalance = originalLoanAmount * (1 - paymentsMade / totalPayments)
+
+Clamp:
+- paymentsMade cannot be less than 0
+- paymentsMade cannot exceed totalPayments
+- remainingBalance cannot be less than 0
+
+Save:
+- `seller_scenarios.mortgage_payoff = estimated remaining balance`
+- `mortgage_payoff_source = "amortized_estimate"`
+- optional:
+  - `mortgage_payoff_estimate_inputs` jsonb with:
+    - originalLoanAmount
+    - annualInterestRate
+    - termYears
+    - loanStartDate
+    - asOfDate
+    - paymentsMade
+    - monthlyPayment
+    - sourceSalePrice
+    - sourceSaleDate
+
+Display:
+If the value came from amortization, show a small muted note:
+“Estimated from last sale history”
+
+Also show a small disclaimer:
+“Estimated payoff only. Actual payoff may differ based on refinances, extra payments, fees, escrow, and lender payoff quote.”
+
+PART 3 — Allow current mortgage statement upload
+
+Add an upload option in the Sell Your Home detailed view near the Mortgage Payoff input.
+
+Label:
+“Upload Mortgage Statement”
+
+Behavior:
+- Use the same upload/parsing flow already used by the Refinance tab.
+- Reuse existing Refinance mortgage statement parser/helper if one exists.
+- Extract current unpaid principal balance/current mortgage balance from the statement.
+- Populate Mortgage Payoff with the extracted balance.
+- Save it to `seller_scenarios.mortgage_payoff`
+- Set `mortgage_payoff_source = "statement"`
+- Save any useful statement metadata if existing patterns allow:
+  - statement date
+  - lender name
+  - extracted balance
+  - uploaded file name
+- Recalculate Net Proceeds immediately
+
+Accepted file types:
+- PDF
+- image files if the refinance tab supports them
+- same file types as Refinance tab
+
+If extraction fails:
+- show a clean message:
+“We could not confidently pull the balance from this statement. Please enter the mortgage payoff manually.”
+- do not overwrite existing Mortgage Payoff
+
+If multiple possible balances are found:
+- prefer unpaid principal balance/current principal balance
+- do not use monthly payment
+- do not use escrow balance
+- do not use past due amount
+- do not use payment amount
+- do not use interest rate
+- do not use payoff good-through amount unless that is the only clearly labeled payoff balance
+
+Manual correction:
+After statement extraction, user can still edit Mortgage Payoff manually.
+If they edit it:
+- change source to manual
+- preserve manual value
+
+PART 4 — Mortgage Payoff UI behavior
+
+In Sell Your Home detailed view:
+Mortgage Payoff should show:
+- value
+- source note
+- upload statement button
+- optional reset/recalculate button
+
+Source notes:
+- Manual: “Entered by you”
+- Statement: “Pulled from uploaded mortgage statement”
+- Refinance: “Pulled from Refinance scenario”
+- Amortized estimate: “Estimated from last sale history”
+- Unknown: no note or “Not available”
+
+Optional reset behavior:
+Add a small “Reset estimate” or “Recalculate” button only if easy.
+When clicked:
+- if Refinance match exists, use Refinance balance
+- else use amortized estimate
+- set source accordingly
+
+PART 5 — Overview behavior
+
+Sell Your Home overview row/card should reflect the same Mortgage Payoff used in detail.
+
+If Mortgage Payoff changes from:
+- Refinance pull
+- amortized estimate
+- statement upload
+- manual edit
+
+then update:
+- overview Mortgage Payoff if displayed
+- overview Estimated Net Proceeds
+- overview Estimated Taxes Due if dependent later
+- detailed top right Estimated Net Proceeds
+- Net Proceeds Breakdown
+
+PART 6 — Net Proceeds Breakdown
+
+Mortgage Payoff line item in Net Proceeds Breakdown should use the resolved Mortgage Payoff value.
+
+Formula should remain:
+estimatedNetProceeds =
+  estimatedSalePrice
+  - mortgagePayoff
+  - realtorCommission
+  - sellerClosingCosts
+  - buyerConcessions
+  - repairBudget
+  - otherSellingCosts
+  - estimatedTaxesDue
+
+Make sure changing Mortgage Payoff immediately updates Estimated Net Proceeds.
+
+PART 7 — Persistence / Supabase schema
+
+Inspect current `seller_scenarios` schema.
+
+If existing fields are enough, use them.
+If missing, provide one SQL migration before coding.
+
+Likely needed fields:
+- `mortgage_payoff numeric`
+- `mortgage_payoff_source text`
+- `mortgage_payoff_estimate_inputs jsonb default '{}'::jsonb`
+- `mortgage_statement_metadata jsonb default '{}'::jsonb`
+
+Do not create duplicate columns if equivalents already exist.
+
+Use existing RLS policies.
+Do not weaken RLS.
+
+PART 8 — Data source resolver
+
+Create or update a shared resolver:
+
+`resolveSellerMortgagePayoff({
+  sellerScenario,
+  trackedLoans,
+  propertyCache,
+  normalizedPropertyKey,
+  address,
+  today
+})`
+
+Responsibilities:
+1. If seller mortgage payoff source is manual, return manual value.
+2. If source is statement, return statement value.
+3. Search Refinance/tracked loans by normalized property key/address.
+4. If Refinance match exists, return Refinance mortgage balance.
+5. If no Refinance match exists, resolve last sold price/date from Zillow/property cache.
+6. If sale price/date exist, run amortization estimate.
+7. Return value, source, and metadata.
+8. Never create duplicate scenarios.
+9. Never overwrite manual or statement values.
+
+PART 9 — Debug logs
+
+Add temporary logs:
+
+Refinance matching:
+- `[seller-payoff] seller address`
+- `[seller-payoff] normalized property key`
+- `[seller-payoff] refinance matches found`
+- `[seller-payoff] refinance balance field used`
+- `[seller-payoff] refinance balance value`
+
+Amortization:
+- `[seller-payoff] no refinance match, estimating amortized balance`
+- `[seller-payoff] last sold price`
+- `[seller-payoff] last sold date`
+- `[seller-payoff] original loan amount`
+- `[seller-payoff] assumed rate`
+- `[seller-payoff] assumed term`
+- `[seller-payoff] payments made`
+- `[seller-payoff] monthly payment`
+- `[seller-payoff] estimated remaining balance`
+
+Statement upload:
+- `[seller-payoff-statement] upload started`
+- `[seller-payoff-statement] extracted balance`
+- `[seller-payoff-statement] extraction confidence`
+- `[seller-payoff-statement] save ok/error`
+
+Save/load:
+- `[seller-payoff-save] source`
+- `[seller-payoff-save] value`
+- `[seller-payoff-save] save ok/error`
+- `[seller-payoff-load] loaded mortgage payoff`
+- `[seller-net-proceeds] mortgage payoff included`
+
+Manual protection:
+- `[seller-payoff] skipped refill because manual`
+- `[seller-payoff] skipped refill because statement`
+
+PART 10 — Acceptance tests
+
+Test A — Pull from Refinance
+1. Log in.
+2. Create or open a Refinance scenario for 123 Main St.
+3. Set current mortgage balance to $300,000.
+4. Open Sell Your Home for 123 Main St.
+5. Confirm Mortgage Payoff = $300,000.
+6. Confirm source note says pulled from Refinance scenario.
+7. Confirm Net Proceeds subtracts $300,000.
+8. Refresh/logout/login.
+9. Confirm value persists.
+
+Test B — No Refinance, amortized estimate
+1. Open Sell Your Home for a property with Zillow last sold price and last sold date.
+2. Make sure no matching Refinance scenario exists.
+3. Confirm Mortgage Payoff is estimated using amortization.
+4. Confirm source note says estimated from last sale history.
+5. Confirm Net Proceeds uses the estimated balance.
+6. Confirm debug logs show sale price/date, payments made, and estimated balance.
+
+Test C — Statement upload
+1. Open Sell Your Home detail.
+2. Upload a current mortgage statement.
+3. Confirm the balance is extracted.
+4. Confirm Mortgage Payoff updates to the extracted balance.
+5. Confirm source note says pulled from uploaded mortgage statement.
+6. Confirm Net Proceeds updates.
+7. Refresh/logout/login.
+8. Confirm statement-derived balance persists.
+
+Test D — Manual override
+1. Manually edit Mortgage Payoff to $250,000.
+2. Confirm source becomes manual.
+3. Refresh/logout/login.
+4. Confirm $250,000 remains.
+5. Confirm Refinance/amortization/statement logic does not overwrite it unless user uploads a new statement or explicitly resets.
+
+Test E — Address matching
+1. Confirm matching uses normalized_property_key when available.
+2. Confirm full_address fallback works if key is missing.
+3. Confirm different properties do not share mortgage payoff values.
+
+Test F — Net Proceeds consistency
+1. Change Mortgage Payoff from any source.
+2. Confirm overview Net Proceeds updates.
+3. Confirm detailed top right Estimated Net Proceeds updates.
+4. Confirm Net Proceeds Breakdown updates.
+5. Confirm no other seller calculations break.
+
+Please make the smallest safe code change possible and tell me:
+- Whether SQL was needed
+- Which mortgage payoff fields were added or reused
+- Which Refinance balance field is used
+- How address matching works between Sell Your Home and Refinance
+- Which amortization helper was created
+- What amortization assumptions are used
+- Which Zillow/property cache fields provide last sold price/date
+- How statement upload reuses the Refinance parser
+- How manual and statement values are protected
+- How Net Proceeds updates
+- Which files/functions were changed
+```

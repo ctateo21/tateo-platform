@@ -354,7 +354,14 @@ export type SellerScenarioStatus =
  *  is treated as "auto / overridable" by the seller-from-refinance helper.
  *  See supabase/migrations/2026_05_24_seller_scenario_sources.sql. */
 export type SellerEstimatedSalePriceSource = "refinance" | "zillow" | "manual" | "property_value_sync";
-export type SellerMortgagePayoffSource = "refinance_statement" | "manual";
+// "refinance_statement" — legacy tag written by the Refinance→Seller
+//   sync (treated the same as "refinance" for display/locking).
+// "refinance"           — pulled live from a matching Refinance loan.
+// "statement"           — extracted from a statement uploaded on the
+//   Sell-Your-Home page; locked like "manual".
+// "amortized_estimate"  — estimated from last sale price/date.
+export type SellerMortgagePayoffSource =
+  | "refinance_statement" | "refinance" | "manual" | "statement" | "amortized_estimate";
 export type SellerRealtorCommissionSource = "default_5_percent" | "manual";
 // Provenance for the three free-text user inputs that previously had
 // no source tracking. "default" — never user-touched (0 / unset).
@@ -403,6 +410,14 @@ export interface SellerScenario {
   // Provenance for refinance-derived fields. See the type aliases above.
   estimatedSalePriceSource?: SellerEstimatedSalePriceSource;
   mortgagePayoffSource?: SellerMortgagePayoffSource;
+  /** Snapshot of the amortization inputs/outputs when mortgagePayoff was
+   *  estimated (source === "amortized_estimate"). Persisted to
+   *  seller_scenarios.mortgage_payoff_estimate_inputs (jsonb). */
+  mortgagePayoffEstimateInputs?: Record<string, unknown>;
+  /** Lightweight metadata from an uploaded mortgage statement (lender,
+   *  extracted balance, file name, uploaded date). Persisted to
+   *  seller_scenarios.mortgage_statement_metadata (jsonb). */
+  mortgageStatementMetadata?: Record<string, unknown>;
   realtorCommissionSource?: SellerRealtorCommissionSource;
   sellerClosingCostsSource?: SellerClosingCostsSource;
   /** Provenance for the three free-text seller inputs. See type aliases above. */
@@ -1019,6 +1034,14 @@ function rowToSeller(row: any): SellerScenario {
     // rows pre-date the 2026_05_24 migration that added these columns).
     estimatedSalePriceSource: (row.estimated_sale_price_source ?? undefined) as SellerEstimatedSalePriceSource | undefined,
     mortgagePayoffSource:     (row.mortgage_payoff_source      ?? undefined) as SellerMortgagePayoffSource | undefined,
+    mortgagePayoffEstimateInputs:
+      row.mortgage_payoff_estimate_inputs && typeof row.mortgage_payoff_estimate_inputs === "object"
+        ? row.mortgage_payoff_estimate_inputs as Record<string, unknown>
+        : undefined,
+    mortgageStatementMetadata:
+      row.mortgage_statement_metadata && typeof row.mortgage_statement_metadata === "object"
+        ? row.mortgage_statement_metadata as Record<string, unknown>
+        : undefined,
     realtorCommissionSource:  (row.realtor_commission_source   ?? undefined) as SellerRealtorCommissionSource | undefined,
     sellerClosingCostsSource: (row.seller_closing_costs_source ?? undefined) as SellerClosingCostsSource | undefined,
     buyerConcessionsSource:   (row.buyer_concessions_source    ?? undefined) as SellerBuyerConcessionsSource | undefined,
@@ -1064,6 +1087,8 @@ function sellerToRow(s: SellerScenario, userId: string) {
     property_photos: s.propertyPhotos ?? null,
     estimated_sale_price_source: s.estimatedSalePriceSource ?? null,
     mortgage_payoff_source:      s.mortgagePayoffSource ?? null,
+    mortgage_payoff_estimate_inputs: s.mortgagePayoffEstimateInputs ?? null,
+    mortgage_statement_metadata:     s.mortgageStatementMetadata ?? null,
     realtor_commission_source:   s.realtorCommissionSource ?? null,
     seller_closing_costs_source: s.sellerClosingCostsSource ?? null,
     buyer_concessions_source:    s.buyerConcessionsSource ?? null,
@@ -2031,6 +2056,8 @@ function persistSellerScenarios(s: SellerScenario[]) {
         "seller_closing_costs_percent",
         "estimated_sale_price_source",
         "mortgage_payoff_source",
+        "mortgage_payoff_estimate_inputs",
+        "mortgage_statement_metadata",
         "realtor_commission_source",
         "seller_closing_costs_source",
         // Estimated capital-gains tax columns (2026_06_15 migration).

@@ -213,6 +213,16 @@ alter table public.seller_scenarios
   add column if not exists realtor_commission_source   text,
   add column if not exists seller_closing_costs_source text;
 
+-- Mortgage Payoff multi-source resolution (see
+-- supabase/migrations/2026_06_15_seller_mortgage_payoff_sources.sql).
+--   mortgage_payoff_source now also takes 'refinance' | 'statement' |
+--                                'amortized_estimate'
+--   mortgage_payoff_estimate_inputs : amortization snapshot (jsonb)
+--   mortgage_statement_metadata     : uploaded-statement metadata (jsonb)
+alter table public.seller_scenarios
+  add column if not exists mortgage_payoff_estimate_inputs jsonb default '{}'::jsonb,
+  add column if not exists mortgage_statement_metadata     jsonb default '{}'::jsonb;
+
 -- Seller closing costs are now slider-driven as a PERCENT of sale price
 -- (default 1.85%). The dollar amount stays in `seller_closing_costs` and
 -- is recomputed any time the sale price or this percent changes.
