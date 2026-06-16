@@ -3,5 +3,6 @@
 - [Supabase vs Neon DB split](supabase-vs-neon-split.md) — scenario/property tables live in user's Supabase (can't ALTER); new cols need schema.sql + migration + *_OPTIONAL_COLUMNS in auth.ts.
 - [Transactional emails & scenario-save hook](transactional-emails.md) — Resend best-effort senders (skip without RESEND_API_KEY/ALERT_FROM_EMAIL); scenarios save client-side, notify-new-scenario is the only server save hook.
 - [Havo access mode](havo-paywall.md) — ACTIVE: FREE_ACCESS (no payment anywhere, /subscribe redirects to dashboard, FUB notify on register/login only); paid Stripe/trial model dormant but retained, flip via FREE_ACCESS_MODE.
+- [Link-share previews (Open Graph)](link-share-previews.md) — iMessage crawler runs JS, so a page's react-helmet title override hijacks share previews; keep homepage Helmet OG consistent with index.html.
 - [Seller mortgage payoff resolution](seller-mortgage-payoff.md) — priority manual>statement>refinance>amortized>existing>zero; manual/statement never auto-overwritten (double-guarded).
 - [Seller net-proceeds shared helper](seller-net-proceeds-helper.md) — detail view, dashboard overview, and save handler must all use seller-net-proceeds.ts; gate "—" on hasSalePrice to avoid drift.
