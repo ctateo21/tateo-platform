@@ -2,6 +2,6 @@
 - [Adding a persisted tracked_loans field](tracked-loans-persistence.md) — the 5-place checklist + migration, plus hydration-sync & onValueCommit gotchas for refi inputs.
 - [Supabase vs Neon DB split](supabase-vs-neon-split.md) — scenario/property tables live in user's Supabase (can't ALTER); new cols need schema.sql + migration + *_OPTIONAL_COLUMNS in auth.ts.
 - [Transactional emails & scenario-save hook](transactional-emails.md) — Resend best-effort senders (skip without RESEND_API_KEY/ALERT_FROM_EMAIL); scenarios save client-side, notify-new-scenario is the only server save hook.
-- [Havo Pro paywall & trial](havo-paywall.md) — $20/mo, Stripe Managed Payments (preview API, no SDK/webhooks), 7-day trial, one free anonymous home; gating is client-side by design.
+- [Havo access mode](havo-paywall.md) — ACTIVE: FREE_ACCESS (no payment anywhere, /subscribe redirects to dashboard, FUB notify on register/login only); paid Stripe/trial model dormant but retained, flip via FREE_ACCESS_MODE.
 - [Seller mortgage payoff resolution](seller-mortgage-payoff.md) — priority manual>statement>refinance>amortized>existing>zero; manual/statement never auto-overwritten (double-guarded).
 - [Seller net-proceeds shared helper](seller-net-proceeds-helper.md) — detail view, dashboard overview, and save handler must all use seller-net-proceeds.ts; gate "—" on hasSalePrice to avoid drift.

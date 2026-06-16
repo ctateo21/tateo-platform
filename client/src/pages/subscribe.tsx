@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, Redirect } from "wouter";
 import { Check, Loader2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/auth-context";
 import { useSubscription } from "@/hooks/use-subscription";
 import { authedFetch } from "@/lib/authed-fetch";
+import { FREE_ACCESS_MODE } from "@/lib/access";
 import AuthDialog from "@/components/ui/auth-dialog";
 
 const FEATURES = [
@@ -23,6 +24,13 @@ export default function Subscribe() {
   const { toast } = useToast();
   const [authOpen, setAuthOpen] = useState(false);
   const [starting, setStarting] = useState(false);
+
+  // Free access mode: there is no payment screen at all. Anyone who lands
+  // here (old bookmark, stray redirect, or a signed-in user) is sent to the
+  // dashboard. Guests get the normal sign-in prompt there.
+  if (FREE_ACCESS_MODE) {
+    return <Redirect to="/dashboard" />;
+  }
 
   async function handleSubscribe() {
     setStarting(true);

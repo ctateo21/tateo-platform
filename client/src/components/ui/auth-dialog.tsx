@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -27,6 +28,7 @@ interface AuthDialogProps {
 
 export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }: AuthDialogProps) {
   const { refresh } = useAuth();
+  const [, setLocation] = useLocation();
 
   // Sign-in state
   const [siEmail, setSiEmail] = useState("");
@@ -82,6 +84,9 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     onOpenChange(false);
     // reset
     setRegName(""); setRegEmail(""); setRegPhone(""); setRegPassword(""); setRegConfirm("");
+    // Free access — no payment step. Drop the new user straight into their
+    // dashboard so they can start running quotes right away.
+    setLocation("/dashboard");
   }
 
   return (
