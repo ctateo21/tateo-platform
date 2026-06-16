@@ -7,7 +7,7 @@ description: ACTIVE MODE is FREE_ACCESS (no payment anywhere); the paid Stripe/t
 
 The app is in free-access mode: free to use with a free account, NO credit card / Stripe checkout / subscription required anywhere. The paid model documented further down is intentionally kept in source but bypassed.
 
-- Flag: client `FREE_ACCESS_MODE` (`client/src/lib/access.ts`, `VITE_FREE_ACCESS_MODE !== "false"`, defaults ON); server `process.env.FREE_ACCESS_MODE !== "false"`. Set both to `"false"` to restore the paid model.
+- Flag: client `FREE_ACCESS_MODE` (`client/src/lib/access.ts`) and server (`server/routes.ts`) are BOTH now hard-coded `= true` (no longer env-driven). **Why:** prod kept showing the Stripe paywall because a `VITE_FREE_ACCESS_MODE`/`FREE_ACCESS_MODE="false"` env could silently re-enable payments; owner wanted free-for-all permanently. To restore paid mode, change these constants back to env-driven values.
 - `useSubscription()` short-circuits to `{active:true,status:"free_access"}` with NO Stripe call; server `/api/subscription/status` returns the same. Stripe code paths untouched.
 - The `/subscribe` payment page early-returns `<Redirect to="/dashboard">` whenever the flag is on (covers guests + signed-in), so the paywall is unreachable. After a successful register, AuthDialog navigates straight to `/dashboard` so new users can run quotes immediately.
 - FUB notify: client fires `account_created` (register) / `account_signed_in` (login) ONLY — never on session hydrate/refresh. Server `POST /api/leads/account-event` is auth-required (requireUser), derives email/name/phone from the verified Supabase session (ignores body identity), accepts only an `event` enum, and dedupes sign-ins per-user within 5 min.

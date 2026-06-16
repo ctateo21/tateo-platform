@@ -1938,12 +1938,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Emails that get full access with no paywall (comped accounts).
   // admin@tateoco.com is always included; extra addresses can be added
   // via the COMP_ACCESS_EMAILS env var (comma-separated).
-  // While FREE_ACCESS_MODE is on, the app is free with a free account: no
-  // Stripe checkout, payment method, or subscription is enforced for any
-  // signed-in user. Stripe routes/webhooks/tables are all left intact —
-  // only enforcement is bypassed. Set FREE_ACCESS_MODE=false to restore
-  // paid mode. Defaults to ON.
-  const FREE_ACCESS_MODE = process.env.FREE_ACCESS_MODE !== "false";
+  // The app is free with a free account: no Stripe checkout, payment
+  // method, or subscription is enforced for any signed-in user. Stripe
+  // routes/webhooks/tables are all left intact — only enforcement is
+  // bypassed. This is intentionally hard-coded to true so that no
+  // environment variable can accidentally re-enable payments. To restore
+  // paid mode in the future, change this constant back to an env-driven value.
+  const FREE_ACCESS_MODE = true;
   if (FREE_ACCESS_MODE) {
     console.log("[access-mode] free access mode enabled");
     console.log("[stripe] code retained");
