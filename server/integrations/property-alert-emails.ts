@@ -353,12 +353,15 @@ export async function sendWelcomeEmail(args: {
   return sendOne({ to: args.to, subject, html, text });
 }
 
-/** Sent to the internal team whenever any scenario is saved. Best-effort. */
+/** Sent to the internal team whenever any scenario is saved. Best-effort.
+ *  When `contact` is provided (e.g. showing requests) a Name/Email/Phone block
+ *  is rendered near the top so the team always has full contact details. */
 export async function sendInternalAlert(args: {
   scenarioType: string;
   userEmail: string;
   address: string;
   summary: string;
+  contact?: { name?: string; email?: string; phone?: string };
 }): Promise<{ status: SendStatus; error: string | null; to: string; from: string }> {
   // Recipient for internal team alerts. Prefer a dedicated INTERNAL_ALERT_EMAIL,
   // then the Follow Up Boss lead inbox, then fall back to the verified sender
@@ -379,9 +382,26 @@ export async function sendInternalAlert(args: {
 
   const subject = `New ${args.scenarioType} — ${args.address}`;
   const fubSearchUrl =
-    `https://app.followupboss.com/2/people?q=${encodeURIComponent(args.userEmail)}`;
+    `https://app.followupboss.com/2/people?q=${encodeURIComponent(args.contact?.email || args.userEmail)}`;
+
+  // Contact block (Name/Email/Phone) — only when caller supplies contact info,
+  // so existing scenario-save alerts keep their original layout.
+  const c = args.contact;
+  const contactText = c
+    ? `Contact:\n` +
+      `Name: ${c.name?.trim() || "Not provided"}\n` +
+      `Email: ${c.email?.trim() || args.userEmail || "Not provided"}\n` +
+      `Phone: ${c.phone?.trim() || "Not provided"}\n\n`
+    : "";
+  const contactHtml = c
+    ? `<p style="margin:0 0 4px"><strong>Contact:</strong></p>` +
+      `<p style="margin:0 0 2px">Name: ${esc(c.name?.trim() || "Not provided")}</p>` +
+      `<p style="margin:0 0 2px">Email: ${esc(c.email?.trim() || args.userEmail || "Not provided")}</p>` +
+      `<p style="margin:0 0 12px">Phone: ${esc(c.phone?.trim() || "Not provided")}</p>`
+    : "";
 
   const text =
+    contactText +
     `User: ${args.userEmail}\n` +
     `Type: ${args.scenarioType}\n` +
     `Property: ${args.address}\n` +
@@ -390,6 +410,7 @@ export async function sendInternalAlert(args: {
 
   const html =
     `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">` +
+    contactHtml +
     `<p><strong>User:</strong> ${esc(args.userEmail)}</p>` +
     `<p><strong>Type:</strong> ${esc(args.scenarioType)}</p>` +
     `<p><strong>Property:</strong> ${esc(args.address)}</p>` +

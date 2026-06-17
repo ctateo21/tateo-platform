@@ -1390,15 +1390,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const priceLine = typeof body.estimatedPrice === "number" && body.estimatedPrice > 0
         ? `Estimated Price: $${Math.round(body.estimatedPrice).toLocaleString()}`
         : "";
+      // Resolve a display name from first/last (the "-" placeholder lastName
+      // means "no last name supplied", so drop it).
+      const contactName = [
+        body.firstName,
+        body.lastName && body.lastName !== "-" ? body.lastName : "",
+      ].filter((p) => (p || "").trim()).join(" ").trim();
+      const contactEmail = body.email || "Not provided";
+      const contactPhone = body.phone || "Not provided";
       const noteBody = [
         eventTitle,
         "",
+        "Contact:",
+        `Name: ${contactName || "Not provided"}`,
+        `Email: ${contactEmail}`,
+        `Phone: ${contactPhone}`,
+        "",
         `Property: ${body.address}`,
+        "",
         contactLabel ? `Preferred contact action: ${contactLabel}` : "",
         `Service: ${serviceLabel}`,
         body.qualificationStatus ? `Qualification Status: ${body.qualificationStatus}` : "",
         priceLine,
-        `User: ${body.email || body.phone || "logged-out visitor"}`,
         body.pageUrl ? `Page: ${body.pageUrl}` : "",
         eventType === "showing_request_started"
           ? "The user clicked Schedule your showing now. Follow up even if no call/text was completed."
@@ -1451,6 +1464,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userEmail: body.email || "logged-out visitor",
         address: body.address,
         summary: noteBody,
+        contact: {
+          name: contactName,
+          email: body.email || "",
+          phone: body.phone || "",
+        },
       });
       const fromDomain = (alert.from.match(/@([^>\s]+)/)?.[1]) || "(none)";
       console.log(`[api/fub/showing-request] email recipient ${alert.to || "(none)"}`);

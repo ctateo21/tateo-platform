@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
 import { CalendarCheck, MessageSquare, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import {
   Drawer,
   DrawerContent,
@@ -30,6 +40,10 @@ type ShowingEvent =
   | "showing_request_text_selected"
   | "showing_request_call_selected";
 
+/** Resolved contact used for the notification — from the profile (logged-in)
+ *  or the guest modal (logged-out). */
+type Contact = { name: string; email: string; phone: string };
+
 interface ScheduleShowingButtonProps {
   service: ShowingService;
   address: string;
@@ -42,6 +56,9 @@ interface ScheduleShowingButtonProps {
   /** Extra wrapper classes for placement-specific spacing. */
   className?: string;
 }
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const onlyDigits = (s: string) => (s || "").replace(/\D/g, "");
 
 /**
  * Build an sms: link that pre-fills a body where the device supports it.
@@ -57,13 +74,20 @@ function buildSmsLink(phone: string, message: string): string {
 }
 
 /**
- * "Schedule your showing now" CTA. On the main click it IMMEDIATELY fires a
- * non-blocking Follow Up Boss notification (event: showing_request_started)
- * so the agent can follow up even if the visitor never calls/texts — then it
- * opens a mobile-friendly bottom sheet with "Text us" / "Call us". Each choice
- * fires its own FUB event (text/call) and then opens the sms:/tel: link. None
- * of the telephony actions are blocked if a FUB notification fails (keepalive
- * lets the request survive navigation). Repeat clicks for the same address are
+ * "Schedule your showing now" CTA.
+ *
+ * Logged-in: pulls name/email/phone from the profile/session and IMMEDIATELY
+ * fires a non-blocking Follow Up Boss + email notification (showing_request_started),
+ * then opens the Call/Text sheet. Logged-in users are never re-prompted unless
+ * their email is missing.
+ *
+ * Logged-out guest: opens a contact-info modal first (Name/Email/Phone, all
+ * required + validated). Only after they submit do we send the notification,
+ * then open the Call/Text sheet. No account/password/credit card required.
+ *
+ * Each Call/Text choice fires its own FUB event and opens the sms:/tel: link.
+ * Telephony is never blocked if a notification fails (keepalive lets the
+ * request survive navigation). Repeat clicks for the same address are
  * de-duplicated for ~60s so FUB isn't spammed.
  */
 export function ScheduleShowingButton({
@@ -76,7 +100,13 @@ export function ScheduleShowingButton({
   className,
 }: ScheduleShowingButtonProps) {
   const { user } = useAuth();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(false); // Call/Text sheet
+  const [contactOpen, setContactOpen] = useState(false); // guest contact modal
+  const [form, setForm] = useState<Contact>({ name: "", email: "", phone: "" });
+  const [errors, setErrors] = useState<Partial<Contact>>({});
+  // The contact details used for THIS request — set when the sheet opens, so
+  // the later Text/Call events reuse the same name/email/phone.
+  const [activeContact, setActiveContact] = useState<Contact>({ name: "", email: "", phone: "" });
 
   useEffect(() => {
     console.log("[showing-cta] service", service);
@@ -85,20 +115,22 @@ export function ScheduleShowingButton({
     console.log("[showing-cta] should show button", true);
   }, [service, address, qualificationStatus]);
 
-  function notifyFub(eventType: ShowingEvent, contactMethod: ContactMethod | null) {
+  function notifyFub(eventType: ShowingEvent, contactMethod: ContactMethod | null, contact: Contact) {
     try {
-      const fullName = (user?.name || "").trim();
+      const fullName = (contact.name || "").trim();
       const spaceIdx = fullName.indexOf(" ");
       const firstName =
         spaceIdx > 0
           ? fullName.slice(0, spaceIdx)
-          : fullName || (user?.email ? user.email.split("@")[0] : "");
+          : fullName || (contact.email ? contact.email.split("@")[0] : "");
       const lastName = spaceIdx > 0 ? fullName.slice(spaceIdx + 1) : "-";
+      console.log("[showing-notification] sending");
+      console.log("[showing-notification] name", fullName || "(none)");
+      console.log("[showing-notification] email", contact.email || "(none)");
+      console.log("[showing-notification] phone present", Boolean(contact.phone));
+      console.log("[showing-notification] address", address);
       console.log("[fub-showing] event type", eventType);
       console.log("[fub-showing] contact method", contactMethod ?? "n/a");
-      console.log("[showing-cta] user name present", Boolean(user?.name));
-      console.log("[showing-cta] user email present", Boolean(user?.email));
-      console.log("[showing-cta] user phone present", Boolean(user?.phone));
       // keepalive lets this complete even as the sms:/tel: link opens.
       fetch("/api/fub/showing-request", {
         method: "POST",
@@ -115,46 +147,127 @@ export function ScheduleShowingButton({
           pageUrl: typeof window !== "undefined" ? window.location.href : "",
           firstName: firstName || undefined,
           lastName,
-          email: user?.email || undefined,
-          phone: user?.phone || undefined,
+          email: contact.email || undefined,
+          phone: contact.phone || undefined,
           agent: user?.agent || "Team",
           userId: user?.id || undefined,
         }),
       })
-        .then((res) => {
-          if (res.ok) console.log("[fub-showing] note/event created");
-          else console.warn("[fub-showing] error", res.status);
+        .then(async (res) => {
+          if (!res.ok) {
+            console.warn("[showing-notification] FUB error", res.status);
+            console.warn("[showing-notification] email error", res.status);
+            return;
+          }
+          let data: any = {};
+          try {
+            data = await res.json();
+          } catch {
+            /* response body is optional */
+          }
+          console.log("[showing-notification] FUB", data?.fub?.ok ? "success" : "error");
+          console.log("[showing-notification] email", data?.email?.ok ? "success" : "error");
         })
-        .catch((err) => console.warn("[fub-showing] error", err));
+        .catch((err) => {
+          console.warn("[showing-notification] FUB error", err);
+          console.warn("[showing-notification] email error", err);
+        });
     } catch (err) {
-      console.warn("[fub-showing] error", err);
+      console.warn("[showing-notification] error", err);
     }
   }
 
-  function openSheet() {
-    console.log("[showing-cta] schedule clicked");
-    console.log("[showing-cta] address", address);
-    // Immediate FUB notification — fires on the main click, before the user
-    // picks Call or Text, so a started request is captured either way.
-    // Dedupe only when we have a real address; a blank address must never
-    // collapse different properties into one 60s window.
+  /** Fire the immediate "started" notification, de-duped per address. */
+  function fireStarted(contact: Contact) {
     const key = `${service}:${(address || "").trim().toLowerCase()}`;
     const hasAddress = (address || "").trim().length > 0;
     const last = startedSentAt.get(key) ?? 0;
     if (!hasAddress || Date.now() - last > STARTED_DEDUPE_MS) {
       startedSentAt.set(key, Date.now());
-      console.log("[showing-cta] immediate FUB notification start");
-      notifyFub("showing_request_started", null);
+      console.log("[showing-notification] sending");
+      notifyFub("showing_request_started", null, contact);
     } else {
-      console.log("[showing-cta] immediate FUB notification skipped (recent duplicate)");
+      console.log("[showing-notification] skipped (recent duplicate)");
     }
+  }
+
+  /** Open the Call/Text sheet with a known contact (after notification sent). */
+  function openCallTextSheet(contact: Contact) {
+    setActiveContact(contact);
     console.log("[showing-cta] popup opened");
     setOpen(true);
   }
 
+  function handleScheduleClick() {
+    console.log("[showing-cta] clicked");
+    const loggedIn = Boolean(user);
+    console.log("[showing-cta] user logged in", loggedIn);
+    console.log("[showing-cta] address", address);
+
+    if (loggedIn) {
+      const contact: Contact = {
+        name: (user?.name || "").trim(),
+        email: (user?.email || "").trim(),
+        phone: (user?.phone || "").trim(),
+      };
+      console.log("[showing-contact] profile name present", Boolean(contact.name));
+      console.log("[showing-contact] profile email present", Boolean(contact.email));
+      console.log("[showing-contact] profile phone present", Boolean(contact.phone));
+
+      // Only block a logged-in user when email is missing (needed to match the
+      // FUB contact) — fall back to the contact modal to collect it.
+      if (!contact.email) {
+        console.log("[showing-cta] contact modal required", true);
+        setForm({ name: contact.name, email: "", phone: contact.phone });
+        setErrors({});
+        setContactOpen(true);
+        console.log("[showing-contact-modal] opened");
+        return;
+      }
+
+      console.log("[showing-cta] contact modal required", false);
+      fireStarted(contact);
+      openCallTextSheet(contact);
+      return;
+    }
+
+    // Logged-out guest: collect contact info BEFORE sending anything.
+    console.log("[showing-cta] contact modal required", true);
+    setForm({ name: "", email: "", phone: "" });
+    setErrors({});
+    setContactOpen(true);
+    console.log("[showing-contact-modal] opened");
+  }
+
+  function handleContactSubmit() {
+    console.log("[showing-contact-modal] submitted");
+    const name = form.name.trim();
+    const email = form.email.trim();
+    const phone = form.phone.trim();
+
+    const next: Partial<Contact> = {};
+    if (!name) next.name = "Please enter your name.";
+    if (!email) next.email = "Please enter your email.";
+    else if (!EMAIL_RE.test(email)) next.email = "Please enter a valid email address.";
+    if (!phone) next.phone = "Please enter your phone number.";
+    else if (onlyDigits(phone).length < 10) next.phone = "Please enter a valid phone number.";
+
+    if (Object.keys(next).length > 0) {
+      setErrors(next);
+      console.log("[showing-contact-modal] validation error");
+      return;
+    }
+
+    setErrors({});
+    const contact: Contact = { name, email, phone };
+    setContactOpen(false);
+    fireStarted(contact);
+    openCallTextSheet(contact);
+  }
+
   function handleText() {
     console.log("[showing-cta] text selected");
-    notifyFub("showing_request_text_selected", "text");
+    notifyFub("showing_request_text_selected", "text", activeContact);
     const message = `I'd like to schedule a showing for ${address}.`;
     const link = buildSmsLink(SHOWING_PHONE, message);
     console.log("[showing-cta] sms link built", link);
@@ -164,7 +277,7 @@ export function ScheduleShowingButton({
 
   function handleCall() {
     console.log("[showing-cta] call selected");
-    notifyFub("showing_request_call_selected", "call");
+    notifyFub("showing_request_call_selected", "call", activeContact);
     const link = `tel:${SHOWING_PHONE}`;
     console.log("[showing-cta] tel link built", link);
     setOpen(false);
@@ -176,7 +289,7 @@ export function ScheduleShowingButton({
       <Button
         size="lg"
         className="w-full sm:w-auto"
-        onClick={openSheet}
+        onClick={handleScheduleClick}
         data-testid="button-schedule-showing"
       >
         <CalendarCheck className="h-4 w-4 mr-2" />
@@ -187,6 +300,79 @@ export function ScheduleShowingButton({
           Call or text our team to schedule a showing.
         </p>
       )}
+
+      {/* Guest (or email-less) contact-info modal — collected before sending. */}
+      <Dialog open={contactOpen} onOpenChange={setContactOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Schedule your showing</DialogTitle>
+            <DialogDescription>
+              Enter your contact information so our team can follow up about this property.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="showing-name">Name</Label>
+              <Input
+                id="showing-name"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Your name"
+                data-testid="input-showing-name"
+              />
+              {errors.name && (
+                <p className="text-xs text-destructive" data-testid="error-showing-name">
+                  {errors.name}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="showing-email">Email</Label>
+              <Input
+                id="showing-email"
+                type="email"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="you@example.com"
+                data-testid="input-showing-email"
+              />
+              {errors.email && (
+                <p className="text-xs text-destructive" data-testid="error-showing-email">
+                  {errors.email}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="showing-phone">Phone Number</Label>
+              <Input
+                id="showing-phone"
+                type="tel"
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                placeholder="(813) 555-0123"
+                data-testid="input-showing-phone"
+              />
+              {errors.phone && (
+                <p className="text-xs text-destructive" data-testid="error-showing-phone">
+                  {errors.phone}
+                </p>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="ghost"
+              onClick={() => setContactOpen(false)}
+              data-testid="button-showing-contact-cancel"
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleContactSubmit} data-testid="button-showing-contact-continue">
+              Continue
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Drawer open={open} onOpenChange={setOpen}>
         <DrawerContent>

@@ -1,0 +1,431 @@
+The current email includes the property address and the logged-in user email, but it is missing full contact details like name and phone. It also does not force guest users to enter contact info before sending the showing notification. 
+
+Copy/paste this into Replit:
+
+````text id="showing-request-contact-info-required-email-alert"
+Update the Schedule Your Showing flow so the showing notification always includes the user’s name, email, phone number, and property address.
+
+Current state:
+The showing-request email notification is now sending successfully from:
+Havo Showing Alerts <alerts@updates.tateoco.com>
+
+The current email includes:
+- User email
+- Type
+- Property address
+- Summary
+- Service
+- Qualification status
+- Estimated price
+- Page URL
+
+Current issue:
+The email notification needs better contact info.
+
+Requested behavior:
+For the “Schedule your showing now” CTA:
+
+1. If the user is logged in:
+   - automatically pull their name, phone number, and email from their account/profile
+   - include those values in the FUB note and email notification
+   - do not make logged-in users re-enter the info unless a required field is missing
+
+2. If the user is not logged in:
+   - when they click “Schedule your showing now,” before sending the notification, show a popup/modal asking for:
+     - Name
+     - Email
+     - Phone Number
+   - after they submit those fields, send the FUB note and email notification
+   - then show the Call/Text choice popup
+   - do not require account creation just to schedule a showing
+
+Important:
+The property address must continue to be included exactly like the current notification does.
+
+PART 1 — Logged-in user behavior
+
+When a logged-in user clicks “Schedule your showing now”:
+
+Pull contact info from the current user/session/profile.
+
+Use priority:
+- name:
+  1. profile full_name
+  2. profile name
+  3. first_name + last_name
+  4. user metadata full_name/name
+  5. blank if unavailable
+- email:
+  1. auth user email
+  2. profile email
+- phone:
+  1. profile phone
+  2. user metadata phone
+  3. blank if unavailable
+
+Then immediately send the showing notification with:
+- name
+- email
+- phone
+- property address
+- service tab
+- qualification status if Purchase with Loan
+- estimated price if available
+- page URL
+- timestamp
+
+After sending notification:
+- show the Call/Text choice popup
+
+If logged-in user is missing phone or name:
+- still send the notification with whatever is available
+- optionally include “Not provided” for missing fields
+- do not block logged-in users unless email is missing
+
+PART 2 — Logged-out guest behavior
+
+When a logged-out user clicks “Schedule your showing now”:
+
+Do not immediately send the notification yet.
+
+Instead:
+1. Open a contact-info modal first.
+2. Require:
+   - Name
+   - Email
+   - Phone Number
+3. Validate fields.
+4. On submit, send the FUB note and email notification.
+5. Then open the Call/Text choice popup.
+
+Contact modal title:
+“Schedule your showing”
+
+Contact modal body:
+“Enter your contact information so our team can follow up about this property.”
+
+Fields:
+- Name
+- Email
+- Phone Number
+
+Button:
+“Continue”
+
+Secondary:
+“Cancel”
+
+Validation:
+- Name required
+- Email required and must be valid email format
+- Phone required and must be valid enough for contact, at minimum not blank and at least 10 digits after stripping formatting
+
+Do not require password.
+Do not require account creation.
+Do not ask for credit card.
+
+PART 3 — Notification timing
+
+Logged-in:
+- click Schedule → send notification immediately → open Call/Text popup
+
+Logged-out:
+- click Schedule → ask for name/email/phone → submit → send notification → open Call/Text popup
+
+Reason:
+We need a useful lead notification. For anonymous users, the agent cannot follow up unless we collect contact info first.
+
+PART 4 — Email notification format
+
+Update the internal email alert body so it clearly shows the contact info near the top.
+
+Subject:
+“New Showing Requested — [Service] — [Property Address]”
+
+Body should include:
+
+New Showing Requested
+
+Contact:
+Name: [Name]
+Email: [Email]
+Phone: [Phone]
+
+Property:
+[Property Address]
+
+Request:
+Service: [Purchase with Loan / Purchase with Cash]
+Qualification Status: [Likely Qualifies, if applicable]
+Estimated Price: [$X, if available]
+Page: [URL]
+Time: [timestamp]
+
+Message:
+The user clicked “Schedule your showing now.” Follow up even if no call/text was completed.
+
+Keep the “Find this contact in Follow Up Boss” link if already present.
+
+PART 5 — FUB note format
+
+Update the Follow Up Boss note to include the same contact information.
+
+Suggested FUB note:
+
+“Showing request started from Havo.
+
+Contact:
+Name: [NAME]
+Email: [EMAIL]
+Phone: [PHONE]
+
+Property:
+[ADDRESS]
+
+Service:
+[SERVICE]
+
+Qualification Status:
+[STATUS, if available]
+
+Estimated Price:
+[$X, if available]
+
+Page:
+[URL]
+
+The user clicked Schedule your showing now. Follow up even if no call/text was completed.”
+
+PART 6 — Contact creation/update in FUB
+
+When notification is sent:
+
+If email is available:
+- search/update/create contact by email first
+
+If phone is available and email is missing:
+- search/update/create contact by phone
+
+If both exist:
+- use email as primary match
+- update phone/name on the contact if missing
+
+For logged-out guest:
+- create/update FUB contact using submitted name, email, phone
+- add showing request note to that contact
+
+For logged-in user:
+- update the existing FUB contact with name/email/phone if needed
+- add showing request note to that contact
+
+PART 7 — Call/Text popup after notification
+
+After notification sends or attempts to send, show Call/Text popup:
+
+Title:
+“Schedule your showing”
+
+Buttons:
+- Text us
+- Call us
+
+Text:
+- use `sms:8132148356`
+- prefill:
+  “I’d like to schedule a showing for [PROPERTY ADDRESS].”
+
+Call:
+- use `tel:8132148356`
+
+If FUB/email notification fails:
+- still show Call/Text popup
+- log the failure clearly
+- do not block the user from calling/texting
+
+PART 8 — Supabase / SQL requirement
+
+Inspect existing Supabase schema first.
+
+This likely does not require SQL if:
+- logged-in user contact info already exists in profiles/user metadata
+- logged-out guest info is sent directly to FUB/email and not persisted
+
+Check existing profile table:
+- profiles
+- user_profiles
+- users
+
+Confirm whether logged-in users have:
+- name/full_name or first_name/last_name
+- email
+- phone
+
+If profile fields are missing and the app needs them for logged-in users:
+- provide one complete SQL migration before coding
+- use `add column if not exists`
+- do not duplicate fields
+- do not weaken RLS
+
+Possible SQL only if needed:
+
+```sql
+alter table public.profiles
+  add column if not exists full_name text,
+  add column if not exists phone text,
+  add column if not exists updated_at timestamptz default now();
+````
+
+Do not create SQL just for guest showing requests unless intentionally storing them.
+
+If Replit decides to store guest showing requests for audit/history, use the existing `showing_requests` table if present. If missing, ask before adding a new table or provide a complete migration and explain why.
+
+Report clearly:
+
+* SQL needed: yes/no
+* if yes, provide the migration
+* if no, confirm contact info is pulled from auth/profile or guest modal
+
+PART 9 — Environment variables
+
+Keep current working Resend setup:
+
+* sender domain must remain `updates.tateoco.com`
+* do not switch back to unverified `tateoco.com`
+
+Required env vars should remain:
+
+* RESEND_API_KEY
+* ALERT_FROM_EMAIL
+* INTERNAL_ALERT_EMAIL
+* FOLLOWUPBOSS_API_KEY or current FUB key
+
+Confirm:
+
+* ALERT_FROM_EMAIL uses `updates.tateoco.com`
+* internal alert recipient is set
+
+PART 10 — Do not break
+
+Do not break:
+
+* current email notification sending
+* current FUB note creation
+* verified Resend sender domain
+* Schedule Showing button placement
+* Purchase with Loan Likely Qualifies visibility
+* Purchase with Cash button under photos
+* Call/Text popup
+* SMS link
+* tel link
+* logged-in free account flow
+* logged-out guest estimate flow
+* mobile layout
+
+PART 11 — Debug logs
+
+Add logs:
+
+CTA:
+
+* `[showing-cta] clicked`
+* `[showing-cta] user logged in true/false`
+* `[showing-cta] contact modal required true/false`
+* `[showing-cta] address`
+
+Logged-in contact resolution:
+
+* `[showing-contact] profile name present true/false`
+* `[showing-contact] profile email present true/false`
+* `[showing-contact] profile phone present true/false`
+
+Guest modal:
+
+* `[showing-contact-modal] opened`
+* `[showing-contact-modal] submitted`
+* `[showing-contact-modal] validation error`
+
+Notification:
+
+* `[showing-notification] sending`
+* `[showing-notification] name`
+* `[showing-notification] email`
+* `[showing-notification] phone present true/false`
+* `[showing-notification] address`
+* `[showing-notification] FUB success/error`
+* `[showing-notification] email success/error`
+
+Do not log private keys.
+Do not log sensitive tokens.
+
+PART 12 — Acceptance tests
+
+Test A — Logged-in user
+
+1. Log in with a user that has name, email, and phone.
+2. Go to Purchase with Loan and get Likely Qualifies.
+3. Click Schedule your showing now.
+4. Confirm no contact-info modal appears.
+5. Confirm notification email includes:
+
+   * name
+   * email
+   * phone
+   * property address
+6. Confirm FUB note includes same info.
+7. Confirm Call/Text popup appears.
+
+Test B — Logged-in user missing phone
+
+1. Log in with a user missing phone.
+2. Click Schedule your showing now.
+3. Confirm notification still sends.
+4. Confirm phone shows “Not provided” or blank.
+5. Confirm Call/Text popup still appears.
+
+Test C — Logged-out user
+
+1. Log out.
+2. Run Purchase with Cash.
+3. Click Schedule your showing now.
+4. Confirm contact-info modal appears first.
+5. Submit name, email, phone.
+6. Confirm email notification includes all three.
+7. Confirm FUB contact is created/updated with all three.
+8. Confirm Call/Text popup appears after submit.
+
+Test D — Validation
+
+1. Logged out, click Schedule.
+2. Leave name blank.
+3. Confirm validation error.
+4. Leave email invalid.
+5. Confirm validation error.
+6. Leave phone blank.
+7. Confirm validation error.
+
+Test E — Property address preserved
+
+1. Use the attached email format as reference.
+2. Confirm the new email still includes the Property address line.
+3. Confirm subject still includes the property address.
+
+Test F — Resend/FUB
+
+1. Confirm sender is still [alerts@updates.tateoco.com](mailto:alerts@updates.tateoco.com) or another address using updates.tateoco.com.
+2. Confirm Resend accepts the email.
+3. Confirm FUB note still creates successfully.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* How logged-in name/email/phone are pulled
+* Whether logged-out users are required to enter contact info
+* How guest contact info is validated
+* How the email body changed
+* How the FUB note changed
+* Whether property address is preserved
+* Whether Call/Text popup still works
+* Which files/functions were changed
+
+```
+```
