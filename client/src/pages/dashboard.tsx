@@ -40,6 +40,7 @@ import {
   isCondoOrTownhomePropertyType,
 } from "@/lib/insurance-policy-type";
 import { calculateDefaultHomeownersInsurance } from "@/lib/insurance-default";
+import { fetchFloodZone } from "@/lib/flood-zone";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -1311,6 +1312,74 @@ function InsuranceTab() {
       setInsurance(next);
       void saveInsuranceScenarios(next);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insurance, purchases, loans, overrideBump]);
+
+  // ── Backfill flood zone on insurance rows ──────────────────────────────
+  // Resolve the FEMA flood zone for any insurance scenario that doesn't
+  // already have one saved — directly from the overview, so the card shows
+  // Flood AE/VE/X without the user opening the detail view first. Reuses
+  // the shared `fetchFloodZone` resolver (same `/api/flood-zone` source the
+  // detail view uses — no duplicated/inconsistent logic). Idempotent: once
+  // a zone is saved the row is skipped, so the save→notify→sync cycle can't
+  // loop. A session-scoped attempted-set stops us re-hammering FEMA for
+  // addresses it can't resolve (those stay "—", never fabricated).
+  const floodAttemptedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (rows.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const targets = rows
+        .map(r => r.insurance)
+        .filter((ins): ins is InsuranceScenario => {
+          if (!ins) return false;
+          const addr = (ins.address ?? "").trim();
+          if (!addr) return false;
+          const existing = ins.userAnswerSources?.flood_zone;
+          if (typeof existing === "string" && existing.trim()) {
+            console.log("[insurance-overview-flood] skipped because already saved", addr, existing);
+            return false;
+          }
+          if (floodAttemptedRef.current.has(addr.toLowerCase())) return false;
+          return true;
+        });
+      if (targets.length === 0) return;
+      const resolved: Record<string, string> = {};
+      for (const ins of targets) {
+        const addr = ins.address.trim();
+        floodAttemptedRef.current.add(addr.toLowerCase());
+        console.log("[insurance-overview-flood] card address", addr);
+        console.log("[insurance-overview-flood] existing flood_zone", null);
+        console.log("[insurance-overview-flood] lookup started", addr);
+        try {
+          const res = await fetchFloodZone(addr);
+          console.log("[insurance-overview-flood] lookup result", addr, res?.zone ?? "unavailable");
+          if (res?.zone) resolved[ins.id] = res.zone;
+        } catch (err: any) {
+          console.log("[insurance-overview-flood] error", addr, err?.message ?? String(err));
+        }
+      }
+      if (cancelled || Object.keys(resolved).length === 0) return;
+      // Re-read the live cache so we merge onto the freshest scenarios and
+      // never clobber a concurrent edit; only touch the flood keys.
+      const current = getInsuranceScenarios();
+      const next = current.map(s => {
+        const zone = resolved[s.id];
+        if (!zone) return s;
+        console.log("[insurance-overview-flood] saved flood_zone", s.address, zone);
+        return {
+          ...s,
+          userAnswerSources: {
+            ...(s.userAnswerSources ?? {}),
+            flood_zone: zone,
+            flood_zone_source: "fema",
+          },
+        };
+      });
+      setInsurance(next);
+      void saveInsuranceScenarios(next);
+    })();
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [insurance, purchases, loans, overrideBump]);
 

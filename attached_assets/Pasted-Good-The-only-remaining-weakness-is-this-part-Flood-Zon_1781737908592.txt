@@ -1,0 +1,71 @@
+Good. The only remaining weakness is this part:
+
+Flood Zone populates once you open the detail view for that property.
+
+That means the overview does not proactively resolve Flood Zone unless the detail page has already been opened. If you want the Insurance overview cards to show Flood Zone immediately, send this to Replit:
+
+Update the Insurance overview so Flood Zone resolves directly from the overview card list, not only after opening the Insurance detail view.
+Current status:
+Insurance detail view now resolves Flood Zone using /api/flood-zone and saves it into user_answer_sources as flood_zone + flood_zone_source.
+Current issue:
+The Insurance overview card only shows Flood Zone after the user opens the detail view first. That means the overview stays as Flood — until detail view has triggered the FEMA lookup.
+Goal:
+When Dashboard → Insurance overview loads, any Insurance scenario without a saved flood_zone should automatically run the same /api/flood-zone lookup used in the Insurance detail view, save the result, and update the overview card.
+Expected behavior:
+1. User opens Dashboard → Insurance overview.
+2. For each Insurance card:
+   - if flood_zone already exists, display it
+   - if flood_zone is missing and address/normalized_property_key exists, run /api/flood-zone
+   - save flood_zone and flood_zone_source
+   - update the overview card without requiring the user to open detail view
+3. If flood lookup fails or returns unavailable:
+   - keep Flood —
+   - do not fabricate a zone
+   - do not block the page
+Important:
+Reuse the same flood-zone resolver already implemented in client/src/pages/insurance.tsx.
+Do not duplicate inconsistent flood-zone logic.
+Supabase / SQL requirement:
+Inspect the existing schema first.
+No SQL should be needed because flood_zone is already saved in user_answer_sources and source tracking already exists.
+If no SQL is needed:
+- confirm no SQL was needed
+If SQL is needed:
+- explain why before adding anything
+- provide one complete migration
+- do not duplicate columns
+- do not weaken RLS
+Do not break:
+- Insurance detail flood lookup
+- Insurance delete/dismissed cards
+- Rebuild display
+- AOP display
+- Hurricane display
+- Carrier display
+- policy type
+- premium
+- mobile layout
+Debug logs:
+- [insurance-overview-flood] card address
+- [insurance-overview-flood] existing flood_zone
+- [insurance-overview-flood] lookup started
+- [insurance-overview-flood] lookup result
+- [insurance-overview-flood] saved flood_zone
+- [insurance-overview-flood] skipped because already saved
+- [insurance-overview-flood] error
+Acceptance test:
+1. Use an Insurance card that has never been opened in detail view.
+2. Go directly to Dashboard → Insurance overview.
+3. Confirm Flood Zone lookup runs.
+4. Confirm the overview card updates from Flood — to Flood X/AE/VE/etc. if FEMA returns a zone.
+5. Refresh/logout/login.
+6. Confirm saved Flood Zone remains.
+7. Confirm detail view shows the same Flood Zone.
+Please make the smallest safe code change possible and tell me:
+- Whether SQL was needed
+- Which flood-zone resolver was reused
+- How overview triggers lookup without opening detail view
+- How the result is saved
+- Which files/functions were changed
+
+Everything else in their report sounds correct: no SQL, delete fixed, Rebuild/Hurricane populated, AOP/Carrier defaulted, and Flood Zone now has a path to save.

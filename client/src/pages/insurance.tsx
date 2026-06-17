@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { getCountyName } from "@/lib/county-tax-estimator";
 import { normalizePropertyKey } from "@/lib/property-key";
+import { fetchFloodZone } from "@/lib/flood-zone";
 import { loadGoogleMapsApi } from "@/lib/script-loader";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { posthog } from "@/lib/posthog";
@@ -622,15 +623,12 @@ export default function InsuranceDashboard() {
     }
     let cancelled = false;
     setFloodZone(""); setFloodZoneSource("");
-    fetch(`/api/flood-zone?address=${encodeURIComponent(addr)}`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => {
-        if (cancelled || !d?.zone) return;
-        setFloodZone(String(d.zone));
-        setFloodZoneSource("fema");
-        console.log("[insurance-flood-zone] source", "fema", d.zone);
-      })
-      .catch(() => { /* unknown — leave blank */ });
+    fetchFloodZone(addr).then(res => {
+      if (cancelled || !res) return;
+      setFloodZone(res.zone);
+      setFloodZoneSource(res.source);
+      console.log("[insurance-flood-zone] source", res.source, res.zone);
+    });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
