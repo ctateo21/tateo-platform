@@ -37,19 +37,6 @@ export default function Footer() {
                 <Youtube size={16} className="text-[#0F1B3D]" />
               </a>
             </div>
-
-            {/* Powered by Barrett Financial Group LLC */}
-            <div className="flex flex-col items-center md:items-start gap-2">
-              <a href="https://www.barrettfinancial.com" target="_blank" rel="noopener noreferrer"
-                 className="inline-block bg-white rounded-md p-2">
-                <img
-                  src={barrettLogo}
-                  alt="Powered by Barrett Financial Group LLC"
-                  className="w-auto h-auto max-w-[180px] md:max-w-[200px]"
-                />
-              </a>
-              <span className="text-white/70 text-xs">Powered by Barrett Financial Group LLC</span>
-            </div>
           </div>
           
           {/* Column 2: Paul Christian Tateo Info */}
@@ -79,7 +66,20 @@ export default function Footer() {
                 <h5 className="font-medium text-white">Mortgage Loan Originator</h5>
                 <p className="text-white/80 text-sm">NMLS #1223755</p>
                 <p className="text-white/80 text-sm">Licensed in Multiple States</p>
-                <a href="http://www.barrettfinancial.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#00B6A9]">Barrett Financial Group, LLC</a>
+                <a href="https://www.barrettfinancial.com" target="_blank" rel="noopener noreferrer" className="text-white/80 text-sm hover:text-[#00B6A9]">Barrett Financial Group, LLC</a>
+
+                {/* Powered by Barrett Financial Group LLC */}
+                <div className="mt-4 flex flex-col items-center md:items-start gap-2">
+                  <a href="https://www.barrettfinancial.com" target="_blank" rel="noopener noreferrer"
+                     className="inline-block bg-white rounded-md p-2">
+                    <img
+                      src={barrettLogo}
+                      alt="Powered by Barrett Financial Group LLC"
+                      className="w-auto h-auto max-w-[180px] md:max-w-[200px]"
+                    />
+                  </a>
+                  <span className="text-white/70 text-xs">Powered by Barrett Financial Group LLC</span>
+                </div>
               </div>
 
               <div>
