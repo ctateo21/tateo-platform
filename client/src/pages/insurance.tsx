@@ -5,6 +5,7 @@ import {
   getInsuranceScenarios, saveInsuranceScenarios, type InsuranceScenario,
   getPurchaseScenarios, getCashBuyScenarios, getTrackedLoans,
 } from "@/lib/auth";
+import { notifyNewScenario } from "@/lib/notify-scenario";
 import {
   DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
   getInsuranceCoverageMultiplier,
@@ -1105,6 +1106,9 @@ export default function InsuranceDashboard() {
       saveInsuranceScenarios(next).catch(err => {
         console.debug("[insurance-user-save] upsert error", err?.message ?? err);
       });
+      // New scenario only (!match fires once): notify the assigned agent
+      // (non-blocking, fire-and-forget).
+      if (!match) notifyNewScenario("Insurance", address);
     }, 600);
     return () => window.clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -16,6 +16,7 @@ import {
   getSellerScenarios, saveSellerScenarios,
   type TrackedLoan,
 } from "@/lib/auth";
+import { notifyNewScenario } from "@/lib/notify-scenario";
 import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-refinance";
 import { useAuth } from "@/context/auth-context";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
@@ -305,6 +306,8 @@ export default function Refinance() {
     try {
       await saveTrackedLoans(next);
       toast({ title: "Loan saved to your refinance dashboard." });
+      // Notify the assigned agent (non-blocking, fire-and-forget).
+      notifyNewScenario("Refinance", newLoan.propertyAddress);
     } catch (e: any) {
       toast({
         title: "Couldn't save your loan",

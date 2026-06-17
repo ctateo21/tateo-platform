@@ -23,6 +23,7 @@ import {
   type CashBuyScenario, type CashBuyOccupancyType, type SellerConcessionsMode,
   type CashBuyInsuranceFactors,
 } from "@/lib/auth";
+import { notifyNewScenario } from "@/lib/notify-scenario";
 import { normalizePropertyKey } from "@/lib/property-key";
 import { posthog } from "@/lib/posthog";
 import { estimateAnnualTax } from "@/lib/county-tax-estimator";
@@ -313,6 +314,9 @@ export default function CashBuyPage() {
           ? all.map(s => s.id === stamped.id ? stamped : s)
           : [stamped, ...all];
         saveCashBuyScenarios(next);
+        // New scenario only (idx < 0 fires once): notify the assigned
+        // agent (non-blocking, fire-and-forget).
+        if (idx < 0) notifyNewScenario("Cash Buy", stamped.address);
         if (isMountedRef.current) {
           setSaveStatus("saved");
           window.setTimeout(() => {

@@ -25,6 +25,7 @@ import {
   type SellerScenario, type SellerScenarioStatus, type SellerFilingStatus,
   type TrackedLoan,
 } from "@/lib/auth";
+import { notifyNewScenario } from "@/lib/notify-scenario";
 import { normalizePropertyKey } from "@/lib/property-key";
 import { posthog } from "@/lib/posthog";
 import { applySellerSalePriceToRefinance } from "@/lib/refinance-from-seller";
@@ -499,6 +500,9 @@ export default function SellerEstimatePage() {
           : [stamped, ...all];
         saveSellerScenarios(next);
         console.log("[seller-save] save ok");
+        // New scenario only (idx < 0 fires once): notify the assigned
+        // agent (non-blocking, fire-and-forget).
+        if (idx < 0) notifyNewScenario("Seller", stamped.address);
         // Seller → refinance value mirroring used to live here; it is now
         // handled globally by the Phase 1 cross-tab sync helper
         // (`syncPropertyValueAcrossTabs`) which fires from the diff-watcher
