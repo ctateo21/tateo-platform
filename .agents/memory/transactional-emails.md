@@ -10,10 +10,16 @@ pattern: `getResend()` + `sendOne()`. Every sender is best-effort — it returns
 `{status, error}` and never throws, so call sites fire-and-forget with `.catch()`.
 
 **Config gotcha:** emails silently `skip` (status `"skipped"`, no send) unless
-both `RESEND_API_KEY` and `ALERT_FROM_EMAIL` secrets are set. As of this writing
-those are NOT configured, so welcome/internal/alert emails are wired but inert
-until the owner adds them. `INTERNAL_ALERT_EMAIL` and `APP_URL` are set as shared
-env vars.
+both `RESEND_API_KEY` and `ALERT_FROM_EMAIL` secrets are set.
+
+**Internal-alert recipient gotcha:** `sendInternalAlert` needs a TO address.
+`INTERNAL_ALERT_EMAIL` is NOT set in this project (only `ALERT_FROM_EMAIL` is),
+which silently dropped showing-request alerts. Recipient now falls back
+`INTERNAL_ALERT_EMAIL → FUB_ALERT_EMAIL → ALERT_FROM_EMAIL`, so alerts reach the
+verified sender mailbox by default. To route to a dedicated ops inbox, set
+`INTERNAL_ALERT_EMAIL`. **Why:** a "no email arrived" report usually means the
+recipient var, not the send path, is missing — check which TO vars are actually
+set before touching send logic.
 
 # Scenario-save hook (non-obvious)
 

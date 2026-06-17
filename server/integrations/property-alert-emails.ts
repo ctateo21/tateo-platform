@@ -357,8 +357,17 @@ export async function sendInternalAlert(args: {
   address: string;
   summary: string;
 }): Promise<{ status: SendStatus; error: string | null }> {
-  const to = process.env.INTERNAL_ALERT_EMAIL;
-  if (!to) return { status: "skipped", error: "INTERNAL_ALERT_EMAIL not set" };
+  // Recipient for internal team alerts. Prefer a dedicated INTERNAL_ALERT_EMAIL,
+  // then the Follow Up Boss lead inbox, then fall back to the verified sender
+  // address (always set when email is configured) so these alerts are never
+  // silently dropped just because the dedicated var was never set.
+  const to =
+    process.env.INTERNAL_ALERT_EMAIL ||
+    process.env.FUB_ALERT_EMAIL ||
+    process.env.ALERT_FROM_EMAIL;
+  if (!to) {
+    return { status: "skipped", error: "no internal alert recipient configured" };
+  }
 
   const subject = `New ${args.scenarioType} — ${args.address}`;
   const fubSearchUrl =

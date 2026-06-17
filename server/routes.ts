@@ -1416,7 +1416,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userEmail: body.email || "logged-out visitor",
         address: body.address,
         summary: noteBody,
-      }).catch((err) => console.error("[showing-request] internal alert failed:", err?.message ?? err));
+      })
+        .then((r) => console.log(`[showing-request] internal alert ${r.status}${r.error ? ` (${r.error})` : ""}`))
+        .catch((err) => console.error("[showing-request] internal alert failed:", err?.message ?? err));
 
       res.json({ ok: true });
     } catch (err: any) {
