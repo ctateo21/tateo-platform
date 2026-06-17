@@ -6,3 +6,4 @@
 - [Link-share previews (Open Graph)](link-share-previews.md) — iMessage crawler runs JS, so a page's react-helmet title override hijacks share previews; keep homepage Helmet OG consistent with index.html.
 - [Seller mortgage payoff resolution](seller-mortgage-payoff.md) — priority manual>statement>refinance>amortized>existing>zero; manual/statement never auto-overwritten (double-guarded).
 - [Seller net-proceeds shared helper](seller-net-proceeds-helper.md) — detail view, dashboard overview, and save handler must all use seller-net-proceeds.ts; gate "—" on hasSalePrice to avoid drift.
+- [Auth & password reset](auth-password-reset.md) — Supabase-only passwords (never in public tables); email-only login; reset link needs origin on Supabase Auth redirect allowlist.

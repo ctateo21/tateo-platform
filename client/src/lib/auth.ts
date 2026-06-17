@@ -1620,6 +1620,8 @@ export async function register(
   console.log("[free-signup] started");
   console.log("[free-signup] email", cleanEmail);
   console.log("[free-signup] phone present", cleanPhone.length > 0);
+  console.log("[auth-signup] email valid", EMAIL_RE.test(cleanEmail));
+  console.log("[auth-signup] phone present", cleanPhone.length > 0);
   const { data, error } = await supabase.auth.signUp({
     email: cleanEmail,
     password,
@@ -1637,8 +1639,11 @@ export async function register(
     return { ok: false, error: "Check your email to confirm your account, then sign in." };
   }
   console.log("[free-signup] auth user created");
+  console.log("[auth-signup] supabase user created");
   await hydrateFromSupabase();
   console.log("[free-signup] profile saved");
+  console.log("[auth-signup] profile saved");
+  console.log("[auth-signup] password not stored in public tables");
   void notifyAccountEvent("account_created");
   return { ok: true };
 }
@@ -1646,6 +1651,7 @@ export async function register(
 export async function login(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
   if (!supabaseReady) return NOT_CONFIGURED;
   const cleanEmail = email.toLowerCase().trim();
+  console.log("[auth-login] email login attempted");
   const { error } = await supabase.auth.signInWithPassword({
     email: cleanEmail,
     password,
@@ -1653,7 +1659,9 @@ export async function login(email: string, password: string): Promise<{ ok: bool
   if (error) return { ok: false, error: error.message };
   await hydrateFromSupabase();
   console.log("[login] successful");
+  console.log("[auth-login] success");
   void notifyAccountEvent("account_signed_in");
+  console.log("[auth-login] fub sign-in notification sent");
   return { ok: true };
 }
 
@@ -1718,6 +1726,54 @@ export async function updatePassword(
   // the session itself proves identity.
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+// Shared email format check. Passwords are NEVER stored in our tables —
+// Supabase Auth hashes and manages them internally.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Forgot-password: ask Supabase Auth to email a reset link. Always
+ *  resolves to a generic success so we never reveal whether an email is
+ *  registered. The reset link returns the user to `/reset-password` on the
+ *  same origin (works in dev and in production automatically). */
+export async function requestPasswordReset(
+  email: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const cleanEmail = email.toLowerCase().trim();
+  console.log("[auth-forgot-password] reset requested");
+  if (!cleanEmail.match(EMAIL_RE)) {
+    return { ok: false, error: "Please enter a valid email address." };
+  }
+  if (!supabaseReady) return NOT_CONFIGURED;
+  const redirectTo = `${window.location.origin}/reset-password`;
+  try {
+    await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
+    console.log("[auth-forgot-password] email sent or generic success");
+  } catch {
+    // Swallow — never reveal whether the address exists.
+    console.log("[auth-forgot-password] error");
+  }
+  return { ok: true };
+}
+
+/** Reset-password page: set a new password using the recovery session that
+ *  Supabase establishes from the email link (detectSessionInUrl handles the
+ *  token exchange). Supabase Auth only — no raw password touches our DB. */
+export async function completePasswordReset(
+  newPassword: string,
+): Promise<{ ok: boolean; error?: string }> {
+  console.log("[auth-reset-password] update started");
+  if (!supabaseReady) return NOT_CONFIGURED;
+  if (newPassword.length < 6) {
+    return { ok: false, error: "Password must be at least 6 characters." };
+  }
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) {
+    console.log("[auth-reset-password] update error");
+    return { ok: false, error: error.message };
+  }
+  console.log("[auth-reset-password] update success");
   return { ok: true };
 }
 
