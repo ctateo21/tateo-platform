@@ -27,6 +27,7 @@ import { posthog } from "@/lib/posthog";
 import { estimateAnnualTax } from "@/lib/county-tax-estimator";
 import { calculateDefaultHomeownersInsurance } from "@/lib/insurance-default";
 import { apiRequest } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { PHYSICAL_PROPERTY_TYPE_OPTIONS, zillowToPhysicalPropertyType } from "@/lib/property-type-options";
 import PropertyInsuranceSimulator, {
@@ -429,6 +430,50 @@ export default function CashBuyPage() {
     })();
   }, [scenario.id, scenario.address, scenario.purchasePriceSource, toast]);
 
+  // ─── Flood zone + flood insurance ───
+  // Reuses the exact same FEMA flood-zone source as Purchase with Loan
+  // (server `/api/flood-zone`). Flood insurance is system-estimated with
+  // the same $2,000/yr default convention used in estimate.tsx; $0 when
+  // the property is not in a required-insurance flood zone.
+  const { data: floodData } = useQuery<{ zone: string; subtype: string; requiresFloodInsurance: boolean }>({
+    queryKey: ["/api/flood-zone", scenario.address],
+    queryFn: () =>
+      fetch(`/api/flood-zone?address=${encodeURIComponent(scenario.address)}`).then((r) => {
+        if (!r.ok) throw new Error("Flood zone not found");
+        return r.json();
+      }),
+    enabled: !!scenario.address && scenario.address !== "Unknown Address",
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: false,
+  });
+
+  // Sync flood insurance with zone data whenever the address changes.
+  // Mirrors estimate.tsx: clear to $0 outside a flood zone, seed the
+  // $2,000/yr default inside one (only when nothing is set, so a saved /
+  // future-manual value survives).
+  const floodLoadedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!floodData || !scenario.address) return;
+    if (floodLoadedRef.current === scenario.address) return;
+    floodLoadedRef.current = scenario.address;
+    console.debug("[cash-buy-flood] address", scenario.address);
+    console.debug("[cash-buy-flood] normalized property key", scenario.normalizedPropertyKey);
+    console.debug("[cash-buy-flood] existing purchase-loan flood helper found", "/api/flood-zone (shared)");
+    console.debug("[cash-buy-flood] flood zone result", floodData.zone, floodData.requiresFloodInsurance);
+    console.debug("[cash-buy-flood] flood zone source", "FEMA NFHL");
+    setScenario((prev) => {
+      if (!floodData.requiresFloodInsurance) {
+        console.debug("[cash-buy-flood] not a flood zone — flood insurance $0");
+        return (prev.annualFloodIns ?? 0) === 0 ? prev : { ...prev, annualFloodIns: 0 };
+      }
+      const next = (prev.annualFloodIns ?? 0) === 0 ? 2000 : prev.annualFloodIns;
+      console.debug("[cash-buy-flood] annual flood insurance", next);
+      console.debug("[cash-buy-flood] monthly flood insurance", Math.round((next ?? 0) / 12));
+      console.debug("[cash-buy-flood] added to ongoing costs", true);
+      return prev.annualFloodIns === next ? prev : { ...prev, annualFloodIns: next };
+    });
+  }, [floodData, scenario.address, scenario.normalizedPropertyKey]);
+
   // ─── Field updaters ───
 
   function update<K extends keyof CashBuyScenario>(field: K, value: CashBuyScenario[K]) {
@@ -750,7 +795,8 @@ export default function CashBuyPage() {
                 const ongoingMonthly = Math.round(
                   (scenario.propertyTaxes ?? 0) / 12 +
                     insMidpoint / 12 +
-                    (scenario.hoaMonthly ?? 0),
+                    (scenario.hoaMonthly ?? 0) +
+                    (scenario.annualFloodIns ?? 0) / 12,
                 );
                 return {
                   address: scenario.address,
@@ -769,6 +815,9 @@ export default function CashBuyPage() {
                       rows: [
                         { label: "Annual property taxes", value: formatCurrency(scenario.propertyTaxes ?? 0) },
                         { label: "Homeowners insurance (annual)", value: formatCurrency(insMidpoint) },
+                        ...((scenario.annualFloodIns ?? 0) > 0
+                          ? [{ label: "Flood insurance (annual)", value: formatCurrency(scenario.annualFloodIns ?? 0) }]
+                          : []),
                         { label: "Monthly HOA", value: formatCurrency(scenario.hoaMonthly ?? 0) },
                         { label: "Ongoing monthly costs", value: formatCurrency(ongoingMonthly) },
                       ],
@@ -1036,6 +1085,22 @@ export default function CashBuyPage() {
                 }
               />
 
+              {(scenario.annualFloodIns ?? 0) > 0 && (
+                <div className="flex items-start justify-between gap-3 border-t pt-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">Flood Insurance</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Estimated — property is in a FEMA flood zone
+                      {floodData?.zone ? ` (Zone ${floodData.zone})` : ""}. ≈{" "}
+                      {formatCurrency(Math.round((scenario.annualFloodIns ?? 0) / 12))}/mo
+                    </p>
+                  </div>
+                  <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
+                    {formatCurrency(scenario.annualFloodIns ?? 0)}/yr
+                  </p>
+                </div>
+              )}
+
               <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
                 <p className="font-medium text-foreground mb-1">Monthly carrying cost (estimate)</p>
                 <p className="tabular-nums">
@@ -1043,12 +1108,14 @@ export default function CashBuyPage() {
                     Math.round(
                       ((scenario.propertyTaxes ?? 0) / 12) +
                       (insMidpoint / 12) +
-                      (scenario.hoaMonthly ?? 0),
+                      (scenario.hoaMonthly ?? 0) +
+                      ((scenario.annualFloodIns ?? 0) / 12),
                     ),
                   )}/mo
                 </p>
                 <p className="mt-1 text-[11px]">
-                  Taxes + insurance + HOA only. No mortgage payment because there is no loan.
+                  Taxes + insurance + HOA
+                  {(scenario.annualFloodIns ?? 0) > 0 ? " + flood insurance" : ""} only. No mortgage payment because there is no loan.
                 </p>
               </div>
             </CardContent>

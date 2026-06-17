@@ -274,6 +274,7 @@ create table if not exists public.cash_buy_scenarios (
   seller_concessions_amount   numeric,
   property_taxes              numeric,
   homeowners_insurance        numeric,
+  annual_flood_ins            numeric,
   hoa_amount                  numeric,
   hoa_frequency               text,
   hoa_source                  text,

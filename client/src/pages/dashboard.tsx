@@ -1647,7 +1647,11 @@ function cashBuyMonthlyOngoing(s: CashBuyScenario): number {
   const insAnnual = cashBuyInsuranceAnnual(s) ?? 0;
   const insMo = insAnnual / 12;
   const hoaMo = s.hoaMonthly ?? 0;
-  return Math.round(taxesMo + insMo + hoaMo);
+  // Flood insurance only adds when the property is in a flood zone
+  // (annualFloodIns > 0). Keeps the overview card in sync with the
+  // cash-buy detail view's "Monthly carrying cost".
+  const floodMo = (s.annualFloodIns ?? 0) / 12;
+  return Math.round(taxesMo + insMo + hoaMo + floodMo);
 }
 
 const CASH_OCCUPANCY_LABEL: Record<NonNullable<CashBuyScenario["occupancyType"]>, string> = {

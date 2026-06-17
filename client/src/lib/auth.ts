@@ -502,6 +502,11 @@ export interface CashBuyScenario {
   /** Manual-lock for `homeownersInsurance` — blocks both the 0.75%-of-price
    *  default and the insurance-simulator overwrite. */
   homeownersInsuranceSource?: CashBuyManualSource;
+  /** Annual flood insurance estimate. System-estimated from the FEMA
+   *  flood-zone lookup (same source + default as Purchase with Loan):
+   *  $2,000/yr when the property is in a required-insurance flood zone,
+   *  $0 otherwise. Stored on `cash_buy_scenarios.annual_flood_ins`. */
+  annualFloodIns?: number;
   hoaMonthly?: number;           // monthly HOA / condo fees
   /** Source of the HOA value. `"manual"` blocks Zillow overwrites. */
   hoaSource?: CashBuyHoaSource;
@@ -1188,6 +1193,7 @@ function rowToCashBuy(row: any): CashBuyScenario {
     propertyTaxesSource: toManualSource(row.property_taxes_source),
     homeownersInsurance: row.homeowners_insurance != null ? Number(row.homeowners_insurance) : undefined,
     homeownersInsuranceSource: toManualSource(row.homeowners_insurance_source),
+    annualFloodIns: row.annual_flood_ins != null ? Number(row.annual_flood_ins) : undefined,
     hoaMonthly,
     hoaSource,
     closingCosts: row.buyer_closing_costs != null ? Number(row.buyer_closing_costs) : undefined,
@@ -1227,6 +1233,7 @@ function cashBuyToRow(s: CashBuyScenario, userId: string) {
     property_taxes_source: s.propertyTaxesSource ?? null,
     homeowners_insurance: s.homeownersInsurance ?? null,
     homeowners_insurance_source: s.homeownersInsuranceSource ?? null,
+    annual_flood_ins: s.annualFloodIns ?? null,
     insurance_premium_annual: s.insurancePremiumAnnual ?? null,
     insurance_factors: s.insuranceFactors ?? null,
     user_answer_sources: s.userAnswerSources ?? null,
@@ -2268,6 +2275,7 @@ function persistCashBuyScenarios(s: CashBuyScenario[]) {
         "property_type_source",
         "property_taxes_source",
         "homeowners_insurance_source",
+        "annual_flood_ins",
         "seller_concessions_source",
         "insurance_premium_annual",
         "insurance_factors",
@@ -2296,9 +2304,12 @@ function persistCashBuyScenarios(s: CashBuyScenario[]) {
         const missing = extractMissingColumn(upErr.message);
         if (missing && (CASH_BUY_OPTIONAL_COLUMNS as readonly string[]).includes(missing) && !stripped.has(missing)) {
           console.warn(`[cash-buy-user-save] retrying without missing column '${missing}'`);
+          const migrationFile = missing === "annual_flood_ins"
+            ? "supabase/migrations/2026_06_17_cash_buy_flood_insurance.sql"
+            : "supabase/migrations/2026_05_29_cash_buy_user_answers.sql";
           notifyError({
             table: "cash_buy_scenarios",
-            message: `Your Supabase cash_buy_scenarios table is missing the '${missing}' column — apply supabase/migrations/2026_05_29_cash_buy_user_answers.sql so this field can persist.`,
+            message: `Your Supabase cash_buy_scenarios table is missing the '${missing}' column — apply ${migrationFile} so this field can persist.`,
           });
           stripped.add(missing);
           continue;

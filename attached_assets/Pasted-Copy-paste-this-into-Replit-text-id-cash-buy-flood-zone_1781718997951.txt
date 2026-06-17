@@ -1,0 +1,262 @@
+Copy/paste this into Replit:
+
+````text id="cash-buy-flood-zone-ongoing-costs"
+Add flood-zone detection and estimated flood insurance cost to Purchase with Cash, matching the existing Purchase with Loan behavior.
+
+Current issue:
+Purchase with Loan already analyzes whether the property is in a flood zone.
+
+Purchase with Cash does not currently do this.
+
+Goal:
+When a user runs Purchase with Cash for a property, the app should check whether the home is in a flood zone. If it is in a flood zone, add an estimated flood insurance cost to the Ongoing Costs subsection in the detailed view of that property.
+
+Scope:
+Dashboard → Purchase with Cash
+- property detail view
+- Ongoing Costs subsection
+- Cash Buy calculations
+- Cash Buy overview card if ongoing monthly costs are shown there
+- save/load persistence
+
+Use existing logic:
+There is already flood-zone detection in Purchase with Loan. Reuse that exact helper/service/API/source if possible.
+
+Do not create a separate duplicate flood-zone system unless absolutely necessary.
+
+Find the existing Purchase with Loan flood logic and reuse it for Purchase with Cash:
+- flood zone lookup
+- flood zone boolean/status
+- flood insurance estimate
+- flood display formatting
+- any debug logs
+- any Supabase fields already used
+
+Expected behavior:
+1. User opens Purchase with Cash for a property.
+2. App checks whether the property is in a flood zone using the same method as Purchase with Loan.
+3. If property is not in a flood zone:
+   - show no flood cost, or show Flood Insurance: $0 if that matches the design
+   - ongoing monthly costs should not increase
+4. If property is in a flood zone:
+   - add estimated flood insurance cost to the Ongoing Costs subsection
+   - include it in total ongoing monthly costs
+   - persist it so it remains after refresh/logout/login
+
+Ongoing Costs subsection:
+If flood zone = true, show a line item:
+
+Flood Insurance: $X/month
+
+or:
+
+Flood Insurance: $X/year / $X/month
+
+Use the same annual/monthly convention already used in Purchase with Loan.
+
+Calculation:
+Use the same estimated flood insurance cost logic already used in Purchase with Loan.
+
+If Purchase with Loan uses a default annual flood premium, use the same default.
+
+If Purchase with Loan has a formula, use the same formula.
+
+If Purchase with Loan has a flood zone status only but no cost estimate, then create a simple placeholder estimate for now:
+- annual flood insurance estimate = $1,200/year
+- monthly flood insurance estimate = $100/month
+
+But only use this placeholder if no existing Purchase with Loan flood premium estimate exists.
+
+Preferred:
+Create or reuse a shared helper:
+
+`resolveFloodZoneAndCostForProperty({ address, normalizedPropertyKey, propertyData })`
+
+Return:
+- `isFloodZone`
+- `floodZone`
+- `floodZoneSource`
+- `annualFloodInsuranceEstimate`
+- `monthlyFloodInsuranceEstimate`
+- `confidence`
+
+Then use it in both:
+- Purchase with Loan
+- Purchase with Cash
+
+Important:
+Do not change the Purchase with Loan behavior except to move shared logic into a reusable helper if needed.
+
+Purchase with Cash total ongoing costs:
+Update ongoing monthly costs formula to include flood insurance only when applicable.
+
+Current ongoing monthly costs likely include:
+- monthly property taxes
+- monthly homeowners insurance
+- monthly HOA
+- other ongoing costs
+
+New formula:
+ongoingMonthlyCosts =
+  monthlyPropertyTaxes
+  + monthlyHomeownersInsurance
+  + monthlyHOA
+  + monthlyFloodInsuranceEstimate if flood zone
+  + any other existing ongoing costs
+
+Do not double-count flood insurance if it is already included elsewhere.
+
+Display:
+In Purchase with Cash detailed view → Ongoing Costs:
+Show:
+- Property Taxes
+- Homeowners Insurance
+- HOA
+- Flood Insurance, if flood zone
+- Total Ongoing Monthly Costs
+
+If flood zone detection is pending:
+- show a loading or “Checking flood zone...” state only if consistent with existing UI
+
+If flood lookup fails:
+- do not block the user
+- show “Flood zone unavailable” or hide the line item
+- do not add flood cost unless flood zone is confirmed
+
+Manual override:
+If user manually edits flood insurance cost in the future, manual should win. If no manual field currently exists, keep this as system-estimated for now.
+
+Supabase / SQL requirement:
+Inspect the existing Supabase schema first.
+
+Check:
+- `cash_buy_scenarios`
+- `purchase_scenarios`
+- any shared property cache table
+- any existing flood-related columns
+
+Look for existing fields like:
+- `flood_zone`
+- `is_flood_zone`
+- `flood_zone_status`
+- `flood_zone_source`
+- `flood_insurance_annual`
+- `annual_flood_insurance`
+- `flood_insurance_monthly`
+- `monthly_flood_insurance`
+- `flood_insurance_source`
+- `ongoing_monthly_costs`
+- `user_answer_sources`
+
+If all required fields already exist:
+- do not create new SQL
+- reuse existing columns
+- confirm no SQL was needed
+
+If fields are missing from `cash_buy_scenarios`, provide one complete SQL migration before coding.
+
+Suggested SQL only if needed:
+
+```sql
+alter table public.cash_buy_scenarios
+  add column if not exists is_flood_zone boolean,
+  add column if not exists flood_zone text,
+  add column if not exists flood_zone_source text,
+  add column if not exists annual_flood_insurance numeric,
+  add column if not exists monthly_flood_insurance numeric,
+  add column if not exists flood_insurance_source text,
+  add column if not exists user_answer_sources jsonb default '{}'::jsonb,
+  add column if not exists updated_at timestamptz default now();
+````
+
+Do not create duplicate columns if equivalent fields already exist.
+Do not weaken RLS.
+
+Persistence:
+When Purchase with Cash flood data is resolved:
+
+* save flood zone status
+* save flood insurance estimate
+* save source
+* save updated ongoing monthly costs if ongoing monthly costs are stored
+* update `updated_at`
+
+If ongoing monthly costs are derived at render time:
+
+* no separate ongoing monthly cost column is required
+* but flood insurance inputs must still persist
+
+Overview/detail sync:
+If Purchase with Cash overview shows Ongoing Monthly Costs, it must include the flood insurance estimate when flood zone is true.
+
+Detail view and overview must match.
+
+Save/load:
+After refresh/logout/login:
+
+* flood zone status should still load
+* flood insurance estimate should still load
+* Ongoing Costs should still include flood insurance
+* user should not have to rerun the flood lookup unless data is missing
+
+Do not break:
+
+* Purchase with Loan flood-zone logic
+* Purchase with Cash calculations
+* cash to close
+* closing costs
+* taxes
+* homeowners insurance
+* HOA
+* ongoing monthly costs
+* Supabase save/load
+* overview card
+* detail view
+* mobile layout
+* Zillow/property cache loading
+
+Debug logs:
+Add temporary logs:
+
+* `[cash-buy-flood] address`
+* `[cash-buy-flood] normalized property key`
+* `[cash-buy-flood] existing purchase-loan flood helper found`
+* `[cash-buy-flood] flood zone result`
+* `[cash-buy-flood] flood zone source`
+* `[cash-buy-flood] annual flood insurance`
+* `[cash-buy-flood] monthly flood insurance`
+* `[cash-buy-flood] added to ongoing costs`
+* `[cash-buy-flood] save ok/error`
+* `[cash-buy-flood] load existing flood data`
+
+Acceptance test:
+
+1. Open Purchase with Loan for a known flood-zone property.
+2. Confirm Purchase with Loan detects flood zone.
+3. Open Purchase with Cash for the same property.
+4. Confirm Purchase with Cash also detects flood zone.
+5. Confirm Ongoing Costs subsection shows Flood Insurance.
+6. Confirm Total Ongoing Monthly Costs includes monthly flood insurance.
+7. Refresh the page.
+8. Confirm flood zone and flood insurance still show.
+9. Log out and log back in.
+10. Confirm flood zone and flood insurance still show.
+11. Open a non-flood-zone property.
+12. Confirm flood insurance is not added to ongoing costs.
+13. Confirm Purchase with Loan behavior did not change.
+14. Confirm Purchase with Cash overview and detail ongoing costs match.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* Which SQL migration was added, if any
+* Which existing Purchase with Loan flood logic was reused
+* Which flood-zone helper was created or updated
+* Which fields store flood zone and flood insurance for Cash Buy
+* How flood insurance is added to Ongoing Costs
+* Whether overview also includes flood insurance
+* How save/load persistence works
+* Which files/functions were changed
+
+```
+```
