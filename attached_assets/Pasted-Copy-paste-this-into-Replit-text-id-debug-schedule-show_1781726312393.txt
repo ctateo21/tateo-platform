@@ -1,0 +1,421 @@
+Copy/paste this into Replit:
+
+````text id="debug-schedule-showing-fub-notification-not-sending"
+Fix and debug the “Schedule your showing now” FUB notification.
+
+Current issue:
+I am testing before publishing. When I click “Schedule your showing now,” the popup may open, but no email/notification is being sent to me through Follow Up Boss.
+
+Expected behavior:
+Immediately when a user clicks “Schedule your showing now,” before they choose Call or Text, Follow Up Boss should receive a notification/request with:
+- property address currently being viewed
+- user name, if available
+- user email, if available
+- user phone, if available
+- service tab: Purchase with Loan or Purchase with Cash
+- current page URL
+- timestamp
+
+This should happen even if the user never clicks Call or Text.
+
+Goal:
+Find why the FUB notification is not firing or not reaching Follow Up Boss, then fix it.
+
+Scope:
+- Schedule Showing CTA button
+- Call/Text popup
+- FUB notification helper/API route
+- frontend click handler
+- backend endpoint
+- FUB env variables/secrets
+- logs/errors
+- dev/preview and production behavior
+
+PART 1 — Confirm the Schedule button click fires the notification
+
+Find the shared Schedule Showing component or wherever the button exists.
+
+On initial click of:
+
+“Schedule your showing now”
+
+The code should do BOTH:
+1. Send/queue FUB notification immediately
+2. Open the Call/Text popup
+
+Important:
+Do not wait until the user clicks Call or Text to notify FUB.
+
+Correct flow:
+
+```ts
+async function handleScheduleShowingClick() {
+  openCallTextPopup();
+
+  try {
+    await notifyFubShowingRequest({
+      eventType: "showing_request_started",
+      contactMethod: null,
+      address,
+      userName,
+      userEmail,
+      userPhone,
+      service,
+      pageUrl,
+      normalizedPropertyKey,
+      qualificationStatus,
+      estimatedPrice,
+    });
+  } catch (error) {
+    console.error("[showing-cta] immediate FUB notification error", error);
+  }
+}
+````
+
+The popup must open even if FUB fails.
+
+PART 2 — Add visible debug logging
+
+Add temporary logs so I can see exactly where the failure is.
+
+Frontend logs:
+
+* `[showing-cta] schedule clicked`
+* `[showing-cta] address`
+* `[showing-cta] service`
+* `[showing-cta] user name`
+* `[showing-cta] user email`
+* `[showing-cta] user phone`
+* `[showing-cta] immediate FUB notification start`
+* `[showing-cta] immediate FUB notification success`
+* `[showing-cta] immediate FUB notification error`
+* `[showing-cta] popup opened`
+
+Backend logs:
+
+* `[api/fub/showing-request] request received`
+* `[api/fub/showing-request] payload`
+* `[api/fub/showing-request] FUB env present`
+* `[api/fub/showing-request] creating/updating contact`
+* `[api/fub/showing-request] creating note/event`
+* `[api/fub/showing-request] success`
+* `[api/fub/showing-request] error`
+
+Do not log private API keys.
+For env checks, only log true/false:
+
+* `FOLLOW_UP_BOSS_API_KEY present: true/false`
+* `FUB_NOTIFICATION_EMAIL present: true/false`
+
+PART 3 — Confirm frontend is calling the backend endpoint
+
+When “Schedule your showing now” is clicked, inspect Network tab.
+
+There should be a request to something like:
+
+`POST /api/fub/showing-request`
+
+or the existing FUB endpoint.
+
+If no request fires:
+
+* fix the frontend click handler
+* make sure the initial button click calls the notification function
+* make sure the handler is attached to the correct button
+* make sure debounce/duplicate-prevention is not preventing the first send
+
+If request fires but fails:
+
+* fix the backend endpoint
+* show the exact HTTP status and error in logs
+
+PART 4 — Confirm backend route exists and is registered
+
+Inspect server routes.
+
+Find or create:
+
+`POST /api/fub/showing-request`
+
+The route should:
+
+1. Accept showing request payload
+2. Validate address exists
+3. Pull logged-in user info if available
+4. Send event/note/contact to Follow Up Boss
+5. Return JSON success/failure
+6. Never expose FUB API key to frontend
+
+Minimum response:
+
+```json
+{ "ok": true }
+```
+
+On error:
+
+```json
+{ "ok": false, "error": "..." }
+```
+
+Frontend should log the error but still open the popup.
+
+PART 5 — Confirm Follow Up Boss integration method
+
+Use existing Follow Up Boss integration if present.
+
+Search for:
+
+* `Follow Up Boss`
+* `FUB`
+* `followupboss`
+* `account_created`
+* `account_signed_in`
+* `fub_contact_id`
+* FUB API helpers
+* email notification helpers
+
+If an existing helper exists:
+
+* reuse it
+* do not create duplicate FUB integration code
+
+If no existing helper exists:
+
+* create a server-side helper:
+  `notifyFubShowingRequest()`
+
+It should either:
+A. Use Follow Up Boss API to create/update contact and add a note/event
+or
+B. Send an email to the configured FUB notification email if that is the existing pattern
+
+Do not invent a hardcoded email address.
+If emailing is required and no email exists, add an env var placeholder:
+`FUB_NOTIFICATION_EMAIL`
+
+PART 6 — FUB notification content
+
+The immediate notification should include:
+
+Subject/note/event:
+“Showing request started from Havo”
+
+Body/note:
+“User clicked Schedule your showing now.
+
+Property: [ADDRESS]
+User: [NAME if available]
+Email: [EMAIL if available]
+Phone: [PHONE if available]
+Service: [Purchase with Loan / Purchase with Cash]
+Qualification Status: [Likely Qualifies, if available]
+Estimated Price: [$X, if available]
+Page: [CURRENT URL]
+Time: [TIMESTAMP]
+
+Follow up even if no call/text was completed.”
+
+This notification should send on initial click.
+
+Then, if the user later clicks Text or Call, send an additional event:
+
+* `showing_request_text_selected`
+* `showing_request_call_selected`
+
+But the initial FUB request must not depend on Text/Call.
+
+PART 7 — Handle logged-in and logged-out users
+
+Logged-in:
+Include:
+
+* name if profile has it
+* email
+* phone
+* user_id
+
+Logged-out:
+Still send:
+
+* property address
+* service
+* page URL
+* timestamp
+
+If no user email/phone is available:
+
+* do not fail
+* send the property request anyway
+
+PART 8 — Duplicate prevention
+
+Prevent spam but do not block first send.
+
+Current issue might be that duplicate prevention is blocking the initial notification.
+
+Correct logic:
+
+* First click for an address/session should always send
+* Additional clicks within 30–60 seconds can be ignored
+* Text/Call selection events can still send separately
+
+Add logs:
+
+* `[showing-cta] duplicate prevention skipped send`
+* `[showing-cta] duplicate prevention allowed send`
+
+PART 9 — Supabase / SQL requirement
+
+Inspect the existing Supabase schema first.
+
+This fix likely does not require SQL if the event is only being sent to FUB.
+
+Check if there is a table for:
+
+* showing_requests
+* lead_events
+* user_events
+* fub_events
+* activity_log
+
+If a suitable table exists:
+
+* optionally write an audit row
+* make sure write failure does not block FUB
+
+If no table exists:
+
+* no SQL is required for minimum fix
+* FUB notification should still work
+
+If Replit decides storing showing requests is needed, provide one complete SQL migration before coding.
+
+Do not weaken RLS.
+Do not expose FUB API keys.
+
+Report clearly:
+
+* SQL needed: yes/no
+* if no, confirm this is a FUB/API route fix only
+
+PART 10 — Check env variables / secrets
+
+Verify required FUB secrets exist in the correct environment:
+
+* dev/preview environment for testing
+* production environment for deployed app
+
+Check for existing names:
+
+* `FOLLOW_UP_BOSS_API_KEY`
+* `FUB_API_KEY`
+* `FOLLOWUPBOSS_API_KEY`
+* `FOLLOW_UP_BOSS_SOURCE`
+* `FOLLOW_UP_BOSS_USER_ID`
+* `FUB_NOTIFICATION_EMAIL`
+
+If missing:
+
+* tell me exactly which Replit Secret is missing
+* do not silently fail
+* show a server log saying env missing
+
+Example:
+`[api/fub/showing-request] missing FOLLOW_UP_BOSS_API_KEY`
+
+PART 11 — Dev/preview behavior
+
+I am testing before publishing, so this must work in Replit preview/dev too.
+
+If FUB notifications only work in production because secrets are only set in production:
+
+* tell me that clearly
+* add the same secrets to development/preview
+* or provide a safe mock/log mode for preview
+
+Expected:
+When testing in preview, I should see either:
+
+* FUB notification successfully sent
+  or
+* clear log saying which secret/config is missing
+
+No silent failures.
+
+PART 12 — Do not break
+
+Do not break:
+
+* popup call/text modal
+* Text us SMS link
+* Call us tel link
+* Purchase with Loan visibility only when Likely Qualifies
+* Purchase with Cash always under photos
+* FUB account-created notification
+* FUB sign-in notification
+* free account mode
+* save/share/download auth gating
+* mobile layout
+
+PART 13 — Acceptance tests
+
+Test A — Initial click sends FUB
+
+1. Open Purchase with Cash detail.
+2. Open browser console and network tab.
+3. Click “Schedule your showing now.”
+4. Confirm popup opens.
+5. Confirm console logs:
+   `[showing-cta] schedule clicked`
+   `[showing-cta] immediate FUB notification start`
+6. Confirm network request fires to FUB backend endpoint.
+7. Confirm backend logs show request received.
+8. Confirm backend logs show FUB success.
+9. Confirm FUB receives notification with property address.
+10. Do not click Call or Text.
+11. Confirm FUB still got the request.
+
+Test B — Logged-in user info
+
+1. Log in with a profile that has email and phone.
+2. Click Schedule your showing now.
+3. Confirm FUB notification includes name/email/phone if available.
+
+Test C — Logged-out user
+
+1. Log out.
+2. Run guest flow.
+3. Click Schedule your showing now.
+4. Confirm FUB still receives property address and service.
+5. Confirm no account is required.
+
+Test D — Text and Call still work
+
+1. Click Schedule.
+2. Click Text us.
+3. Confirm SMS opens.
+4. Confirm FUB logs text selected.
+5. Repeat for Call us.
+6. Confirm phone dialer opens.
+
+Test E — Missing env clarity
+
+1. Temporarily test with missing FUB env if needed.
+2. Confirm the app logs the exact missing env variable.
+3. Confirm popup still opens.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* Whether the frontend click handler was firing
+* Which backend FUB endpoint is called
+* Whether FUB secrets are present in preview/dev
+* Whether FUB secrets are present in production
+* Why the notification was not being sent before
+* How the immediate Schedule-click notification now works
+* How Text/Call selection events work
+* Which files/functions were changed
+
+```
+```
