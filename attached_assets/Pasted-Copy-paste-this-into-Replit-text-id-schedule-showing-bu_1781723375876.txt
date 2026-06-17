@@ -1,0 +1,440 @@
+Copy/paste this into Replit:
+
+````text id="schedule-showing-button-purchase-loan-cash-fub"
+Add a “Schedule your showing now” CTA button to Purchase with Loan and Purchase with Cash, and notify Follow Up Boss when clicked.
+
+Current request:
+1. On Purchase with Loan, if a user goes through the loan estimate and receives “Likely Qualifies,” show a button between the “Likely Qualifies” box and the Mortgage box below it.
+2. Button text should be:
+   “Schedule your showing now”
+3. When clicked, it should go directly to the work/FUB phone number:
+   813-214-8356
+4. At the same time, notify my Follow Up Boss account with the property address the user is requesting to see.
+5. On Purchase with Cash, always show the same “Schedule your showing now” button under the home photos.
+
+Goal:
+Create a showing-request CTA that lets qualified/interested users immediately contact us and also logs/notifies Follow Up Boss with the property address.
+
+Scope:
+- Purchase with Loan estimate results page
+- Purchase with Cash detailed property view
+- Follow Up Boss notification/integration
+- Mobile and desktop UI
+
+PART 1 — Purchase with Loan placement
+
+Location:
+Purchase with Loan → estimate results page
+
+Current layout after recent change:
+- Qualification result/status box:
+  - “Likely Qualifies” or “Needs Review”
+- Mortgage card
+- Real Estate card
+
+Requested behavior:
+If the user result is “Likely Qualifies,” show the button directly between:
+1. Likely Qualifies box
+2. Mortgage card
+
+Button:
+“Schedule your showing now”
+
+Do not show this button for Purchase with Loan if the result is:
+- Needs Review
+- Does Not Qualify
+- incomplete estimate
+- missing required qualification data
+
+Only show it when the user is marked as “Likely Qualifies.”
+
+PART 2 — Purchase with Cash placement
+
+Location:
+Purchase with Cash detailed property view
+
+Requested behavior:
+Always show the button under the home photos.
+
+Button:
+“Schedule your showing now”
+
+This should show regardless of loan qualification because it is a cash scenario.
+
+If there is a photo carousel/gallery:
+- place the button directly below the photo section
+- keep it visible and clean on mobile
+- do not disrupt the gallery
+
+PART 3 — Button behavior
+
+When user clicks “Schedule your showing now”:
+
+1. Open phone action to:
+   813-214-8356
+
+Use mobile-friendly link:
+```html
+<a href="tel:8132148356">Schedule your showing now</a>
+````
+
+This should open the phone dialer on mobile.
+
+On desktop:
+
+* it can open the default calling app
+* if unsupported, still behave as a tel link
+
+2. At the same time, send/log a Follow Up Boss notification with:
+
+* event type: showing_requested
+* property address
+* service tab:
+
+  * purchase_with_loan
+  * purchase_with_cash
+* user email, if logged in
+* user phone, if known
+* user name, if known
+* qualification status, if Purchase with Loan
+* estimated purchase price, if available
+* timestamp
+* current page URL
+* normalized_property_key, if available
+
+Important:
+The tel action should still happen even if the FUB notification fails.
+Do not block the user from calling because FUB failed.
+
+PART 4 — Follow Up Boss notification
+
+Use existing FUB integration if present.
+
+Search for existing code related to:
+
+* Follow Up Boss
+* FUB
+* account_created
+* account_signed_in
+* lead notification
+* contact creation/update
+* notes/events
+
+Preferred:
+Create or reuse a server-side helper:
+
+`notifyFubShowingRequest({
+  address,
+  service,
+  user,
+  phone,
+  email,
+  qualificationStatus,
+  estimatedPrice,
+  normalizedPropertyKey,
+  pageUrl
+})`
+
+Do not call Follow Up Boss directly from the frontend if the API key is private.
+
+Use a backend route/server action if needed.
+
+Suggested endpoint:
+`POST /api/fub/showing-request`
+
+Payload:
+
+```json
+{
+  "address": "123 Main St, Tampa, FL",
+  "service": "purchase_with_loan",
+  "qualificationStatus": "likely_qualifies",
+  "estimatedPrice": 500000,
+  "normalizedPropertyKey": "...",
+  "pageUrl": "https://havofl.com/..."
+}
+```
+
+Server-side behavior:
+
+1. Receive click event.
+2. Identify logged-in user if available.
+3. Attach user email/phone if available.
+4. Send note/event to Follow Up Boss.
+5. If contact exists, update/add note.
+6. If contact does not exist, create/update contact if current FUB integration supports it.
+7. Avoid duplicate contacts where possible by matching email first, then phone.
+
+Suggested FUB note text:
+“Showing requested from Havo.
+
+Property: [ADDRESS]
+Service: [Purchase with Loan / Purchase with Cash]
+Qualification Status: [Likely Qualifies, if available]
+Estimated Price: [$XXX,XXX, if available]
+User: [email/phone if available]
+Page: [URL]”
+
+If FUB has event/action type support:
+
+* event type: “Showing Requested”
+* source: “Havo”
+* assigned user/source should follow existing FUB integration settings
+
+PART 5 — Email/notification language
+
+The user said “send an email to my FUB account.”
+
+If existing FUB integration supports notes/events, use that.
+If the current system literally emails a FUB inbox/address, reuse that existing pattern.
+
+Do not invent a random FUB email address.
+If a specific FUB email/inbox address is required and not already configured:
+
+* add an environment variable placeholder:
+  `FUB_NOTIFICATION_EMAIL`
+* report that the actual FUB email value needs to be added in Replit secrets
+
+Preferred env vars:
+
+* use existing `FOLLOW_UP_BOSS_API_KEY` if present
+* use existing FUB source/assigned user env vars if present
+* if emailing FUB, use existing email provider if present
+
+Do not hardcode private API keys.
+
+PART 6 — Auth behavior
+
+The button should be visible:
+
+* logged in
+* logged out
+
+If logged out:
+
+* still allow the tel link to open
+* still send FUB notification with property address
+* include user info only if available from current session/form
+* do not require account creation just to call
+
+If logged in:
+
+* include user profile data in FUB notification:
+
+  * email
+  * phone
+  * user id
+  * name if available
+
+PART 7 — UI design
+
+Button style:
+
+* prominent CTA
+* full-width on mobile
+* normal-width or centered on desktop
+* consistent with current primary button styling
+
+Button text:
+“Schedule your showing now”
+
+Optional subtext under button:
+“Call or text our team to schedule a showing.”
+
+Only add subtext if it fits the current design.
+
+Mobile:
+
+* button must be easy to tap
+* no horizontal overflow
+* should not crowd photo/gallery or cards
+
+PART 8 — Supabase / SQL requirement
+
+Inspect the existing Supabase schema first.
+
+This feature may not need SQL if we only notify FUB on click.
+
+If we want to also persist showing requests in Supabase for audit/history, check whether a table already exists:
+
+* showing_requests
+* lead_events
+* fub_events
+* user_events
+* activity_log
+
+If a suitable table exists:
+
+* reuse it
+
+If no table exists and Replit believes storing showing requests is useful, provide one complete SQL migration before coding.
+
+Suggested SQL only if needed:
+
+```sql
+create table if not exists public.showing_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  email text,
+  phone text,
+  full_address text not null,
+  normalized_property_key text,
+  service text not null,
+  qualification_status text,
+  estimated_price numeric,
+  page_url text,
+  fub_status text,
+  fub_response jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+alter table public.showing_requests enable row level security;
+
+create policy if not exists "Users can view own showing requests"
+on public.showing_requests
+for select
+using (auth.uid() = user_id);
+
+create policy if not exists "Users can insert own showing requests"
+on public.showing_requests
+for insert
+with check (auth.uid() = user_id or user_id is null);
+```
+
+Important:
+
+* Do not add SQL unless needed.
+* Do not weaken RLS.
+* If using a server endpoint to insert anonymous requests, use the service role server-side only and keep RLS safe.
+* Confirm whether SQL was needed.
+
+Minimum acceptable implementation:
+
+* No SQL
+* Send FUB notification directly on click through backend
+* Keep logs for debugging
+
+Better implementation:
+
+* Also store showing request event in Supabase if a table already exists or if SQL migration is accepted
+
+PART 9 — Do not break
+
+Do not break:
+
+* Purchase with Loan qualification logic
+* Likely Qualifies / Needs Review status
+* Mortgage card
+* Real Estate card
+* card ordering
+* Purchase with Cash photo gallery
+* Purchase with Cash calculations
+* Share button
+* Download PDF button
+* Save Scenario
+* free account gating rules
+* FUB account-created/sign-in notifications
+* mobile layout
+* Supabase save/load
+* Stripe bypass/free access mode
+
+PART 10 — Debug logs
+
+Add temporary logs:
+
+CTA render:
+
+* `[showing-cta] service`
+* `[showing-cta] address`
+* `[showing-cta] qualification status`
+* `[showing-cta] should show button`
+
+Click:
+
+* `[showing-request] clicked`
+* `[showing-request] service`
+* `[showing-request] address`
+* `[showing-request] tel link opened`
+* `[showing-request] fub notification start`
+* `[showing-request] fub notification success`
+* `[showing-request] fub notification error`
+
+FUB:
+
+* `[fub-showing] contact lookup`
+* `[fub-showing] contact created/updated`
+* `[fub-showing] note/event created`
+* `[fub-showing] error`
+
+SQL/schema:
+
+* `[showing-request-schema] sql needed yes/no`
+
+Do not log private API keys.
+
+PART 11 — Acceptance tests
+
+Test A — Purchase with Loan Likely Qualifies
+
+1. Log in or use guest flow.
+2. Run Purchase with Loan estimate for a property.
+3. Get result = Likely Qualifies.
+4. Confirm “Schedule your showing now” appears between the Likely Qualifies box and the Mortgage card.
+5. Click button.
+6. Confirm phone opens/calls 813-214-8356.
+7. Confirm FUB receives a showing request notification with the property address.
+8. Confirm Mortgage and Real Estate cards still work.
+
+Test B — Purchase with Loan Needs Review
+
+1. Run Purchase with Loan estimate that results in Needs Review.
+2. Confirm “Schedule your showing now” does not show.
+3. Confirm no FUB notification fires.
+
+Test C — Purchase with Cash
+
+1. Open Purchase with Cash detailed view.
+2. Confirm “Schedule your showing now” appears under the home photos.
+3. Click button.
+4. Confirm phone opens/calls 813-214-8356.
+5. Confirm FUB receives a showing request notification with the property address.
+
+Test D — Logged-out user
+
+1. Log out.
+2. Run Purchase with Cash or Purchase with Loan.
+3. Click Schedule button.
+4. Confirm tel link still works.
+5. Confirm FUB gets property address.
+6. Confirm app does not force signup just to call.
+
+Test E — Logged-in user
+
+1. Log in.
+2. Click Schedule button.
+3. Confirm FUB notification includes user email and phone if available.
+
+Test F — Mobile
+
+1. Open on mobile viewport.
+2. Confirm button is easy to tap.
+3. Confirm no layout overflow.
+4. Confirm tel link opens phone dialer.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* Which SQL migration was added, if any
+* Where the Purchase with Loan button was added
+* How Likely Qualifies visibility is determined
+* Where the Purchase with Cash button was added
+* How the tel link works
+* How FUB is notified
+* Whether the notification uses FUB API or email
+* Which env vars are required
+* How logged-in user info is included
+* How logged-out requests are handled
+* Which files/functions were changed
+
+```
+```

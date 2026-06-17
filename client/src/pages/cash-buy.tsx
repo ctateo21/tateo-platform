@@ -16,6 +16,7 @@ import {
 import {
   Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext,
 } from "@/components/ui/carousel";
+import { ScheduleShowingButton } from "@/components/ui/schedule-showing-button";
 import { useAuth } from "@/context/auth-context";
 import {
   getCashBuyScenarios, saveCashBuyScenarios,
@@ -844,6 +845,16 @@ export default function CashBuyPage() {
             photos={scenario.propertyPhotos ?? []}
             primary={scenario.primaryPhotoUrl}
             status={photoStatus}
+          />
+
+          {/* Schedule-showing CTA — always shown for cash buyers, directly
+              below the photo gallery. */}
+          <ScheduleShowingButton
+            service="purchase_with_cash"
+            address={scenario.address}
+            estimatedPrice={scenario.purchasePrice}
+            normalizedPropertyKey={scenario.normalizedPropertyKey}
+            className="text-center"
           />
 
           {/* 2. Property/address summary */}

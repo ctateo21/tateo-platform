@@ -73,6 +73,7 @@ import {
 } from "@/lib/insurance-default";
 import { useAuth } from "@/context/auth-context";
 import { apiRequest } from "@/lib/queryClient";
+import { ScheduleShowingButton } from "@/components/ui/schedule-showing-button";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import {
   Dialog,
@@ -4798,6 +4799,19 @@ export default function Estimate() {
                   </div>
                 </div>
               </div>
+
+              {/* Schedule-showing CTA — only when the buyer Likely Qualifies
+                  (same condition as the green status banner above). Sits
+                  between the qualification banner and the Mortgage card. */}
+              {!(calc.dti > 0.45) && calc.availableReserves >= calc.requiredReserves && (
+                <ScheduleShowingButton
+                  service="purchase_with_loan"
+                  address={address}
+                  qualificationStatus="likely_qualifies"
+                  estimatedPrice={inputs.purchasePrice}
+                  className="text-center"
+                />
+              )}
 
               {/* Mortgage Section */}
               <Card>

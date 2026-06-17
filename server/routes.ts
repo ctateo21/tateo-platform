@@ -1325,6 +1325,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/fub/showing-request
+  // Fired when a user taps "Schedule your showing now" on Purchase with Loan
+  // (Likely Qualifies only) or Purchase with Cash. Notifies Follow Up Boss
+  // with the property address. The tel: link is handled entirely client-side
+  // and is NEVER blocked by this endpoint — if FUB fails the user can still
+  // call. Works for logged-in and logged-out visitors: with an email we
+  // create/append the FUB contact note; either way the team gets an internal
+  // alert email so anonymous requests still reach us.
+  app.post("/api/fub/showing-request", async (req, res) => {
+    try {
+      const ip = (req.ip || req.socket.remoteAddress || "unknown").toString();
+      if (notifyRateLimited(ip)) {
+        return res.status(429).json({ error: "Too many requests. Please wait a moment." });
+      }
+      const body = z.object({
+        address: z.string().min(1),
+        service: z.enum(["purchase_with_loan", "purchase_with_cash"]),
+        qualificationStatus: z.string().optional(),
+        estimatedPrice: z.number().optional(),
+        normalizedPropertyKey: z.string().optional(),
+        pageUrl: z.string().optional().default(""),
+        firstName: z.string().optional(),
+        lastName: z.string().optional(),
+        email: z.string().email().optional(),
+        phone: z.string().optional().default(""),
+        agent: z.string().optional(),
+        userId: z.string().optional(),
+      }).parse(req.body);
+
+      const serviceLabel = body.service === "purchase_with_loan" ? "Purchase with Loan" : "Purchase with Cash";
+      console.log(`[showing-request] ${serviceLabel} → ${body.address} (user: ${body.email || "anonymous"})`);
+      console.log("[showing-request-schema] sql needed no");
+
+      const priceLine = typeof body.estimatedPrice === "number" && body.estimatedPrice > 0
+        ? `Estimated Price: $${Math.round(body.estimatedPrice).toLocaleString()}`
+        : "";
+      const noteBody = [
+        "Showing requested from Havo.",
+        "",
+        `Property: ${body.address}`,
+        `Service: ${serviceLabel}`,
+        body.qualificationStatus ? `Qualification Status: ${body.qualificationStatus}` : "",
+        priceLine,
+        `User: ${body.email || body.phone || "logged-out visitor"}`,
+        body.pageUrl ? `Page: ${body.pageUrl}` : "",
+      ].filter(Boolean).join("\n");
+
+      // 1) Follow Up Boss — only when we have an email to match/create a contact.
+      if (body.email) {
+        console.log("[fub-showing] contact lookup", body.email);
+        createFollowUpBossContact({
+          firstName: body.firstName || body.email.split("@")[0],
+          lastName: body.lastName || "-",
+          email: body.email,
+          phone: body.phone || "",
+          address: body.address,
+          agent: body.agent,
+          scenarioDetails: noteBody,
+          messageHeader: `Showing requested: ${body.address}`,
+        })
+          .then(() => console.log("[fub-showing] note/event created"))
+          .catch((err) => console.error("[fub-showing] error", err.message));
+      } else {
+        console.log("[fub-showing] no email on request — internal alert only");
+      }
+
+      // 2) Internal team email — always, so anonymous showing requests reach us.
+      sendInternalAlert({
+        scenarioType: `Showing Requested — ${serviceLabel}`,
+        userEmail: body.email || "logged-out visitor",
+        address: body.address,
+        summary: noteBody,
+      }).catch((err) => console.error("[showing-request] internal alert failed:", err?.message ?? err));
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("[showing-request] error:", err);
+      res.status(400).json({ error: err.message || "Failed to log showing request" });
+    }
+  });
+
   // POST /api/leads/account-event
   // Notifies Follow Up Boss when a user creates a free account or signs in.
   // Creates the contact if missing (account_created) or adds a note to the
