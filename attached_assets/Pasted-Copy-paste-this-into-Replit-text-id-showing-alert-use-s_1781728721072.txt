@@ -1,0 +1,296 @@
+Copy/paste this into Replit:
+
+````text id="showing-alert-use-saved-profile-phone"
+Fix the showing-request notification so it includes the logged-in user’s cell phone number from their Havo user profile.
+
+Current issue:
+When I test “Schedule your showing now” while logged in, the email notification includes the user name and property address, but it does not include the user’s phone number.
+
+Expected behavior:
+When someone creates a Havo account, their cell phone number must be saved under their user profile. When that logged-in user clicks “Schedule your showing now,” the showing-request email notification and FUB note must include:
+
+- Name
+- Email
+- Cell phone number
+- Property address
+- Service tab
+- Page URL
+
+The phone number should come from the user’s saved Havo profile/account.
+
+Do not only rely on local form state. The phone number must be loaded from saved user profile data.
+
+PART 1 — Verify account signup saves phone number
+
+Inspect the signup/create-account flow.
+
+When user creates a free account, required fields are:
+- email
+- phone number
+- password
+
+Make sure phone number is saved to the user profile.
+
+Use priority:
+1. `profiles.phone`
+2. equivalent profile table phone field
+3. Supabase auth user metadata phone
+4. app-specific user profile phone
+
+If signup currently only creates Supabase Auth user but does not persist phone to profile, fix that.
+
+When account is created:
+- save email
+- save phone
+- save name/full_name if available
+- link profile row to auth user id
+- update `updated_at`
+
+PART 2 — Verify logged-in user loading includes phone
+
+Inspect the auth/session/user context.
+
+The logged-in AuthUser object should include:
+- id
+- name
+- email
+- phone
+
+If phone exists in the database but is not available in the frontend auth context, update the auth profile loader/mapper.
+
+Example desired user shape:
+
+```ts
+{
+  id: "...",
+  name: "John Smith",
+  email: "john@example.com",
+  phone: "8135551234"
+}
+````
+
+Make sure the phone field is loaded on:
+
+* initial login
+* page refresh/session restore
+* after account creation
+* after profile update
+
+PART 3 — Showing request notification must use profile phone
+
+Update the Schedule Showing flow.
+
+When a logged-in user clicks “Schedule your showing now”:
+
+1. Get logged-in user profile.
+2. Pull:
+
+   * name
+   * email
+   * phone
+3. Send those fields to the backend `/api/fub/showing-request` endpoint.
+4. Include phone in:
+
+   * internal email notification
+   * FUB note
+   * FUB contact create/update
+
+Do not show the guest contact form for logged-in users if phone is available from their profile.
+
+If the logged-in user has no saved phone:
+
+* either show a small “Confirm your phone number” modal before sending
+* or send notification with phone as “Not provided”
+* preferred: if phone is missing, prompt them once to enter phone, save it to profile, then send notification
+
+PART 4 — Email notification format
+
+The showing-request email should have a Contact block near the top:
+
+Contact:
+Name: [Name]
+Email: [Email]
+Phone: [Phone]
+
+Property:
+[Property Address]
+
+Request:
+Service: [Purchase with Loan / Purchase with Cash]
+Qualification Status: [Likely Qualifies, if applicable]
+Estimated Price: [$X, if available]
+Page: [URL]
+Time: [timestamp]
+
+If phone is missing, show:
+Phone: Not provided
+
+But the intended behavior is that logged-in users should have a phone because it was required at signup.
+
+PART 5 — FUB note and contact update
+
+Update the FUB note to include phone.
+
+Also update/create the FUB contact with phone:
+
+* match by email first
+* update phone if missing or different
+* include name if available
+* add the showing request note
+
+The FUB note should include:
+
+Contact:
+Name: [Name]
+Email: [Email]
+Phone: [Phone]
+
+Property:
+[Address]
+
+The user clicked Schedule your showing now. Follow up even if no call/text was completed.
+
+PART 6 — Supabase / SQL requirement
+
+Inspect the existing Supabase schema first.
+
+Check the profile table:
+
+* `profiles`
+* `user_profiles`
+* `users`
+* any equivalent public profile table
+
+Confirm whether there is a phone/cell field.
+
+Look for:
+
+* `phone`
+* `phone_number`
+* `cell_phone`
+* `mobile_phone`
+
+If a phone field already exists:
+
+* do not create SQL
+* use the existing field
+* confirm no SQL was needed
+
+If no phone field exists:
+
+* provide one complete SQL migration before coding
+* use `add column if not exists`
+* do not store passwords
+* do not weaken RLS
+
+Suggested SQL only if needed:
+
+```sql
+alter table public.profiles
+  add column if not exists phone text,
+  add column if not exists full_name text,
+  add column if not exists updated_at timestamptz default now();
+```
+
+If the profile table has a different name, use that table instead.
+
+Also check whether phone is stored only in Supabase Auth metadata. If so, either:
+
+* continue using metadata if consistently loaded, or
+* mirror it into `profiles.phone` for easier app access
+
+Report clearly:
+
+* SQL needed: yes/no
+* which table stores phone
+* which field stores phone
+
+PART 7 — Debug logs
+
+Add temporary logs:
+
+Signup/profile save:
+
+* `[profile-save] user id`
+* `[profile-save] email present true/false`
+* `[profile-save] phone present true/false`
+* `[profile-save] profile saved ok/error`
+
+Auth load:
+
+* `[auth-profile-load] user id`
+* `[auth-profile-load] email present true/false`
+* `[auth-profile-load] phone present true/false`
+* `[auth-profile-load] name present true/false`
+
+Showing request:
+
+* `[showing-contact] logged in true/false`
+* `[showing-contact] name`
+* `[showing-contact] email`
+* `[showing-contact] phone present true/false`
+* `[showing-notification] sending phone`
+* `[showing-notification] email body phone included true/false`
+* `[showing-notification] FUB note phone included true/false`
+
+Do not log private keys or tokens.
+
+PART 8 — Acceptance tests
+
+Test A — Signup saves phone
+
+1. Create a new free account.
+2. Enter name, email, phone, password.
+3. Confirm profile row stores phone number.
+4. Log out.
+5. Log back in.
+6. Confirm auth user/profile context still has phone.
+
+Test B — Logged-in showing request includes phone
+
+1. Log in as a user with saved phone number.
+2. Click “Schedule your showing now.”
+3. Confirm no guest contact form appears.
+4. Confirm email notification includes:
+
+   * Name
+   * Email
+   * Phone
+   * Property address
+5. Confirm FUB note includes:
+
+   * Name
+   * Email
+   * Phone
+   * Property address
+6. Confirm FUB contact has the phone number.
+
+Test C — Missing phone fallback
+
+1. Log in as a user missing phone.
+2. Click Schedule.
+3. Confirm app prompts for phone or sends “Not provided.”
+4. If prompted, confirm phone is saved to profile.
+5. Confirm notification includes the newly entered phone.
+
+Test D — Logged-out user still works
+
+1. Log out.
+2. Click Schedule.
+3. Confirm guest contact form appears.
+4. Enter name, email, phone.
+5. Confirm notification includes all three fields.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* Which table/field stores the user phone number
+* Whether signup was saving phone before
+* Whether auth profile loader was missing phone
+* How the Schedule Showing button now gets logged-in phone
+* How the email alert includes phone
+* How the FUB note/contact includes phone
+* Which files/functions were changed
+
+```
+```

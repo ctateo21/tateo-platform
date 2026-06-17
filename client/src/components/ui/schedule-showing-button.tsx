@@ -21,6 +21,7 @@ import {
   DrawerClose,
 } from "@/components/ui/drawer";
 import { useAuth } from "@/context/auth-context";
+import { updateProfileContact } from "@/lib/auth";
 
 /** Work / Follow Up Boss showing line. tel:/sms: need digits only. */
 const SHOWING_PHONE = "8132148356";
@@ -107,6 +108,9 @@ export function ScheduleShowingButton({
   // The contact details used for THIS request — set when the sheet opens, so
   // the later Text/Call events reuse the same name/email/phone.
   const [activeContact, setActiveContact] = useState<Contact>({ name: "", email: "", phone: "" });
+  // True when the contact modal is shown to a logged-in user (missing phone or
+  // email), so the submitted details get saved back to their profile.
+  const [modalForLoggedIn, setModalForLoggedIn] = useState(false);
 
   useEffect(() => {
     console.log("[showing-cta] service", service);
@@ -128,6 +132,9 @@ export function ScheduleShowingButton({
       console.log("[showing-notification] name", fullName || "(none)");
       console.log("[showing-notification] email", contact.email || "(none)");
       console.log("[showing-notification] phone present", Boolean(contact.phone));
+      console.log("[showing-notification] sending phone", Boolean(contact.phone));
+      console.log("[showing-notification] email body phone included", Boolean(contact.phone));
+      console.log("[showing-notification] FUB note phone included", Boolean(contact.phone));
       console.log("[showing-notification] address", address);
       console.log("[fub-showing] event type", eventType);
       console.log("[fub-showing] contact method", contactMethod ?? "n/a");
@@ -210,15 +217,18 @@ export function ScheduleShowingButton({
         email: (user?.email || "").trim(),
         phone: (user?.phone || "").trim(),
       };
+      console.log("[showing-contact] logged in", true);
       console.log("[showing-contact] profile name present", Boolean(contact.name));
       console.log("[showing-contact] profile email present", Boolean(contact.email));
       console.log("[showing-contact] profile phone present", Boolean(contact.phone));
 
-      // Only block a logged-in user when email is missing (needed to match the
-      // FUB contact) — fall back to the contact modal to collect it.
-      if (!contact.email) {
+      // Prompt the contact modal only when a required field is missing from the
+      // profile — email (needed to match the FUB contact) or phone (so the team
+      // can reach the lead). The submitted values are saved back to the profile.
+      if (!contact.email || !contact.phone) {
         console.log("[showing-cta] contact modal required", true);
-        setForm({ name: contact.name, email: "", phone: contact.phone });
+        setModalForLoggedIn(true);
+        setForm({ name: contact.name, email: contact.email, phone: contact.phone });
         setErrors({});
         setContactOpen(true);
         console.log("[showing-contact-modal] opened");
@@ -232,14 +242,16 @@ export function ScheduleShowingButton({
     }
 
     // Logged-out guest: collect contact info BEFORE sending anything.
+    console.log("[showing-contact] logged in", false);
     console.log("[showing-cta] contact modal required", true);
+    setModalForLoggedIn(false);
     setForm({ name: "", email: "", phone: "" });
     setErrors({});
     setContactOpen(true);
     console.log("[showing-contact-modal] opened");
   }
 
-  function handleContactSubmit() {
+  async function handleContactSubmit() {
     console.log("[showing-contact-modal] submitted");
     const name = form.name.trim();
     const email = form.email.trim();
@@ -260,6 +272,16 @@ export function ScheduleShowingButton({
 
     setErrors({});
     const contact: Contact = { name, email, phone };
+    // A logged-in user filled in a missing phone (or email/name) — save it back
+    // to their profile FIRST so the saved profile is the source of truth, then
+    // send. We don't hard-block the showing request if the save fails, but the
+    // notification still carries the values the user just entered.
+    if (modalForLoggedIn) {
+      const saved = await updateProfileContact({ phone, name, email });
+      if (!saved.ok) {
+        console.warn("[showing-contact] profile save failed, sending anyway");
+      }
+    }
     setContactOpen(false);
     fireStarted(contact);
     openCallTextSheet(contact);

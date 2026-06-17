@@ -1548,6 +1548,7 @@ async function hydrateFromSupabase() {
     createdAt: session.user.created_at ?? new Date().toISOString(),
   };
 
+  console.log("[auth-profile-load] user id", session.user.id);
   let profile = await loadProfile(session.user.id);
   if (!profile) {
     // Try to create the row (first sign-in, or trigger not yet installed).
@@ -1559,6 +1560,30 @@ async function hydrateFromSupabase() {
       agent: fallback.agent ?? null,
     });
     if (!upsertErr) profile = await loadProfile(session.user.id);
+  }
+  // Backfill missing fields from the Supabase auth metadata. A profile row that
+  // was created before the phone was captured (or by an older trigger) can be
+  // missing phone/name even though the auth record has them — without this,
+  // the loaded profile would override the good fallback and lose the phone,
+  // so showing-request notifications would show "Not provided".
+  if (profile) {
+    const needsPhone = !profile.phone && Boolean(fallback.phone);
+    const needsName = !profile.name && Boolean(fallback.name);
+    if (needsPhone || needsName) {
+      profile = {
+        ...profile,
+        phone: profile.phone || fallback.phone,
+        name: profile.name || fallback.name,
+      };
+      // Mirror it back to profiles so future loads + the FUB contact stay in sync.
+      void supabase.from("profiles").update({
+        ...(needsPhone ? { phone: fallback.phone } : {}),
+        ...(needsName ? { name: fallback.name } : {}),
+      }).eq("id", session.user.id);
+    }
+    console.log("[auth-profile-load] email present", Boolean(profile.email));
+    console.log("[auth-profile-load] phone present", Boolean(profile.phone));
+    console.log("[auth-profile-load] name present", Boolean(profile.name));
   }
   _session = profile ?? fallback;
 
@@ -1605,6 +1630,62 @@ async function notifyAccountEvent(
     console.log("[login] fub notification queued");
   } catch {
     /* non-blocking — ignore network/FUB failures */
+  }
+}
+
+/**
+ * Persist contact details (phone/name) to the signed-in user's profile.
+ * Best-effort and never throws — used when a logged-in user supplies a missing
+ * phone before a showing request. Updates the profiles row, mirrors the value
+ * into the Supabase auth metadata, and updates the in-memory session so the
+ * rest of the app (and the showing notification) sees it immediately.
+ */
+export async function updateProfileContact(
+  opts: { phone?: string; name?: string; email?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!supabaseReady || !_session) return { ok: false, error: "Not signed in" };
+  const id = _session.id;
+  const phone = opts.phone?.trim();
+  const name = opts.name?.trim();
+  const email = opts.email?.trim().toLowerCase();
+  // Email lives on profiles too, but only persist it when it differs from the
+  // existing one (it's the login identity and is essentially always present).
+  const emailChanged = Boolean(email) && email !== (_session.email || "").toLowerCase();
+  const patch: Record<string, any> = {};
+  if (phone) patch.phone = phone;
+  if (name) patch.name = name;
+  if (emailChanged) patch.email = email;
+  if (Object.keys(patch).length === 0) return { ok: true };
+
+  console.log("[profile-save] user id", id);
+  console.log("[profile-save] email present", Boolean(email || _session.email));
+  console.log("[profile-save] phone present", Boolean(phone));
+  try {
+    const { error } = await supabase.from("profiles").update(patch).eq("id", id);
+    if (error) {
+      console.warn("[profile-save] profile saved error", error.message);
+      return { ok: false, error: error.message };
+    }
+    console.log("[profile-save] profile saved ok");
+    // Mirror name/phone into auth metadata so they survive a fresh session
+    // restore too. (Email is managed by Supabase auth itself, so skip it here.)
+    try {
+      const meta: Record<string, any> = {};
+      if (phone) meta.phone = phone;
+      if (name) meta.name = name;
+      if (Object.keys(meta).length > 0) await supabase.auth.updateUser({ data: meta });
+    } catch { /* non-blocking */ }
+    _session = {
+      ..._session,
+      ...(phone ? { phone } : {}),
+      ...(name ? { name } : {}),
+      ...(emailChanged ? { email: email! } : {}),
+    };
+    notify();
+    return { ok: true };
+  } catch (e: any) {
+    console.warn("[profile-save] profile saved error", e?.message);
+    return { ok: false, error: e?.message ?? String(e) };
   }
 }
 
