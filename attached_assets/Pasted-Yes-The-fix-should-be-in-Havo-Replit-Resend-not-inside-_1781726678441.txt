@@ -1,0 +1,410 @@
+Yes. The fix should be in **Havo/Replit + Resend**, not inside FUB.
+
+FUB notes are working. Now you need Replit to send a **separate real-time email alert** using your verified Resend domain:
+
+```text
+updates.tateoco.com
+```
+
+Use that as the sender domain, like:
+
+```text
+Havo Showing Alerts <alerts@updates.tateoco.com>
+```
+
+Copy/paste this into Replit:
+
+````text id="showing-request-email-alert-verified-resend-domain"
+Fix showing request notifications so the assigned FUB user receives a real-time email alert, not just a Follow Up Boss note.
+
+Current state:
+The Schedule your showing now button is working in one way:
+- It creates/adds a note in Follow Up Boss
+- Logs show FUB receives the request
+- Example: FUB person found and note added
+
+Current issue:
+The agent/FUB user does not receive a real-time email notification. The request is only sitting in the FUB notes/timeline, so the agent may not know to follow up.
+
+Goal:
+When someone clicks “Schedule your showing now,” two things should happen immediately:
+
+1. Add/update the Follow Up Boss contact/note as it does now.
+2. Send a real-time email alert to the assigned/internal FUB user so they know to follow up.
+
+Important:
+Do not remove the existing FUB note logic. It is working.
+Add/fix the separate email alert.
+
+Verified Resend domain:
+The verified Resend domain is:
+
+updates.tateoco.com
+
+Use this domain for the email sender.
+
+Preferred sender:
+Havo Showing Alerts <alerts@updates.tateoco.com>
+
+If that exact address is not configured, use:
+notifications@updates.tateoco.com
+or
+updates@updates.tateoco.com
+
+But the domain must be:
+updates.tateoco.com
+
+Do not use:
+- @tateoco.com
+- @havofl.com
+- localhost
+- unverified domains
+
+PART 1 — Update Resend sender configuration
+
+Find where the internal showing-request email alert is sent.
+
+Search for:
+- Resend
+- resend.emails.send
+- ALERT_FROM_EMAIL
+- INTERNAL_ALERT_EMAIL
+- showing request email
+- internal alert
+- tateoco.com
+- updates.tateoco.com
+
+Update the from address to use the verified Resend domain.
+
+Use env if possible:
+
+ALERT_FROM_EMAIL="Havo Showing Alerts <alerts@updates.tateoco.com>"
+
+If ALERT_FROM_EMAIL is already used:
+- update the Replit secret/environment variable
+- do not hardcode unless needed
+
+If no env var exists:
+- create/use `ALERT_FROM_EMAIL`
+
+Default fallback should also use:
+"Havo Showing Alerts <alerts@updates.tateoco.com>"
+
+PART 2 — Real-time email recipient
+
+The email should go to the internal/FUB user responsible for the lead.
+
+Use this priority:
+
+1. If the app can determine the assigned FUB user’s email from the FUB API/contact/assignment, send to that email.
+2. Else use an environment variable:
+   INTERNAL_ALERT_EMAIL
+3. Else use:
+   FUB_NOTIFICATION_EMAIL
+4. Else log a clear error:
+   “Missing internal alert recipient email”
+
+Do not silently skip email sending.
+
+If the assigned user email cannot be pulled from FUB yet, use env var for now.
+
+Required env var:
+INTERNAL_ALERT_EMAIL
+
+Set it to the email address that should receive showing alerts.
+
+PART 3 — Email timing
+
+Send the email immediately when the user clicks:
+
+“Schedule your showing now”
+
+This should happen on the initial click before they choose Call or Text.
+
+Reason:
+If the user clicks Schedule but does not call or text, the agent still needs to know to follow up.
+
+Do not wait until:
+- Text us is clicked
+- Call us is clicked
+- user creates an account
+- user saves scenario
+
+PART 4 — Email content
+
+Subject:
+“Showing Request: [PROPERTY ADDRESS]”
+
+Email body should include:
+
+Title:
+“New showing request from Havo”
+
+Details:
+- Property address
+- User name, if available
+- User email, if available
+- User phone, if available
+- Service tab:
+  - Purchase with Loan
+  - Purchase with Cash
+- Qualification status, if Purchase with Loan
+- Estimated price, if available
+- Page URL
+- Date/time clicked
+- Whether they selected call/text yet:
+  - Initial click: “User clicked Schedule your showing now. They may not have selected call or text yet.”
+  - If call selected later: “User selected Call.”
+  - If text selected later: “User selected Text.”
+
+Suggested body:
+
+New showing request from Havo.
+
+Property:
+[ADDRESS]
+
+User:
+[NAME]
+[EMAIL]
+[PHONE]
+
+Service:
+[SERVICE TAB]
+
+Qualification Status:
+[LIKELY QUALIFIES, if available]
+
+Page:
+[URL]
+
+Important:
+The user clicked “Schedule your showing now.” Follow up even if they do not complete a call or text.
+
+PART 5 — Keep FUB note/event logic
+
+Keep existing FUB behavior:
+- contact lookup
+- contact create/update
+- note added to contact
+- event showing_request_started
+- text/call follow-up events
+
+But add email alert in addition.
+
+If FUB note succeeds and email fails:
+- return a partial success with details
+- log the email failure clearly
+
+If email succeeds and FUB note fails:
+- still log email success
+- return partial success
+
+The endpoint should not silently claim full success if email fails.
+
+PART 6 — Backend endpoint response
+
+Update `/api/fub/showing-request` or the existing endpoint to return structured status.
+
+Example response:
+
+```json
+{
+  "ok": true,
+  "fub": {
+    "ok": true,
+    "personId": "1685",
+    "noteAdded": true
+  },
+  "email": {
+    "ok": true,
+    "to": "agent@example.com",
+    "from": "Havo Showing Alerts <alerts@updates.tateoco.com>"
+  }
+}
+````
+
+If email fails:
+
+```json
+{
+  "ok": true,
+  "fub": {
+    "ok": true,
+    "noteAdded": true
+  },
+  "email": {
+    "ok": false,
+    "error": "Resend domain not verified or recipient missing"
+  }
+}
+```
+
+Frontend should log this response.
+
+PART 7 — Resend domain verification issue
+
+Previous error:
+“The tateoco.com domain is not verified.”
+
+Fix:
+Stop sending from @tateoco.com.
+
+Send from:
+[alerts@updates.tateoco.com](mailto:alerts@updates.tateoco.com)
+
+Because updates.tateoco.com is verified in Resend.
+
+Do not tell me to verify tateoco.com unless absolutely necessary. For now, use the already verified domain:
+updates.tateoco.com
+
+PART 8 — Environment variables / secrets
+
+Check these Replit secrets in dev/preview and production:
+
+Required:
+
+* RESEND_API_KEY
+* ALERT_FROM_EMAIL
+* INTERNAL_ALERT_EMAIL
+
+Set:
+
+* ALERT_FROM_EMAIL = Havo Showing Alerts [alerts@updates.tateoco.com](mailto:alerts@updates.tateoco.com)
+* INTERNAL_ALERT_EMAIL = the email address that should receive showing alerts
+
+Existing FUB:
+
+* FOLLOWUPBOSS_API_KEY or current FUB key name should remain unchanged
+
+If any are missing, tell me exactly which one.
+
+Do not log the actual API keys.
+Only log present true/false.
+
+PART 9 — Supabase / SQL requirement
+
+Inspect existing Supabase schema first.
+
+This should not require SQL if:
+
+* FUB note is created through API
+* email alert is sent through Resend
+* no event audit table is needed
+
+If a showing_requests or lead_events table already exists, optionally log the email status there.
+
+If no table exists:
+
+* do not create SQL just for this unless needed
+* confirm no SQL was needed
+
+Do not weaken RLS.
+Do not store Resend API keys in Supabase.
+Do not store FUB API keys in Supabase.
+
+PART 10 — Debug logs
+
+Add clear logs:
+
+On click:
+
+* `[showing-cta] schedule clicked`
+* `[showing-cta] immediate notification start`
+
+Backend:
+
+* `[api/fub/showing-request] request received`
+* `[api/fub/showing-request] property address`
+* `[api/fub/showing-request] user email`
+* `[api/fub/showing-request] user phone`
+* `[api/fub/showing-request] FUB note start`
+* `[api/fub/showing-request] FUB note success`
+* `[api/fub/showing-request] email alert start`
+* `[api/fub/showing-request] email recipient`
+* `[api/fub/showing-request] email from domain`
+* `[api/fub/showing-request] email alert success`
+* `[api/fub/showing-request] email alert error`
+
+Env:
+
+* `[showing-alert-env] RESEND_API_KEY present true/false`
+* `[showing-alert-env] ALERT_FROM_EMAIL present true/false`
+* `[showing-alert-env] INTERNAL_ALERT_EMAIL present true/false`
+* `[showing-alert-env] ALERT_FROM_EMAIL uses updates.tateoco.com true/false`
+
+Do not log:
+
+* Resend API key
+* FUB API key
+* auth tokens
+
+PART 11 — Acceptance tests
+
+Test A — Initial click sends FUB note and email
+
+1. Click “Schedule your showing now.”
+2. Do not click Call or Text.
+3. Confirm popup opens.
+4. Confirm FUB note is added to the contact.
+5. Confirm internal email alert is sent to the assigned/internal FUB user.
+6. Confirm email subject includes property address.
+7. Confirm email body includes name, email, phone, address, service tab, page URL.
+
+Test B — Verified sender domain
+
+1. Check Resend logs.
+2. Confirm email sender is:
+   [alerts@updates.tateoco.com](mailto:alerts@updates.tateoco.com)
+   or another address on updates.tateoco.com.
+3. Confirm Resend does not reject it for unverified domain.
+4. Confirm no emails are sent from @tateoco.com.
+
+Test C — Logged-in user
+
+1. Log in as a test user with email and phone.
+2. Click Schedule.
+3. Confirm email alert includes user email and phone.
+
+Test D — Logged-out user
+
+1. Log out.
+2. Run guest flow.
+3. Click Schedule.
+4. Confirm email alert still sends with property address and page URL.
+5. Confirm missing user info does not block the alert.
+
+Test E — Text/Call follow-up
+
+1. Click Schedule.
+2. Confirm initial email sends immediately.
+3. Then click Text us.
+4. Confirm optional follow-up event/note records text selected.
+5. Repeat with Call us.
+
+Test F — Missing env
+
+1. If email does not send, logs must clearly show whether:
+
+   * RESEND_API_KEY is missing
+   * ALERT_FROM_EMAIL is missing
+   * INTERNAL_ALERT_EMAIL is missing
+   * sender domain is wrong
+   * Resend rejected the send
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* Whether FUB note logic was left unchanged
+* Which sender email/domain is now used
+* Whether ALERT_FROM_EMAIL uses updates.tateoco.com
+* Which recipient email receives the real-time alert
+* Whether the email sends on initial Schedule click
+* Whether Resend accepted the email
+* Which env vars are required
+* Which files/functions were changed
+
+```
+
+Main point: **FUB notes are CRM history; they are not the same as real-time email alerts.** Replit needs to keep the FUB note and separately send an email alert through Resend using `updates.tateoco.com`.
+```

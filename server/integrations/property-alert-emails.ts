@@ -217,27 +217,30 @@ function buildFubEmail(
   return { subject, html, text };
 }
 
+// Verified Resend sending identity. ALERT_FROM_EMAIL should be set to this, but
+// we also default to it so emails never fall back to an unverified domain.
+const DEFAULT_FROM = "Havo Showing Alerts <alerts@updates.tateoco.com>";
+
 async function sendOne(args: {
   to: string;
   replyTo?: string | null;
   subject: string;
   html: string;
   text: string;
-}): Promise<{ status: SendStatus; error: string | null }> {
+}): Promise<{ status: SendStatus; error: string | null; to: string; from: string }> {
+  const from = process.env.ALERT_FROM_EMAIL || DEFAULT_FROM;
   const resend = getResend();
-  if (!resend) return { status: "skipped", error: "RESEND_API_KEY not set" };
-  const from = process.env.ALERT_FROM_EMAIL;
-  if (!from) return { status: "skipped", error: "ALERT_FROM_EMAIL not set" };
+  if (!resend) return { status: "skipped", error: "RESEND_API_KEY not set", to: args.to, from };
   try {
     const payload: Record<string, unknown> = {
       from, to: args.to, subject: args.subject, html: args.html, text: args.text,
     };
     if (args.replyTo) payload.reply_to = args.replyTo;
     const { error } = await resend.emails.send(payload as any);
-    if (error) return { status: "failed", error: error.message || String(error) };
-    return { status: "sent", error: null };
+    if (error) return { status: "failed", error: error.message || String(error), to: args.to, from };
+    return { status: "sent", error: null, to: args.to, from };
   } catch (e: any) {
-    return { status: "failed", error: e?.message ?? String(e) };
+    return { status: "failed", error: e?.message ?? String(e), to: args.to, from };
   }
 }
 
@@ -356,7 +359,7 @@ export async function sendInternalAlert(args: {
   userEmail: string;
   address: string;
   summary: string;
-}): Promise<{ status: SendStatus; error: string | null }> {
+}): Promise<{ status: SendStatus; error: string | null; to: string; from: string }> {
   // Recipient for internal team alerts. Prefer a dedicated INTERNAL_ALERT_EMAIL,
   // then the Follow Up Boss lead inbox, then fall back to the verified sender
   // address (always set when email is configured) so these alerts are never
@@ -366,7 +369,12 @@ export async function sendInternalAlert(args: {
     process.env.FUB_ALERT_EMAIL ||
     process.env.ALERT_FROM_EMAIL;
   if (!to) {
-    return { status: "skipped", error: "no internal alert recipient configured" };
+    return {
+      status: "skipped",
+      error: "Missing internal alert recipient email",
+      to: "",
+      from: process.env.ALERT_FROM_EMAIL || DEFAULT_FROM,
+    };
   }
 
   const subject = `New ${args.scenarioType} — ${args.address}`;

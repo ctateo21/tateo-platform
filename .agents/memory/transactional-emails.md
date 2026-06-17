@@ -10,16 +10,17 @@ pattern: `getResend()` + `sendOne()`. Every sender is best-effort — it returns
 `{status, error}` and never throws, so call sites fire-and-forget with `.catch()`.
 
 **Config gotcha:** emails silently `skip` (status `"skipped"`, no send) unless
-both `RESEND_API_KEY` and `ALERT_FROM_EMAIL` secrets are set.
+`RESEND_API_KEY` is set. `ALERT_FROM_EMAIL` is optional — code defaults the
+from-address to the verified sender (see below) when it is unset.
 
-**Internal-alert recipient gotcha:** `sendInternalAlert` needs a TO address.
-`INTERNAL_ALERT_EMAIL` is NOT set in this project (only `ALERT_FROM_EMAIL` is),
-which silently dropped showing-request alerts. Recipient now falls back
-`INTERNAL_ALERT_EMAIL → FUB_ALERT_EMAIL → ALERT_FROM_EMAIL`, so alerts reach the
-verified sender mailbox by default. To route to a dedicated ops inbox, set
-`INTERNAL_ALERT_EMAIL`. **Why:** a "no email arrived" report usually means the
-recipient var, not the send path, is missing — check which TO vars are actually
-set before touching send logic.
+**Verified sending domain:** Resend only accepts sends from the verified domain
+`updates.tateoco.com` (NOT `tateoco.com` / `havofl.com`). `ALERT_FROM_EMAIL`
+must be an address on that domain (e.g. `Havo Showing Alerts
+<alerts@updates.tateoco.com>`); the code also defaults to that if unset.
+**Why:** a "no email arrived" report after FUB clearly succeeded is almost
+always Resend rejecting an unverified from-domain — check the from-domain and
+the exact Resend error string, not the send path. Recipient (`INTERNAL_ALERT_EMAIL`)
+falls back `INTERNAL_ALERT_EMAIL → FUB_ALERT_EMAIL → ALERT_FROM_EMAIL`.
 
 # Scenario-save hook (non-obvious)
 

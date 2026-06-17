@@ -1151,7 +1151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
     if (!apiKey) {
       console.log("[FUB] FOLLOWUPBOSS_API_KEY not set — skipping contact creation.");
-      return;
+      return { ok: false, noteAdded: false, personId: null as number | null, skipped: true, error: "FOLLOWUPBOSS_API_KEY not set" };
     }
 
     // "Team" always assigns to Christian Tateo (id: 1)
@@ -1171,6 +1171,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Step 1: look up existing contact by email to avoid creating duplicates
     const emailNorm = params.email.toLowerCase().trim();
     let personId: number | null = await findFubPersonByEmail(apiKey, emailNorm);
+    let noteAdded = false;
+    let noteError: string | null = null;
 
     if (personId) {
       // Existing contact — just add a note instead of creating a new contact.
@@ -1188,12 +1190,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         if (!noteRes.ok) {
           const errText = await noteRes.text();
+          noteError = `note POST ${noteRes.status}: ${errText}`;
           console.warn(`[FUB] Note POST failed ${noteRes.status}:`, errText);
         } else {
+          noteAdded = true;
           console.log(`[FUB] Note added to person ${personId}`);
         }
       } catch (err: any) {
-        console.warn("[FUB] Note error:", err.message);
+        noteError = err?.message ?? String(err);
+        console.warn("[FUB] Note error:", noteError);
       }
     } else {
       // No existing contact — create one via /v1/events (also sends the message).
@@ -1226,6 +1231,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw new Error(`FUB ${res.status}: ${text}`);
       }
       personId = data?.person?.id ?? data?.id ?? null;
+      noteAdded = true; // the /v1/events call also delivers the message/note
       console.log(`[FUB] Contact created: ${params.firstName} ${params.lastName} | event id: ${data.id ?? "unknown"} | person id: ${personId ?? "unknown"}`);
     }
 
@@ -1255,7 +1261,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
 
-    return { personId };
+    return { ok: noteAdded, noteAdded, personId, skipped: false, error: noteError };
   }
 
   // Simple per-IP rate limiter for the notify endpoint (max 10/min per IP)
@@ -1370,6 +1376,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           : eventType === "showing_request_call_selected"
           ? "User selected Call for showing request."
           : "Showing request started from Havo.";
+      console.log("[api/fub/showing-request] request received");
+      console.log(`[api/fub/showing-request] property address: ${body.address}`);
+      console.log(`[api/fub/showing-request] user email: ${body.email || "(none)"}`);
+      console.log(`[api/fub/showing-request] user phone: ${body.phone || "(none)"}`);
+      console.log(`[showing-alert-env] RESEND_API_KEY present ${!!process.env.RESEND_API_KEY}`);
+      console.log(`[showing-alert-env] ALERT_FROM_EMAIL present ${!!process.env.ALERT_FROM_EMAIL}`);
+      console.log(`[showing-alert-env] INTERNAL_ALERT_EMAIL present ${!!process.env.INTERNAL_ALERT_EMAIL}`);
+      console.log(`[showing-alert-env] ALERT_FROM_EMAIL uses updates.tateoco.com ${(process.env.ALERT_FROM_EMAIL || "").includes("updates.tateoco.com")}`);
       console.log(`[showing-request] ${serviceLabel} → ${body.address} (event: ${eventType}, user: ${body.email || "anonymous"}, contact: ${body.contactMethod || "n/a"})`);
       console.log("[showing-request-schema] sql needed no");
 
@@ -1392,38 +1406,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ].filter(Boolean).join("\n");
 
       // 1) Follow Up Boss — only when we have an email to match/create a contact.
+      // This CRM note is unchanged in behaviour; we now await it so the response
+      // can report its outcome alongside the email alert.
+      const fub: { ok: boolean; noteAdded: boolean; skipped: boolean; error: string | null } =
+        { ok: false, noteAdded: false, skipped: false, error: null };
       if (body.email) {
+        console.log("[api/fub/showing-request] FUB note start");
         console.log("[fub-showing] contact lookup", body.email);
-        createFollowUpBossContact({
-          firstName: body.firstName || body.email.split("@")[0],
-          lastName: body.lastName || "-",
-          email: body.email,
-          phone: body.phone || "",
-          address: body.address,
-          agent: body.agent,
-          scenarioDetails: noteBody,
-          messageHeader: `Showing requested: ${body.address}`,
-        })
-          .then(() => console.log("[fub-showing] note/event created"))
-          .catch((err) => console.error("[fub-showing] error", err.message));
+        try {
+          const r = await createFollowUpBossContact({
+            firstName: body.firstName || body.email.split("@")[0],
+            lastName: body.lastName || "-",
+            email: body.email,
+            phone: body.phone || "",
+            address: body.address,
+            agent: body.agent,
+            scenarioDetails: noteBody,
+            messageHeader: `Showing requested: ${body.address}`,
+          });
+          fub.ok = r.ok;
+          fub.noteAdded = r.noteAdded;
+          fub.skipped = r.skipped;
+          fub.error = r.error;
+          if (r.ok) {
+            console.log("[api/fub/showing-request] FUB note success");
+            console.log("[fub-showing] note/event created");
+          } else {
+            console.warn(`[api/fub/showing-request] FUB note not added: ${r.error || (r.skipped ? "skipped" : "unknown")}`);
+          }
+        } catch (err: any) {
+          fub.error = err?.message ?? String(err);
+          console.error("[fub-showing] error", fub.error);
+        }
       } else {
+        fub.skipped = true;
         console.log("[fub-showing] no email on request — internal alert only");
       }
 
       // 2) Internal team email — always, so anonymous showing requests reach us.
-      sendInternalAlert({
+      // Sent via the verified Resend domain (updates.tateoco.com).
+      console.log("[api/fub/showing-request] email alert start");
+      const alert = await sendInternalAlert({
         scenarioType: `Showing Requested — ${serviceLabel}`,
         userEmail: body.email || "logged-out visitor",
         address: body.address,
         summary: noteBody,
-      })
-        .then((r) => console.log(`[showing-request] internal alert ${r.status}${r.error ? ` (${r.error})` : ""}`))
-        .catch((err) => console.error("[showing-request] internal alert failed:", err?.message ?? err));
+      });
+      const fromDomain = (alert.from.match(/@([^>\s]+)/)?.[1]) || "(none)";
+      console.log(`[api/fub/showing-request] email recipient ${alert.to || "(none)"}`);
+      console.log(`[api/fub/showing-request] email from domain ${fromDomain}`);
+      const email = {
+        ok: alert.status === "sent",
+        status: alert.status,
+        to: alert.to || null,
+        from: alert.from || null,
+        error: alert.error,
+      };
+      if (email.ok) {
+        console.log("[api/fub/showing-request] email alert success");
+      } else {
+        console.error(`[api/fub/showing-request] email alert error: ${alert.error || alert.status}`);
+      }
 
-      res.json({ ok: true });
+      // Partial success is fine: the popup/SMS/tel never depend on this response.
+      console.log("[api/fub/showing-request] success");
+      res.json({ ok: fub.ok || email.ok, fub, email });
     } catch (err: any) {
-      console.error("[showing-request] error:", err);
-      res.status(400).json({ error: err.message || "Failed to log showing request" });
+      console.error("[api/fub/showing-request] error:", err);
+      res.status(400).json({ ok: false, error: err.message || "Failed to log showing request" });
     }
   });
 
