@@ -1342,6 +1342,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const body = z.object({
         address: z.string().min(1),
         service: z.enum(["purchase_with_loan", "purchase_with_cash"]),
+        contactMethod: z.enum(["text", "call"]).optional(),
         qualificationStatus: z.string().optional(),
         estimatedPrice: z.number().optional(),
         normalizedPropertyKey: z.string().optional(),
@@ -1355,7 +1356,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }).parse(req.body);
 
       const serviceLabel = body.service === "purchase_with_loan" ? "Purchase with Loan" : "Purchase with Cash";
-      console.log(`[showing-request] ${serviceLabel} → ${body.address} (user: ${body.email || "anonymous"})`);
+      const contactLabel = body.contactMethod === "text" ? "Text" : body.contactMethod === "call" ? "Call" : "";
+      console.log(`[showing-request] ${serviceLabel} → ${body.address} (user: ${body.email || "anonymous"}, contact: ${body.contactMethod || "n/a"})`);
       console.log("[showing-request-schema] sql needed no");
 
       const priceLine = typeof body.estimatedPrice === "number" && body.estimatedPrice > 0
@@ -1365,6 +1367,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         "Showing requested from Havo.",
         "",
         `Property: ${body.address}`,
+        contactLabel ? `Preferred contact action: ${contactLabel}` : "",
         `Service: ${serviceLabel}`,
         body.qualificationStatus ? `Qualification Status: ${body.qualificationStatus}` : "",
         priceLine,

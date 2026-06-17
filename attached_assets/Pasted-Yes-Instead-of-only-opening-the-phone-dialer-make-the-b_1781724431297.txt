@@ -1,0 +1,365 @@
+Yes. Instead of only opening the phone dialer, make the button open a small choice modal: **Text us** or **Call us**. Text should use `sms:` and call should use `tel:`.
+
+Copy/paste this into Replit:
+
+````text id="showing-schedule-call-or-text-feature"
+Update the “Schedule your showing now” CTA so users can choose to text or call, instead of only calling.
+
+Current behavior:
+The “Schedule your showing now” button opens the phone dialer using:
+
+tel:8132148356
+
+New behavior:
+When a user clicks “Schedule your showing now,” show a small mobile-friendly action modal or bottom sheet with two choices:
+
+1. Text us
+2. Call us
+
+Both options should use the same work/FUB number:
+
+813-214-8356
+
+Goal:
+Let users schedule a showing by either texting or calling.
+
+Scope:
+Apply this anywhere the “Schedule your showing now” button appears:
+- Purchase with Loan, only when result = Likely Qualifies
+- Purchase with Cash, always under the home photos
+- any shared Schedule Showing CTA component if one exists
+
+PART 1 — CTA click behavior
+
+Button text stays:
+
+“Schedule your showing now”
+
+When clicked:
+- Do not immediately open the phone dialer.
+- Open a small modal/bottom sheet with:
+  - Title: “Schedule your showing”
+  - Subtitle: “Text or call us to schedule a showing for this property.”
+  - Button 1: “Text us”
+  - Button 2: “Call us”
+  - Optional close button: “Cancel”
+
+Mobile:
+- Bottom sheet preferred.
+- Buttons should be full-width and easy to tap.
+
+Desktop:
+- Modal/popover is fine.
+- Buttons should still work.
+
+PART 2 — Text behavior
+
+When user clicks “Text us”:
+Use:
+
+sms:8132148356
+
+Pre-fill a message if supported.
+
+Suggested SMS body:
+
+“I’d like to schedule a showing for [PROPERTY ADDRESS].”
+
+Use proper URL encoding.
+
+Example:
+
+sms:8132148356?&body=I%27d%20like%20to%20schedule%20a%20showing%20for%20123%20Main%20St%2C%20Tampa%2C%20FL.
+
+Implementation note:
+SMS URL formats vary by device.
+
+Use a helper:
+
+`buildSmsLink(phoneNumber, message)`
+
+Make it handle mobile compatibility as best as possible.
+
+Suggested:
+- iOS often supports `sms:8132148356&body=...`
+- Android often supports `sms:8132148356?body=...`
+
+If app cannot reliably detect device, use the most broadly compatible format already used in the codebase or a safe fallback.
+
+Minimum acceptable:
+`sms:8132148356`
+
+Better:
+`sms:8132148356?body=${encodedMessage}`
+
+Do not block FUB notification if SMS body is not supported.
+
+PART 3 — Call behavior
+
+When user clicks “Call us”:
+Use:
+
+tel:8132148356
+
+This should open the phone dialer on mobile.
+
+PART 4 — Follow Up Boss notification
+
+Keep the existing FUB notification behavior, but update it to include whether the user selected text or call.
+
+When the user clicks the main CTA:
+Optional: log that they opened the scheduler.
+
+When the user clicks Text us or Call us:
+Send the FUB notification with:
+
+- event type: showing_requested
+- contact method selected:
+  - text
+  - call
+- property address
+- service tab:
+  - purchase_with_loan
+  - purchase_with_cash
+- user email, if logged in
+- user phone, if known
+- user name, if known
+- qualification status, if Purchase with Loan
+- estimated purchase price, if available
+- timestamp
+- current page URL
+- normalized_property_key, if available
+
+Suggested FUB note text:
+
+“Showing requested from Havo.
+
+Property: [ADDRESS]
+Preferred contact action: [Text / Call]
+Service: [Purchase with Loan / Purchase with Cash]
+Qualification Status: [Likely Qualifies, if available]
+Estimated Price: [$XXX,XXX, if available]
+User: [email/phone if available]
+Page: [URL]”
+
+Important:
+The SMS/call action should still open even if the FUB notification fails.
+Do not block the user from texting/calling because FUB failed.
+
+PART 5 — Shared component
+
+If possible, create or update a shared component:
+
+`ScheduleShowingButton`
+
+Props:
+- address
+- service
+- qualificationStatus
+- estimatedPrice
+- normalizedPropertyKey
+- user
+- className
+
+Behavior:
+- renders “Schedule your showing now”
+- opens text/call modal
+- sends FUB notification on selected action
+- opens sms/tel link
+
+Use it in:
+- Purchase with Loan
+- Purchase with Cash
+
+PART 6 — Supabase / SQL requirement
+
+Inspect the existing Supabase schema first.
+
+This feature may not need SQL if showing requests are only sent to FUB.
+
+Check if a table already exists:
+- showing_requests
+- lead_events
+- user_events
+- fub_events
+- activity_log
+
+If a suitable table exists:
+- reuse it and add `contact_method` only if missing.
+
+If no table exists:
+- no SQL is required for minimum implementation if FUB notification is enough.
+
+If you decide showing requests should be stored in Supabase for audit/history, provide one complete SQL migration before coding.
+
+Suggested SQL only if needed:
+
+```sql
+create table if not exists public.showing_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  email text,
+  phone text,
+  full_address text not null,
+  normalized_property_key text,
+  service text not null,
+  qualification_status text,
+  estimated_price numeric,
+  contact_method text,
+  page_url text,
+  fub_status text,
+  fub_response jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+alter table public.showing_requests
+  add column if not exists contact_method text;
+
+alter table public.showing_requests enable row level security;
+
+create policy if not exists "Users can view own showing requests"
+on public.showing_requests
+for select
+using (auth.uid() = user_id);
+
+create policy if not exists "Users can insert own showing requests"
+on public.showing_requests
+for insert
+with check (auth.uid() = user_id or user_id is null);
+````
+
+Important:
+
+* Do not add SQL unless needed.
+* Do not weaken RLS.
+* If anonymous showing requests are inserted server-side, use the service role only on the server.
+
+Report back:
+
+* whether SQL was needed
+* if SQL was not needed, confirm FUB notification handles the event
+* if SQL was needed, provide the full migration
+
+PART 7 — Auth behavior
+
+The text/call feature should work for:
+
+* logged-in users
+* logged-out users
+
+Do not require account creation just to text or call.
+
+Logged-in:
+
+* include user email/phone in FUB notification if available.
+
+Logged-out:
+
+* still allow text/call
+* include property address and service in FUB notification
+* include any available guest email/phone only if already collected
+
+PART 8 — Do not break
+
+Do not break:
+
+* Purchase with Loan Likely Qualifies logic
+* Purchase with Cash photo/gallery area
+* existing Schedule Showing CTA placement
+* FUB account-created/sign-in notifications
+* FUB showing-request notification
+* mobile layout
+* tel link behavior
+* save/share/download auth gates
+* free account mode
+* Supabase save/load
+
+PART 9 — Debug logs
+
+Add temporary logs:
+
+CTA:
+
+* `[showing-cta] opened`
+* `[showing-cta] service`
+* `[showing-cta] address`
+
+Text:
+
+* `[showing-cta] text selected`
+* `[showing-cta] sms link built`
+
+Call:
+
+* `[showing-cta] call selected`
+* `[showing-cta] tel link built`
+
+FUB:
+
+* `[fub-showing] notification start`
+* `[fub-showing] contact method`
+* `[fub-showing] notification success`
+* `[fub-showing] notification error`
+
+SQL/schema:
+
+* `[showing-request-schema] sql needed yes/no`
+
+Do not log private API keys.
+
+PART 10 — Acceptance test
+
+Test A — Purchase with Loan
+
+1. Run Purchase with Loan.
+2. Get result = Likely Qualifies.
+3. Confirm “Schedule your showing now” appears between Likely Qualifies box and Mortgage card.
+4. Click the button.
+5. Confirm modal/bottom sheet opens with Text us and Call us.
+6. Click Text us.
+7. Confirm SMS app opens to 813-214-8356.
+8. Confirm message is prefilled with the property address if device supports it.
+9. Confirm FUB notification includes contact method = text.
+10. Repeat and click Call us.
+11. Confirm phone dialer opens to 813-214-8356.
+12. Confirm FUB notification includes contact method = call.
+
+Test B — Purchase with Cash
+
+1. Open Purchase with Cash detailed view.
+2. Confirm “Schedule your showing now” appears under home photos.
+3. Click the button.
+4. Confirm Text us and Call us options appear.
+5. Confirm both options work.
+6. Confirm FUB gets property address and selected contact method.
+
+Test C — Logged out
+
+1. Log out.
+2. Run a guest estimate.
+3. Click Schedule your showing now.
+4. Confirm text/call options work.
+5. Confirm no account creation is required just to text/call.
+6. Confirm FUB notification still sends property address.
+
+Test D — Mobile
+
+1. Test on mobile viewport or phone.
+2. Confirm bottom sheet fits screen.
+3. Confirm buttons are easy to tap.
+4. Confirm no horizontal overflow.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* Which SQL migration was added, if any
+* Which shared Schedule Showing component was created or updated
+* How Text us works
+* How Call us works
+* How SMS message body is built
+* How FUB receives contact method
+* How logged-in and logged-out users are handled
+* Which files/functions were changed
+
+```
+```
