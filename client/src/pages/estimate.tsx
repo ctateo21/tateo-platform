@@ -4799,112 +4799,6 @@ export default function Estimate() {
                 </div>
               </div>
 
-              {/* Real Estate Section */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2 text-primary">
-                    <Home className="h-4 w-4" />
-                    Real Estate
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Row label="Purchase Price" value={fmt(inputs.purchasePrice)} />
-                  <Separator />
-                  {/* Down Payment — interactive Percentage / Dollar Amount
-                      toggle + slider, matching the Seller Concessions
-                      control style further down this card. Writes the
-                      same canonical inputs the rest of the page (and
-                      Page 3 / Loan Details) reads from, so every
-                      dependent calc (loan amount, P&I, PMI/MIP, cash
-                      to close, DTI, qualification) updates live. */}
-                  <div className="py-2">
-                    {renderDownPayment()}
-                  </div>
-                  <Separator />
-                  <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={
-                    inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}`
-                    : inputs.loanType === "va" && calc.vaFundingFeeAmt > 0 ? `includes ${inputs.vaLoanUse === "second" ? "3.30" : "2.15"}% funding fee (${fmt(calc.vaFundingFeeAmt)}) · LTV ${fmtPct(calc.ltv)}`
-                    : `LTV ${fmtPct(calc.ltv)}`
-                  } />
-                  <Separator />
-                  <Row
-                    label={inputs.loanType === "dscr" ? "Estimated Closing Costs (~4%)" : "Estimated Closing Costs (~3%)"}
-                    value={fmt(calc.closingCosts)}
-                    sub={inputs.loanType === "dscr" ? `Includes DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})` : undefined}
-                  />
-                  {/* Seller Concessions — same control as Page 3,
-                      writes the same `inputs.sellerConcessions` field
-                      so the two pages stay synced automatically. Cash
-                      to close updates live via `calc` memo. */}
-                  <div className="py-2">
-                    {renderSellerConcessions()}
-                  </div>
-                  <Separator />
-                  {/* Discount Points — buydown control. Sits directly
-                      under Seller Concessions per spec. Cost is added
-                      to closing costs (and therefore cash-to-close)
-                      and the rate reduction is applied AFTER all
-                      existing pricing adjustments. Bank Statement
-                      shows the cost line only (no rate reduction
-                      until a buydown table is added). */}
-                  <div className="py-2">
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between flex-wrap gap-1">
-                        <span className="text-xs text-muted-foreground">Discount Points (% of Loan Amount)</span>
-                        <Select
-                          value={String(calc.discountPointsPct)}
-                          onValueChange={(v) => {
-                            const next = snapDiscountPoints(parseFloat(v));
-                            setInputs((p) => ({ ...p, discountPointsPct: next }));
-                          }}
-                        >
-                          <SelectTrigger
-                            className="h-7 w-[110px] text-xs"
-                            data-testid="select-discount-points"
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {DISCOUNT_POINTS_STEPS.map((step) => (
-                              <SelectItem key={step} value={String(step)}>
-                                {step.toFixed(1)}%
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {calc.discountPointsPct > 0 ? (
-                        // Per spec: surface the dollar cost only.
-                        // The rate-buydown amount is intentionally
-                        // hidden from the user-facing UI — the
-                        // calculation still runs and feeds the
-                        // Mortgage card's Interest Rate row. Bank
-                        // Statement has no published buydown yet, so
-                        // we keep the cost-only note for clarity.
-                        <p className="text-[10px] text-right text-muted-foreground">
-                          {calc.discountPointsPct.toFixed(1)}% of loan ·{" "}
-                          <span className="font-medium text-foreground">{fmt(calc.discountPointsCost)}</span>
-                          {inputs.loanType === "bank_statement" && (
-                            <span className="ml-1 text-amber-600">
-                              (Bank Statement buydown table not yet published — cost applied, rate unchanged.)
-                            </span>
-                          )}
-                        </p>
-                      ) : (
-                        <p className="text-[10px] text-muted-foreground text-right">
-                          Based on loan amount. Buy down your rate by paying points up-front.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-sm font-semibold">Estimated Cash to Close</span>
-                    <span className="text-base font-bold text-primary">{fmt(calc.cashToClose)}</span>
-                  </div>
-                </CardContent>
-              </Card>
-
               {/* Mortgage Section */}
               <Card>
                 <CardHeader className="pb-2">
@@ -5057,6 +4951,112 @@ export default function Estimate() {
                     <span className="text-base font-bold text-primary">{fmt(calc.totalHousing)}</span>
                   </div>
 
+                </CardContent>
+              </Card>
+
+              {/* Real Estate Section */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2 text-primary">
+                    <Home className="h-4 w-4" />
+                    Real Estate
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Row label="Purchase Price" value={fmt(inputs.purchasePrice)} />
+                  <Separator />
+                  {/* Down Payment — interactive Percentage / Dollar Amount
+                      toggle + slider, matching the Seller Concessions
+                      control style further down this card. Writes the
+                      same canonical inputs the rest of the page (and
+                      Page 3 / Loan Details) reads from, so every
+                      dependent calc (loan amount, P&I, PMI/MIP, cash
+                      to close, DTI, qualification) updates live. */}
+                  <div className="py-2">
+                    {renderDownPayment()}
+                  </div>
+                  <Separator />
+                  <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={
+                    inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}`
+                    : inputs.loanType === "va" && calc.vaFundingFeeAmt > 0 ? `includes ${inputs.vaLoanUse === "second" ? "3.30" : "2.15"}% funding fee (${fmt(calc.vaFundingFeeAmt)}) · LTV ${fmtPct(calc.ltv)}`
+                    : `LTV ${fmtPct(calc.ltv)}`
+                  } />
+                  <Separator />
+                  <Row
+                    label={inputs.loanType === "dscr" ? "Estimated Closing Costs (~4%)" : "Estimated Closing Costs (~3%)"}
+                    value={fmt(calc.closingCosts)}
+                    sub={inputs.loanType === "dscr" ? `Includes DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})` : undefined}
+                  />
+                  {/* Seller Concessions — same control as Page 3,
+                      writes the same `inputs.sellerConcessions` field
+                      so the two pages stay synced automatically. Cash
+                      to close updates live via `calc` memo. */}
+                  <div className="py-2">
+                    {renderSellerConcessions()}
+                  </div>
+                  <Separator />
+                  {/* Discount Points — buydown control. Sits directly
+                      under Seller Concessions per spec. Cost is added
+                      to closing costs (and therefore cash-to-close)
+                      and the rate reduction is applied AFTER all
+                      existing pricing adjustments. Bank Statement
+                      shows the cost line only (no rate reduction
+                      until a buydown table is added). */}
+                  <div className="py-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between flex-wrap gap-1">
+                        <span className="text-xs text-muted-foreground">Discount Points (% of Loan Amount)</span>
+                        <Select
+                          value={String(calc.discountPointsPct)}
+                          onValueChange={(v) => {
+                            const next = snapDiscountPoints(parseFloat(v));
+                            setInputs((p) => ({ ...p, discountPointsPct: next }));
+                          }}
+                        >
+                          <SelectTrigger
+                            className="h-7 w-[110px] text-xs"
+                            data-testid="select-discount-points"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DISCOUNT_POINTS_STEPS.map((step) => (
+                              <SelectItem key={step} value={String(step)}>
+                                {step.toFixed(1)}%
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {calc.discountPointsPct > 0 ? (
+                        // Per spec: surface the dollar cost only.
+                        // The rate-buydown amount is intentionally
+                        // hidden from the user-facing UI — the
+                        // calculation still runs and feeds the
+                        // Mortgage card's Interest Rate row. Bank
+                        // Statement has no published buydown yet, so
+                        // we keep the cost-only note for clarity.
+                        <p className="text-[10px] text-right text-muted-foreground">
+                          {calc.discountPointsPct.toFixed(1)}% of loan ·{" "}
+                          <span className="font-medium text-foreground">{fmt(calc.discountPointsCost)}</span>
+                          {inputs.loanType === "bank_statement" && (
+                            <span className="ml-1 text-amber-600">
+                              (Bank Statement buydown table not yet published — cost applied, rate unchanged.)
+                            </span>
+                          )}
+                        </p>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground text-right">
+                          Based on loan amount. Buy down your rate by paying points up-front.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between items-center py-2">
+                    <span className="text-sm font-semibold">Estimated Cash to Close</span>
+                    <span className="text-base font-bold text-primary">{fmt(calc.cashToClose)}</span>
+                  </div>
                 </CardContent>
               </Card>
 
