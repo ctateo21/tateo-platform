@@ -1342,7 +1342,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const body = z.object({
         address: z.string().min(1),
         service: z.enum(["purchase_with_loan", "purchase_with_cash"]),
-        contactMethod: z.enum(["text", "call"]).optional(),
+        eventType: z.enum([
+          "showing_request_started",
+          "showing_request_text_selected",
+          "showing_request_call_selected",
+        ]).optional(),
+        contactMethod: z.enum(["text", "call"]).nullish(),
         qualificationStatus: z.string().optional(),
         estimatedPrice: z.number().optional(),
         normalizedPropertyKey: z.string().optional(),
@@ -1357,14 +1362,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const serviceLabel = body.service === "purchase_with_loan" ? "Purchase with Loan" : "Purchase with Cash";
       const contactLabel = body.contactMethod === "text" ? "Text" : body.contactMethod === "call" ? "Call" : "";
-      console.log(`[showing-request] ${serviceLabel} → ${body.address} (user: ${body.email || "anonymous"}, contact: ${body.contactMethod || "n/a"})`);
+      // Headline + lead-in line vary by which step of the flow fired this.
+      const eventType = body.eventType ?? "showing_request_started";
+      const eventTitle =
+        eventType === "showing_request_text_selected"
+          ? "User selected Text for showing request."
+          : eventType === "showing_request_call_selected"
+          ? "User selected Call for showing request."
+          : "Showing request started from Havo.";
+      console.log(`[showing-request] ${serviceLabel} → ${body.address} (event: ${eventType}, user: ${body.email || "anonymous"}, contact: ${body.contactMethod || "n/a"})`);
       console.log("[showing-request-schema] sql needed no");
 
       const priceLine = typeof body.estimatedPrice === "number" && body.estimatedPrice > 0
         ? `Estimated Price: $${Math.round(body.estimatedPrice).toLocaleString()}`
         : "";
       const noteBody = [
-        "Showing requested from Havo.",
+        eventTitle,
         "",
         `Property: ${body.address}`,
         contactLabel ? `Preferred contact action: ${contactLabel}` : "",
@@ -1373,6 +1386,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         priceLine,
         `User: ${body.email || body.phone || "logged-out visitor"}`,
         body.pageUrl ? `Page: ${body.pageUrl}` : "",
+        eventType === "showing_request_started"
+          ? "The user clicked Schedule your showing now. Follow up even if no call/text was completed."
+          : "",
       ].filter(Boolean).join("\n");
 
       // 1) Follow Up Boss — only when we have an email to match/create a contact.

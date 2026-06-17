@@ -1,0 +1,499 @@
+Copy/paste this into Replit:
+
+````text id="schedule-showing-immediate-fub-notification-plus-call-text-popup"
+Update the “Schedule your showing now” button behavior so it immediately notifies Follow Up Boss when clicked, then shows the user a popup to choose Call or Text.
+
+Current desired behavior:
+When someone clicks “Schedule your showing now,” two things should happen:
+
+1. A popup/modal/bottom sheet opens and lets the user choose:
+   - Call
+   - Text
+
+2. Immediately when they click “Schedule your showing now,” before they choose Call or Text, send a Follow Up Boss notification with:
+   - the property address they are currently viewing
+   - the user’s name, if available
+   - the user’s email, if available
+   - the user’s phone, if available
+   - the service tab they were on
+   - the current page URL
+   - timestamp
+
+Reason:
+Even if the user clicks “Schedule your showing now” but does not actually call or text, FUB should still receive the request so the agent can follow up later.
+
+Scope:
+Apply this to every place the “Schedule your showing now” CTA exists:
+- Purchase with Loan, only when result = Likely Qualifies
+- Purchase with Cash, always under the home photos
+- any shared Schedule Showing component
+
+PART 1 — Main button behavior
+
+Button text remains:
+
+“Schedule your showing now”
+
+When clicked:
+1. Immediately send a FUB notification/event:
+   - event type: `showing_request_started`
+   - property address
+   - user name/email/phone if available
+   - service tab
+   - current page URL
+   - normalized_property_key if available
+   - qualification status if Purchase with Loan
+   - estimated price if available
+2. Then open the popup/modal/bottom sheet with Call/Text options.
+
+Important:
+The FUB notification should happen on the initial Schedule button click, not only after the user clicks Call or Text.
+
+If FUB notification fails:
+- still open the Call/Text popup
+- do not block the user
+- log the error
+
+PART 2 — Popup/modal behavior
+
+After the initial button click, show a popup/bottom sheet.
+
+Title:
+“Schedule your showing”
+
+Body:
+“Would you like to call or text us about this property?”
+
+Buttons:
+- “Text us”
+- “Call us”
+
+Optional close:
+- “Cancel”
+
+Mobile:
+- bottom sheet preferred
+- full-width buttons
+- easy to tap
+- no horizontal overflow
+
+Desktop:
+- modal/popover is fine
+
+PART 3 — Text action
+
+When user clicks “Text us”:
+Use SMS link:
+
+`sms:8132148356`
+
+Pre-filled message if supported:
+
+“I’d like to schedule a showing for [PROPERTY ADDRESS].”
+
+Use URL encoding.
+
+Create/reuse helper:
+
+`buildSmsLink(phoneNumber, message)`
+
+Use phone number:
+`8132148356`
+
+Also send or update FUB event:
+- event type: `showing_request_text_selected`
+- contact method: `text`
+- property address
+- user name/email/phone if available
+
+Important:
+The SMS app should still open even if the second FUB notification fails.
+
+PART 4 — Call action
+
+When user clicks “Call us”:
+Use tel link:
+
+`tel:8132148356`
+
+Also send or update FUB event:
+- event type: `showing_request_call_selected`
+- contact method: `call`
+- property address
+- user name/email/phone if available
+
+Important:
+The phone dialer should still open even if the second FUB notification fails.
+
+PART 5 — Follow Up Boss notification details
+
+Use existing FUB integration if present.
+
+Search for existing FUB code:
+- account_created
+- account_signed_in
+- fub
+- Follow Up Boss
+- lead event
+- contact note
+- notification email
+- showing request
+
+Preferred:
+Use or create a server-side helper:
+
+`notifyFubShowingRequest({
+  eventType,
+  contactMethod,
+  address,
+  service,
+  user,
+  qualificationStatus,
+  estimatedPrice,
+  normalizedPropertyKey,
+  pageUrl
+})`
+
+Do not call Follow Up Boss directly from the frontend if it requires a private API key.
+
+Use a backend endpoint if needed:
+
+`POST /api/fub/showing-request`
+
+Initial Schedule button payload:
+```json
+{
+  "eventType": "showing_request_started",
+  "contactMethod": null,
+  "address": "123 Main St, Tampa, FL",
+  "service": "purchase_with_cash",
+  "pageUrl": "https://havofl.com/...",
+  "normalizedPropertyKey": "..."
+}
+````
+
+Text button payload:
+
+```json
+{
+  "eventType": "showing_request_text_selected",
+  "contactMethod": "text",
+  "address": "123 Main St, Tampa, FL",
+  "service": "purchase_with_cash",
+  "pageUrl": "https://havofl.com/..."
+}
+```
+
+Call button payload:
+
+```json
+{
+  "eventType": "showing_request_call_selected",
+  "contactMethod": "call",
+  "address": "123 Main St, Tampa, FL",
+  "service": "purchase_with_cash",
+  "pageUrl": "https://havofl.com/..."
+}
+```
+
+Suggested FUB note for initial click:
+
+“Showing request started from Havo.
+
+Property: [ADDRESS]
+User: [NAME]
+Email: [EMAIL]
+Phone: [PHONE]
+Service: [Purchase with Loan / Purchase with Cash]
+Qualification Status: [Likely Qualifies, if applicable]
+Page: [URL]
+
+The user clicked Schedule your showing now. Follow up even if no call/text was completed.”
+
+Suggested FUB note for Text selected:
+
+“User selected Text for showing request.
+
+Property: [ADDRESS]
+Text number: 813-214-8356”
+
+Suggested FUB note for Call selected:
+
+“User selected Call for showing request.
+
+Property: [ADDRESS]
+Call number: 813-214-8356”
+
+PART 6 — User data to include
+
+If logged in:
+Include:
+
+* user id
+* name, if profile has it
+* email
+* phone
+* first name / last name if available
+
+If logged out:
+Include whatever is available:
+
+* guest email if already collected
+* guest phone if already collected
+* property address
+* page URL
+* service tab
+
+Do not require account creation just to schedule a showing.
+The Schedule Showing button should work for logged-in and logged-out users.
+
+If name is missing:
+
+* send email and phone if available
+* do not block the request
+
+PART 7 — Avoid duplicate spam
+
+Because the initial click sends a FUB notification immediately, prevent accidental duplicate spam from repeated clicks.
+
+Minimum:
+
+* disable the main button while the popup is opening / FUB request is in flight
+* or debounce duplicate initial notifications for the same address/user/session for 30–60 seconds
+
+Do not prevent the popup from opening.
+
+Suggested:
+Track a local state key:
+`showingRequestStartedSent`
+
+or use a debounce helper.
+
+PART 8 — Supabase / SQL requirement
+
+Inspect existing Supabase schema first.
+
+This feature may not require SQL if FUB notification alone is enough.
+
+Check whether there is an existing table for:
+
+* showing_requests
+* lead_events
+* user_events
+* fub_events
+* activity_log
+
+If a suitable table exists:
+
+* reuse it
+* add missing fields only if needed:
+
+  * event_type
+  * contact_method
+  * full_address
+  * user_id
+  * email
+  * phone
+  * name
+  * service
+  * page_url
+  * fub_status
+  * created_at
+
+If no table exists:
+
+* minimum implementation can be FUB-only with no SQL
+* but report that no SQL was needed because the request is sent directly to FUB
+
+If Replit recommends storing requests for audit/history, provide one complete SQL migration before coding.
+
+Suggested SQL only if needed:
+
+```sql
+create table if not exists public.showing_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete set null,
+  name text,
+  email text,
+  phone text,
+  full_address text not null,
+  normalized_property_key text,
+  service text not null,
+  event_type text not null,
+  contact_method text,
+  qualification_status text,
+  estimated_price numeric,
+  page_url text,
+  fub_status text,
+  fub_response jsonb default '{}'::jsonb,
+  created_at timestamptz default now()
+);
+
+alter table public.showing_requests enable row level security;
+
+create policy if not exists "Users can view own showing requests"
+on public.showing_requests
+for select
+using (auth.uid() = user_id);
+
+-- If anonymous requests are inserted, do this through a secure server endpoint using service role.
+-- Do not weaken RLS for public anonymous writes unless intentionally reviewed.
+```
+
+Important:
+
+* Do not add SQL unless needed.
+* Do not weaken RLS.
+* Do not expose FUB API keys.
+* Confirm whether SQL was needed.
+
+PART 9 — UI placement
+
+Purchase with Loan:
+
+* Show the button only when qualification result is “Likely Qualifies”
+* Place it between the Likely Qualifies box and the Mortgage box
+
+Purchase with Cash:
+
+* Always show the button under the home photos
+
+Button:
+
+* same styling in both places
+* full-width on mobile
+* prominent CTA
+
+PART 10 — Do not break
+
+Do not break:
+
+* Purchase with Loan qualification logic
+* Needs Review behavior
+* Mortgage card / Real Estate card order
+* Purchase with Cash photo gallery
+* SMS link
+* tel link
+* FUB account-created/sign-in notifications
+* free account mode
+* save/share/download auth gating
+* mobile layout
+* Supabase save/load
+
+PART 11 — Debug logs
+
+Add temporary logs:
+
+Main button:
+
+* `[showing-cta] schedule clicked`
+* `[showing-cta] immediate FUB notification start`
+* `[showing-cta] immediate FUB notification success`
+* `[showing-cta] immediate FUB notification error`
+* `[showing-cta] popup opened`
+
+User data:
+
+* `[showing-cta] user name present`
+* `[showing-cta] user email present`
+* `[showing-cta] user phone present`
+* `[showing-cta] address`
+
+Text/call:
+
+* `[showing-cta] text selected`
+* `[showing-cta] call selected`
+* `[showing-cta] sms link built`
+* `[showing-cta] tel link built`
+
+FUB:
+
+* `[fub-showing] event type`
+* `[fub-showing] contact method`
+* `[fub-showing] note/event created`
+* `[fub-showing] error`
+
+Schema:
+
+* `[showing-request-schema] sql needed yes/no`
+
+Do not log:
+
+* private API keys
+* tokens
+
+PART 12 — Acceptance tests
+
+Test A — Initial click sends FUB before call/text
+
+1. Open Purchase with Cash detailed view.
+2. Click “Schedule your showing now.”
+3. Confirm popup opens with Call and Text.
+4. Do not click Call or Text.
+5. Confirm FUB still receives a notification with:
+
+   * property address
+   * user name if available
+   * email if available
+   * phone if available
+   * service tab
+6. Confirm the note says the user clicked Schedule your showing now.
+
+Test B — Text choice
+
+1. Click “Schedule your showing now.”
+2. Click “Text us.”
+3. Confirm SMS opens to 813-214-8356.
+4. Confirm message includes property address if supported.
+5. Confirm FUB receives contact method = text.
+
+Test C — Call choice
+
+1. Click “Schedule your showing now.”
+2. Click “Call us.”
+3. Confirm phone dialer opens to 813-214-8356.
+4. Confirm FUB receives contact method = call.
+
+Test D — Purchase with Loan
+
+1. Run Purchase with Loan and get “Likely Qualifies.”
+2. Confirm button appears between Likely Qualifies and Mortgage.
+3. Click button.
+4. Confirm FUB receives the immediate showing request.
+5. Confirm popup opens.
+6. Confirm Call/Text both work.
+
+Test E — Needs Review
+
+1. Run Purchase with Loan and get “Needs Review.”
+2. Confirm Schedule button does not show.
+
+Test F — Duplicate prevention
+
+1. Click Schedule multiple times quickly.
+2. Confirm FUB does not receive excessive duplicate initial-click events for the same address/session.
+
+Test G — Logged out
+
+1. Log out.
+2. Run a guest estimate.
+3. Click Schedule.
+4. Confirm popup opens.
+5. Confirm FUB receives property address even if no user info exists.
+6. Confirm no account creation is required.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* Which SQL migration was added, if any
+* Which shared Schedule Showing component was updated
+* When the immediate FUB notification fires
+* What user data is sent to FUB
+* How the popup opens
+* How Text works
+* How Call works
+* How duplicate click notifications are prevented
+* Which files/functions were changed
+
+```
+```
