@@ -27,3 +27,14 @@ This app talks to TWO Postgres databases:
 
 **How to apply:** any new persisted field on a Supabase table → schema.sql +
 migration + optional-columns list, all three, every time.
+
+**Migration-free alternative (preferred for small scalar/UI fields):** stash the
+value inside the existing `user_answer_sources` jsonb column instead of a new
+column. It already round-trips end-to-end (rowToInsurance/insuranceToRow and is
+in `INSURANCE_OPTIONAL_COLUMNS`), so NO schema.sql/migration is needed.
+**Why:** avoids forcing the user to run SQL for every new field.
+Examples already living there: `factor_*` insurance picks, and the insurance
+detail view's `aop_deductible`, `carrier`, `flood_zone`/`flood_zone_source`
+(flood zone resolved from `GET /api/flood-zone`, FEMA NFHL). Reuse the existing
+dedicated `*_source` columns (e.g. `aop_deductible_source`, `carrier_source`)
+for manual-lock provenance when they already exist.

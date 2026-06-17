@@ -1,0 +1,253 @@
+Good. The delete issue is fixed, but Replit also confirmed the remaining problem:
+
+AOP, Flood Zone, and Carrier are still — because the app is not calculating/saving them yet.
+
+That means the next prompt should focus only on making those fields exist in the Insurance detail view, save them, and then populate the overview.
+
+Copy/paste this into Replit:
+
+Finish the Insurance overview fields by calculating/saving AOP, Flood Zone, and Carrier so the overview card no longer shows dashes.
+Current status:
+The prior task fixed Insurance delete behavior and confirmed:
+- Delete works using dismissed Insurance cards
+- Rebuild now populates from Coverage A
+- Hurricane now populates from the saved hurricane factor
+- AOP still shows —
+- Flood Zone still shows —
+- Carrier still shows —
+Reason:
+AOP, Flood Zone, and Carrier are not currently calculated or stored anywhere in the Insurance detail view, so the overview has nothing to display.
+Goal:
+Make Insurance detail view calculate/show/save:
+1. AOP deductible
+2. Flood Zone
+3. Carrier
+Then make the Insurance overview card show those saved values.
+Scope:
+Dashboard → Insurance
+- Insurance detailed view
+- Insurance overview card
+- Supabase save/load mapper
+- detail-to-overview sync
+- Zillow/property cache/flood-zone lookup if available
+PART 1 — AOP deductible
+Add or confirm AOP deductible in Insurance detail view.
+Default:
+AOP deductible should default to:
+$2,500
+If the app already uses a different internal default for AOP, show me where and why.
+Display:
+In Insurance detail view, show:
+AOP Deductible: $2,500
+In Insurance overview card, show:
+AOP $2,500
+If editable:
+- allow user to change it
+- autosave the change
+- mark source = manual
+- overview should update immediately
+If not editable yet:
+- at minimum, save/display default $2,500
+PART 2 — Flood Zone
+Use the same flood-zone data source already used elsewhere in the app.
+Check existing logic from:
+- Purchase with Loan flood-zone detection
+- Purchase with Cash flood-zone detection if implemented
+- property cache/Zillow scraper
+- FEMA/flood helper if one exists
+For each Insurance scenario, resolve flood zone for the property address.
+Priority:
+1. existing saved insurance_scenarios.flood_zone
+2. property cache / Zillow / flood lookup for same normalized_property_key
+3. Purchase with Loan flood-zone result for same property
+4. Purchase with Cash flood-zone result for same property
+5. blank/unknown
+Display:
+In Insurance detail view, show:
+Flood Zone: X / AE / VE / etc.
+In Insurance overview card, show:
+Flood X
+or
+Flood AE
+or
+Flood —
+If flood zone is unknown:
+- show Flood —
+- do not show fake data
+Persistence:
+Save flood zone to insurance_scenarios so it survives refresh/logout/login.
+PART 3 — Carrier
+Carrier should show the selected/estimated carrier.
+For now, if no quote carrier is selected, use a default placeholder carrier so the overview is not blank.
+Default carrier:
+TBD
+or if you prefer a better label:
+Carrier TBD
+Do not invent a real carrier quote unless one exists.
+If there is already carrier selection in Insurance detail view:
+- use that selected carrier
+- autosave it
+- overview should display it
+If no carrier selection exists yet:
+- add a basic carrier field/dropdown or default display
+Suggested default:
+carrier = "TBD"
+Display:
+Detail view:
+Carrier: TBD
+Overview:
+Carrier TBD
+If user changes carrier:
+- save to insurance_scenarios.carrier
+- set carrier_source = manual
+- overview updates immediately
+PART 4 — Supabase / SQL requirement
+Inspect existing Supabase schema first.
+Check table:
+insurance_scenarios
+Look for fields:
+- aop_deductible
+- aop_deductible_source
+- flood_zone
+- flood_zone_source
+- carrier
+- carrier_source
+- user_answer_sources
+- updated_at
+If all fields already exist:
+- do not add SQL
+- fix code/mappers only
+- confirm no SQL was needed
+If fields are missing:
+- provide one complete SQL migration before coding
+- use add column if not exists
+- do not duplicate columns
+- do not weaken RLS
+Suggested SQL only if needed:
+```sql
+alter table public.insurance_scenarios
+  add column if not exists aop_deductible text,
+  add column if not exists aop_deductible_source text,
+  add column if not exists flood_zone text,
+  add column if not exists flood_zone_source text,
+  add column if not exists carrier text,
+  add column if not exists carrier_source text,
+  add column if not exists user_answer_sources jsonb default '{}'::jsonb,
+  add column if not exists updated_at timestamptz default now();
+
+Report clearly:
+
+* SQL needed: yes/no
+* which columns already existed
+* which columns were added, if any
+
+PART 5 — Mapper/save/load requirements
+
+Update Insurance scenario mappers both ways.
+
+Frontend → Supabase must save:
+
+* aop_deductible
+* aop_deductible_source
+* flood_zone
+* flood_zone_source
+* carrier
+* carrier_source
+
+Supabase → Frontend must load:
+
+* aop_deductible
+* flood_zone
+* carrier
+
+Overview card must render from the same loaded Insurance scenario object.
+
+PART 6 — Detail/overview sync
+
+If user changes AOP, Flood Zone, or Carrier in detail view:
+
+* autosave
+* update local Insurance scenario list/cache
+* overview card updates without refresh
+* refresh/logout/login still shows saved values
+
+PART 7 — Formatting
+
+Overview card should show compact line:
+
+Rebuild $XXX,XXX · AOP $2,500 · Hurricane 2% · Flood X · Carrier TBD
+
+or if the existing design uses labels:
+Rebuild: $XXX,XXX
+AOP: $2,500
+Hurricane: 2%
+Flood: X
+Carrier: TBD
+
+Keep mobile layout clean.
+
+PART 8 — Do not break
+
+Do not break:
+
+* Insurance delete behavior
+* dismissed Insurance cards
+* Rebuild display
+* Hurricane display
+* Annual premium
+* Monthly premium
+* Policy Type
+* HO6 half rebuild/premium logic
+* Zillow condo/townhome → HO6 logic
+* manual overrides
+* Purchase/Cash/Refi backfill
+* mobile layout
+
+PART 9 — Debug logs
+
+Add temporary logs:
+
+* [insurance-overview] aop_deductible
+* [insurance-overview] flood_zone
+* [insurance-overview] carrier
+* [insurance-detail-save] aop_deductible
+* [insurance-detail-save] flood_zone
+* [insurance-detail-save] carrier
+* [insurance-flood-zone] source
+* [insurance-schema] sql needed yes/no
+
+PART 10 — Acceptance tests
+
+1. Open Dashboard → Insurance.
+2. Open Insurance detail for a property.
+3. Confirm AOP Deductible shows $2,500 or the saved value.
+4. Confirm Flood Zone shows the resolved flood zone if available.
+5. Confirm Carrier shows TBD or selected carrier.
+6. Return to Insurance overview.
+7. Confirm the overview card shows:
+    * Rebuild
+    * AOP
+    * Hurricane
+    * Flood
+    * Carrier
+8. Refresh.
+9. Confirm values remain.
+10. Log out/log back in.
+11. Confirm values remain.
+12. Edit Carrier or AOP if editable.
+13. Confirm overview updates.
+14. Confirm Insurance delete still works and the card does not come back.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* Which AOP field is used
+* Which Flood Zone field/source is used
+* Which Carrier field is used
+* Whether these values are saved in insurance_scenarios
+* Which mapper fields were added
+* Which overview component was changed
+* Which detail component was changed
+* Which files/functions were changed
+
+The key instruction is: **don’t keep trying to show these fields from the overview until they are first saved or calculated in the Insurance scenario.**

@@ -226,6 +226,15 @@ function shortLabel(addr: string) {
   return parts.slice(0, 3).join(" ");
 }
 
+// All-Other-Perils (AOP) deductible — the standard Florida HO deductible
+// for non-hurricane claims. Default $2,500 (matches typical FL carrier
+// minimums). Carrier defaults to a "TBD" placeholder until a real quote
+// carrier is selected. Both values + the FEMA-resolved flood zone are
+// persisted inside the `insurance_scenarios.user_answer_sources` jsonb
+// column (no new DB column needed).
+const DEFAULT_AOP_DEDUCTIBLE = 2500;
+const DEFAULT_CARRIER = "TBD";
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SliderRow({ label, value, onChange, min, max, step }: {
@@ -529,6 +538,32 @@ export default function InsuranceDashboard() {
   const [yearIdx, setYearIdx]     = useState(initialFactors.year);
   const [claimsIdx, setClaimsIdx] = useState(initialFactors.claims);
 
+  // AOP deductible + carrier — same persistence pattern as the factor
+  // dropdowns (stored in `user_answer_sources`). Resolve a saved value
+  // for this address, else fall back to the standard defaults.
+  function resolveExtrasFor(addr: string): { aop: number; carrier: string } {
+    const key = (addr ?? "").trim().toLowerCase();
+    const ins = key
+      ? getInsuranceScenarios().find(s => (s.address ?? "").trim().toLowerCase() === key)
+      : undefined;
+    const ua = ins?.userAnswerSources;
+    const aopRaw = ua?.aop_deductible;
+    const carrierRaw = ua?.carrier;
+    return {
+      aop: typeof aopRaw === "number" && Number.isFinite(aopRaw) && aopRaw > 0
+        ? aopRaw : DEFAULT_AOP_DEDUCTIBLE,
+      carrier: typeof carrierRaw === "string" && carrierRaw.trim()
+        ? carrierRaw.trim() : DEFAULT_CARRIER,
+    };
+  }
+  const initialExtras = resolveExtrasFor(addressParam);
+  const [aopDeductible, setAopDeductible] = useState<number>(initialExtras.aop);
+  const [carrier, setCarrier]             = useState<string>(initialExtras.carrier);
+  // Flood zone resolved from FEMA (or a previously-saved value). Empty
+  // string = unknown / still resolving (the UI shows "—").
+  const [floodZone, setFloodZone]             = useState<string>("");
+  const [floodZoneSource, setFloodZoneSource] = useState<string>("");
+
   // Re-hydrate factors when the active address changes (mirrors the
   // manual-premium / policy-type rehydration pattern above) so
   // switching between scenario tabs restores each property's saved
@@ -537,8 +572,10 @@ export default function InsuranceDashboard() {
     const f = resolveFactorsFor(addressParam);
     setRoofIdx(f.roof);    setWindIdx(f.wind);    setHurrIdx(f.hurr);
     setConstIdx(f.cons);   setYearIdx(f.year);    setClaimsIdx(f.claims);
+    const ex = resolveExtrasFor(addressParam);
+    setAopDeductible(ex.aop); setCarrier(ex.carrier);
     console.debug("[insurance-user-load] loaded user fields", {
-      address: addressParam, factors: f,
+      address: addressParam, factors: f, aop: ex.aop, carrier: ex.carrier,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressParam]);
@@ -548,6 +585,13 @@ export default function InsuranceDashboard() {
     if (addressParam) setRegionKey(getRegionFromAddress(addressParam));
   }, [addressParam]);
 
+  // One-time note: AOP deductible, carrier, and flood zone reuse the
+  // existing `user_answer_sources` jsonb column — no schema migration
+  // was required to add them.
+  useEffect(() => {
+    console.log("[insurance-schema] sql needed", "no — aop_deductible / carrier / flood_zone stored in user_answer_sources jsonb");
+  }, []);
+
   // ── Address editing ──────────────────────────────────────────────────────
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [editAddressVal, setEditAddressVal] = useState(addressParam);
@@ -555,6 +599,41 @@ export default function InsuranceDashboard() {
   const addressAcRef = useRef<any>(null);
 
   const address = scenarios.find(s => s.id === activeScenarioId)?.address || addressParam;
+
+  // ── Flood-zone resolution ─────────────────────────────────────────────────
+  // Resolve the FEMA flood zone for the active address. Priority:
+  //   1. a value already saved on this insurance scenario
+  //   2. the shared `/api/flood-zone` FEMA lookup (same source the
+  //      Purchase-with-Loan / Cash-Buy flows use; cached server-side 24h)
+  //   3. unknown → "" (the UI renders "—", never fake data)
+  // The resolved zone is then persisted by the autosave effect below.
+  useEffect(() => {
+    const addr = (address ?? "").trim();
+    if (!addr) { setFloodZone(""); setFloodZoneSource(""); return; }
+    const saved = getInsuranceScenarios().find(
+      s => (s.address ?? "").trim().toLowerCase() === addr.toLowerCase(),
+    );
+    const savedZone = saved?.userAnswerSources?.flood_zone;
+    if (typeof savedZone === "string" && savedZone.trim()) {
+      setFloodZone(savedZone.trim());
+      setFloodZoneSource(String(saved?.userAnswerSources?.flood_zone_source ?? "saved"));
+      console.log("[insurance-flood-zone] source", "saved", savedZone);
+      return;
+    }
+    let cancelled = false;
+    setFloodZone(""); setFloodZoneSource("");
+    fetch(`/api/flood-zone?address=${encodeURIComponent(addr)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (cancelled || !d?.zone) return;
+        setFloodZone(String(d.zone));
+        setFloodZoneSource("fema");
+        console.log("[insurance-flood-zone] source", "fema", d.zone);
+      })
+      .catch(() => { /* unknown — leave blank */ });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address]);
 
   useEffect(() => {
     if (!isEditingAddress) return;
@@ -932,6 +1011,17 @@ export default function InsuranceDashboard() {
         factorsChangedFromDefault || match?.discountsSource === "manual"
           ? "manual" as const
           : match?.discountsSource;
+      // AOP deductible / carrier: stamp "manual" once edited away from the
+      // default, preserving any prior manual lock on the existing row.
+      const carrierNow = carrier.trim() || DEFAULT_CARRIER;
+      const aopSourceNow =
+        aopDeductible !== DEFAULT_AOP_DEDUCTIBLE || match?.aopDeductibleSource === "manual"
+          ? "manual" as const
+          : match?.aopDeductibleSource;
+      const carrierSourceNow =
+        carrierNow !== DEFAULT_CARRIER || match?.carrierSource === "manual"
+          ? "manual" as const
+          : match?.carrierSource;
       const updated: InsuranceScenario = {
         id: match?.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         address: addr,
@@ -964,8 +1054,11 @@ export default function InsuranceDashboard() {
         // deductibles / quote details).
         ...(match?.occupancyTypeSource ? { occupancyTypeSource: match.occupancyTypeSource } : {}),
         ...(match?.propertyTypeSource ? { propertyTypeSource: match.propertyTypeSource } : {}),
-        ...(match?.carrierSource ? { carrierSource: match.carrierSource } : {}),
-        ...(match?.aopDeductibleSource ? { aopDeductibleSource: match.aopDeductibleSource } : {}),
+        // Carrier / AOP source: stamp "manual" once the user changes the
+        // value away from the default, and keep a prior manual stamp so a
+        // reset back to the default doesn't silently unlock it.
+        ...(carrierSourceNow ? { carrierSource: carrierSourceNow } : {}),
+        ...(aopSourceNow ? { aopDeductibleSource: aopSourceNow } : {}),
         ...(match?.hurricaneDeductibleSource ? { hurricaneDeductibleSource: match.hurricaneDeductibleSource } : {}),
         ...(match?.floodDeductibleSource ? { floodDeductibleSource: match.floodDeductibleSource } : {}),
         ...(match?.quoteDetailsSource ? { quoteDetailsSource: match.quoteDetailsSource } : {}),
@@ -973,7 +1066,9 @@ export default function InsuranceDashboard() {
         // Persist the six factor picks inside the jsonb scratch map.
         // Keys are namespaced with `factor_` so they don't collide
         // with any future source-tag entries the cash-buy / seller
-        // pattern might add to the same column.
+        // pattern might add to the same column. AOP deductible, carrier,
+        // and the FEMA flood zone live here too (no dedicated value
+        // column needed).
         userAnswerSources: {
           ...(match?.userAnswerSources ?? {}),
           factor_roofIdx: roofIdx,
@@ -983,6 +1078,13 @@ export default function InsuranceDashboard() {
           factor_yearIdx: yearIdx,
           factor_claimsIdx: claimsIdx,
           ...(factorsChangedFromDefault ? { factor_source: "manual" } : {}),
+          aop_deductible: aopDeductible,
+          carrier: carrierNow,
+          // Only write a flood zone once one is actually resolved so the
+          // empty mid-lookup state never wipes a previously-saved value.
+          ...(floodZone
+            ? { flood_zone: floodZone, flood_zone_source: floodZoneSource || "fema" }
+            : {}),
         },
       };
       console.debug("[insurance-user-save] scenario id", updated.id);
@@ -996,6 +1098,9 @@ export default function InsuranceDashboard() {
         coverageA: updated.coverageASource, policy: updated.policyTypeSource,
         premium: updated.premiumSource, discounts: updated.discountsSource,
       });
+      console.log("[insurance-detail-save] aop_deductible", aopDeductible, aopSourceNow ?? "default");
+      console.log("[insurance-detail-save] flood_zone", floodZone || "—", floodZoneSource || "unknown");
+      console.log("[insurance-detail-save] carrier", carrierNow, carrierSourceNow ?? "default");
       const next = match
         ? existing.map(s => (s.id === match.id ? updated : s))
         : [...existing, updated];
@@ -1008,6 +1113,7 @@ export default function InsuranceDashboard() {
   }, [
     isAuthenticated, address, rebuild, policyType, policyTypeSource,
     manualAnnualPremium, roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx,
+    aopDeductible, carrier, floodZone, floodZoneSource,
   ]);
 
   // ── Calculations ─────────────────────────────────────────────────────────
@@ -1262,6 +1368,9 @@ export default function InsuranceDashboard() {
                           { label: "Annual premium", value: fmt(annualPremium) },
                           { label: "Monthly premium", value: fmt(calc.monthly) },
                           { label: `Hurricane deductible (${calc.hurrPct.toFixed(0)}%)`, value: fmt(calc.hurrDeductible) },
+                          { label: "AOP deductible", value: fmt(aopDeductible) },
+                          { label: "Flood zone", value: floodZone || "—" },
+                          { label: "Carrier", value: carrier.trim() || DEFAULT_CARRIER },
                         ],
                       },
                       {
@@ -1480,6 +1589,44 @@ export default function InsuranceDashboard() {
                     { value: 3, label: "3+ claims" },
                   ]}
                 />
+
+                <SelectRow
+                  label="AOP Deductible (all other perils)"
+                  value={aopDeductible}
+                  onChange={setAopDeductible}
+                  options={[
+                    { value: 1000, label: "$1,000" },
+                    { value: 2500, label: "$2,500 — standard" },
+                    { value: 5000, label: "$5,000" },
+                    { value: 10000, label: "$10,000" },
+                  ]}
+                />
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Carrier</label>
+                  <input
+                    type="text"
+                    value={carrier}
+                    onChange={e => setCarrier(e.target.value)}
+                    placeholder={DEFAULT_CARRIER}
+                    data-testid="input-carrier"
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Flood Zone</label>
+                  <div
+                    data-testid="text-flood-zone"
+                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-muted/40 text-muted-foreground"
+                  >
+                    {floodZone || "—"}
+                    {floodZone && floodZoneSource ? (
+                      <span className="ml-2 text-xs text-muted-foreground/70">({floodZoneSource === "fema" ? "FEMA" : floodZoneSource})</span>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-muted-foreground/70">Auto-detected from the FEMA flood map for this address.</p>
+                </div>
 
               </CardContent>
             </Card>

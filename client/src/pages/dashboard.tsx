@@ -1538,9 +1538,12 @@ function InsuranceRowCard({
   // ── Overview detail line: mirror the values the detail view actually
   // holds. Rebuild = Coverage A; Hurricane = the deductible % the user
   // picked in the detail-view simulator (factor_hurrIdx → 2 / 3 / 5 %,
-  // defaulting to 2% just like the simulator). AOP, Flood Zone, and
-  // Carrier are not computed or stored anywhere in the detail view yet,
-  // so they correctly stay "—" until that data exists.
+  // defaulting to 2% just like the simulator). AOP deductible, Flood
+  // Zone, and Carrier are saved by the detail view inside
+  // `user_answer_sources` (aop_deductible / flood_zone / carrier). When a
+  // scenario exists we fall back to the standard defaults ($2,500 AOP,
+  // "TBD" carrier); Flood Zone shows "—" until FEMA resolution is saved
+  // (never fake data).
   const HURRICANE_PCTS = [2, 3, 5];
   const rebuildDisplay = ins?.coverageA != null && Number.isFinite(ins.coverageA)
     ? formatCurrency(ins.coverageA)
@@ -1549,9 +1552,15 @@ function InsuranceRowCard({
   const hurrIdx = Number.isInteger(hurrIdxRaw) && hurrIdxRaw >= 0 && hurrIdxRaw < HURRICANE_PCTS.length
     ? hurrIdxRaw : 0;
   const hurricaneDisplay = ins ? `${HURRICANE_PCTS[hurrIdx]}%` : "—";
-  const aopDisplay = "—";
-  const floodDisplay = "—";
-  const carrierDisplay = "—";
+  const ua = ins?.userAnswerSources;
+  const aopRaw = Number(ua?.aop_deductible);
+  const aopDisplay = ins
+    ? formatCurrency(Number.isFinite(aopRaw) && aopRaw > 0 ? aopRaw : 2500)
+    : "—";
+  const floodRaw = typeof ua?.flood_zone === "string" ? ua.flood_zone.trim() : "";
+  const floodDisplay = floodRaw || "—";
+  const carrierRaw = typeof ua?.carrier === "string" ? ua.carrier.trim() : "";
+  const carrierDisplay = ins ? (carrierRaw || "TBD") : "—";
   console.debug("[insurance-overview] detail line", {
     key: row.key,
     rebuild: rebuildDisplay,
@@ -1616,9 +1625,10 @@ function InsuranceRowCard({
               <p className="text-xs text-muted-foreground">Status</p>
               <p className="font-semibold">{ins ? "Estimate" : "Not started"}</p>
             </div>
-            {/* Detail-line: Rebuild + Hurricane mirror the detail view's
-                stored values; AOP / Flood / Carrier stay "—" until that
-                data is computed/stored. */}
+            {/* Detail-line: Rebuild, Hurricane, AOP deductible, Flood
+                zone, and Carrier all mirror the detail view's stored
+                values (AOP/Carrier fall back to standard defaults;
+                Flood stays "—" until a FEMA zone is saved). */}
             <div className="col-span-2 sm:col-span-4 text-[10px] text-muted-foreground/80">
               Rebuild {rebuildDisplay} &nbsp;·&nbsp; AOP {aopDisplay} &nbsp;·&nbsp; Hurricane {hurricaneDisplay} &nbsp;·&nbsp; Flood {floodDisplay} &nbsp;·&nbsp; Carrier {carrierDisplay}
             </div>
