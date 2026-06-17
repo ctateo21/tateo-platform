@@ -1,0 +1,407 @@
+Copy/paste this into Replit:
+
+Fix two Insurance tab issues:
+1. Insurance property cards do not delete when the user clicks the trash/delete button.
+2. Insurance overview cards show missing dashes for Rebuild Cost, AOP, Hurricane, Flood Zone, and Carrier. These should show the actual saved/detail-view values.
+Current issue from mobile screenshot:
+On Dashboard → Insurance overview, the card shows:
+Rebuild: —
+AOP: —
+Hurricane: —
+Flood: —
+Carrier: —
+But the detailed Insurance view should already have or calculate these values. The overview card needs to pull those same values.
+Also, when I try to delete an Insurance address/card, it does not go away.
+Scope:
+Dashboard → Insurance tab
+- Insurance overview cards
+- delete/trash button
+- insurance_scenarios save/load/delete
+- detail-to-overview mapping
+- Supabase persistence
+PART 1 — Fix Insurance delete behavior
+Current issue:
+Clicking the delete/trash icon on an Insurance property card does not remove the property from the Insurance overview.
+Expected behavior:
+When the user clicks delete/trash on an Insurance card:
+1. Show confirmation modal/dialog:
+   “Delete this insurance property?”
+   “This will remove this property from your Insurance tab.”
+   Buttons: Cancel / Delete
+2. If user confirms:
+   - delete the matching `insurance_scenarios` row from Supabase
+   - remove the card from local UI state immediately
+   - do not require refresh
+   - do not delete the property from other service tabs unless explicitly designed
+3. After refresh/logout/login, the deleted Insurance property should still be gone.
+Delete matching:
+Use the most reliable identifier:
+1. `insurance_scenarios.id`
+2. fallback: `user_id + normalized_property_key`
+3. fallback: exact `full_address` only if no normalized key exists
+Important:
+Do not accidentally delete:
+- Purchase with Loan scenario
+- Purchase with Cash scenario
+- Refinance scenario
+- Sell Your Home scenario
+- shared property cache
+- Zillow cache
+This delete is only for the Insurance scenario/card.
+If there are duplicate Insurance rows for the same property:
+- delete all duplicate `insurance_scenarios` rows for the same `user_id + normalized_property_key`, or
+- delete the exact row by id and then dedupe/hide the rest
+- report which approach was used
+If RLS blocks delete:
+- log the error clearly
+- fix RLS only if necessary and safely
+PART 2 — Supabase / SQL requirement for delete
+Inspect the existing Supabase schema and RLS policies first.
+Check:
+- `insurance_scenarios` table
+- primary key/id column
+- user_id column
+- normalized_property_key column
+- delete RLS policy
+If delete fails because there is no DELETE policy for users to delete their own rows, provide one complete SQL migration.
+Suggested SQL only if needed:
+```sql
+create policy if not exists "Users can delete own insurance scenarios"
+on public.insurance_scenarios
+for delete
+using (auth.uid() = user_id);
+
+Do not weaken RLS.
+Do not allow users to delete other users’ rows.
+Do not add SQL if delete policy already exists.
+
+Report:
+
+* SQL needed: yes/no
+* if yes, provide full SQL
+* if no, confirm delete issue was frontend/API mapping/state/RLS not schema
+
+PART 3 — Fix overview card missing fields
+
+Current overview issue:
+Insurance overview card shows these as dashes:
+
+* Rebuild
+* AOP
+* Hurricane
+* Flood
+* Carrier
+
+Expected:
+Insurance overview card should show the actual values from the same saved Insurance scenario used by the detailed view.
+
+Required overview fields:
+
+* Rebuild Cost / Coverage A
+* AOP deductible
+* Hurricane deductible
+* Flood Zone
+* Carrier
+
+Use these source fields or existing equivalents:
+
+Rebuild Cost:
+
+* coverage_a
+* rebuild_cost
+* coverageA
+* use the same value shown in detailed view for Coverage A / Rebuild Cost
+
+AOP:
+
+* aop_deductible
+* all_other_perils_deductible
+* use same value shown in detailed view
+
+Hurricane:
+
+* hurricane_deductible
+* wind_deductible
+* use same value shown in detailed view
+
+Flood Zone:
+
+* flood_zone
+* flood_zone_status
+* fema_flood_zone
+* floodZone
+* use same flood-zone value already pulled/calculated for the address
+
+Carrier:
+
+* carrier
+* insurance_carrier
+* selected quote carrier if available
+* use same carrier value shown in detailed view
+
+If a value truly does not exist:
+
+* show —
+    But if the detailed view has the value, overview must also show it.
+
+PART 4 — Detail/overview source of truth
+
+Overview card must use the same Insurance scenario object/data as the detailed view.
+
+Do not use stale local placeholder fields.
+
+Fix mappers if needed:
+
+* Supabase → frontend mapper must include:
+    * coverage_a
+    * aop_deductible
+    * hurricane_deductible
+    * flood_zone
+    * carrier
+* frontend → Supabase mapper must save these fields when changed
+* overview card must render from mapped scenario values
+
+If detail view saves these fields but overview does not show them, the issue is likely:
+
+* missing rowToInsurance mapper field
+* overview component reading wrong property names
+* local card data not refreshed after save
+* overview loading an older list
+* values only exist in nested quote details and are not flattened for overview
+
+PART 5 — Persist overview fields
+
+When user edits Insurance detailed view:
+
+* Rebuild Cost / Coverage A
+* AOP
+* Hurricane
+* Flood Zone if editable/backfilled
+* Carrier
+
+These must autosave to insurance_scenarios.
+
+Then when returning to overview:
+
+* overview should show those saved values
+* no refresh required
+
+After refresh/logout/login:
+
+* overview should still show those values
+
+PART 6 — Supabase / SQL requirement for overview fields
+
+Inspect schema first.
+
+Check whether insurance_scenarios has equivalent fields for:
+
+* coverage_a / rebuild cost
+* aop deductible
+* hurricane deductible
+* flood zone
+* carrier
+* user_answer_sources or source tracking
+* updated_at
+
+If all fields already exist:
+
+* do not add SQL
+* fix code/mappers only
+* confirm no SQL was needed
+
+If missing, provide one complete SQL migration before coding.
+
+Suggested SQL only if needed:
+
+alter table public.insurance_scenarios
+  add column if not exists coverage_a numeric,
+  add column if not exists coverage_a_source text,
+  add column if not exists aop_deductible text,
+  add column if not exists hurricane_deductible text,
+  add column if not exists flood_zone text,
+  add column if not exists flood_zone_source text,
+  add column if not exists carrier text,
+  add column if not exists carrier_source text,
+  add column if not exists user_answer_sources jsonb default '{}'::jsonb,
+  add column if not exists updated_at timestamptz default now();
+
+Do not create duplicate columns if equivalent fields already exist.
+Do not weaken RLS.
+
+PART 7 — Formatting rules on overview card
+
+Format values cleanly:
+
+Rebuild:
+
+* show currency
+* example: Rebuild $250,000
+* if zero/null: Rebuild —
+
+AOP:
+
+* show deductible
+* example: AOP $2,500
+* or AOP $1,000
+* if percent, show percent
+
+Hurricane:
+
+* show deductible
+* example: Hurricane 2%
+* or Hurricane $5,000
+* if null: Hurricane —
+
+Flood:
+
+* show flood zone
+* example: Flood AE
+* Flood X
+* Flood VE
+* if not flood zone or unavailable:
+    * Flood X
+    * or Flood — if unknown
+
+Carrier:
+
+* show carrier name
+* example: Carrier Orion180
+* if no carrier yet:
+    * Carrier —
+
+Keep the card compact on mobile.
+
+PART 8 — Delete UX on mobile
+
+The delete icon currently appears on the Insurance overview card.
+
+Make sure on mobile:
+
+* delete icon is tappable
+* not hidden behind the sticky bottom call/text bar
+* confirmation modal fits screen
+* after delete, card disappears immediately
+* no horizontal overflow
+
+PART 9 — Do not break
+
+Do not break:
+
+* Insurance detail view
+* policy type
+* annual premium
+* monthly premium
+* HO6 half rebuild/premium logic
+* Zillow property type → HO6 logic
+* manual overrides
+* premium source/manual quote protections
+* duplicate prevention
+* Purchase/Cash/ReFi sync into Insurance
+* dashboard tabs
+* mobile layout
+* Add Insurance Property
+* schedule showing bottom bar
+
+PART 10 — Debug logs
+
+Add temporary logs:
+
+Delete:
+
+* [insurance-delete] clicked
+* [insurance-delete] scenario id
+* [insurance-delete] normalized property key
+* [insurance-delete] address
+* [insurance-delete] confirm accepted
+* [insurance-delete] supabase delete start
+* [insurance-delete] supabase delete success
+* [insurance-delete] supabase delete error
+* [insurance-delete] local state removed
+* [insurance-delete] duplicate rows deleted/hidden
+
+Overview fields:
+
+* [insurance-overview] address
+* [insurance-overview] coverage_a
+* [insurance-overview] aop_deductible
+* [insurance-overview] hurricane_deductible
+* [insurance-overview] flood_zone
+* [insurance-overview] carrier
+* [insurance-overview] mapped fields
+* [insurance-overview] missing field reason
+
+Schema:
+
+* [insurance-schema] delete policy exists true/false
+* [insurance-schema] overview fields exist true/false
+* [insurance-schema] sql needed yes/no
+
+PART 11 — Acceptance tests
+
+Test A — Delete Insurance property
+
+1. Go to Dashboard → Insurance.
+2. Click trash/delete on an Insurance property card.
+3. Confirm delete modal appears.
+4. Click Cancel.
+5. Confirm card stays.
+6. Click delete again.
+7. Confirm Delete.
+8. Confirm card disappears immediately.
+9. Refresh page.
+10. Confirm deleted card stays gone.
+11. Log out/log back in.
+12. Confirm deleted card stays gone.
+13. Confirm other service tabs for the same address were not deleted.
+
+Test B — RLS delete
+
+1. Delete own Insurance row.
+2. Confirm success.
+3. Confirm no RLS error.
+4. Confirm user cannot delete another user’s row.
+
+Test C — Overview fields from detail
+
+1. Open Insurance detail for a property.
+2. Set or confirm:
+    * Coverage A / Rebuild Cost
+    * AOP deductible
+    * Hurricane deductible
+    * Flood Zone
+    * Carrier
+3. Save/autosave.
+4. Return to Insurance overview.
+5. Confirm overview card shows all those values instead of dashes.
+6. Refresh.
+7. Confirm values remain.
+8. Log out/log back in.
+9. Confirm values remain.
+
+Test D — Missing values
+
+1. Use an Insurance scenario with no carrier selected.
+2. Confirm Carrier can still show —.
+3. If Rebuild/AOP/Hurricane/Flood exist in detail, confirm they do not show — in overview.
+
+Test E — Mobile
+
+1. Test Insurance overview on mobile viewport.
+2. Confirm values fit cleanly.
+3. Confirm delete button works.
+4. Confirm no sticky bottom bar blocks delete confirmation.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether SQL was needed
+* Which SQL migration was added, if any
+* Why delete was not working
+* Whether delete was blocked by RLS, wrong id, local state, or duplicate rows
+* Which delete handler was changed
+* Which Insurance overview component was changed
+* Which mapper fields were missing
+* Which fields now populate Rebuild/AOP/Hurricane/Flood/Carrier
+* How mobile delete UX was handled
+* Which files/functions were changed
+

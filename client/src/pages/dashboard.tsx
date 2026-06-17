@@ -20,7 +20,7 @@ import { useAuth } from "@/context/auth-context";
 import {
   getPurchaseScenarios, savePurchaseScenarios,
   getTrackedLoans, saveTrackedLoans, subscribeAuthChange,
-  getInsuranceScenarios, saveInsuranceScenarios,
+  getInsuranceScenarios, saveInsuranceScenarios, getSession,
   type CashBuyOccupancyType,
   getSellerScenarios, saveSellerScenarios, subscribePersistenceError,
   getCashBuyScenarios, saveCashBuyScenarios,
@@ -858,10 +858,48 @@ interface InsuranceRow {
   linkedSources: ("Purchase" | "Refinance" | "Insurance")[];
 }
 
+// ── Insurance-tab "dismissed" (deleted) property keys ──────────────────────
+// The Insurance tab auto-creates a row for every Purchase / Cash / Refi
+// property (see the sync() backfill below). Deleting the underlying
+// `insurance_scenarios` row alone isn't enough — the backfill would just
+// recreate it from the still-present source scenario, so the card never
+// goes away. We therefore record the normalized property key of any
+// explicitly-deleted Insurance card here (per-user localStorage, the same
+// device-local pattern used for occupancy overrides + tab order). The
+// backfill skips dismissed keys and `buildInsuranceRows` hides them, so a
+// delete sticks across refresh / logout / login on this device. Purchase /
+// Cash / Refi / Seller data is never touched.
+const INSURANCE_DISMISSED_PREFIX = "dashboard:insurance-dismissed:";
+function readDismissedInsuranceKeys(userId: string | null | undefined): Set<string> {
+  if (!userId || typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(INSURANCE_DISMISSED_PREFIX + userId);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr)
+      ? new Set(arr.filter((x): x is string => typeof x === "string"))
+      : new Set();
+  } catch {
+    return new Set();
+  }
+}
+function writeDismissedInsuranceKeys(userId: string | null | undefined, keys: Set<string>): void {
+  if (!userId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      INSURANCE_DISMISSED_PREFIX + userId,
+      JSON.stringify(Array.from(keys)),
+    );
+  } catch {
+    /* localStorage quota / privacy mode — dismissal persists for the session only. */
+  }
+}
+
 function buildInsuranceRows(
   insuranceScenarios: InsuranceScenario[],
   purchaseScenarios: PurchaseScenario[],
   trackedLoans: TrackedLoan[],
+  dismissedKeys: Set<string>,
 ): InsuranceRow[] {
   // Group every record by its normalized property key. Records whose
   // address can't be parsed get a synthetic per-record key so they never
@@ -973,9 +1011,17 @@ function buildInsuranceRows(
     });
   });
 
+  // Hide any property the user explicitly deleted from the Insurance tab.
+  // The underlying Purchase / Cash / Refi records still exist (and still
+  // show on their own tabs) — we just don't surface an Insurance card for
+  // them once dismissed.
+  const visible = dismissedKeys.size > 0
+    ? rows.filter(r => !dismissedKeys.has(r.key))
+    : rows;
+
   // Newest first.
-  rows.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
-  return rows;
+  visible.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
+  return visible;
 }
 
 function makeInsuranceId(): string {
@@ -988,6 +1034,8 @@ function makeInsuranceId(): string {
 function InsuranceTab() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
 
   // Mirror auth caches into state so the tab re-renders when scenarios
   // load from Supabase or when other tabs update them.
@@ -997,6 +1045,15 @@ function InsuranceTab() {
   // Bump to re-resolve rows after a localStorage override change.
   const [overrideBump, setOverrideBump] = useState(0);
   const [showAddSearch, setShowAddSearch] = useState(false);
+  // Property keys the user has deleted from the Insurance tab. Persisted
+  // per-user in localStorage so the delete sticks across refresh / logout
+  // / login on this device and the backfill below never recreates them.
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(
+    () => readDismissedInsuranceKeys(userId),
+  );
+  useEffect(() => {
+    setDismissedKeys(readDismissedInsuranceKeys(userId));
+  }, [userId]);
 
   // Delete an Insurance estimate by id. Only removes from
   // `insurance_scenarios` — matching Purchase/Cash/Refi/Seller rows
@@ -1004,26 +1061,56 @@ function InsuranceTab() {
   // (correlation will simply re-resolve on the next render). If the
   // user later re-saves the same address from one of the source
   // flows, the auto-create path will recreate an Insurance row.
-  async function handleDeleteInsurance(id: string, address: string) {
+  async function handleDeleteInsurance(key: string, id: string | null, address: string) {
+    console.log("[insurance-delete] requested", { key, id, address });
     // Snapshot the pre-delete list so we can roll back the Supabase
     // state if the delete fails. The UI itself updates optimistically
     // via the shared auth cache (matching the Purchase / Refi / Seller
     // delete patterns elsewhere in this file); the rollback re-persists
     // and re-notifies so the row reappears on failure.
     const prev = insurance;
-    const next = prev.filter(s => s.id !== id);
+    const next = id ? prev.filter(s => s.id !== id) : prev;
+
+    // Record the dismissal FIRST (and persist it) so the backfill sync()
+    // — which fires synchronously from saveInsuranceScenarios' notify()
+    // below — skips this address instead of recreating the row. The
+    // dismissal is what makes the delete stick; deleting the Supabase
+    // row alone is not enough because the source Purchase/Cash/Refi
+    // scenario still exists.
+    //
+    // We store BOTH identities the dismissal might be matched against:
+    //   • `key` — the row key (normalized property key, or a synthetic
+    //     `__unparsed_*` id when the address can't be normalized). Used
+    //     by `buildInsuranceRows` to hide the card.
+    //   • the trimmed/lowercased address — a stable fallback the backfill
+    //     can match for addresses that don't normalize (where the row key
+    //     is synthetic and not reconstructable from the address alone).
+    const dismissedIdentities = [key, address.trim().toLowerCase()].filter(Boolean);
+    const nextDismissed = new Set(dismissedKeys);
+    dismissedIdentities.forEach(d => nextDismissed.add(d));
+    writeDismissedInsuranceKeys(userId, nextDismissed);
+    setDismissedKeys(nextDismissed);
+
     try {
-      await saveInsuranceScenarios(next);
-      setInsurance(next);
+      if (id) {
+        await saveInsuranceScenarios(next);
+        setInsurance(next);
+      }
+      console.log("[insurance-delete] success", { key, id, removedRow: Boolean(id) });
       toast({
         title: "Insurance estimate deleted.",
         description: `${address.split(",")[0]} was removed from your Insurance tab.`,
       });
     } catch (err: any) {
-      // Restore the deleted row in both cache and Supabase so the UI
-      // doesn't lie about a delete that didn't actually persist.
+      // Restore the deleted row + un-dismiss so the UI doesn't lie about
+      // a delete that didn't actually persist.
       try { await saveInsuranceScenarios(prev); } catch { /* surfaced below */ }
       setInsurance(prev);
+      const rollbackDismissed = new Set(dismissedKeys);
+      dismissedIdentities.forEach(d => rollbackDismissed.delete(d));
+      writeDismissedInsuranceKeys(userId, rollbackDismissed);
+      setDismissedKeys(rollbackDismissed);
+      console.warn("[insurance-delete] failed — rolled back", { key, id, error: err?.message ?? String(err) });
       toast({
         title: "Couldn't delete insurance estimate",
         description: err?.message ?? "Please try again.",
@@ -1084,8 +1171,25 @@ function InsuranceTab() {
             occupancyType: l.propertyType as string | undefined,
           })),
       ];
-      if (addresses.length === 0) return;
-      const { scenarios, changed } = ensureInsuranceForAddresses(addresses, ins);
+      // Skip any property the user explicitly deleted from the Insurance
+      // tab — otherwise the backfill would immediately recreate the row
+      // from the still-present source scenario and the delete wouldn't
+      // stick. Read the dismissed set FRESH from localStorage (via the
+      // current session id) because this effect has `[]` deps and runs
+      // again on every notify — a stale closure would miss a just-added
+      // dismissal.
+      const dismissed = readDismissedInsuranceKeys(getSession()?.id ?? null);
+      const liveAddresses = dismissed.size > 0
+        ? addresses.filter(a => {
+            const k = normalizePropertyKey(a.address).key;
+            const addrId = a.address.trim().toLowerCase();
+            const isDismissed =
+              (!!k && dismissed.has(k)) || (!!addrId && dismissed.has(addrId));
+            return !isDismissed;
+          })
+        : addresses;
+      if (liveAddresses.length === 0) return;
+      const { scenarios, changed } = ensureInsuranceForAddresses(liveAddresses, ins);
       if (!changed) return;
       // Reflect locally so the trash icon appears immediately, before
       // the next notify cycle round-trips through Supabase.
@@ -1116,7 +1220,7 @@ function InsuranceTab() {
     });
   }, []);
 
-  const rows = buildInsuranceRows(insurance, purchases, loans);
+  const rows = buildInsuranceRows(insurance, purchases, loans, dismissedKeys);
   // overrideBump deliberately participates in render via this ref read so
   // the lint rule below stays happy without complicating the hook deps.
   void overrideBump;
@@ -1382,10 +1486,8 @@ function InsuranceTab() {
             row={row}
             onOccupancyChange={next => handleOccupancyChange(row.key, next)}
             onOpen={() => setLocation(`/insurance?address=${encodeURIComponent(row.address)}`)}
-            onDelete={
-              row.insurance
-                ? () => handleDeleteInsurance(row.insurance!.id, row.address)
-                : undefined
+            onDelete={() =>
+              handleDeleteInsurance(row.key, row.insurance?.id ?? null, row.address)
             }
           />
         ))}
@@ -1400,9 +1502,10 @@ function InsuranceRowCard({
   row: InsuranceRow;
   onOccupancyChange: (next: OccupancyType) => void;
   onOpen: () => void;
-  /** Omitted when there's no `insurance_scenarios` row to delete
-   *  (purely Purchase/Refi-only correlation rows have nothing to
-   *  remove from the Insurance table). */
+  /** Removes the property from the Insurance tab: deletes the
+   *  `insurance_scenarios` row when one exists and records a per-user
+   *  dismissal so the backfill never recreates it. Purchase / Cash /
+   *  Refi / Seller records are left untouched. */
   onDelete?: () => void;
 }) {
   const ins = row.insurance;
@@ -1431,6 +1534,32 @@ function InsuranceRowCard({
   const policyTypeDisplay = policyManual
     ? (ins?.policyType ?? null)
     : (computedPolicy ?? ins?.policyType ?? null);
+
+  // ── Overview detail line: mirror the values the detail view actually
+  // holds. Rebuild = Coverage A; Hurricane = the deductible % the user
+  // picked in the detail-view simulator (factor_hurrIdx → 2 / 3 / 5 %,
+  // defaulting to 2% just like the simulator). AOP, Flood Zone, and
+  // Carrier are not computed or stored anywhere in the detail view yet,
+  // so they correctly stay "—" until that data exists.
+  const HURRICANE_PCTS = [2, 3, 5];
+  const rebuildDisplay = ins?.coverageA != null && Number.isFinite(ins.coverageA)
+    ? formatCurrency(ins.coverageA)
+    : "—";
+  const hurrIdxRaw = Number(ins?.userAnswerSources?.factor_hurrIdx ?? 0);
+  const hurrIdx = Number.isInteger(hurrIdxRaw) && hurrIdxRaw >= 0 && hurrIdxRaw < HURRICANE_PCTS.length
+    ? hurrIdxRaw : 0;
+  const hurricaneDisplay = ins ? `${HURRICANE_PCTS[hurrIdx]}%` : "—";
+  const aopDisplay = "—";
+  const floodDisplay = "—";
+  const carrierDisplay = "—";
+  console.debug("[insurance-overview] detail line", {
+    key: row.key,
+    rebuild: rebuildDisplay,
+    aop: aopDisplay,
+    hurricane: hurricaneDisplay,
+    flood: floodDisplay,
+    carrier: carrierDisplay,
+  });
 
   return (
     <Card className="hover:shadow-md transition-shadow group">
@@ -1487,9 +1616,11 @@ function InsuranceRowCard({
               <p className="text-xs text-muted-foreground">Status</p>
               <p className="font-semibold">{ins ? "Estimate" : "Not started"}</p>
             </div>
-            {/* Future-data placeholders — surface once schema lands. */}
+            {/* Detail-line: Rebuild + Hurricane mirror the detail view's
+                stored values; AOP / Flood / Carrier stay "—" until that
+                data is computed/stored. */}
             <div className="col-span-2 sm:col-span-4 text-[10px] text-muted-foreground/80">
-              Rebuild · — &nbsp;·&nbsp; AOP — &nbsp;·&nbsp; Hurricane — &nbsp;·&nbsp; Flood — &nbsp;·&nbsp; Carrier —
+              Rebuild {rebuildDisplay} &nbsp;·&nbsp; AOP {aopDisplay} &nbsp;·&nbsp; Hurricane {hurricaneDisplay} &nbsp;·&nbsp; Flood {floodDisplay} &nbsp;·&nbsp; Carrier {carrierDisplay}
             </div>
           </div>
 
