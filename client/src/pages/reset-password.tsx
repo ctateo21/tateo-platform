@@ -23,12 +23,24 @@ export default function ResetPassword() {
   // Supabase's detectSessionInUrl exchanges the recovery token in the URL
   // for an active session. We give it a chance to land, then check.
   useEffect(() => {
+    console.log("[auth-reset-password] page loaded");
+    console.log("[auth-reset-password] url has hash", window.location.hash.length > 1);
     let active = true;
     supabase.auth.getSession().then(({ data }) => {
-      if (active) setHasSession(!!data.session);
+      if (!active) return;
+      if (data.session) {
+        console.log("[auth-reset-password] session detected");
+        setHasSession(true);
+      } else {
+        console.log("[auth-reset-password] invalid or expired link");
+        setHasSession(false);
+      }
     });
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === "PASSWORD_RECOVERY" || session) setHasSession(true);
+      if (event === "PASSWORD_RECOVERY" || session) {
+        console.log("[auth-reset-password] session detected");
+        setHasSession(true);
+      }
     });
     return () => { active = false; sub.subscription.unsubscribe(); };
   }, []);
@@ -39,9 +51,15 @@ export default function ResetPassword() {
     if (pw.length < 6) { setError("Password must be at least 6 characters."); return; }
     if (pw !== confirm) { setError("Passwords do not match."); return; }
     setLoading(true);
+    console.log("[auth-reset-password] password update started");
     const result = await completePasswordReset(pw);
     setLoading(false);
-    if (!result.ok) { setError(result.error || "Could not update your password."); return; }
+    if (!result.ok) {
+      console.log("[auth-reset-password] password update error");
+      setError(result.error || "Could not update your password.");
+      return;
+    }
+    console.log("[auth-reset-password] password update success");
     setDone(true);
   }
 

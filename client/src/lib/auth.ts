@@ -1746,7 +1746,14 @@ export async function requestPasswordReset(
     return { ok: false, error: "Please enter a valid email address." };
   }
   if (!supabaseReady) return NOT_CONFIGURED;
-  const redirectTo = `${window.location.origin}/reset-password`;
+  // Prefer an explicit production site URL when configured (e.g.
+  // https://havofl.com); fall back to the current origin so dev/preview
+  // and any custom domain work without extra config.
+  const siteUrl =
+    (import.meta.env.VITE_PUBLIC_SITE_URL as string | undefined)?.trim() ||
+    window.location.origin;
+  const redirectTo = `${siteUrl.replace(/\/$/, "")}/reset-password`;
+  console.log("[auth-forgot-password] redirectTo", redirectTo);
   try {
     await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
     console.log("[auth-forgot-password] email sent or generic success");

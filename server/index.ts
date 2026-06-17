@@ -55,6 +55,7 @@ app.use((req, res, next) => {
     await setupVite(app, server);
   } else {
     serveStatic(app);
+    log("[server] SPA fallback active for frontend routes");
   }
 
   // ALWAYS serve the app on port 5000

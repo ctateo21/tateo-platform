@@ -1,0 +1,306 @@
+Yes — this is now a **Replit/router issue**, not a Supabase URL issue. Supabase is correctly sending the user to:
+
+```text
+https://havofl.com/reset-password#
+```
+
+Your app just does not have a working `/reset-password` route, or the deployed server is not configured to serve the React app for that route.
+
+Copy/paste this into Replit:
+
+````text id="fix-reset-password-404-route"
+Fix the forgot-password reset flow. Supabase is now correctly redirecting users to:
+
+https://havofl.com/reset-password#
+
+But the page shows:
+
+404 Page Not Found. Did you forget to add the page to router?
+
+This means the app is missing a working `/reset-password` route, or the production server is not serving the React app fallback for that route.
+
+Current issue:
+1. User clicks Forgot Password.
+2. Supabase sends reset email.
+3. User clicks the reset link.
+4. Browser opens:
+   https://havofl.com/reset-password#
+5. App shows 404 instead of the reset password page.
+
+Goal:
+Create/fix the `/reset-password` route so Supabase password reset links open a working page where the user can set a new password.
+
+Supabase is already configured:
+- Site URL updated
+- Redirect URL includes:
+  https://havofl.com/reset-password
+
+Now fix the app route.
+
+PART 1 — Add `/reset-password` route to frontend router
+
+Inspect the app router.
+
+Look for:
+- `App.tsx`
+- `Router`
+- `Routes`
+- `react-router-dom`
+- route definitions
+- NotFound route
+- 404 catch-all route
+
+Add a route:
+
+`/reset-password`
+
+It should render a Reset Password page/component.
+
+Example:
+
+```tsx
+<Route path="/reset-password" element={<ResetPassword />} />
+````
+
+Make sure this route is defined before any catch-all `*` / NotFound route.
+
+PART 2 — Create ResetPassword page if missing
+
+Create a page/component if it does not already exist.
+
+Suggested file:
+`client/src/pages/reset-password.tsx`
+
+or use the app’s existing naming convention.
+
+Page UI:
+Title:
+“Create a new password”
+
+Fields:
+
+* New Password
+* Confirm New Password
+
+Button:
+“Update Password”
+
+Success message:
+“Your password has been updated. You can now log in.”
+
+Error message if invalid/expired:
+“This reset link is invalid or expired. Please request a new password reset email.”
+
+Validation:
+
+* new password required
+* confirm password required
+* passwords must match
+* use the same minimum password rules as signup if available
+
+PART 3 — Handle Supabase recovery session/token
+
+The reset email URL opens as:
+
+`/reset-password#...`
+
+Supabase commonly puts recovery tokens/session data in the URL hash.
+
+The reset password page must detect and handle Supabase auth recovery from the URL hash.
+
+Use the existing Supabase client.
+
+On page load:
+
+1. Let Supabase read the hash/session.
+2. Confirm the user has a recovery session.
+3. Allow password update.
+
+Use:
+
+```ts
+await supabase.auth.getSession()
+```
+
+Then when the user submits new password:
+
+```ts
+const { error } = await supabase.auth.updateUser({
+  password: newPassword,
+});
+```
+
+If `updateUser` fails because there is no session:
+
+* show invalid/expired reset link message
+* provide a button/link back to Forgot Password
+
+Important:
+Do not log tokens.
+Do not log passwords.
+
+PART 4 — Make forgot-password redirect URL match the route
+
+Find the forgot password function:
+
+`supabase.auth.resetPasswordForEmail(email, { redirectTo })`
+
+Make sure redirectTo is:
+
+```ts
+const siteUrl =
+  import.meta.env.VITE_PUBLIC_SITE_URL ||
+  window.location.origin;
+
+const redirectTo = `${siteUrl.replace(/\/$/, "")}/reset-password`;
+```
+
+For production, `VITE_PUBLIC_SITE_URL` should be:
+
+```text
+https://havofl.com
+```
+
+Do not use localhost.
+
+PART 5 — Fix production server fallback if needed
+
+If the frontend route exists but direct navigation to:
+
+[https://havofl.com/reset-password](https://havofl.com/reset-password)
+
+still shows 404, the server/deployment needs SPA fallback routing.
+
+Because this is a React single-page app, production must serve `index.html` for frontend routes like:
+
+* `/reset-password`
+* `/dashboard`
+* `/insurance`
+* `/purchase`
+* any React route
+
+Inspect server config:
+
+* Express server
+* Vite preview server
+* Replit deployment config
+* static file serving
+
+If using Express, make sure after API routes and static assets there is a catch-all:
+
+```ts
+app.get("*", (_req, res) => {
+  res.sendFile(path.join(clientDistPath, "index.html"));
+});
+```
+
+Do not let server 404 frontend routes before React Router loads.
+
+Important:
+
+* API routes should still work.
+* Static assets should still work.
+* Only unknown non-API routes should serve `index.html`.
+
+PART 6 — Supabase / SQL requirement
+
+Inspect Supabase schema first.
+
+This should not require SQL.
+
+Do not create password columns.
+Do not store reset tokens.
+Do not store raw passwords.
+
+Passwords and password reset tokens must remain handled only by Supabase Auth.
+
+Report back:
+
+* whether SQL was needed
+* confirm no password fields were added
+* confirm no reset token fields were added
+
+PART 7 — Do not break
+
+Do not break:
+
+* login
+* signup
+* free account creation
+* phone requirement
+* FUB signup notification
+* FUB login notification
+* dashboard route
+* saved scenarios
+* Stripe bypass/free access mode
+* existing Supabase Auth session handling
+* deployed production routing
+
+PART 8 — Debug logs
+
+Add temporary logs:
+
+Forgot password:
+
+* `[auth-forgot-password] redirectTo`
+
+Reset password page:
+
+* `[auth-reset-password] page loaded`
+* `[auth-reset-password] url has hash`
+* `[auth-reset-password] session detected`
+* `[auth-reset-password] password update started`
+* `[auth-reset-password] password update success`
+* `[auth-reset-password] password update error`
+* `[auth-reset-password] invalid or expired link`
+
+Server fallback:
+
+* `[server] SPA fallback active for frontend routes`
+
+Do not log:
+
+* password
+* tokens
+* access_token
+* refresh_token
+
+PART 9 — Acceptance test
+
+1. Deploy the app.
+2. Open:
+   [https://havofl.com/reset-password](https://havofl.com/reset-password)
+3. Confirm it shows the Reset Password page, not 404.
+4. Go to login.
+5. Click Forgot Password.
+6. Enter email.
+7. Confirm Supabase sends reset email.
+8. Click reset link.
+9. Confirm it opens:
+   [https://havofl.com/reset-password#](https://havofl.com/reset-password#)
+10. Confirm Reset Password page loads.
+11. Enter new password.
+12. Confirm password updates successfully.
+13. Go to login.
+14. Log in with the new password.
+15. Confirm no SQL was needed.
+16. Confirm no password or reset token is stored in public tables.
+
+Please make the smallest safe code change possible and tell me:
+
+* Whether `/reset-password` route already existed or was added
+* Which router file was changed
+* Which Reset Password page/component was created or fixed
+* Whether production SPA fallback routing was needed
+* What redirect URL forgot-password uses now
+* Whether SQL was needed
+* Confirmation no passwords or reset tokens are stored in public tables
+* Which files/functions were changed
+
+```
+
+You likely need **both** of these to be true:
+
+1. React has a route for `/reset-password`.
+2. Your deployed server serves the React app for `/reset-password` instead of returning a server-level 404.
+```
