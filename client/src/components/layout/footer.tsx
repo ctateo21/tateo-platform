@@ -1,5 +1,6 @@
 import { Link } from "wouter";
 import { Facebook, Instagram, Linkedin, Youtube } from "lucide-react";
+import barrettLogo from "@assets/barrett-financial-group.png";
 
 export default function Footer() {
   return (
@@ -35,6 +36,19 @@ export default function Footer() {
                  className="bg-[#00B6A9] h-8 w-8 rounded-full flex items-center justify-center transition-colors" aria-label="Youtube">
                 <Youtube size={16} className="text-[#0F1B3D]" />
               </a>
+            </div>
+
+            {/* Powered by Barrett Financial Group LLC */}
+            <div className="flex flex-col items-center md:items-start gap-2">
+              <a href="https://www.barrettfinancial.com" target="_blank" rel="noopener noreferrer"
+                 className="inline-block bg-white rounded-md p-2">
+                <img
+                  src={barrettLogo}
+                  alt="Powered by Barrett Financial Group LLC"
+                  className="w-auto h-auto max-w-[180px] md:max-w-[200px]"
+                />
+              </a>
+              <span className="text-white/70 text-xs">Powered by Barrett Financial Group LLC</span>
             </div>
           </div>
           

@@ -1,0 +1,85 @@
+Copy/paste this into Replit after attaching the Barrett logo/image file:
+
+Add “Powered by Barrett Financial Group LLC” branding to the main page footer.
+I am attaching the Barrett Financial Group image/logo that should be used.
+Current reference:
+On my current website, the footer/hero area shows a small “Powered by Barrett Financial Group” image. I want this same type of item added to the bottom footer of the Havo main page.
+Goal:
+On the main public landing page/footer, add:
+“Powered by Barrett Financial Group LLC”
+and include the attached Barrett Financial Group logo/image next to or above/below the text.
+Scope:
+- Main public home page
+- Main footer component if the site has a shared footer
+- Mobile and desktop footer layout
+Placement:
+Add this in the bottom footer area of the main page.
+Preferred layout:
+- Small Barrett Financial Group logo/image
+- Text near it:
+  “Powered by Barrett Financial Group LLC”
+Desktop:
+- Can be aligned left, center, or in a footer column depending on the existing design
+- Should look clean and not overpower the Havo/Tateo branding
+Mobile:
+- Stack cleanly
+- Center align if needed
+- Image should not overflow screen
+- Text should be readable
+Image:
+Use the attached Barrett Financial Group image/logo file.
+Save it into the public/static assets folder.
+Suggested path:
+`/public/barrett-financial-group.png`
+or use the app’s existing asset convention.
+Do not hotlink the image.
+Use the uploaded/attached image as a local app asset.
+Image sizing:
+- Keep it small and footer-appropriate
+- Suggested max width: 160–220px desktop
+- Suggested max width: 150–180px mobile
+- Preserve aspect ratio
+- Do not stretch or distort
+Footer text:
+Use exactly:
+Powered by Barrett Financial Group LLC
+If the image itself already says “Powered by Barrett Financial Group,” still include the LLC wording nearby as text.
+Accessibility:
+- Add alt text:
+  “Powered by Barrett Financial Group LLC”
+Supabase / SQL requirement:
+Inspect whether any SQL is needed.
+This should not require SQL because it is a static footer/asset/UI change.
+If no SQL is needed:
+- confirm no SQL was needed
+If SQL is somehow needed:
+- explain why before doing anything
+- provide one complete migration
+- do not add unnecessary schema changes
+Do not break:
+- existing footer links
+- mobile footer layout
+- homepage hero section
+- routing
+- SEO metadata
+- Havo logo
+- Tateo branding
+- login/dashboard pages
+Acceptance test:
+1. Open the main public homepage.
+2. Scroll to the bottom footer.
+3. Confirm the Barrett Financial Group image/logo appears.
+4. Confirm the text says:
+   “Powered by Barrett Financial Group LLC”
+5. Confirm desktop layout looks clean.
+6. Confirm mobile layout looks clean and does not overflow.
+7. Confirm image is not stretched.
+8. Confirm no SQL migration was needed.
+Please make the smallest safe code change possible and tell me:
+- Which image asset was added
+- Where the asset was saved
+- Which footer/homepage component was changed
+- How it displays on desktop
+- How it displays on mobile
+- Whether SQL was needed
+- Which files/functions were changed
