@@ -121,11 +121,14 @@ interface NumRowProps {
   suffix?: string;
   decimals?: number;
   badge?: React.ReactNode;
+  /** When false, hides the slider and shows just an editable number
+   *  field (user types the value). Defaults to true. */
+  slider?: boolean;
 }
 
 function NumRow({
   label, hint, value, onChange, min, max, step = 1,
-  prefix, suffix, decimals = 0, badge,
+  prefix, suffix, decimals = 0, badge, slider = true,
 }: NumRowProps) {
   const [text, setText] = useState<string>(() =>
     decimals > 0 ? value.toFixed(decimals) : Math.round(value).toLocaleString("en-US"),
@@ -155,13 +158,15 @@ function NumRow({
         {badge}
       </div>
       {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
-      <div className="grid grid-cols-1 md:grid-cols-[3fr_1fr] items-center gap-2 md:gap-3">
-        <Slider
-          className="w-full"
-          min={min} max={max} step={step}
-          value={[Math.min(max, Math.max(min, value))]}
-          onValueChange={([v]) => onChange(v)}
-        />
+      <div className={slider ? "grid grid-cols-1 md:grid-cols-[3fr_1fr] items-center gap-2 md:gap-3" : ""}>
+        {slider && (
+          <Slider
+            className="w-full"
+            min={min} max={max} step={step}
+            value={[Math.min(max, Math.max(min, value))]}
+            onValueChange={([v]) => onChange(v)}
+          />
+        )}
         <div className="flex items-center gap-0.5 bg-muted rounded-md px-2 py-1 min-w-[120px] md:justify-end">
           {prefix && <span className="text-xs text-muted-foreground">{prefix}</span>}
           <input
@@ -1053,7 +1058,8 @@ export default function CashBuyPage() {
                   : "Auto-estimated from county-aware rates. Updates when price or property use changes."} · ≈ ${formatCurrency(Math.round((scenario.propertyTaxes ?? 0) / 12))}/mo`}
                 value={scenario.propertyTaxes ?? 0}
                 onChange={setPropertyTaxes}
-                min={0} max={50_000} step={50} prefix="$"
+                min={0} max={50_000} step={50} prefix="$" suffix="/yr"
+                slider={false}
               />
               <NumRow
                 label="Annual Homeowners Insurance"
@@ -1064,7 +1070,8 @@ export default function CashBuyPage() {
                   ? (scenario.homeownersInsurance ?? 0)
                   : insMidpoint}
                 onChange={setHomeownersInsurance}
-                min={0} max={20_000} step={25} prefix="$"
+                min={0} max={20_000} step={25} prefix="$" suffix="/yr"
+                slider={false}
               />
               <NumRow
                 label="HOA / Condo Fees"
@@ -1076,6 +1083,7 @@ export default function CashBuyPage() {
                 value={scenario.hoaMonthly ?? 0}
                 onChange={setHoaMonthly}
                 min={0} max={2_000} step={5} prefix="$" suffix="/mo"
+                slider={false}
                 badge={
                   scenario.hoaSource === "zillow" ? (
                     <Badge variant="outline" className="text-[10px] font-normal h-5">From Zillow</Badge>
@@ -1085,20 +1093,17 @@ export default function CashBuyPage() {
                 }
               />
 
-              {(scenario.annualFloodIns ?? 0) > 0 && (
-                <div className="flex items-start justify-between gap-3 border-t pt-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">Flood Insurance</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Estimated — property is in a FEMA flood zone
-                      {floodData?.zone ? ` (Zone ${floodData.zone})` : ""}. ≈{" "}
-                      {formatCurrency(Math.round((scenario.annualFloodIns ?? 0) / 12))}/mo
-                    </p>
-                  </div>
-                  <p className="text-sm font-semibold tabular-nums whitespace-nowrap">
-                    {formatCurrency(scenario.annualFloodIns ?? 0)}/yr
-                  </p>
-                </div>
+              {(floodData?.requiresFloodInsurance || (scenario.annualFloodIns ?? 0) > 0) && (
+                <NumRow
+                  label="Annual Flood Insurance"
+                  hint={`${floodData?.zone
+                    ? `Estimated — property is in a FEMA flood zone (Zone ${floodData.zone}).`
+                    : "Estimated flood insurance premium."} · ≈ ${formatCurrency(Math.round((scenario.annualFloodIns ?? 0) / 12))}/mo`}
+                  value={scenario.annualFloodIns ?? 0}
+                  onChange={(v) => update("annualFloodIns", v)}
+                  min={0} max={50_000} step={50} prefix="$" suffix="/yr"
+                  slider={false}
+                />
               )}
 
               <div className="rounded-md bg-muted/50 p-3 text-xs text-muted-foreground">
