@@ -44,3 +44,6 @@ integrations = ["styling_shadcn:1.0.0", "github:1.0.0", "stripe:1.0.0"]
 INTERNAL_ALERT_EMAIL = "christian@tateoco.com"
 APP_URL = "https://havofl.com"
 ALERT_FROM_EMAIL = "christian@tateoco.com"
+
+[userenv.production]
+VITE_PUBLIC_SITE_URL = "https://havofl.com"
