@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Menu, Home, Briefcase, ChevronDown,
   LayoutDashboard, LogIn, LogOut, User, Settings as SettingsIcon,
-  Key, Banknote, RefreshCw, Shield, Tag,
+  Key, Banknote, RefreshCw, Shield, Tag, GraduationCap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -54,6 +54,7 @@ export default function Header() {
       hasDropdown: true,
       dropdownItems: SERVICES.map(s => ({ label: s.label, onClick: () => handleServiceClick(s) })),
     },
+    { href: "/education", label: "EDUCATION", icon: <GraduationCap className="mr-2 h-4 w-4" /> },
   ];
 
   async function handleLogout() {

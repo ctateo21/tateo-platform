@@ -1,0 +1,360 @@
+Copy/paste this into Replit:
+
+````text id="education-aeo-seo-page-from-md-content"
+Create a new public “Education” tab/page in the website header and render my AEO/SEO question-and-answer content from the Markdown page I added.
+
+Current header:
+The header currently has navigation/buttons like:
+- Home
+- Services
+- Profile / my name
+
+Requested change:
+Add a new header navigation tab:
+
+Education
+
+Goal:
+Create a public Education page where my AEO/SEO content lives. This page should be structured as a list of questions and answers so search engines and AI answer engines can easily crawl, understand, and cite the website.
+
+This page is intended to help the site rank for AEO/search queries related to real estate, mortgage, insurance, buying a home, selling a home, refinancing, cash purchases, homeowners insurance, flood zones, and related home-service questions.
+
+I have already added the content as a Markdown file/page. Use that Markdown content as the source.
+
+Scope:
+- Header navigation
+- Public Education page
+- Markdown rendering
+- SEO/AEO metadata
+- FAQ structured data
+- Mobile and desktop layout
+
+PART 1 — Add Education tab to header
+
+Add a new header nav item:
+
+Education
+
+Placement:
+- Put it next to Home and Services.
+- Keep Profile / logged-in user menu where it is.
+- On mobile, include Education in the hamburger/mobile nav menu.
+
+Route:
+Use:
+
+/education
+
+Click behavior:
+- Clicking Education routes to `/education`.
+- It should be public and not require login.
+- It should work for logged-in and logged-out users.
+
+Do not break:
+- Home
+- Services
+- Profile/user menu
+- mobile hamburger menu
+- auth state
+- dashboard routes
+
+PART 2 — Create Education page
+
+Create a public route/page:
+
+/education
+
+The page should render the Markdown content I added.
+
+Find the Markdown file I added. It may be located in one of these places:
+- /content
+- /client/src/content
+- /client/src/pages
+- /public
+- root project directory
+
+If there are multiple Markdown files, use the one clearly intended for Education/AEO/FAQ content.
+
+If the Markdown file is not wired yet, import/read it and render it on the Education page.
+
+Preferred page title:
+Education
+
+Subheading:
+“Clear answers for buying, selling, financing, and insuring a home.”
+
+Layout:
+- Clean, readable page
+- Question-and-answer format
+- Search-friendly headings
+- Good spacing
+- Mobile-friendly
+- No horizontal overflow
+
+PART 3 — Render Markdown as FAQ/Q&A content
+
+The Markdown content should display as structured FAQ-style content.
+
+If the Markdown uses headings like:
+
+# Title
+## Question
+Answer text
+
+or:
+
+### Question
+Answer text
+
+Render it cleanly.
+
+Each question should be easy for search engines/AEO systems to parse.
+
+Preferred structure:
+- Page H1: Education
+- Each question as an H2 or H3
+- Each answer as normal paragraph content under the question
+
+Example rendered HTML structure:
+
+```html
+<h1>Education</h1>
+<section>
+  <h2>Question here?</h2>
+  <p>Answer here...</p>
+</section>
+````
+
+Do not render everything as one giant block of text.
+
+PART 4 — SEO/AEO metadata
+
+Add route-specific SEO metadata for `/education`.
+
+Title:
+“Havo Education | Real Estate, Mortgage & Insurance Questions Answered”
+
+Meta description:
+“Answers to common questions about buying a home, selling a home, mortgages, refinancing, cash purchases, homeowners insurance, flood zones, and closing costs.”
+
+Open Graph:
+
+* og:title should match title
+* og:description should match description
+* og:type = website
+* og:url = [https://havofl.com/education](https://havofl.com/education)
+* og:image should use the existing site OG image
+
+Canonical:
+Add canonical URL:
+[https://havofl.com/education](https://havofl.com/education)
+
+If the app already uses a metadata/Helmet component, reuse it.
+
+PART 5 — FAQ structured data
+
+Add JSON-LD structured data for FAQPage if the Markdown content is question/answer based.
+
+Use schema.org FAQPage format.
+
+For each Q&A:
+
+* Question name = the question heading
+* acceptedAnswer text = the answer text
+
+Example:
+
+```json
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {
+      "@type": "Question",
+      "name": "What is the first step to buying a home?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "The first step is..."
+      }
+    }
+  ]
+}
+```
+
+Important:
+
+* Do not include invalid JSON-LD.
+* Strip Markdown formatting from the JSON-LD answer text.
+* Keep the visible page content and JSON-LD answers aligned.
+* If automatic FAQ extraction from Markdown is too risky, manually map the Markdown headings/answers into FAQ JSON-LD using the parsed content.
+
+PART 6 — AEO-friendly page structure
+
+Make the page easy for answer engines to parse.
+
+Include:
+
+* Clear H1
+* Short intro paragraph
+* Table of contents or list of topics if content is long
+* Each question as its own heading
+* Direct answer immediately under each question
+* Internal links where useful to:
+
+  * Purchase with Loan
+  * Purchase with Cash
+  * Refinance
+  * Insurance
+  * Sell Your Home
+* Keep answers readable and not hidden behind accordions if possible
+
+If using accordions:
+
+* make sure answer content is still rendered in the DOM and crawlable
+* do not require JavaScript interaction for search engines to see the answers
+
+Preferred:
+Use simple visible Q&A sections instead of collapsed-only accordions.
+
+PART 7 — Markdown rendering implementation
+
+If a Markdown renderer is already installed, use it.
+
+Check for:
+
+* react-markdown
+* remark-gfm
+* markdown-to-jsx
+* MDX support
+
+If none exists, install a lightweight Markdown renderer such as:
+
+* react-markdown
+* remark-gfm
+
+Use the smallest safe implementation.
+
+If the content is currently a `.md` file and Vite cannot import raw Markdown by default, use one of these approaches:
+
+1. Import with `?raw` if supported:
+   `import educationContent from "../content/education.md?raw"`
+2. Move content into a TS/JSON data file if easier
+3. Use existing content loading pattern if the app has one
+
+PART 8 — Supabase / SQL requirement
+
+Inspect whether SQL is needed.
+
+This should not require Supabase SQL because this is static public content from a Markdown file.
+
+If no SQL is needed:
+
+* confirm no SQL was needed
+
+If Replit thinks SQL is needed:
+
+* explain why before adding anything
+* provide one complete migration
+* do not add unnecessary schema changes
+* do not weaken RLS
+
+Expected:
+No SQL needed.
+
+PART 9 — Sitemap / crawlability
+
+Make sure `/education` is crawlable.
+
+If the app has:
+
+* sitemap.xml generation
+* robots.txt
+* static route list
+* SEO route config
+
+Add `/education` to the sitemap/static route list.
+
+If no sitemap exists:
+
+* do not overbuild this unless simple
+* but note whether `/education` is linked from header so crawlers can find it
+
+Robots:
+
+* make sure `/education` is not blocked
+
+PART 10 — Design requirements
+
+Use existing Havo/Tateo styling.
+
+Desktop:
+
+* readable max-width content
+* clean spacing
+* page should not feel cramped
+
+Mobile:
+
+* full-width mobile-friendly content
+* good font size
+* no overflow
+* header Education link appears in hamburger menu
+* Q&A content is easy to scan
+
+PART 11 — Do not break
+
+Do not break:
+
+* existing header
+* mobile nav
+* Home page
+* Services dropdown
+* Profile/user menu
+* dashboard
+* auth
+* scenario pages
+* existing SEO/OG image
+* routing
+* deployed build
+
+PART 12 — Debug / verification
+
+Add minimal logs only if needed:
+
+* `[education-page] markdown loaded`
+* `[education-page] faq items parsed`
+* `[education-page] structured data rendered`
+
+Do not leave excessive logs if unnecessary.
+
+PART 13 — Acceptance tests
+
+1. Open homepage.
+2. Confirm header shows Education next to Home/Services.
+3. Click Education.
+4. Confirm URL is `/education`.
+5. Confirm page loads without login.
+6. Confirm Markdown content renders correctly.
+7. Confirm questions are headings and answers appear below them.
+8. Confirm mobile hamburger menu includes Education.
+9. Confirm `/education` has SEO title and meta description.
+10. Confirm FAQ JSON-LD exists and is valid.
+11. Confirm `/education` is crawlable and linked from the header.
+12. Confirm no SQL was needed.
+13. Confirm desktop and mobile layouts look clean.
+14. Confirm no dashboard/auth routes broke.
+
+Please make the smallest safe code change possible and tell me:
+
+* Which Markdown file was used
+* Which route was added
+* Which header/nav component was changed
+* Which Education page component was created
+* Which Markdown renderer was used or installed
+* Whether FAQ JSON-LD was added
+* Whether `/education` was added to sitemap/static route list
+* Whether SQL was needed
+* Which files/functions were changed
+
+```
+```

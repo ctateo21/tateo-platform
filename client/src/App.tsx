@@ -18,6 +18,7 @@ function ScrollToTop() {
 import Header from "./components/layout/header";
 import Footer from "./components/layout/footer";
 import Home from "./pages/home";
+import Education from "./pages/education";
 import Dashboard from "./pages/dashboard";
 import Settings from "./pages/settings";
 import Insurance from "./pages/insurance";
@@ -47,6 +48,7 @@ function App() {
                   <main className="flex-grow">
                     <Switch>
                       <Route path="/" component={Home} />
+                      <Route path="/education" component={Education} />
                       <Route path="/settings" component={Settings} />
                       <Route path="/subscribe" component={Subscribe} />
                       <Route path="/subscribe/success" component={SubscribeSuccess} />
