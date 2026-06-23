@@ -20,6 +20,7 @@ import {
   serviceCategories
 } from "@shared/schema";
 import { canopyConnectIntegration } from "./integrations/canopy-connect";
+import { getQuoteRushQuotes, importLeadOnly } from "./integrations/quoterush";
 import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowProperty } from "./integrations/zillow";
 import { getHillsboroughTaxEstimate, isHillsboroughCountyAddress } from "./integrations/hillsborough-tax";
 import { fetchGoogleReviews, getMockReviews } from "./integrations/google-reviews";
