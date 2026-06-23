@@ -307,7 +307,7 @@ export default function Refinance() {
       await saveTrackedLoans(next);
       toast({ title: "Loan saved to your refinance dashboard." });
       // Notify the assigned agent (non-blocking, fire-and-forget).
-      notifyNewScenario("Refinance", newLoan.propertyAddress);
+      notifyNewScenario("Refinance", newLoan.propertyAddress, "Saved a refinance scenario");
     } catch (e: any) {
       toast({
         title: "Couldn't save your loan",

@@ -1108,7 +1108,7 @@ export default function InsuranceDashboard() {
       });
       // New scenario only (!match fires once): notify the assigned agent
       // (non-blocking, fire-and-forget).
-      if (!match) notifyNewScenario("Insurance", address);
+      if (!match) notifyNewScenario("Insurance", address, "Saved an insurance scenario");
     }, 600);
     return () => window.clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps

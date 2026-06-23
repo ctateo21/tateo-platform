@@ -7,3 +7,4 @@
 - [Seller mortgage payoff resolution](seller-mortgage-payoff.md) — priority manual>statement>refinance>amortized>existing>zero; manual/statement never auto-overwritten (double-guarded).
 - [Seller net-proceeds shared helper](seller-net-proceeds-helper.md) — detail view, dashboard overview, and save handler must all use seller-net-proceeds.ts; gate "—" on hasSalePrice to avoid drift.
 - [Auth & password reset](auth-password-reset.md) — Supabase-only passwords (never in public tables); email-only login; reset link needs origin on Supabase Auth redirect allowlist.
+- [Full-project tsc time limit](tsc-env-limit.md) — `npx tsc --noEmit` won't finish in the sandbox; verify small edits via Vite HMR "hot updated" / no transform errors instead.

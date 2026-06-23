@@ -502,7 +502,7 @@ export default function SellerEstimatePage() {
         console.log("[seller-save] save ok");
         // New scenario only (idx < 0 fires once): notify the assigned
         // agent (non-blocking, fire-and-forget).
-        if (idx < 0) notifyNewScenario("Seller", stamped.address);
+        if (idx < 0) notifyNewScenario("Seller Estimate", stamped.address, "Saved a seller estimate scenario");
         // Seller → refinance value mirroring used to live here; it is now
         // handled globally by the Phase 1 cross-tab sync helper
         // (`syncPropertyValueAcrossTabs`) which fires from the diff-watcher

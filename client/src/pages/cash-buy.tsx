@@ -316,7 +316,7 @@ export default function CashBuyPage() {
         saveCashBuyScenarios(next);
         // New scenario only (idx < 0 fires once): notify the assigned
         // agent (non-blocking, fire-and-forget).
-        if (idx < 0) notifyNewScenario("Cash Buy", stamped.address);
+        if (idx < 0) notifyNewScenario("Cash Buy", stamped.address, "Saved a cash buy scenario");
         if (isMountedRef.current) {
           setSaveStatus("saved");
           window.setTimeout(() => {

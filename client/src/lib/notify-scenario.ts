@@ -5,7 +5,7 @@ import { getStoredReferralSource } from "@/components/referral-source-dialog";
 // logged-in user saves a new scenario on a dashboard tool page. Mirrors the
 // same fetch pattern used in estimate.tsx for Purchase scenarios. Never
 // blocks or throws — failures are swallowed with .catch().
-export function notifyNewScenario(scenarioType: string, address: string): void {
+export function notifyNewScenario(scenarioType: string, address: string, details?: string): void {
   const addr = (address || "").trim();
   if (!addr) return;
   const sessionUser = getSession();
@@ -29,6 +29,7 @@ export function notifyNewScenario(scenarioType: string, address: string): void {
       agent: sessionUser.agent || "Team",
       address: addr,
       scenarioType,
+      scenarioDetails: details,
       referral: getStoredReferralSource() ?? undefined,
     }),
   }).catch(err => console.warn("Failed to notify agent of new scenario:", err));
