@@ -308,6 +308,7 @@ export default function Refinance() {
       toast({ title: "Loan saved to your refinance dashboard." });
       // Notify the assigned agent (non-blocking, fire-and-forget).
       notifyNewScenario("Refinance", newLoan.propertyAddress, "Saved a refinance scenario");
+      posthog.capture("scenario_saved", { type: "refinance" });
     } catch (e: any) {
       toast({
         title: "Couldn't save your loan",

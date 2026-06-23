@@ -317,6 +317,7 @@ export default function CashBuyPage() {
         // New scenario only (idx < 0 fires once): notify the assigned
         // agent (non-blocking, fire-and-forget).
         if (idx < 0) notifyNewScenario("Cash Buy", stamped.address, "Saved a cash buy scenario");
+        posthog.capture("scenario_saved", { type: "cash_buy" });
         if (isMountedRef.current) {
           setSaveStatus("saved");
           window.setTimeout(() => {

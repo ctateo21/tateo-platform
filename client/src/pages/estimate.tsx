@@ -1558,6 +1558,7 @@ export default function Estimate() {
         }),
       }).catch(err => console.warn("Failed to notify agent of new scenario:", err));
     }
+    posthog.capture("scenario_saved", { type: "purchase" });
   }
 
   // Share dialog.
