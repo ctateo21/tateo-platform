@@ -97,7 +97,7 @@ export default function HeroSection() {
           What is the full cost of this home?
         </h1>
         <p className="text-lg md:text-xl text-white/80 mb-10">
-          Enter any property address and instantly see your mortgage payment, insurance estimates, taxes, and whether you qualify.
+          Enter any Florida property address and instantly see the real cost — mortgage, taxes, insurance, and flood — before you sign anything.
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 max-w-xl mx-auto">
