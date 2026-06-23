@@ -18,7 +18,6 @@ import {
 } from "@/lib/insurance-policy-type";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { authedFetch } from "@/lib/authed-fetch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -552,27 +551,11 @@ export default function InsuranceDashboard() {
   const [floodZone, setFloodZone]             = useState<string>("");
   const [floodZoneSource, setFloodZoneSource] = useState<string>("");
 
-  // ── QuoteRUSH live quote state ───────────────────────────────────────────
-  const [liveQuotes, setLiveQuotes] = useState<Array<{
-    carrier: string;
-    policyType: string;
-    annualPremium: number;
-    monthlyPremium: number;
-    rank: number;
-  }>>([]);
-  const [liveQuotesLoading, setLiveQuotesLoading] = useState(false);
-  const [liveQuotesStatus, setLiveQuotesStatus] = useState<
-    "idle" | "loading" | "success" | "no_carriers" | "timeout" | "error"
-  >("idle");
-  const [liveQuotesElapsed, setLiveQuotesElapsed] = useState(0);
-
   // Re-hydrate factors when the active address changes (mirrors the
   // manual-premium / policy-type rehydration pattern above) so
   // switching between scenario tabs restores each property's saved
   // dropdown picks.
   useEffect(() => {
-    setLiveQuotes([]);
-    setLiveQuotesStatus("idle");
     const f = resolveFactorsFor(addressParam);
     setRoofIdx(f.roof);    setWindIdx(f.wind);    setHurrIdx(f.hurr);
     setConstIdx(f.cons);   setYearIdx(f.year);    setClaimsIdx(f.claims);
@@ -1109,71 +1092,6 @@ export default function InsuranceDashboard() {
 
   // ── Calculations ─────────────────────────────────────────────────────────
   const region = REGIONS[regionKey];
-
-  async function fetchLiveQuotes() {
-    if (!address || !rebuild) return;
-    setLiveQuotesLoading(true);
-    setLiveQuotesStatus("loading");
-    setLiveQuotesElapsed(0);
-
-    // Elapsed timer so the user sees progress.
-    const timer = setInterval(() => {
-      setLiveQuotesElapsed((prev) => prev + 1);
-    }, 1000);
-
-    try {
-      const payload = {
-        address,
-        coverageA: rebuild,
-        policyType: policyType || "HO3",
-        yearIdx,
-        constIdx,
-        roofIdx,
-        hurrIdx,
-        claimsIdx,
-        aopDeductible,
-        floodZone: floodZone || "X",
-      };
-
-      // Authenticated users get live carrier quotes (Supabase token attached
-      // via authedFetch); guests only import a lead.
-      const response = isAuthenticated
-        ? await authedFetch("/api/insurance/quoterush", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          })
-        : await fetch("/api/insurance/quoterush-lead", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-
-      const data = await response.json();
-
-      if (
-        !isAuthenticated ||
-        data.status === "no_carriers" ||
-        data.status === "timeout" ||
-        data.status === "error"
-      ) {
-        setLiveQuotesStatus(
-          isAuthenticated ? data.status || "error" : "no_carriers",
-        );
-        setLiveQuotes([]);
-      } else {
-        setLiveQuotes(data.quotes || []);
-        setLiveQuotesStatus("success");
-      }
-    } catch (err) {
-      console.error("[live-quotes] fetch error:", err);
-      setLiveQuotesStatus("error");
-      setLiveQuotes([]);
-    } finally {
-      clearInterval(timer);
-      setLiveQuotesLoading(false);
-    }
-  }
 
   const calc = useMemo(() => {
     // Anchor the midpoint to the shared 0.75%-of-value default so this
@@ -1826,170 +1744,6 @@ export default function InsuranceDashboard() {
                   </Card>
                 ))}
               </div>
-
-              {/* ── QuoteRUSH Live Carrier Quotes ── */}
-              <Card className="border shadow-sm">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="text-sm flex items-center gap-2">
-                        <Shield className="h-4 w-4 text-primary" />
-                        Live Carrier Quotes
-                      </CardTitle>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {liveQuotesStatus === "idle" &&
-                          "Get real-time rates from Florida carriers."}
-                        {liveQuotesStatus === "loading" &&
-                          `Querying carriers… ${liveQuotesElapsed}s`}
-                        {liveQuotesStatus === "success" &&
-                          `${liveQuotes.length} carrier${
-                            liveQuotes.length !== 1 ? "s" : ""
-                          } quoted · via Tateo & Co`}
-                        {liveQuotesStatus === "no_carriers" &&
-                          "No carriers available online — call us for a custom quote"}
-                        {liveQuotesStatus === "timeout" &&
-                          "Carriers taking longer than expected — try again in a moment"}
-                        {liveQuotesStatus === "error" &&
-                          "Quote request failed — call for a quote"}
-                      </p>
-                    </div>
-
-                    {liveQuotesStatus === "idle" && (
-                      <Button
-                        size="sm"
-                        onClick={fetchLiveQuotes}
-                        disabled={!address || !rebuild}
-                      >
-                        Get Real Quotes
-                      </Button>
-                    )}
-
-                    {(liveQuotesStatus === "no_carriers" ||
-                      liveQuotesStatus === "timeout" ||
-                      liveQuotesStatus === "error") && (
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={fetchLiveQuotes}
-                        >
-                          Retry
-                        </Button>
-                        <Button size="sm" asChild>
-                          <a href="tel:+18132148356">Call Us</a>
-                        </Button>
-                      </div>
-                    )}
-
-                    {liveQuotesStatus === "success" && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={fetchLiveQuotes}
-                      >
-                        Refresh
-                      </Button>
-                    )}
-                  </div>
-                </CardHeader>
-
-                <CardContent className="pt-0">
-                  {/* Loading state */}
-                  {liveQuotesLoading && (
-                    <div className="space-y-2">
-                      <div className="text-xs text-muted-foreground flex items-center gap-2 mb-3">
-                        <div className="h-3 w-3 rounded-full bg-primary/30 animate-pulse" />
-                        Contacting Florida insurance carriers. This takes 30–60
-                        seconds.
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
-                        <div
-                          className="h-full bg-primary transition-all duration-1000 rounded-full"
-                          style={{
-                            width: `${Math.min(
-                              (liveQuotesElapsed / 60) * 100,
-                              95,
-                            )}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Quote results */}
-                  {liveQuotesStatus === "success" && liveQuotes.length > 0 && (
-                    <div className="space-y-3">
-                      {liveQuotes.map((q, i) => (
-                        <div
-                          key={i}
-                          className={`flex items-center justify-between p-3 rounded-lg border ${
-                            i === 0
-                              ? "border-yellow-300 bg-yellow-50"
-                              : "border-border bg-muted/30"
-                          }`}
-                        >
-                          <div className="flex items-center gap-3">
-                            <span className="text-lg">
-                              {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}
-                            </span>
-                            <div>
-                              <div className="text-sm font-semibold">
-                                {q.carrier}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {q.policyType}
-                              </div>
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <div className="text-base font-bold font-mono text-primary">
-                              {new Intl.NumberFormat("en-US", {
-                                style: "currency",
-                                currency: "USD",
-                                maximumFractionDigits: 0,
-                              }).format(q.annualPremium)}
-                              /yr
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {new Intl.NumberFormat("en-US", {
-                                style: "currency",
-                                currency: "USD",
-                                maximumFractionDigits: 0,
-                              }).format(q.monthlyPremium)}
-                              /mo
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      <p className="text-[10px] text-muted-foreground text-center pt-1">
-                        Live carrier rates via Tateo &amp; Co · Tateo Insurance
-                        Corp · License #L132640 · Not a binding quote. Coverage
-                        not effective until confirmed by a licensed agent.
-                      </p>
-                    </div>
-                  )}
-
-                  {/* No carriers / fallback */}
-                  {(liveQuotesStatus === "no_carriers" ||
-                    liveQuotesStatus === "timeout") &&
-                    !liveQuotesLoading && (
-                      <div className="flex flex-col items-center gap-3 py-4 text-center">
-                        <p className="text-sm text-muted-foreground">
-                          This property needs a custom quote. Call or email Tateo
-                          &amp; Co for a personalized rate.
-                        </p>
-                        <div className="flex gap-2">
-                          <Button size="sm" variant="outline" asChild>
-                            <a href="tel:+18132148356">(813) 214-8356</a>
-                          </Button>
-                          <Button size="sm" variant="outline" asChild>
-                            <a href="mailto:christian@tateoco.com">Email Us</a>
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                </CardContent>
-              </Card>
 
               {/* Region insight */}
               <div className="flex gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
