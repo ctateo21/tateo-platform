@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/context/auth-context";
 import AuthDialog from "@/components/ui/auth-dialog";
+import havoLogo from "@assets/havo-logo.png";
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
@@ -97,11 +98,7 @@ export default function Header() {
       <div className="container mx-auto px-4 py-4 flex justify-between items-center">
         <div className="flex items-center">
           <Link href={user ? "/dashboard" : "/"} className="flex items-center">
-            <div className="bg-[#0F1B3D] px-3.5 py-2 rounded-lg mr-2">
-              <span className="text-white font-display font-extrabold text-lg leading-none tracking-tight">
-                havo<span className="text-primary">.</span>
-              </span>
-            </div>
+            <img src={havoLogo} alt="Havo" className="h-10 w-auto" />
           </Link>
         </div>
 
@@ -187,11 +184,7 @@ export default function Header() {
           </SheetTrigger>
           <SheetContent side="right" className="w-[300px] sm:w-[400px]">
             <div className="flex items-center mb-6">
-              <div className="bg-[#0F1B3D] px-3.5 py-2 rounded-lg mr-2">
-                <span className="text-white font-display font-extrabold text-lg leading-none tracking-tight">
-                  havo<span className="text-primary">.</span>
-                </span>
-              </div>
+              <img src={havoLogo} alt="Havo" className="h-10 w-auto" />
             </div>
 
             {/* Mobile user info */}
