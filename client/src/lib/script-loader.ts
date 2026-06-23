@@ -37,7 +37,7 @@ export async function loadGoogleMapsApi(apiKey: string): Promise<void> {
   }
   
   console.log('Loading Google Maps API with key:', apiKey.substring(0, 8) + '...');
-  const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initGoogleMapsCallback`;
+  const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async&callback=initGoogleMapsCallback`;
   
   return new Promise((resolve, reject) => {
     // Create a global callback function that Google Maps will call when loaded
