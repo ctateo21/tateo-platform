@@ -587,41 +587,132 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Lookup property by address
-  // Get insurance quote from Canopy Connect
-  app.post("/api/insurance/quote", async (req, res) => {
+  // ── Insurance: live QuoteRUSH carrier quotes ──────────────────────────────
+  // Shared index→value maps mirroring the insurance.tsx dropdowns.
+  const QR_YEAR_MAP = [2015, 1995, 1980, 1960];
+  const QR_CONST_MAP = ["CBS", "Mixed", "Frame"];
+  const QR_ROOF_MAP = [3, 8, 17, 25]; // years old
+  const QR_HURR_MAP = [2, 3, 5]; // percent
+
+  const quoteRushBodySchema = z.object({
+    address: z.string().min(5),
+    coverageA: z.number().positive(),
+    policyType: z.string().default("HO3"),
+    yearIdx: z.number().min(0).max(3).default(1),
+    constIdx: z.number().min(0).max(2).default(0),
+    roofIdx: z.number().min(0).max(3).default(1),
+    hurrIdx: z.number().min(0).max(2).default(0),
+    claimsIdx: z.number().min(0).max(3).default(0),
+    aopDeductible: z.number().default(2500),
+    floodZone: z.string().default("X"),
+  });
+
+  function buildQuoteRushParams(
+    body: z.infer<typeof quoteRushBodySchema>,
+    contact: { firstName: string; lastName: string; email: string; phone: string },
+  ) {
+    const parts = body.address.split(",").map((p) => p.trim());
+    const streetAddress = parts[0] || "";
+    const city = parts[1] || "";
+    const lastPart = parts[parts.length - 1] || "";
+    const stateZipMatch = lastPart.match(/([A-Z]{2})\s+(\d{5})/);
+    return {
+      address: body.address,
+      streetAddress,
+      city,
+      state: stateZipMatch?.[1] || "FL",
+      zip: stateZipMatch?.[2] || "",
+      coverageA: body.coverageA,
+      policyType: body.policyType,
+      yearBuilt: QR_YEAR_MAP[body.yearIdx] || 1995,
+      constructionType: QR_CONST_MAP[body.constIdx] || "CBS",
+      roofAge: QR_ROOF_MAP[body.roofIdx] || 8,
+      hurrDeductiblePct: QR_HURR_MAP[body.hurrIdx] || 2,
+      priorClaims: body.claimsIdx,
+      aopDeductible: body.aopDeductible,
+      floodZone: body.floodZone,
+      ...contact,
+    };
+  }
+
+  // Route A: full live quote (authenticated). Costs money per request.
+  app.post("/api/insurance/quoterush", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+
     try {
-      // Validate request body
-      const schema = z.object({
-        address: z.string().min(5),
-        placeId: z.string().optional(),
-        propertyType: z.string().optional(),
-        type: z.enum(['auto', 'property', 'other']).default('property')
+      const body = quoteRushBodySchema.parse(req.body);
+
+      // Supabase auth users keep their display name in user_metadata.
+      const u = user as any;
+      const fullName: string =
+        u.user_metadata?.full_name || u.user_metadata?.name || "";
+      const nameParts = fullName.split(" ").filter(Boolean);
+      const firstName = nameParts[0] || "Unknown";
+      const lastName = nameParts.slice(1).join(" ") || "Lead";
+      const email: string = u.email || "";
+      const phone: string = u.phone || "";
+
+      const params = buildQuoteRushParams(body, {
+        firstName,
+        lastName,
+        email,
+        phone,
       });
-      
-      const params = schema.parse(req.body);
-      
-      
-      // Create a form data object compatible with our schema
-      const formData: InsuranceFormData = {
-        type: params.type,
-        coverageAmount: params.type === 'property' ? "$500,000" : "$100,000",
-        address: params.address,
-        placeId: params.placeId,
-        propertyType: (params.propertyType as InsuranceFormData["propertyType"]) || 'primary',
-        notes: ""
-      };
-      
-      // Process the insurance quote
-      const quote = await canopyConnectIntegration(formData);
-      
-      res.json(quote);
-    } catch (error) {
-      console.error("Error getting insurance quote:", error);
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid parameters", errors: error.format() });
+
+      const result = await getQuoteRushQuotes(params);
+
+      // Fire FUB notification non-blocking.
+      createFollowUpBossContact({
+        firstName,
+        lastName,
+        email,
+        phone,
+        address: body.address,
+        agent: "Christian Tateo",
+        scenarioDetails:
+          `Insurance quote requested: ${body.address}` +
+          ` · Coverage A: $${body.coverageA.toLocaleString()}` +
+          ` · Zone: ${body.floodZone}` +
+          ` · Quotes: ${result.quotes.length} carriers returned`,
+        referral: "",
+      }).catch((err) =>
+        console.error("[FUB] insurance quote notify failed:", err),
+      );
+
+      res.json(result);
+    } catch (err: any) {
+      console.error("[/api/insurance/quoterush] error:", err);
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({
+          message: "Invalid parameters",
+          errors: err.format(),
+        });
       }
-      res.status(500).json({ message: "An error occurred while getting insurance quote" });
+      res.status(500).json({
+        status: "error",
+        quotes: [],
+        message: err?.message || "An error occurred",
+      });
+    }
+  });
+
+  // Route B: lead import only (anonymous). Free, no live quotes.
+  app.post("/api/insurance/quoterush-lead", async (req, res) => {
+    try {
+      const body = quoteRushBodySchema.parse(req.body);
+      const params = buildQuoteRushParams(body, {
+        firstName: "Havo",
+        lastName: "Lead",
+        email: "lead@havofl.com",
+        phone: "",
+      });
+
+      const result = await importLeadOnly(params);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[quoterush-lead] error:", err);
+      res.status(500).json({ success: false });
     }
   });
 
