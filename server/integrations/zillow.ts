@@ -55,8 +55,6 @@ export async function searchProperties(params: ZillowSearchParams, apiKey: strin
   // In a real implementation, this would make an API call to Zillow
   // using the provided API key and search parameters
   
-  console.log('Searching Zillow with params:', params);
-  console.log('Using API key:', apiKey);
   
   // For demonstration purposes, return mock data
   return generateMockProperties(params);
@@ -69,8 +67,6 @@ export async function getPropertyDetails(propertyId: string, apiKey: string): Pr
   // In a real implementation, this would make an API call to Zillow
   // to get detailed information about a specific property
   
-  console.log('Getting property details for ID:', propertyId);
-  console.log('Using API key:', apiKey);
   
   // For demonstration purposes, return mock data
   const mockProperties = generateMockProperties({ location: '' });
@@ -84,8 +80,6 @@ export async function getRecommendedProperties(userId: string, apiKey: string): 
   // In a real implementation, this would make an API call to Zillow
   // to get property recommendations based on user preferences
   
-  console.log('Getting recommended properties for user:', userId);
-  console.log('Using API key:', apiKey);
   
   // For demonstration purposes, return mock data
   return generateMockProperties({ location: '' }).slice(0, 3);

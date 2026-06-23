@@ -99,10 +99,6 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
   if (!userId || !normalizedPropertyKey || !isPositive(newValue)) return;
   if (_syncInFlight) return;
 
-  console.log("[property-value-sync] source tab", { tab: sourceTab });
-  console.log("[property-value-sync] user id", { userId });
-  console.log("[property-value-sync] normalized property key", { key: normalizedPropertyKey });
-  console.log("[property-value-sync] new value", { value: newValue });
 
   _syncInFlight = true;
   try {
@@ -127,23 +123,14 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
     const matchInsurance = insurances.find(i =>
       keyOf(i.address) === normalizedPropertyKey);
 
-    console.log("[property-value-sync] matching purchase found", { found: !!matchPurchase });
-    console.log("[property-value-sync] matching cash buy found", { found: !!matchCash });
-    console.log("[property-value-sync] matching refinance found", { found: !!matchLoan });
-    console.log("[property-value-sync] matching seller found", { found: !!matchSeller });
-    console.log("[property-value-sync] matching insurance found", { found: !!matchInsurance });
 
     // ── Purchase-with-Loan ────────────────────────────────────────
     if (sourceTab !== "purchase" && matchPurchase) {
       if (matchPurchase.priceSource === "manual") {
-        console.log("[property-value-sync] skipped manual override", {
-          table: "purchase_scenarios", field: "price",
-        });
       } else if (matchPurchase.price !== newValue) {
         const next = purchases.map(p =>
           p.id === matchPurchase.id ? { ...p, price: newValue } : p);
         savePurchaseScenarios(next);
-        console.log("[property-value-sync] updated table", { table: "purchase_scenarios", id: matchPurchase.id });
       }
     }
 
@@ -152,9 +139,6 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
       // Manual-override protection: skip when the user has explicitly
       // set the cash-buy price (purchasePriceSource === "user").
       if (matchCash.purchasePriceSource === "user") {
-        console.log("[property-value-sync] skipped manual override", {
-          table: "cash_buy_scenarios", field: "purchase_price",
-        });
       } else if (matchCash.purchasePrice !== newValue) {
         const next = cashBuys.map(c =>
           c.id === matchCash.id
@@ -165,32 +149,24 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
             ? { ...c, purchasePrice: newValue }
             : c);
         saveCashBuyScenarios(next);
-        console.log("[property-value-sync] updated table", { table: "cash_buy_scenarios", id: matchCash.id });
       }
     }
 
     // ── Refinance / tracked_loans ────────────────────────────────
     if (sourceTab !== "refinance" && matchLoan) {
       if (matchLoan.estimatedHomeValueSource === "manual") {
-        console.log("[property-value-sync] skipped manual override", {
-          table: "tracked_loans", field: "estimated_home_value",
-        });
       } else if (matchLoan.estimatedHomeValue !== newValue) {
         const next = loans.map(l =>
           l.id === matchLoan.id
             ? { ...l, estimatedHomeValue: newValue, estimatedHomeValueSource: "synced" as const }
             : l);
         saveTrackedLoans(next).catch(() => { /* persist error already toasted */ });
-        console.log("[property-value-sync] updated table", { table: "tracked_loans", id: matchLoan.id });
       }
     }
 
     // ── Sell-Your-Home ───────────────────────────────────────────
     if (sourceTab !== "seller" && matchSeller) {
       if (matchSeller.estimatedSalePriceSource === "manual") {
-        console.log("[property-value-sync] skipped manual override", {
-          table: "seller_scenarios", field: "estimated_sale_price",
-        });
       } else if (matchSeller.estimatedSalePrice !== newValue) {
         const pct = matchSeller.sellerClosingCostsPercent;
         const newClosing =
@@ -211,10 +187,6 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
         };
         const next = sellers.map(s => s.id === matchSeller.id ? stamped : s);
         saveSellerScenarios(next);
-        console.log("[property-value-sync] updated table", { table: "seller_scenarios", id: matchSeller.id });
-        console.log("[property-value-sync] recalculated values", {
-          table: "seller_scenarios", sellerClosingCosts: newClosing,
-        });
       }
     }
 
@@ -237,14 +209,8 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
       const writeCoverageA = matchInsurance.coverageASource !== "manual";
 
       if (!writePremium) {
-        console.log("[property-value-sync] skipped manual override", {
-          table: "insurance_scenarios", field: "annual_premium",
-        });
       }
       if (!writeCoverageA) {
-        console.log("[property-value-sync] skipped manual override", {
-          table: "insurance_scenarios", field: "coverage_a",
-        });
       }
 
       const premiumChanged   = writePremium    && matchInsurance.annualPremium !== annual;
@@ -265,25 +231,13 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
           return updated;
         });
         void saveInsuranceScenarios(next).catch(() => { /* persist error already toasted */ });
-        console.log("[property-value-sync] updated table", { table: "insurance_scenarios", id: matchInsurance.id });
         if (premiumChanged) {
-          console.log("[property-value-sync] recalculated insurance premium", {
-            annual, monthly: Math.round((annual / 12) * 100) / 100,
-            policyType: matchInsurance.policyType ?? null,
-            coverageMultiplier,
-          });
         }
         if (coverageAChanged) {
-          console.log("[property-value-sync] synced insurance coverage A", {
-            coverageA: syncedCoverageA,
-            policyType: matchInsurance.policyType ?? null,
-            coverageMultiplier,
-          });
         }
       }
     }
 
-    console.log("[property-value-sync] save ok");
   } catch (err: any) {
     console.error("[property-value-sync] save error", { message: err?.message ?? String(err) });
   } finally {

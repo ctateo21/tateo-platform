@@ -18,3 +18,11 @@ logs and confirm the changed files show `[vite] hot updated: /src/...` with no
 `Transform failed` / `Pre-transform error` / `Failed to compile`. That is the
 practical compiler check here. Reserve full tsc for when you truly suspect a
 type regression and can afford the wait.
+
+**tsconfig fact (matters for deletions):** `tsconfig.json` sets `strict: true` but
+NOT `noUnusedLocals` / `noUnusedParameters`. So removing code (e.g. stripping
+`console.log` lines) cannot create "declared but never read" errors — a variable
+left unused by a deletion is fine. To prove a removal-only change is type-clean
+without a full tsc, parse each changed file with the TS API
+(`ts.createSourceFile(..., true)` and check `sf.parseDiagnostics`) — that catches
+the only real risk (syntax breakage like a dangling braceless `else`).

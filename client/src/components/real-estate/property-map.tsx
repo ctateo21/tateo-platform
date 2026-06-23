@@ -63,9 +63,6 @@ export default function PropertyMap({ apiKey }: PropertyMapProps) {
   const handleSearch = async () => {
     try {
       // This triggers a search with the Zillow API using the searchQuery
-      console.log('Searching for:', searchQuery);
-      console.log('Price range:', priceRange);
-      console.log('Bedrooms:', bedrooms);
       
       // Make API call to our backend, which will call Zillow API
       const response = await fetch('/api/properties/search', {
@@ -87,7 +84,6 @@ export default function PropertyMap({ apiKey }: PropertyMapProps) {
       }
       
       const data = await response.json();
-      console.log('Search results:', data.properties);
       
       // In a real implementation, you would update the map with the results
       setIsMapLoaded(true);
@@ -102,7 +98,6 @@ export default function PropertyMap({ apiKey }: PropertyMapProps) {
   const handleDrawArea = () => {
     // Toggle drawing mode on the map
     setIsDrawingMode(!isDrawingMode);
-    console.log('Draw area mode:', !isDrawingMode ? 'activated' : 'deactivated');
     
     // In a real implementation with Zillow's mapping API, this would enable drawing tools
     // For example:

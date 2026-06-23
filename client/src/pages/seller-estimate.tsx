@@ -485,21 +485,11 @@ export default function SellerEstimatePage() {
           netProceeds: calc.estimatedNetProceeds,
           estimatedTaxesDue: calc.estimatedTaxesDue,
         };
-        console.log("[seller-save] scenario id", stamped.id);
-        console.log("[seller-save] address", stamped.address);
-        console.log("[seller-save] estimated sale price", stamped.estimatedSalePrice ?? 0);
-        console.log("[seller-save] closing costs", stamped.sellerClosingCosts ?? 0);
-        console.log("[seller-save] mortgage payoff", stamped.mortgagePayoff ?? 0);
-        console.log("[seller-save] estimated taxes due", stamped.estimatedTaxesDue ?? 0);
-        console.log("[seller-save] estimated net proceeds", stamped.netProceeds ?? 0);
-        console.log("[seller-payoff-save] source", stamped.mortgagePayoffSource ?? "(none)");
-        console.log("[seller-payoff-save] value", stamped.mortgagePayoff ?? 0);
         const idx = all.findIndex(s => s.id === stamped.id);
         const next = idx >= 0
           ? all.map(s => s.id === stamped.id ? stamped : s)
           : [stamped, ...all];
         saveSellerScenarios(next);
-        console.log("[seller-save] save ok");
         // New scenario only (idx < 0 fires once): notify the assigned
         // agent (non-blocking, fire-and-forget).
         if (idx < 0) notifyNewScenario("Seller Estimate", stamped.address, "Saved a seller estimate scenario");
@@ -602,8 +592,6 @@ export default function SellerEstimatePage() {
       },
       updatedAt: new Date().toISOString(),
     }));
-    console.log("[seller-payoff-save] source", "statement");
-    console.log("[seller-payoff-save] value", s.balance);
     toast({
       title: "Mortgage balance updated",
       description: `Pulled ${formatCurrency(s.balance)} from your statement.`,
@@ -639,8 +627,6 @@ export default function SellerEstimatePage() {
       mortgageStatementMetadata: undefined,
       updatedAt: new Date().toISOString(),
     }));
-    console.log("[seller-payoff-save] source", nextSource);
-    console.log("[seller-payoff-save] value", R.value);
     toast({
       title: "Mortgage payoff recalculated",
       description: nextSource === "refinance"
@@ -1559,9 +1545,6 @@ function MarketAnalysisSection({
   useEffect(() => {
     if (!userId) return;
     if (!marketAnalysisAllowed) {
-      console.log("[market-analysis] skipped because seller status is draft", {
-        scenarioId: scenario.id, status: scenario.status,
-      });
       return;
     }
     const key = `${scenario.id}::${userId}::${scenario.status}`;

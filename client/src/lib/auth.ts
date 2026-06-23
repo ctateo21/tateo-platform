@@ -1259,7 +1259,6 @@ function cashBuyToRow(s: CashBuyScenario, userId: string) {
   };
 }
 function rowToTrackedLoan(row: any): TrackedLoan {
-  console.log("[refi-load] loaded loan_type", { id: row.id, loan_type: row.loan_type });
   return {
     id: row.id,
     propertyAddress: row.property_address,
@@ -1360,7 +1359,6 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
       ? { home_equity_borrow_amount: l.homeEquityBorrowAmount }
       : {}),
   };
-  console.log("[refi-save] tracked_loans payload loan_type", { loanId: l.id, loan_type: row.loan_type });
   return row;
 }
 
@@ -1449,13 +1447,6 @@ async function loadScenarios(userId: string) {
     _sellerScenarios = [];
   } else {
     _sellerScenarios = (sRes.data ?? []).map(rowToSeller);
-    console.log("[seller-load] ok", {
-      table: "seller_scenarios",
-      userId,
-      count: _sellerScenarios.length,
-      ids: _sellerScenarios.map(s => s.id),
-      addresses: _sellerScenarios.map(s => s.address),
-    });
   }
   _trackedLoans      = (lRes.data ?? []).map(rowToTrackedLoan);
 }
@@ -1548,7 +1539,6 @@ async function hydrateFromSupabase() {
     createdAt: session.user.created_at ?? new Date().toISOString(),
   };
 
-  console.log("[auth-profile-load] user id", session.user.id);
   let profile = await loadProfile(session.user.id);
   if (!profile) {
     // Try to create the row (first sign-in, or trigger not yet installed).
@@ -1581,9 +1571,6 @@ async function hydrateFromSupabase() {
         ...(needsName ? { name: fallback.name } : {}),
       }).eq("id", session.user.id);
     }
-    console.log("[auth-profile-load] email present", Boolean(profile.email));
-    console.log("[auth-profile-load] phone present", Boolean(profile.phone));
-    console.log("[auth-profile-load] name present", Boolean(profile.name));
   }
   _session = profile ?? fallback;
 
@@ -1657,16 +1644,12 @@ export async function updateProfileContact(
   if (emailChanged) patch.email = email;
   if (Object.keys(patch).length === 0) return { ok: true };
 
-  console.log("[profile-save] user id", id);
-  console.log("[profile-save] email present", Boolean(email || _session.email));
-  console.log("[profile-save] phone present", Boolean(phone));
   try {
     const { error } = await supabase.from("profiles").update(patch).eq("id", id);
     if (error) {
       console.warn("[profile-save] profile saved error", error.message);
       return { ok: false, error: error.message };
     }
-    console.log("[profile-save] profile saved ok");
     // Mirror name/phone into auth metadata so they survive a fresh session
     // restore too. (Email is managed by Supabase auth itself, so skip it here.)
     try {
@@ -1698,11 +1681,6 @@ export async function register(
   if (!supabaseReady) return NOT_CONFIGURED;
   const cleanEmail = email.toLowerCase().trim();
   const cleanPhone = opts?.phone?.trim() || "";
-  console.log("[free-signup] started");
-  console.log("[free-signup] email", cleanEmail);
-  console.log("[free-signup] phone present", cleanPhone.length > 0);
-  console.log("[auth-signup] email valid", EMAIL_RE.test(cleanEmail));
-  console.log("[auth-signup] phone present", cleanPhone.length > 0);
   const { data, error } = await supabase.auth.signUp({
     email: cleanEmail,
     password,
@@ -1719,12 +1697,7 @@ export async function register(
   if (!data.session) {
     return { ok: false, error: "Check your email to confirm your account, then sign in." };
   }
-  console.log("[free-signup] auth user created");
-  console.log("[auth-signup] supabase user created");
   await hydrateFromSupabase();
-  console.log("[free-signup] profile saved");
-  console.log("[auth-signup] profile saved");
-  console.log("[auth-signup] password not stored in public tables");
   void notifyAccountEvent("account_created");
   return { ok: true };
 }
@@ -1732,15 +1705,12 @@ export async function register(
 export async function login(email: string, password: string): Promise<{ ok: boolean; error?: string }> {
   if (!supabaseReady) return NOT_CONFIGURED;
   const cleanEmail = email.toLowerCase().trim();
-  console.log("[auth-login] email login attempted");
   const { error } = await supabase.auth.signInWithPassword({
     email: cleanEmail,
     password,
   });
   if (error) return { ok: false, error: error.message };
   await hydrateFromSupabase();
-  console.log("[login] successful");
-  console.log("[auth-login] success");
   void notifyAccountEvent("account_signed_in");
   console.log("[auth-login] fub sign-in notification sent");
   return { ok: true };
@@ -1822,7 +1792,6 @@ export async function requestPasswordReset(
   email: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const cleanEmail = email.toLowerCase().trim();
-  console.log("[auth-forgot-password] reset requested");
   if (!cleanEmail.match(EMAIL_RE)) {
     return { ok: false, error: "Please enter a valid email address." };
   }
@@ -1834,10 +1803,8 @@ export async function requestPasswordReset(
     (import.meta.env.VITE_PUBLIC_SITE_URL as string | undefined)?.trim() ||
     window.location.origin;
   const redirectTo = `${siteUrl.replace(/\/$/, "")}/reset-password`;
-  console.log("[auth-forgot-password] redirectTo", redirectTo);
   try {
     await supabase.auth.resetPasswordForEmail(cleanEmail, { redirectTo });
-    console.log("[auth-forgot-password] email sent or generic success");
   } catch {
     // Swallow — never reveal whether the address exists.
     console.log("[auth-forgot-password] error");
@@ -1851,17 +1818,14 @@ export async function requestPasswordReset(
 export async function completePasswordReset(
   newPassword: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  console.log("[auth-reset-password] update started");
   if (!supabaseReady) return NOT_CONFIGURED;
   if (newPassword.length < 6) {
     return { ok: false, error: "Password must be at least 6 characters." };
   }
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) {
-    console.log("[auth-reset-password] update error");
     return { ok: false, error: error.message };
   }
-  console.log("[auth-reset-password] update success");
   return { ok: true };
 }
 
@@ -2314,13 +2278,6 @@ function persistSellerScenarios(s: SellerScenario[]) {
         for (const col of Array.from(stripped)) delete row[col];
         return row;
       });
-      console.log("[seller-save] upsert", {
-        table: "seller_scenarios",
-        userId,
-        count: s.length,
-        ids: s.map(x => x.id),
-        addresses: s.map(x => x.address),
-      });
       let lastErr: string | null = null;
       let upDataCount = 0;
       for (let attempt = 0; attempt <= SELLER_OPTIONAL_COLUMNS.length; attempt++) {
@@ -2351,7 +2308,6 @@ function persistSellerScenarios(s: SellerScenario[]) {
       if (lastErr) {
         notifyError({ table: "seller_scenarios", message: lastErr });
       } else {
-        console.log("[seller-save] upsert ok", { saved: upDataCount, stripped: Array.from(stripped) });
       }
     }
   });
@@ -2523,11 +2479,8 @@ function autoCreateInsuranceFromAddresses(
   addresses: BulkAddress[],
 ): void {
   if (!_session?.id) {
-    console.log("[insurance-auto-create] skipped reason", { reason: "no_auth" });
-    console.log("[policy-type-sync] user id", { userId: null });
     return;
   }
-  console.log("[policy-type-sync] user id", { userId: _session.id });
   if (addresses.length === 0) return;
   const { scenarios, changed } = ensureInsuranceForAddresses(
     addresses,
@@ -2602,11 +2555,6 @@ function persistTrackedLoans(loans: TrackedLoan[]) {
           .from("tracked_loans")
           .upsert(rows, { onConflict: "id" });
         if (!upErr) {
-          console.log("[refi-save] upsert ok loan_type", {
-            count: rows.length,
-            loan_types: rows.map(r => r.loan_type).filter(Boolean),
-            stripped: Array.from(stripped),
-          });
           lastErr = null;
           break;
         }

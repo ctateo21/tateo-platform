@@ -73,7 +73,6 @@ export async function getOrFetchRealtorComps(args: {
   const radius = 0; // scraper currently searches by ZIP only
 
   if (!zip) {
-    console.log("[realtor-cache] skipping — no ZIP in address");
     return {
       ...emptyResult(),
       source: "missing",
@@ -83,7 +82,6 @@ export async function getOrFetchRealtorComps(args: {
   }
 
   const cacheKey = buildCacheKey({ zip, propertyType, radius, weekOf: cycle.weekOfStr });
-  console.log("[realtor-cache] lookup key", { cacheKey });
 
   // ── 1. Try the cache ────────────────────────────────────────────────
   if (supabaseAdmin && !args.forceRefresh) {
@@ -102,12 +100,6 @@ export async function getOrFetchRealtorComps(args: {
       const cooledDown = row.status === "error" ? ageMs >= ERROR_RETRY_COOLDOWN_MS : false;
 
       if (isCurrentCycle && row.status === "success") {
-        console.log("[realtor-cache] hit", { cacheKey, status: row.status, ageMinutes: Math.round(ageMs / 60000) });
-        console.log("[realtor-cache] using cached results", {
-          active: row.active_comps?.length ?? 0,
-          pending: row.pending_comps?.length ?? 0,
-          sold: row.sold_comps?.length ?? 0,
-        });
         const active = Array.isArray(row.active_comps) ? row.active_comps : [];
         const pending = Array.isArray(row.pending_comps) ? row.pending_comps : [];
         const sold = Array.isArray(row.sold_comps) ? row.sold_comps : [];
@@ -123,7 +115,6 @@ export async function getOrFetchRealtorComps(args: {
       }
       if (isCurrentCycle && row.status === "empty") {
         // Honest empty for this cycle — don't re-scrape until next Friday.
-        console.log("[realtor-cache] hit (empty)", { cacheKey });
         return {
           ...emptyResult(),
           source: "cache",
@@ -133,10 +124,6 @@ export async function getOrFetchRealtorComps(args: {
       }
       if (isCurrentCycle && row.status === "error" && !cooledDown) {
         // Recent failure — back off until the cooldown expires.
-        console.log("[realtor-cache] hit (error, cooling down)", {
-          cacheKey,
-          minutesUntilRetry: Math.max(0, Math.round((ERROR_RETRY_COOLDOWN_MS - ageMs) / 60000)),
-        });
         return {
           ...emptyResult(),
           errorMessage: row.error_message || null,
@@ -145,14 +132,7 @@ export async function getOrFetchRealtorComps(args: {
           weekOf: cycle.weekOfStr,
         };
       }
-      console.log("[realtor-cache] stale", {
-        cacheKey,
-        savedWeek: row.cache_week_of,
-        currentWeek: cycle.weekOfStr,
-        status: row.status,
-      });
     } else {
-      console.log("[realtor-cache] miss", { cacheKey });
     }
   }
 
@@ -168,11 +148,6 @@ export async function getOrFetchRealtorComps(args: {
     scraped.errorMessage = e?.message || String(e);
     console.warn("[realtor-scraper] threw:", scraped.errorMessage);
   }
-  console.log("[realtor-scraper] results count", {
-    active: scraped.active.length,
-    pending: scraped.pending.length,
-    sold: scraped.sold.length,
-  });
 
   // ── 3. Persist (success | empty | error) ───────────────────────────
   const status: "success" | "empty" | "error" =
@@ -211,14 +186,12 @@ export async function getOrFetchRealtorComps(args: {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
-    console.log("[realtor-cache] saving results", { cacheKey, status, total: scraped.total });
     const { error: upsertErr } = await supabaseAdmin
       .from("realtor_market_cache")
       .upsert(row, { onConflict: "cache_key" });
     if (upsertErr) {
       console.warn("[realtor-cache] save failed:", upsertErr.message);
     } else {
-      console.log("[realtor-cache] save ok", { cacheKey });
     }
   }
 

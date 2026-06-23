@@ -460,12 +460,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // For development: Use mock reviews since we're having issues with the Google Places API
       // In production, uncomment the fetchGoogleReviews() line and remove the getMockReviews() line
-      console.log("Using mock reviews for development");
       // const reviews = await fetchGoogleReviews();
       const reviews = getMockReviews();
       
       if (reviews && reviews.length > 0) {
-        console.log(`Successfully fetched ${reviews.length} Google reviews for Havo`);
         return res.json({ 
           success: true, 
           reviews,
@@ -602,7 +600,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const params = schema.parse(req.body);
       
-      console.log("Processing Canopy Connect integration with data:", params);
       
       // Create a form data object compatible with our schema
       const formData: InsuranceFormData = {
@@ -672,7 +669,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         streetAddress = streetMatch[1].trim();
       }
       
-      console.log(`Address lookup: ${streetAddress}, ${city}, ${state} ${zipcode}`);
       
       // Two pricing strategies:
       // 1. If we have a Zillow API key, try to get real property data
@@ -686,7 +682,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         try {
           // This is where we would make a real API call to Zillow
           // For now, this is just a placeholder for future implementation
-          console.log("Would call Zillow API with key:", zillowApiKey);
           
           // If the real API integration was implemented, we'd use the response here
           // For now, we'll fall back to our simulation logic below
@@ -901,7 +896,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const token = process.env.TWILIO_AUTH_TOKEN;
     const from  = process.env.TWILIO_PHONE_NUMBER;
     if (!sid || !token || !from) {
-      console.log(`[DEV] SMS to ${to}: ${body}`);
       return;
     }
     const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
@@ -935,7 +929,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.json({ ok: true, smsEnabled: true });
       } else {
         // Twilio not configured — skip SMS, return auto-verify code so frontend can bypass the step
-        console.log(`[DEV] SMS to ${e164}: ${code}`);
         res.json({ ok: true, smsEnabled: false, autoCode: code });
       }
     } catch (err: any) {
@@ -1728,15 +1721,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       cacheKey = normalizedKey
         ?? `addr:raw:${addressOrUrl.toLowerCase().replace(/\s+/g, " ").trim()}`;
     }
-    console.log(`[zillow-lookup] input=${JSON.stringify(addressOrUrl)} cacheKey=${cacheKey}`);
 
     // 1. Cache check (only if Supabase admin is configured). Successful
     // entries are served regardless of age — see header comment.
-    console.log(`[zillow-photos] flow lookup key=${cacheKey}`);
     let cachedNormalized: any = null;
     if (supabaseAdmin) {
       try {
-        console.log(`[zillow-photos] cache lookup key=${cacheKey}`);
         const { data: cached } = await supabaseAdmin
           .from("property_cache")
           .select("normalized, fetched_at")
@@ -1749,8 +1739,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const cachedPhotosCount = Array.isArray((cached.normalized as any).photos)
             ? (cached.normalized as any).photos.length
             : 0;
-          console.log(`[zillow-lookup] cache HIT key=${cacheKey} ageHours=${ageMs != null ? (ageMs / 3_600_000).toFixed(1) : "?"}`);
-          console.log(`[zillow-photos] cache hit photos count=${cachedPhotosCount}`);
           // Photo back-fill: if the cached normalized blob has photos
           // already, serve immediately. Otherwise fall through and
           // re-scrape — old cache entries from before the photo-fix
@@ -1759,10 +1747,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return res.json({ cached: true, property: cached.normalized });
           }
           cachedNormalized = cached.normalized;
-          console.log(`[zillow-photos] cache hit had 0 photos — re-scraping for photos`);
         } else {
-          console.log(`[zillow-lookup] cache MISS key=${cacheKey}`);
-          console.log(`[zillow-photos] cache miss key=${cacheKey}`);
         }
       } catch (e: any) {
         console.warn("[zillow-lookup] cache read failed:", e?.message);
@@ -1771,12 +1756,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     // 2. Live Apify call — deduped by cacheKey so two concurrent requests
     // for the same property share one Apify run.
-    console.log(`[zillow-photos] running Zillow scrape key=${cacheKey}`);
     let property: PropertyScenario;
     try {
       let inFlight = inFlightZillow.get(cacheKey);
       if (inFlight) {
-        console.log(`[zillow-lookup] joining in-flight scrape for key=${cacheKey}`);
       } else {
         inFlight = fetchZillowProperty(addressOrUrl);
         inFlightZillow.set(cacheKey, inFlight);
@@ -1796,7 +1779,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .catch(() => {});
       }
       property = await inFlight;
-      console.log(`[zillow-photos] normalized photo count=${(property.photos ?? []).length}`);
       // Data safety: if the fresh scrape returned 0 photos but the
       // existing cache row had some, preserve the cached photos so we
       // don't blank out a good record because of a one-off scrape miss.
@@ -1806,7 +1788,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         Array.isArray((cachedNormalized as any).photos) &&
         (cachedNormalized as any).photos.length > 0
       ) {
-        console.log(`[zillow-photos] preserving ${(cachedNormalized as any).photos.length} cached photos over empty fresh result`);
         property.photos = (cachedNormalized as any).photos;
       }
     } catch (e: any) {
@@ -1823,7 +1804,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // 3. Write-through cache (best-effort; never block the response).
     // Only successful scrapes are cached.
     if (supabaseAdmin) {
-      console.log(`[zillow-photos] saving to property cache key=${cacheKey} photos=${(property.photos ?? []).length}`);
       void Promise.resolve(
         supabaseAdmin
           .from("property_cache")
@@ -1838,7 +1818,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           )
           .then(({ error }) => {
             if (error) console.warn("[zillow-lookup] cache write failed:", error.message);
-            else console.log(`[zillow-lookup] cache WRITE key=${cacheKey} sold=${property.isSold ?? false}`);
           })
       )
         // Fire-and-forget: a transport-level rejection here must not become
@@ -1887,7 +1866,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!body.listingId || !body.address) {
         return res.status(400).json({ error: "listingId and address are required" });
       }
-      console.log("[market-analysis] seller scenario id", { listingId: body.listingId, userId: verifiedUserId });
 
       // Status gate: Market Analysis only runs for scenarios that are
       // actually being marketed. We trust the DB, not the client body,
@@ -1903,9 +1881,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const sellerStatus = (statusRow?.status ?? null) as string | null;
       const allowedStatus = sellerStatus === "ready_to_list" || sellerStatus === "listed";
       if (!allowedStatus) {
-        console.log("[market-analysis] skipped because seller status is draft", {
-          listingId: body.listingId, status: sellerStatus,
-        });
         return res.json({ analysis: null, generating: false, skipped: true, reason: "draft_status" });
       }
 
@@ -1919,7 +1894,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isAdmin = adminEmails.length > 0 && adminEmails.includes(callerEmail);
       const honorForceRefresh = !!body.forceRefresh && isAdmin;
       if (body.forceRefresh && !isAdmin) {
-        console.log("[market-analysis] forceRefresh ignored (non-admin caller)", { callerEmail });
       }
 
       // Enrich the listing input with cached Zillow property data when we
@@ -2142,7 +2116,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Free access mode: payment enforcement is bypassed for every signed-in
     // user. Stripe is not contacted; the code below is preserved for paid mode.
     if (FREE_ACCESS_MODE) {
-      console.log("[stripe] payment enforcement bypassed because free access mode");
       return res.json({ active: true, status: "free_access" });
     }
     // Comped accounts skip Stripe entirely and always read as active.

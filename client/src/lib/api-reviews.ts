@@ -20,7 +20,6 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     // Always parse the response, even if it's not a 200 status code
     // as our API returns useful error information
     const data: GoogleReviewsResponse = await response.json();
-    console.log('Reviews data from API:', data);
     
     // Check if the request was successful
     if (data.success === false) {

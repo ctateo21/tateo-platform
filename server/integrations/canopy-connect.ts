@@ -8,7 +8,6 @@ export async function canopyConnectIntegration(formData: InsuranceFormData) {
     // In a real implementation, we would make API calls to Canopy Connect
     // For this MVP, we'll simulate the integration
     
-    console.log("Processing Canopy Connect integration with data:", formData);
     
     // Simulate API response delay
     await new Promise(resolve => setTimeout(resolve, 600));

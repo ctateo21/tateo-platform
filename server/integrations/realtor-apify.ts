@@ -169,12 +169,10 @@ export async function scrapeRealtorCompsForListing(args: {
 }): Promise<RealtorScrapeResult> {
   const zip = args.zip || extractZip(args.address);
   if (!zip) {
-    console.log("[market-data] Realtor.com scraper skipped — no ZIP in address");
     return { ...EMPTY };
   }
   const cap = args.maxItems ?? 20;
 
-  console.log("[market-data] running Realtor.com scraper memo23/realtor-search-cheerio", { zip, cap });
 
   // Run active first; sold/pending best-effort (the actor may or may not
   // honor the /show-pending and /show-recently-sold filters depending on
@@ -193,11 +191,6 @@ export async function scrapeRealtorCompsForListing(args: {
 
     result.total = result.active.length + result.pending.length + result.sold.length;
     result.ok = result.total > 0;
-    console.log("[market-data] Realtor.com scraper results count", {
-      active: result.active.length,
-      pending: result.pending.length,
-      sold: result.sold.length,
-    });
   } catch (err: any) {
     result.errorMessage = err?.message || String(err);
     console.warn("[market-data] Realtor.com scraper failed:", result.errorMessage);

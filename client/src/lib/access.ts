@@ -7,5 +7,4 @@
 export const FREE_ACCESS_MODE = true;
 
 if (FREE_ACCESS_MODE && typeof window !== "undefined") {
-  console.log("[access-mode] free access mode enabled");
 }

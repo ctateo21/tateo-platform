@@ -26,7 +26,6 @@ interface TaxEstimateResult {
  */
 export async function getHillsboroughTaxEstimate(params: TaxEstimateParams): Promise<TaxEstimateResult> {
   try {
-    console.log('Starting Hillsborough County tax calculation with:', params);
     
     const propertyValue = params.propertyValue;
     const isHomestead = params.isPrimaryResidence;
@@ -56,12 +55,6 @@ export async function getHillsboroughTaxEstimate(params: TaxEstimateParams): Pro
         const calculatedAnnual = +(propertyValue * baseRate).toFixed(2);
         const calculatedMonthly = +(calculatedAnnual / 12).toFixed(2);
         
-        console.log('Tax calculation details (Homestead):', {
-          propertyValue,
-          baseRate,
-          calculatedAnnual,
-          calculatedMonthly
-        });
         
         return {
           annualTaxAmount: calculatedAnnual,
@@ -91,12 +84,6 @@ export async function getHillsboroughTaxEstimate(params: TaxEstimateParams): Pro
         const calculatedAnnual = +(propertyValue * baseRate).toFixed(2);
         const calculatedMonthly = +(calculatedAnnual / 12).toFixed(2);
         
-        console.log('Tax calculation details (Non-Homestead):', {
-          propertyValue,
-          baseRate,
-          calculatedAnnual,
-          calculatedMonthly
-        });
         
         return {
           annualTaxAmount: calculatedAnnual,

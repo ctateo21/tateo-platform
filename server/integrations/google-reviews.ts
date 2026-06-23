@@ -27,23 +27,18 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
   
   try {
     // Business search approach with coordinates and keyword
-    console.log('Using nearby search with exact coordinates from Google Maps URL');
     
     // First, let's try to find the business with a nearby search using the exact coordinates
     const nearbySearchUrl = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${TATEO_LAT},${TATEO_LNG}&radius=100&keyword=Tateo&key=${apiKey}`;
     
-    console.log(`Making nearby search request with coordinates: ${TATEO_LAT},${TATEO_LNG}`);
-    console.log(`Request URL: ${nearbySearchUrl.replace(apiKey, 'API_KEY_REDACTED')}`);
     
     const nearbyResponse = await axios.get(nearbySearchUrl);
     
     if (nearbyResponse.data.status !== 'OK' || !nearbyResponse.data.results || nearbyResponse.data.results.length === 0) {
-      console.log('Nearby search did not find the business - trying text search');
       
       // If nearby search failed, try a more direct text search
       const textSearchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=Tateo & Co&location=${TATEO_LAT},${TATEO_LNG}&radius=5000&key=${apiKey}`;
       
-      console.log(`Trying text search: ${textSearchUrl.replace(apiKey, 'API_KEY_REDACTED')}`);
       
       const textSearchResponse = await axios.get(textSearchUrl);
       
@@ -54,23 +49,16 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
       
       // We found the business through text search
       const placeId = textSearchResponse.data.results[0].place_id;
-      console.log(`Found business with Text Search! Place ID: ${placeId}`);
-      console.log(`Business Name: ${textSearchResponse.data.results[0].name}`);
-      console.log(`Address: ${textSearchResponse.data.results[0].formatted_address}`);
       
       // Get the details with the place ID we found
       const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,rating,reviews,formatted_address,user_ratings_total&key=${apiKey}`;
       
-      console.log(`Getting details with place ID: ${placeId}`);
       const detailsResponse = await axios.get(detailsUrl);
       
       if (detailsResponse.data.status === 'OK' && detailsResponse.data.result) {
         const place = detailsResponse.data.result;
         const reviews = place.reviews || [];
         
-        console.log(`Success! Found ${reviews.length} reviews for ${place.name}`);
-        console.log(`Location: ${place.formatted_address}`);
-        console.log(`Overall rating: ${place.rating} (from ${place.user_ratings_total} users)`);
         
         // Return just the most recent 5 reviews
         return reviews.slice(0, 5).map((review: any) => ({
@@ -90,22 +78,16 @@ export async function fetchGoogleReviews(): Promise<GoogleReview[]> {
     
     // We found the business through nearby search
     const placeId = nearbyResponse.data.results[0].place_id;
-    console.log(`Found business with Nearby Search! Place ID: ${placeId}`);
-    console.log(`Business Name: ${nearbyResponse.data.results[0].name}`);
     
     // Get the details with the place ID we found
     const detailsUrl = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=name,rating,reviews,formatted_address,user_ratings_total&key=${apiKey}`;
     
-    console.log(`Getting details with place ID: ${placeId}`);
     const detailsResponse = await axios.get(detailsUrl);
     
     if (detailsResponse.data.status === 'OK' && detailsResponse.data.result) {
       const place = detailsResponse.data.result;
       const reviews = place.reviews || [];
       
-      console.log(`Success! Found ${reviews.length} reviews for ${place.name}`);
-      console.log(`Location: ${place.formatted_address}`);
-      console.log(`Overall rating: ${place.rating} (from ${place.user_ratings_total} users)`);
       
       // Return just the most recent 5 reviews
       return reviews.slice(0, 5).map((review: any) => ({

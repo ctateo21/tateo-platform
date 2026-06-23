@@ -25,7 +25,6 @@ export async function getHillsboroughCountyPropertyTax(req: Request, res: Respon
       });
     }
 
-    console.log(`Fetching property tax for: ${address}, $${salePrice}, Homestead: ${homestead}`);
 
     // Step 1: Search for the property by address
     const searchUrl = 'https://gis.hcpafl.org/propertysearch/taxestimator.aspx';

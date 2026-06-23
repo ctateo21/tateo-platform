@@ -113,10 +113,6 @@ export function ScheduleShowingButton({
   const [modalForLoggedIn, setModalForLoggedIn] = useState(false);
 
   useEffect(() => {
-    console.log("[showing-cta] service", service);
-    console.log("[showing-cta] address", address);
-    console.log("[showing-cta] qualification status", qualificationStatus ?? "n/a");
-    console.log("[showing-cta] should show button", true);
   }, [service, address, qualificationStatus]);
 
   function notifyFub(eventType: ShowingEvent, contactMethod: ContactMethod | null, contact: Contact) {
@@ -128,16 +124,6 @@ export function ScheduleShowingButton({
           ? fullName.slice(0, spaceIdx)
           : fullName || (contact.email ? contact.email.split("@")[0] : "");
       const lastName = spaceIdx > 0 ? fullName.slice(spaceIdx + 1) : "-";
-      console.log("[showing-notification] sending");
-      console.log("[showing-notification] name", fullName || "(none)");
-      console.log("[showing-notification] email", contact.email || "(none)");
-      console.log("[showing-notification] phone present", Boolean(contact.phone));
-      console.log("[showing-notification] sending phone", Boolean(contact.phone));
-      console.log("[showing-notification] email body phone included", Boolean(contact.phone));
-      console.log("[showing-notification] FUB note phone included", Boolean(contact.phone));
-      console.log("[showing-notification] address", address);
-      console.log("[fub-showing] event type", eventType);
-      console.log("[fub-showing] contact method", contactMethod ?? "n/a");
       // keepalive lets this complete even as the sms:/tel: link opens.
       fetch("/api/fub/showing-request", {
         method: "POST",
@@ -172,8 +158,6 @@ export function ScheduleShowingButton({
           } catch {
             /* response body is optional */
           }
-          console.log("[showing-notification] FUB", data?.fub?.ok ? "success" : "error");
-          console.log("[showing-notification] email", data?.email?.ok ? "success" : "error");
         })
         .catch((err) => {
           console.warn("[showing-notification] FUB error", err);
@@ -191,25 +175,19 @@ export function ScheduleShowingButton({
     const last = startedSentAt.get(key) ?? 0;
     if (!hasAddress || Date.now() - last > STARTED_DEDUPE_MS) {
       startedSentAt.set(key, Date.now());
-      console.log("[showing-notification] sending");
       notifyFub("showing_request_started", null, contact);
     } else {
-      console.log("[showing-notification] skipped (recent duplicate)");
     }
   }
 
   /** Open the Call/Text sheet with a known contact (after notification sent). */
   function openCallTextSheet(contact: Contact) {
     setActiveContact(contact);
-    console.log("[showing-cta] popup opened");
     setOpen(true);
   }
 
   function handleScheduleClick() {
-    console.log("[showing-cta] clicked");
     const loggedIn = Boolean(user);
-    console.log("[showing-cta] user logged in", loggedIn);
-    console.log("[showing-cta] address", address);
 
     if (loggedIn) {
       const contact: Contact = {
@@ -217,42 +195,31 @@ export function ScheduleShowingButton({
         email: (user?.email || "").trim(),
         phone: (user?.phone || "").trim(),
       };
-      console.log("[showing-contact] logged in", true);
-      console.log("[showing-contact] profile name present", Boolean(contact.name));
-      console.log("[showing-contact] profile email present", Boolean(contact.email));
-      console.log("[showing-contact] profile phone present", Boolean(contact.phone));
 
       // Prompt the contact modal only when a required field is missing from the
       // profile — email (needed to match the FUB contact) or phone (so the team
       // can reach the lead). The submitted values are saved back to the profile.
       if (!contact.email || !contact.phone) {
-        console.log("[showing-cta] contact modal required", true);
         setModalForLoggedIn(true);
         setForm({ name: contact.name, email: contact.email, phone: contact.phone });
         setErrors({});
         setContactOpen(true);
-        console.log("[showing-contact-modal] opened");
         return;
       }
 
-      console.log("[showing-cta] contact modal required", false);
       fireStarted(contact);
       openCallTextSheet(contact);
       return;
     }
 
     // Logged-out guest: collect contact info BEFORE sending anything.
-    console.log("[showing-contact] logged in", false);
-    console.log("[showing-cta] contact modal required", true);
     setModalForLoggedIn(false);
     setForm({ name: "", email: "", phone: "" });
     setErrors({});
     setContactOpen(true);
-    console.log("[showing-contact-modal] opened");
   }
 
   async function handleContactSubmit() {
-    console.log("[showing-contact-modal] submitted");
     const name = form.name.trim();
     const email = form.email.trim();
     const phone = form.phone.trim();
@@ -266,7 +233,6 @@ export function ScheduleShowingButton({
 
     if (Object.keys(next).length > 0) {
       setErrors(next);
-      console.log("[showing-contact-modal] validation error");
       return;
     }
 
@@ -288,20 +254,16 @@ export function ScheduleShowingButton({
   }
 
   function handleText() {
-    console.log("[showing-cta] text selected");
     notifyFub("showing_request_text_selected", "text", activeContact);
     const message = `I'd like to schedule a showing for ${address}.`;
     const link = buildSmsLink(SHOWING_PHONE, message);
-    console.log("[showing-cta] sms link built", link);
     setOpen(false);
     if (typeof window !== "undefined") window.location.href = link;
   }
 
   function handleCall() {
-    console.log("[showing-cta] call selected");
     notifyFub("showing_request_call_selected", "call", activeContact);
     const link = `tel:${SHOWING_PHONE}`;
-    console.log("[showing-cta] tel link built", link);
     setOpen(false);
     if (typeof window !== "undefined") window.location.href = link;
   }

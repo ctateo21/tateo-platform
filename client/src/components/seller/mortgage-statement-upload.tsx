@@ -41,17 +41,13 @@ export function MortgageStatementUpload({ onExtracted }: MortgageStatementUpload
     if (!file) { setError("Please choose a mortgage statement first."); return; }
     setBusy(true);
     setError(null);
-    console.log("[seller-payoff-statement] upload started", file.name);
     try {
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch("/api/analyze-statement", { method: "POST", body: fd });
       const result = await res.json();
       const balance = Number(result?.analysis?.loanBalance);
-      console.log("[seller-payoff-statement] extracted balance", balance);
-      console.log("[seller-payoff-statement] extraction confidence", result?.analysis?.confidence);
       if (result?.success && result.analysis && Number.isFinite(balance) && balance > 0) {
-        console.log("[seller-payoff-statement] save ok");
         onExtracted({
           balance: Math.round(balance),
           lender: result.analysis.lender,
@@ -62,7 +58,6 @@ export function MortgageStatementUpload({ onExtracted }: MortgageStatementUpload
         setOpen(false);
         if (inputRef.current) inputRef.current.value = "";
       } else {
-        console.log("[seller-payoff-statement] save error", "no confident balance");
         setError("We could not confidently pull the balance from this statement. Please enter the mortgage payoff manually.");
       }
     } catch (err) {

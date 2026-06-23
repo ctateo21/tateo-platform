@@ -72,7 +72,6 @@ export default function ToolGate({ children }: { children: ReactNode }) {
   // useSubscription reports active without any Stripe call; the
   // subscription redirect below is preserved for paid mode.
   if (user) {
-    console.log("[access-gate] user logged in");
     if (sub.isLoading) return <CenterSpinner />;
     if (!sub.data?.active) return <Redirect to="/subscribe" />;
     return <>{children}</>;
@@ -87,7 +86,6 @@ export default function ToolGate({ children }: { children: ReactNode }) {
   if (!freeAddress) return <>{children}</>;
   if (currentAddress && currentAddress === freeAddress) return <>{children}</>;
 
-  console.log("[access-gate] requires account");
   return (
     <div className="flex flex-col items-center justify-center py-32 px-6 text-center">
       <div className="rounded-full bg-muted p-4 mb-5">

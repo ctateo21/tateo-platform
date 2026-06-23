@@ -130,11 +130,9 @@ export function resolveSellerMortgagePayoff(
   // 1 + 2: locked sources win unless the caller explicitly resets.
   if (!ignoreManualLock) {
     if (src === "manual") {
-      console.log("[seller-payoff] skipped refill because manual");
       return { value: existingValue, source: "manual" };
     }
     if (src === "statement") {
-      console.log("[seller-payoff] skipped refill because statement");
       return { value: existingValue, source: "statement" };
     }
   }
@@ -142,13 +140,8 @@ export function resolveSellerMortgagePayoff(
   // 3: matching Refinance scenario balance.
   const key = normalizedPropertyKey ?? s.normalizedPropertyKey;
   const addr = address ?? s.address;
-  console.log("[seller-payoff] seller address", addr);
-  console.log("[seller-payoff] normalized property key", key ?? normalizePropertyKey(addr ?? "").key);
   const match = findMatchingTrackedLoan(trackedLoans, key, addr);
-  console.log("[seller-payoff] refinance matches found", match ? 1 : 0);
   if (match && Number.isFinite(match.loanBalance) && match.loanBalance > 0) {
-    console.log("[seller-payoff] refinance balance field used", "loanBalance");
-    console.log("[seller-payoff] refinance balance value", match.loanBalance);
     return { value: Math.round(match.loanBalance), source: "refinance", matchedLoanId: match.id };
   }
 
@@ -160,9 +153,6 @@ export function resolveSellerMortgagePayoff(
     typeof saleDate === "string" && saleDate.trim() !== "" &&
     !Number.isNaN(new Date(saleDate).getTime())
   ) {
-    console.log("[seller-payoff] no refinance match, estimating amortized balance");
-    console.log("[seller-payoff] last sold price", salePrice);
-    console.log("[seller-payoff] last sold date", saleDate);
     const { annualInterestRate, termYears } = SELLER_AMORTIZATION_DEFAULTS;
     const originalLoanAmount = Math.round(salePrice);
     const asOf = today.toISOString();
@@ -173,12 +163,6 @@ export function resolveSellerMortgagePayoff(
       loanStartDate: saleDate,
       asOfDate: today,
     });
-    console.log("[seller-payoff] original loan amount", originalLoanAmount);
-    console.log("[seller-payoff] assumed rate", annualInterestRate);
-    console.log("[seller-payoff] assumed term", termYears);
-    console.log("[seller-payoff] payments made", est.paymentsMade);
-    console.log("[seller-payoff] monthly payment", est.monthlyPayment);
-    console.log("[seller-payoff] estimated remaining balance", est.remainingBalance);
     return {
       value: est.remainingBalance,
       source: "amortized_estimate",

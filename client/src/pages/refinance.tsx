@@ -346,11 +346,6 @@ export default function Refinance() {
       });
       if (result?.changed) {
         saveSellerScenarios(result.scenarios);
-        console.log("[refinance→seller] sync", {
-          action: result.action,
-          scenarioId: result.scenarioId,
-          address: loan.propertyAddress,
-        });
       }
     } catch (err: any) {
       // Never let a seller-sync failure break the refinance save —
@@ -408,12 +403,6 @@ export default function Refinance() {
         return { ...l, estimatedHomeValue: homeValue };
       }));
     }
-    console.log("[refi-to-seller] zillow auto-pull resolved", {
-      originalHomeValue,
-      zillowHomeValue: homeValue,
-      finalHomeValue,
-      userEditedSinceStart,
-    });
     syncSellerFromRefinance(
       { ...loan, estimatedHomeValue: finalHomeValue },
       {

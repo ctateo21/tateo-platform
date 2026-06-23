@@ -23,7 +23,6 @@ export function useSubscription() {
     enabled: !!user,
     queryFn: async () => {
       if (FREE_ACCESS_MODE) {
-        console.log("[access-gate] stripe bypassed");
         return { active: true, status: "free_access" };
       }
       const res = await authedFetch("/api/subscription/status");

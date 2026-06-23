@@ -47,7 +47,6 @@ export function ensureMarketAnalysis(
   const key = lockKey(input.listingId, cur.weekOfStr);
   const existing = inflight.get(key);
   if (existing) {
-    console.log("[market-analysis-display] joining inflight generation", { key });
     return existing;
   }
   const promise = (async () => {
@@ -110,10 +109,6 @@ export async function getMarketAnalysisForDisplay(
 
   // Happy path: serve saved current-cycle rich analysis instantly.
   if (prior && isCurrentCycle && rich && prior.status === "published") {
-    console.log("[market-analysis-display] loaded saved current analysis", {
-      id: prior.id, weekOf: prior.analysis_week_of,
-    });
-    console.log("[market-analysis-display] no frontend Anthropic call");
     return {
       analysis: { ...prior, structured: priorStructured },
       generating: false,
@@ -124,22 +119,15 @@ export async function getMarketAnalysisForDisplay(
   // Need to generate. Queue background work (single-flight), return fast.
   const alreadyRunning = isGenerating(input.listingId, cur.weekOfStr);
   if (!alreadyRunning) {
-    console.log("[market-analysis-display] background generation queued", {
-      listingId: input.listingId, weekOf: cur.weekOfStr,
-    });
     // Fire-and-forget — never blocks the response.
     void ensureMarketAnalysis(input).catch((e) =>
       console.warn("[market-analysis-display] background generation failed:", e?.message),
     );
   } else {
-    console.log("[market-analysis-display] generation already in progress, skip duplicate", {
-      listingId: input.listingId, weekOf: cur.weekOfStr,
-    });
   }
 
   if (prior && rich) {
     // Show the prior week's saved analysis while the new one cooks.
-    console.log("[market-analysis-display] loaded previous analysis");
     return {
       analysis: {
         ...prior,
@@ -189,9 +177,7 @@ export async function precomputeWeeklyMarketAnalysesForAllSellerScenarios(): Pro
   processed: number; generated: number; skipped: number; errors: number;
 }> {
   if (!supabaseAdmin) throw new Error("Supabase admin client is not configured");
-  console.log("[market-analysis-weekly] job started");
   const cur = currentWeekWindow();
-  console.log("[market-analysis-weekly] current cycle", { weekOf: cur.weekOfStr });
 
   // Spec: weekly job processes ONLY scenarios that are actually being
   // marketed. Draft/blank/sold scenarios are skipped entirely so we
@@ -205,7 +191,6 @@ export async function precomputeWeeklyMarketAnalysesForAllSellerScenarios(): Pro
     throw error;
   }
   const rows = scenarios || [];
-  console.log("[market-analysis-weekly] seller scenarios count", { count: rows.length });
 
   let generated = 0, skipped = 0, errors = 0;
   for (const row of rows as any[]) {
@@ -215,13 +200,9 @@ export async function precomputeWeeklyMarketAnalysesForAllSellerScenarios(): Pro
       // through (e.g. concurrent status change mid-job) we still
       // skip it and emit the debug log the spec requires.
       if (row.status !== "ready_to_list" && row.status !== "listed") {
-        console.log("[market-analysis-weekly] skipped draft seller scenario", {
-          id: row.id, status: row.status,
-        });
         skipped++;
         continue;
       }
-      console.log("[market-analysis-weekly] processing sellerScenarioId", { id: row.id });
 
       // Check existing first to avoid unneeded enrichment work.
       const { data: existingRows } = await supabaseAdmin
@@ -241,15 +222,12 @@ export async function precomputeWeeklyMarketAnalysesForAllSellerScenarios(): Pro
         existing.analysis_week_of === cur.weekOfStr &&
         new Date(existing.next_update_due_at).getTime() > Date.now();
       const rich = isRichEnoughLite(existingStructured);
-      console.log("[market-analysis-weekly] existing analysis found", { found: !!existing });
-      console.log("[market-analysis-weekly] rich enough", { rich, isCurrent });
 
       if (existing && isCurrent && rich && existing.status === "published") {
         skipped++;
         continue;
       }
       if (isGenerating(row.id, cur.weekOfStr)) {
-        console.log("[market-analysis-weekly] already generating, skip", { id: row.id });
         skipped++;
         continue;
       }
@@ -272,17 +250,13 @@ export async function precomputeWeeklyMarketAnalysesForAllSellerScenarios(): Pro
       };
       const input = await enrichListingFromPropertyCache(baseInput);
 
-      console.log("[market-analysis-weekly] generating", { id: row.id });
-      console.log("[market-analysis-weekly] Anthropic called", { id: row.id });
       await ensureMarketAnalysis(input);
-      console.log("[market-analysis-weekly] saved ok", { id: row.id });
       generated++;
     } catch (e: any) {
       console.warn("[market-analysis-weekly] failed for scenario", { id: (row as any)?.id, error: e?.message });
       errors++;
     }
   }
-  console.log("[market-analysis-weekly] job complete", { processed: rows.length, generated, skipped, errors });
   return { processed: rows.length, generated, skipped, errors };
 }
 
@@ -294,13 +268,11 @@ export async function precomputeWeeklyMarketAnalysesForAllSellerScenarios(): Pro
  */
 export function startMarketAnalysisScheduler(): void {
   if (!supabaseAdmin) {
-    console.log("[market-analysis-weekly] scheduler not started (supabase admin missing)");
     return;
   }
   const tick = async () => {
     const cur = currentWeekWindow();
     if (lastJobRunForCycle === cur.weekOfStr) return;
-    console.log("[market-analysis-weekly] scheduler tick — running precompute for cycle", { weekOf: cur.weekOfStr });
     try {
       const result = await precomputeWeeklyMarketAnalysesForAllSellerScenarios();
       // Only mark this cycle "done" if every scenario succeeded. If any
@@ -318,5 +290,4 @@ export function startMarketAnalysisScheduler(): void {
   };
   setTimeout(() => { void tick(); }, 15_000);
   setInterval(() => { void tick(); }, 5 * 60 * 1000);
-  console.log("[market-analysis-weekly] scheduler started (5min ticks, fires once per Friday 8am ET cycle)");
 }

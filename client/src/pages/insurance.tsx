@@ -467,22 +467,13 @@ export default function InsuranceDashboard() {
       ? getInsuranceScenarios().find(s => (s.address ?? "").trim().toLowerCase() === key)
       : undefined;
     if (ins?.coverageASource === "manual") {
-      console.log("[insurance-defaults] skipped coverage A because manual", {
-        address: addressParam, policyType,
-      });
       return;
     }
     if (manualAnnualPremium != null) {
-      console.log("[insurance-defaults] skipped premium because manual/quote", {
-        address: addressParam, premiumSource: "manual",
-      });
       // Coverage A still recomputes — manual-premium protection is
       // separate from coverageA. The autosave preserves the manual
       // premium value because `manualAnnualPremium != null` wins.
     } else if (ins?.premiumSource === "quote") {
-      console.log("[insurance-defaults] skipped premium because manual/quote", {
-        address: addressParam, premiumSource: "quote",
-      });
     }
 
     // Transform existing rebuild from old multiplier → new multiplier
@@ -491,12 +482,6 @@ export default function InsuranceDashboard() {
     const baseValue = rebuild / prevMult;
     const nextRebuild = Math.round(baseValue * newMult);
     const nextPremium = Math.round(nextRebuild * DEFAULT_HOMEOWNERS_INSURANCE_PERCENT);
-    console.log("[insurance-defaults] policy type", policyType);
-    console.log("[insurance-defaults] property value", Math.round(baseValue));
-    console.log("[insurance-defaults] coverage multiplier", newMult);
-    console.log("[insurance-defaults] coverage A", nextRebuild);
-    console.log("[insurance-defaults] annual premium", nextPremium);
-    console.log("[insurance-defaults] monthly premium", Math.round((nextPremium / 12) * 100) / 100);
     setRebuild(nextRebuild);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [policyType, addressParam]);
@@ -591,7 +576,6 @@ export default function InsuranceDashboard() {
   // existing `user_answer_sources` jsonb column — no schema migration
   // was required to add them.
   useEffect(() => {
-    console.log("[insurance-schema] sql needed", "no — aop_deductible / carrier / flood_zone stored in user_answer_sources jsonb");
   }, []);
 
   // ── Address editing ──────────────────────────────────────────────────────
@@ -619,7 +603,6 @@ export default function InsuranceDashboard() {
     if (typeof savedZone === "string" && savedZone.trim()) {
       setFloodZone(savedZone.trim());
       setFloodZoneSource(String(saved?.userAnswerSources?.flood_zone_source ?? "saved"));
-      console.log("[insurance-flood-zone] source", "saved", savedZone);
       return;
     }
     let cancelled = false;
@@ -628,7 +611,6 @@ export default function InsuranceDashboard() {
       if (cancelled || !res) return;
       setFloodZone(res.zone);
       setFloodZoneSource(res.source);
-      console.log("[insurance-flood-zone] source", res.source, res.zone);
     });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -828,7 +810,6 @@ export default function InsuranceDashboard() {
       if (!k) continue;
       if (seen.has(k)) {
         dupCount += 1;
-        console.log("[insurance-address-tabs] duplicate hidden", { address: addr, key: k });
         continue;
       }
       seen.set(k, addr);
@@ -854,14 +835,7 @@ export default function InsuranceDashboard() {
     const missing = saved
       .map(s => ({ address: (s.address ?? "").trim(), key: keyFor((s.address ?? "").trim()) }))
       .filter(x => x.address && x.key && !tabKeys.has(x.key));
-    console.log("[insurance-address-tabs] overview count", saved.length);
-    console.log("[insurance-address-tabs] detail tab count", tabs.length);
-    console.log("[insurance-address-tabs] addresses", tabs.map(t => t.address));
-    console.log("[insurance-address-tabs] active address",
-      tabs.find(t => t.id === activeId)?.address);
-    console.log("[insurance-address-tabs] missing from detail", missing);
     if (dupCount > 0) {
-      console.log("[insurance-address-tabs] duplicates collapsed", dupCount);
     }
     setScenarios(tabs);
     setActiveScenarioId(activeId);
@@ -1097,9 +1071,6 @@ export default function InsuranceDashboard() {
         coverageA: updated.coverageASource, policy: updated.policyTypeSource,
         premium: updated.premiumSource, discounts: updated.discountsSource,
       });
-      console.log("[insurance-detail-save] aop_deductible", aopDeductible, aopSourceNow ?? "default");
-      console.log("[insurance-detail-save] flood_zone", floodZone || "—", floodZoneSource || "unknown");
-      console.log("[insurance-detail-save] carrier", carrierNow, carrierSourceNow ?? "default");
       const next = match
         ? existing.map(s => (s.id === match.id ? updated : s))
         : [...existing, updated];

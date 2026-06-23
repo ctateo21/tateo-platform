@@ -40,7 +40,6 @@ export default function Education() {
   const faqJsonLd = buildFaqJsonLd();
 
   if (import.meta.env.DEV) {
-    console.log("[education-page] faq items parsed", faqJsonLd.mainEntity.length);
   }
 
   return (

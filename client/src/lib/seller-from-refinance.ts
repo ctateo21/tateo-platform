@@ -116,17 +116,6 @@ function mergeFromRefinance(
   const now = new Date().toISOString();
 
   // ── Debug logs (kept terse; user explicitly asked for these) ──
-  console.log("[refi-to-seller] refinance estimated home value field", {
-    field: "TrackedLoan.estimatedHomeValue",
-    value: trackedLoan.estimatedHomeValue,
-  });
-  console.log("[refi-to-seller] refinance value used", { refSalePrice, refPayoff });
-  console.log("[refi-to-seller] existing seller value", {
-    estimatedSalePrice: existing?.estimatedSalePrice,
-    estimatedSalePriceSource: existing?.estimatedSalePriceSource,
-    mortgagePayoff: existing?.mortgagePayoff,
-    mortgagePayoffSource: existing?.mortgagePayoffSource,
-  });
 
   if (!existing) {
     // Brand-new scenario: seed every refinance-derived field and
@@ -160,9 +149,6 @@ function mergeFromRefinance(
       propertyPhotos: photos?.propertyPhotos,
     };
     draft.netProceeds = computeNetProceeds(draft);
-    console.log("[refi-to-seller] manual override true/false", { false: true });
-    console.log("[refi-to-seller] final seller estimated sale price", { value: draft.estimatedSalePrice });
-    console.log("[refi-to-seller] seller status", { status: draft.status });
     return { next: draft, changed: true };
   }
 
@@ -267,9 +253,6 @@ function mergeFromRefinance(
     // an auto-update from refinance never bumps status above draft.
     next.status = (existing.status ?? "draft") as SellerScenarioStatus;
   }
-  console.log("[refi-to-seller] manual override true/false", { hasManual: manualOverrideAny });
-  console.log("[refi-to-seller] final seller estimated sale price", { value: next.estimatedSalePrice });
-  console.log("[refi-to-seller] seller status", { status: next.status });
   return { next, changed };
 }
 

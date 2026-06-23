@@ -1144,7 +1144,6 @@ export default function Estimate() {
           ? p.photos.filter((x): x is string => typeof x === "string" && x.length > 0)
           : [];
         const freshPrimary = freshPhotos[0] ?? undefined;
-        console.log(`[zillow-photos] display photos count=${freshPhotos.length} fromCache=${fromCache}`);
 
         // Update the scenario's saved snapshot using ONLY the latest state
         // visible to the functional updater.
@@ -1177,7 +1176,6 @@ export default function Estimate() {
           })
         );
         if (freshPhotos.length > 0) {
-          console.log(`[zillow-photos] saving to scenario id=${scenarioId} photos=${freshPhotos.length}`);
         }
 
         // Mirror into live `inputs` only if this scenario is still active
@@ -1957,15 +1955,8 @@ export default function Estimate() {
       amiLoadedRef.current = true;
       setInputs((p) => {
         if (p.monthlyIncomeSource === "manual") {
-          console.log("[purchase-ami] skipped because manual income exists", {
-            monthlyIncome: p.monthlyIncome,
-          });
           return p;
         }
-        console.log("[purchase-ami] applied because income blank or default", {
-          amiMonthly: amiData.monthlyAMI,
-          priorSource: p.monthlyIncomeSource ?? "default",
-        });
         return {
           ...p,
           monthlyIncome: amiData.monthlyAMI,
@@ -2283,9 +2274,6 @@ export default function Estimate() {
           const defaultHo = calculateDefaultHomeownersInsurance(price).annualInsurance;
           if (Math.abs(savedHo - defaultHo) > 1) {
             base0.annual_ho_ins = "manual";
-            console.log("[purchase-user-load] auto-stamped annual_ho_ins=manual for legacy row", {
-              savedHo, defaultHo,
-            });
           }
         }
         return Object.keys(base0).length > 0 ? base0 : undefined;
@@ -2384,7 +2372,6 @@ export default function Estimate() {
         // midpoint wire-up takes over for subsequent edits without
         // a one-shot clobber on mount.
         if (!userTouchedInsuranceSimRef.current) userTouchedInsuranceSimRef.current = true;
-        console.log("[purchase-default] annualHOIns skipped: source", src);
         return prev;
       }
       const target = calculateDefaultHomeownersInsurance(prev.purchasePrice).annualInsurance;
@@ -3787,7 +3774,6 @@ export default function Estimate() {
                         // future address-change recompute) treats this as
                         // the borrower's source of truth and never
                         // overwrites it with a county-AMI default.
-                        console.log("[income-save] user entered monthly income", { value: v });
                         setInputs(p => ({
                           ...p,
                           monthlyIncome: v,

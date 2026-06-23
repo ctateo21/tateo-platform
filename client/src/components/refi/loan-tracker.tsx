@@ -359,7 +359,6 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   useEffect(() => {
     const incoming = loan.loanType ?? "conventional";
     if (incoming !== loanType) {
-      console.log("[refi-load] loaded loan_type", { loanId: loan.id, loanType: incoming });
       setLoanType(incoming);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -439,7 +438,6 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   }
   function handleLoanTypeChange(lt: LoanType) {
     if (!isLoanTypeAllowed(lt, propertyType)) return;
-    console.log("[refi-save] selected loan type", { loanId: loan.id, loanType: lt });
     setLoanType(lt);
     onUpdate({ loanType: lt });
   }

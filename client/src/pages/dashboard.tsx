@@ -300,24 +300,8 @@ function RefiTab() {
         trackedLoan: editedLoan,
         scenarios: getSellerScenarios(),
       });
-      console.log("[home-value-sync] source tab", { tab: "refinance" });
-      console.log("[home-value-sync] new value", { value: newValue });
-      console.log("[home-value-sync] matching seller found true/false", {
-        found:
-          result?.action === "updated" ||
-          result?.action === "noop" ||
-          result?.action === "created",
-        action: result?.action ?? "skipped",
-      });
       if (result?.changed) {
         saveSellerScenarios(result.scenarios);
-        console.log("[home-value-sync] saved to seller_scenarios", {
-          scenarioId: result.scenarioId,
-          action: result.action,
-        });
-        console.log("[home-value-sync] recalculated seller net proceeds", {
-          scenarioId: result.scenarioId,
-        });
       }
     } catch (err) {
       console.warn("[home-value-sync] refinance→seller failed:", err);
@@ -1063,7 +1047,6 @@ function InsuranceTab() {
   // user later re-saves the same address from one of the source
   // flows, the auto-create path will recreate an Insurance row.
   async function handleDeleteInsurance(key: string, id: string | null, address: string) {
-    console.log("[insurance-delete] requested", { key, id, address });
     // Snapshot the pre-delete list so we can roll back the Supabase
     // state if the delete fails. The UI itself updates optimistically
     // via the shared auth cache (matching the Purchase / Refi / Seller
@@ -1097,7 +1080,6 @@ function InsuranceTab() {
         await saveInsuranceScenarios(next);
         setInsurance(next);
       }
-      console.log("[insurance-delete] success", { key, id, removedRow: Boolean(id) });
       toast({
         title: "Insurance estimate deleted.",
         description: `${address.split(",")[0]} was removed from your Insurance tab.`,
@@ -1261,16 +1243,8 @@ function InsuranceTab() {
       const condoForcesHO6 =
         def === "HO6" && isCondoOrTownhomePropertyType(resolved.propertyType);
 
-      console.log("[insurance-policy-zillow] address", ins.address);
-      console.log("[insurance-policy-zillow] insurance property type", ins.propertyType ?? null);
-      console.log("[insurance-policy-zillow] resolved property type", resolved.propertyType, "via", resolved.source);
-      console.log("[insurance-policy-zillow] occupancy", occ ?? null);
-      console.log("[insurance-policy-zillow] prior policy type", ins.policyType ?? null);
-      console.log("[insurance-policy-zillow] policy_type_source", ins.policyTypeSource ?? null);
-      console.log("[insurance-policy-zillow] computed policy type", def ?? null);
 
       if (policyManual) {
-        console.log("[insurance-policy-zillow] skipped because policy manual", ins.id);
         continue;
       }
       if (!def) continue;
@@ -1304,7 +1278,6 @@ function InsuranceTab() {
           : s
       );
       if (needsPolicyUpdate) {
-        console.log("[insurance-policy-zillow] saved policy type", { id: ins.id, policyType: def });
       }
       changed = true;
     }
@@ -1337,7 +1310,6 @@ function InsuranceTab() {
           if (!addr) return false;
           const existing = ins.userAnswerSources?.flood_zone;
           if (typeof existing === "string" && existing.trim()) {
-            console.log("[insurance-overview-flood] skipped because already saved", addr, existing);
             return false;
           }
           if (floodAttemptedRef.current.has(addr.toLowerCase())) return false;
@@ -1348,12 +1320,8 @@ function InsuranceTab() {
       for (const ins of targets) {
         const addr = ins.address.trim();
         floodAttemptedRef.current.add(addr.toLowerCase());
-        console.log("[insurance-overview-flood] card address", addr);
-        console.log("[insurance-overview-flood] existing flood_zone", null);
-        console.log("[insurance-overview-flood] lookup started", addr);
         try {
           const res = await fetchFloodZone(addr);
-          console.log("[insurance-overview-flood] lookup result", addr, res?.zone ?? "unavailable");
           if (res?.zone) resolved[ins.id] = res.zone;
         } catch (err: any) {
           console.log("[insurance-overview-flood] error", addr, err?.message ?? String(err));
@@ -1366,7 +1334,6 @@ function InsuranceTab() {
       const next = current.map(s => {
         const zone = resolved[s.id];
         if (!zone) return s;
-        console.log("[insurance-overview-flood] saved flood_zone", s.address, zone);
         return {
           ...s,
           userAnswerSources: {
@@ -1403,14 +1370,12 @@ function InsuranceTab() {
   // view. Source guards mirror the detail-view autosave so manual
   // policy picks stay locked.
   function handleOccupancyChange(key: string, next: OccupancyType) {
-    console.log("[insurance-overview-occupancy] selected occupancy", next);
     setOccupancyOverride(key, next);
     setOverrideBump(n => n + 1);
 
     const row = rows.find(r => r.key === key);
     const ins = row?.insurance;
     if (!ins) {
-      console.log("[insurance-overview-occupancy] no scenario row — localStorage override only", { key, next });
       return;
     }
     // Map dashboard's wider OccupancyType ("unknown" included) onto
@@ -1427,16 +1392,12 @@ function InsuranceTab() {
       sourcePropertyTypes: (row?.purchaseMatches ?? []).map(p => p.propertyType),
     }).propertyType;
     const policyManual = ins.policyTypeSource === "manual";
-    console.log("[insurance-overview-occupancy] property type", propertyType ?? null);
-    console.log("[insurance-overview-occupancy] prior policy type", ins.policyType ?? null);
-    console.log("[insurance-overview-occupancy] prior policy_type_source", ins.policyTypeSource ?? null);
     const recomputedPolicy = !policyManual
       ? getDefaultInsurancePolicyType({
           occupancyType: nextOccupancy,
           propertyType,
         })
       : undefined;
-    console.log("[insurance-overview-occupancy] recalculated policy type", recomputedPolicy ?? null);
     const updated: InsuranceScenario = {
       ...ins,
       savedAt: new Date().toISOString(),
@@ -1450,20 +1411,11 @@ function InsuranceTab() {
         : {}),
     };
     if (policyManual) {
-      console.log("[insurance-overview-occupancy] skipped policy update because manual", {
-        prior: ins.policyType,
-      });
     }
     const nextScenarios = insurance.map(s => (s.id === ins.id ? updated : s));
     setInsurance(nextScenarios);
-    console.log("[insurance-overview-occupancy] updated local card state", {
-      id: ins.id,
-      occupancy: nextOccupancy,
-      policyType: updated.policyType,
-    });
     saveInsuranceScenarios(nextScenarios)
       .then(() => {
-        console.log("[insurance-overview-occupancy] saved to insurance_scenarios", { id: ins.id });
       })
       .catch(err => {
         console.log("[insurance-overview-occupancy] save error", err?.message ?? err);
@@ -2371,15 +2323,7 @@ function SellersTab() {
   // Log what the overview rendered for each row — used to confirm the
   // overview shows the same numbers the detail view saved.
   function logOverviewLoad(list: SellerScenario[]) {
-    console.log("[seller-overview-load] row count", list.length);
     for (const s of list) {
-      console.log("[seller-overview-load] address", s.address);
-      console.log("[seller-overview-load] estimated sale price", s.estimatedSalePrice ?? 0);
-      console.log("[seller-overview-load] closing costs",
-        s.estimatedSalePrice == null ? null : resolveSellerClosingCosts(s));
-      console.log("[seller-overview-load] mortgage payoff", s.mortgagePayoff ?? 0);
-      console.log("[seller-overview-load] estimated taxes due", getEstimatedSellerTaxesDue(s));
-      console.log("[seller-overview-load] estimated net proceeds", computeSellerNetProceeds(s));
     }
   }
 
@@ -2390,7 +2334,6 @@ function SellersTab() {
     const unsub = subscribeAuthChange(() => {
       const next = getSellerScenarios();
       setScenarios(next);
-      console.log("[seller-detail-to-overview-sync] updated local scenario list");
       logOverviewLoad(next);
     });
     const unsubErr = subscribePersistenceError(e => {
@@ -2438,13 +2381,6 @@ function SellersTab() {
       mortgagePayoff: 0,
       status: "draft",
     };
-    console.log("[seller-create] address selected", {
-      address: addr,
-      id,
-      normalizedPropertyKey: norm,
-      flow: "for_sale",
-      record: fresh,
-    });
     const next = [fresh, ...scenarios];
     setScenarios(next);
     saveSellerScenarios(next);

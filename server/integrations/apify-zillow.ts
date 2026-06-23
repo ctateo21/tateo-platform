@@ -903,7 +903,6 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
   }
 
   const googleParsed = parseAddressString(input);
-  console.log("[zillow-validate] google normalized:", googleParsed);
 
   // Walk a list of rows and return the first one our matcher accepts.
   // Logs every per-row decision so a mistaken acceptance can be traced.
@@ -911,17 +910,6 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const decision = decideAddressMatch(googleParsed, row);
-      console.log(
-        `[zillow-validate] ${attemptLabel} row[${i}] decision:`,
-        {
-          accept: decision.accept,
-          reason: decision.reason,
-          matched: decision.matched,
-          mismatched: decision.mismatched,
-          cityMismatch: decision.cityMismatch,
-          zillowNorm: parseAddressFromRow(row),
-        },
-      );
       if (decision.accept) return { row, decision };
     }
     return null;
@@ -956,12 +944,10 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
     }
   }
 
-  console.log(`[zillow-validate] will try ${variants.length} address variant(s):`, variants);
 
   let picked: { row: any; decision: MatchDecision } | null = null;
   for (let i = 0; i < variants.length; i++) {
     const variant = variants[i];
-    console.log(`[zillow-validate] attempt ${i + 1}/${variants.length}:`, variant);
     let rows: unknown[];
     try {
       rows = await runApify(variant);
@@ -970,7 +956,6 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
       continue;
     }
     if (rows.length === 0) {
-      console.log(`[zillow-validate] attempt ${i + 1} returned 0 rows`);
       continue;
     }
     picked = pickAcceptable(rows, `attempt${i + 1}`);
@@ -978,15 +963,9 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
   }
 
   if (!picked) {
-    console.log("[zillow-validate] final decision: REJECT — no row passed validation");
     throw new Error("No Zillow results found for that address");
   }
 
-  console.log(
-    "[zillow-validate] final decision: ACCEPT —",
-    picked.decision.reason,
-    picked.decision.cityMismatch ? "(city mismatch ignored as soft mismatch)" : "",
-  );
 
   const normalized = normalizeOne(picked.row);
 

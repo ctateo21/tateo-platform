@@ -504,10 +504,6 @@ async function callAnthropic(prompt: string): Promise<{ raw: string; citations: 
   }
   const raw = combinedText.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   const citations = Array.from(citationsByUrl.values());
-  console.log("[market-analysis] anthropic web_search", {
-    citationCount: citations.length,
-    stopReason: (response as any).stop_reason,
-  });
   return { raw, citations };
 }
 
@@ -900,14 +896,6 @@ export async function getOrGenerateMarketAnalysis(
     throw new Error("Supabase admin client is not configured");
   }
 
-  console.log("[market-analysis] start", {
-    listingId: input.listingId,
-    userId: input.userId,
-    hasZillowValue: input.zillowValue != null,
-    hasComps: !!(input.comps && input.comps.length),
-    hasPlatformEngagement: !!input.platformEngagement,
-    forceRefresh: !!opts.forceRefresh,
-  });
 
   // Most recent stored row for this listing, scoped to the authenticated
   // owner. We bypass RLS via the service-role client, so we must scope by
@@ -927,18 +915,6 @@ export async function getOrGenerateMarketAnalysis(
   const existing = existingRows?.[0] as (MarketAnalysisRecord & { raw_anthropic_response?: string | null }) | undefined;
 
   const cur = currentWeekWindow();
-  console.log("[market-analysis] cycle", {
-    weekOf: cur.weekOfStr,
-    cycleStart: cur.weekOf.toISOString(),
-    nextUpdateDueAt: cur.nextUpdateDueAt.toISOString(),
-  });
-  console.log("[market-analysis] saved analysis lookup result", {
-    found: !!existing,
-    id: existing?.id ?? null,
-    weekOf: existing?.analysis_week_of ?? null,
-    status: existing?.status ?? null,
-    stale: existing ? isStale(existing) : null,
-  });
 
   // Parse the cached structured payload up front so we can quality-gate
   // the cache hit (don't reuse generic "Insufficient Data" stubs).
@@ -951,9 +927,6 @@ export async function getOrGenerateMarketAnalysis(
 
   const currentCycle = !!existing && !isStale(existing);
   const richEnough = isRichEnough(cachedStructured);
-  console.log("[market-analysis] existing saved analysis found", { found: !!existing });
-  console.log("[market-analysis] current cycle", { currentCycle });
-  console.log("[market-analysis] rich enough", { richEnough });
 
   const cacheHit =
     existing &&
@@ -966,27 +939,9 @@ export async function getOrGenerateMarketAnalysis(
     // Recompute data_sources on read so the panel reflects the CURRENT
     // listing input even when the recap text is reused from cache.
     if (cachedStructured) cachedStructured.data_sources = computeDataSources(input, cachedStructured.citations);
-    console.log("[market-analysis] using saved rich analysis", {
-      id: existing!.id,
-      weekOf: existing!.analysis_week_of,
-      citations: cachedStructured?.citations.length ?? 0,
-    });
-    console.log("[market-analysis] returning analysis to frontend", { source: "cache" });
     return { ...existing!, structured: cachedStructured };
   }
 
-  console.log(
-    currentCycle && existing
-      ? "[market-analysis] saved analysis insufficient, regenerating"
-      : "[market-analysis] stale or missing, generating new analysis",
-    {
-      reason: !existing ? "no_prior_row"
-            : opts.forceRefresh ? "admin_force_refresh"
-            : existing.status !== "published" ? `prior_status_${existing.status}`
-            : !currentCycle ? "stale_cycle"
-            : "not_rich_enough",
-    },
-  );
 
   // ── Gather external market data BEFORE prompting Anthropic ──────────
   // Best-effort Realtor.com scrape against the subject ZIP. Failure is
@@ -1004,12 +959,6 @@ export async function getOrGenerateMarketAnalysis(
   } catch (e: any) {
     console.warn("[market-data] Realtor scrape threw:", e?.message);
   }
-  console.log("[market-analysis] realtor source", { source: realtor?.source ?? "missing" });
-  console.log("[market-data] active comps returned count", { count: realtor?.active.length ?? 0 });
-  console.log("[market-data] pending/sold returned count", {
-    pending: realtor?.pending.length ?? 0,
-    sold: realtor?.sold.length ?? 0,
-  });
 
   // Inject scraped comps into the model input when the caller didn't
   // already provide them. We deliberately don't override caller-supplied
@@ -1029,12 +978,7 @@ export async function getOrGenerateMarketAnalysis(
 
   const prompt = buildPrompt(enrichedInput, cur.weekOfStr);
 
-  console.log("[market-analysis] Anthropic web search enabled", { enabled: true });
 
-  console.log("[market-analysis] calling Anthropic", {
-    listingId: input.listingId,
-    promptChars: prompt.length,
-  });
 
   let structured: StructuredAnalysis | null = null;
   let raw: string | null = null;
@@ -1048,27 +992,10 @@ export async function getOrGenerateMarketAnalysis(
     // actually fetched.
     structured.citations = result.citations;
     structured.data_sources = computeDataSources(enrichedInput, result.citations, realtor);
-    console.log("[market-analysis] web pages fetched count", { count: result.citations.length });
-    console.log("[market-analysis] projected sale range returned", {
-      low: structured.projected_sale_price.projected_low,
-      high: structured.projected_sale_price.projected_high,
-    });
-    console.log("[market-analysis] response received", {
-      listingId: input.listingId,
-      rawChars: raw.length,
-      status_label: structured.status_label,
-      confidence: structured.confidence_level,
-      comps: structured.market_comps.comps.length,
-      pendingSold: structured.similar_pending_sold.items.length,
-      next_steps: structured.next_steps.length,
-      data_limitations: structured.data_limitations.length,
-      citations: structured.citations.length,
-    });
   } catch (err) {
     errorMessage = err instanceof Error ? err.message : String(err);
     console.warn("[market-analysis] Anthropic call failed:", errorMessage);
   }
-  console.log("[market-analysis] Anthropic called", { ok: !errorMessage, errorMessage });
 
   // Don't overwrite a previously-rich saved analysis with a weaker one.
   // If generation failed OR produced a weaker recap than what's already
@@ -1080,13 +1007,7 @@ export async function getOrGenerateMarketAnalysis(
   if ((errorMessage || freshIsWeaker) && existing && existing.status === "published" && cachedStructured) {
     cachedStructured.data_sources = computeDataSources(input, cachedStructured.citations, realtor);
     if (errorMessage) {
-      console.log("[market-analysis] generation failed, using previous saved analysis", {
-        id: existing.id, weekOf: existing.analysis_week_of,
-      });
     } else {
-      console.log("[market-analysis] not overwriting rich analysis with weaker result", {
-        id: existing.id, weekOf: existing.analysis_week_of,
-      });
     }
     return {
       ...existing,
@@ -1128,11 +1049,6 @@ export async function getOrGenerateMarketAnalysis(
     updated_at: new Date().toISOString(),
   };
 
-  console.log("[market-analysis] saving analysis to Supabase", {
-    listingId: input.listingId,
-    weekOf: cur.weekOfStr,
-    status: row.status,
-  });
   const { data: inserted, error: insertErr } = await supabaseAdmin
     .from("listing_market_analyses")
     .insert(row)
@@ -1143,7 +1059,5 @@ export async function getOrGenerateMarketAnalysis(
     console.warn("[market-analysis] failed to persist row:", insertErr.message);
     return { ...(row as unknown as MarketAnalysisRecord), structured };
   }
-  console.log("[market-analysis] save ok", { id: (inserted as any)?.id });
-  console.log("[market-analysis] returning analysis to frontend", { source: "fresh" });
   return { ...(inserted as MarketAnalysisRecord), structured };
 }

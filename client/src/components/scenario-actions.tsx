@@ -271,9 +271,7 @@ export default function ScenarioActions({
     // their dashboard automatically. We deliberately do NOT fall
     // back to history.back() — per spec, this button always
     // navigates directly to the dashboard.
-    console.log("[access-gate] action", "dashboard");
     if (!isAuthenticated) {
-      console.log("[access-gate] requires account");
       pendingDashboardRef.current = true;
       setAuthOpen(true);
       return;
@@ -282,9 +280,7 @@ export default function ScenarioActions({
   }
 
   function handleSave() {
-    console.log("[access-gate] action", "save");
     if (!isAuthenticated) {
-      console.log("[access-gate] requires account");
       pendingActionRef.current = "save";
       // Capture the current onSave closure so the replay after
       // login uses the parent's pre-auth draft state, not the
@@ -297,9 +293,7 @@ export default function ScenarioActions({
   }
 
   function handleDownloadPdf() {
-    console.log("[access-gate] action", "pdf");
     if (!isAuthenticated) {
-      console.log("[access-gate] requires account");
       pendingActionRef.current = "pdf";
       // Capture the current PDF closures so the replay after login
       // exports the parent's pre-auth draft state.
@@ -315,9 +309,7 @@ export default function ScenarioActions({
     // already hydrates from URL params, so the URL is a working
     // link even before save. We still auth-gate per spec so the
     // link points at the saved scenario for logged-in users.
-    console.log("[access-gate] action", "share");
     if (!isAuthenticated) {
-      console.log("[access-gate] requires account");
       pendingActionRef.current = "share";
       setAuthOpen(true);
       return;

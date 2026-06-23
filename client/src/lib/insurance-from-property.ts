@@ -93,12 +93,8 @@ export function ensureInsuranceForAddress(
   } = input;
   const trimmed = (address ?? "").trim();
 
-  console.log("[insurance-auto-create] source type", { sourceType });
-  console.log("[insurance-auto-create] source scenario id", { id: sourceScenarioId });
-  console.log("[insurance-auto-create] address", { address: trimmed });
 
   if (!trimmed) {
-    console.log("[insurance-auto-create] skipped reason", { reason: "no_address" });
     return {
       scenarios: insuranceScenarios,
       changed: false,
@@ -108,7 +104,6 @@ export function ensureInsuranceForAddress(
   }
 
   const incomingKey = normalizePropertyKey(trimmed).key;
-  console.log("[insurance-auto-create] normalized property key", { key: incomingKey });
 
   const existingIdx = insuranceScenarios.findIndex((s) => {
     const addr = (s.address ?? "").trim();
@@ -125,18 +120,10 @@ export function ensureInsuranceForAddress(
 
   // Policy-type sync trace (Phase 2). Mirrors the [property-value-sync]
   // log surface so the acceptance test can grep one prefix per concern.
-  console.log("[policy-type-sync] source tab", { sourceType });
-  console.log("[policy-type-sync] normalized property key", { key: incomingKey });
-  console.log("[policy-type-sync] occupancy/property use", { occupancyType });
-  console.log("[policy-type-sync] property type", { propertyType });
-  console.log("[policy-type-sync] computed policy type", { computed: defaultPolicyType });
 
   if (existingIdx >= 0) {
     const existing = insuranceScenarios[existingIdx];
-    console.log("[insurance-auto-create] existing insurance found true/false", { found: true });
 
-    console.log("[policy-type-sync] existing policy type", { existing: existing.policyType ?? null });
-    console.log("[policy-type-sync] existing policy_type_source", { source: existing.policyTypeSource ?? null });
 
     // Respect manual overrides. Three independent locks:
     //   - policyTypeSource === "manual"     → never touch policyType
@@ -154,13 +141,10 @@ export function ensureInsuranceForAddress(
     const manualOccupancy = existing.occupancyTypeSource === "manual";
     const manualPropertyType = existing.propertyTypeSource === "manual";
     if (manualLocked) {
-      console.log("[policy-type-sync] skipped manual override", { id: existing.id });
     }
     if (manualOccupancy) {
-      console.log("[policy-type-sync] skipped manual occupancy override", { id: existing.id });
     }
     if (manualPropertyType) {
-      console.log("[policy-type-sync] skipped manual property type override", { id: existing.id });
     }
 
     // When the user locked occupancy / propertyType on the Insurance
@@ -189,10 +173,6 @@ export function ensureInsuranceForAddress(
       nextPropertyType !== existing.propertyType;
 
     if (!policyTypeChange && !snapshotChange) {
-      console.log("[insurance-auto-create] preserving manual insurance fields", {
-        id: existing.id,
-        address: existing.address,
-      });
       return {
         scenarios: insuranceScenarios,
         changed: false,
@@ -209,16 +189,7 @@ export function ensureInsuranceForAddress(
         ? { policyType: effectivePolicyType!, policyTypeSource: "default_rule" as const }
         : {}),
     };
-    console.log("[insurance-auto-create] updating defaults on existing row", {
-      id: existing.id,
-      policyTypeChange,
-      next: updated.policyType,
-      manualLocked,
-    });
     if (policyTypeChange) {
-      console.log("[policy-type-sync] saved policy type", {
-        id: existing.id, policyType: updated.policyType, source: "default_rule",
-      });
     }
     const nextScenarios = insuranceScenarios.slice();
     nextScenarios[existingIdx] = updated;
@@ -230,14 +201,6 @@ export function ensureInsuranceForAddress(
     };
   }
 
-  console.log("[insurance-auto-create] existing insurance found true/false", { found: false });
-  console.log("[insurance-auto-create] creating new insurance scenario", {
-    sourceType,
-    address: trimmed,
-    occupancyType,
-    propertyType,
-    defaultPolicyType,
-  });
 
   // Seed annualPremium + coverageA with the global 0.75%-of-value
   // default, scaled by the policy-type multiplier (HO6 → 0.50, else
@@ -245,13 +208,7 @@ export function ensureInsuranceForAddress(
   const seeded = propertyValue && propertyValue > 0
     ? calculateInsuranceDefaults({ propertyValue, policyType: defaultPolicyType })
     : null;
-  console.log("[insurance-defaults] property value", propertyValue ?? null);
-  console.log("[insurance-defaults] policy type", defaultPolicyType ?? null);
   if (seeded) {
-    console.log("[insurance-defaults] coverage multiplier", seeded.coverageMultiplier);
-    console.log("[insurance-defaults] coverage A", seeded.coverageA);
-    console.log("[insurance-defaults] annual premium", seeded.annualPremium);
-    console.log("[insurance-defaults] monthly premium", seeded.monthlyPremium);
   }
   const created: InsuranceScenario = {
     id: makeInsuranceId(),
@@ -270,9 +227,6 @@ export function ensureInsuranceForAddress(
   };
 
   if (defaultPolicyType) {
-    console.log("[policy-type-sync] saved policy type", {
-      id: created.id, policyType: defaultPolicyType, source: "default_rule",
-    });
   }
 
   return {

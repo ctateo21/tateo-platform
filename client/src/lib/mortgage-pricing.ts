@@ -124,12 +124,6 @@ export function priceLoan(inputs: PricingInputs): PricingResult {
   const rate = roundRateToThreeDecimals(baseRate + creditAdj + occupancyAdj + conventionalAdj);
 
   // Temporary debug logs — see spec request.
-  console.log("[refi-rate] credit score", creditScore);
-  console.log("[refi-rate] loan type", loanType);
-  console.log("[refi-rate] occupancy", propertyType);
-  console.log("[refi-rate] shared rate engine input", inputs);
-  console.log("[refi-rate] shared rate engine output",
-    { rate, baseRate, creditAdj, occupancyAdj });
   // Property value / loan amount / LTV are not pricing inputs in the
   // current engine (LTV LLPAs are not implemented yet) — see spec
   // "Do not invent new pricing rules". The downstream caller

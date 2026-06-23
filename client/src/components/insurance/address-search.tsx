@@ -178,7 +178,6 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
 
       inputRef.current.addEventListener('keydown', preventSubmit);
       
-      console.log('Google Places Autocomplete initialized successfully');
     } catch (err) {
       console.error('Error initializing Google Places Autocomplete:', err);
     }
