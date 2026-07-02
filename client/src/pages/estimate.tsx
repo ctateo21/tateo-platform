@@ -329,6 +329,21 @@ interface Inputs {
    *  steps: 0 / 0.5 / 1 / 1.5 / 2 / 2.5 / 3. Default 0. Off-grid
    *  values are snapped to the nearest 0.5 increment on write. */
   discountPointsPct: number;
+  /** FHA Down Payment Assistance (DPA). Only asked/applied when
+   *  `loanType === "fha"`. null = not answered yet. Answers are
+   *  mirrored into `userAnswerSources` (dpa_enabled / dpa_pct /
+   *  dpa_second) so they persist without a schema migration. */
+  dpaEnabled?: boolean | null;
+  /** DPA program size as % of purchase price. 3.5% covers the full
+   *  FHA down payment; 5% covers the down payment (3.5%) plus 1.5%
+   *  of the purchase price toward closing costs. */
+  dpaPct?: 3.5 | 5 | null;
+  /** How the DPA second lien is structured:
+   *  - "amortizing": fully amortizing 2nd repaid over 10 years at
+   *    (final first-mortgage rate + 2%).
+   *  - "silent": no payments; borrower must keep the home 10 years
+   *    and owes the full amount back on refinance. */
+  dpaSecondType?: "amortizing" | "silent" | null;
 }
 
 /** Allowed discount-point slider steps (% of base loan amount). */
@@ -514,6 +529,7 @@ function makeDefaultInputs(price = 350000): Inputs {
     propertyType: "Single Family Residence", propertyTypeSource: "default",
     hasDeferredStudentLoans: false, deferredStudentLoanBalance: 0,
     discountPointsPct: 0,
+    dpaEnabled: null, dpaPct: null, dpaSecondType: null,
     loanType: "conventional", creditScore: 780,
     interestRate: FALLBACK_RATES.conventional,
     annualTaxes: Math.round(price * 0.015), hoaMonthly: 0, cddAnnual: 0,
@@ -1722,8 +1738,8 @@ export default function Estimate() {
     const paramRows: [string, string][] = [
       ["Purchase Price", fmt(inputs.purchasePrice)],
       ["Loan Type", inputs.loanType.toUpperCase()],
-      ["Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`],
-      ["Interest Rate", `${inputs.interestRate.toFixed(3)}%`],
+      ["Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(calc.effectiveDownPaymentPct).toFixed(1)}%)`],
+      ["Interest Rate", `${calc.finalRate.toFixed(3)}%`],
       ["Occupancy", inputs.occupancy.charAt(0).toUpperCase() + inputs.occupancy.slice(1)],
       ["Credit Score", String(inputs.creditScore)],
     ];
@@ -1744,7 +1760,7 @@ export default function Estimate() {
     // ── Real Estate ───────────────────────────────────────────────────────
     sectionHeader("Real Estate");
     row("Purchase Price", fmt(inputs.purchasePrice));
-    row("Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`);
+    row("Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(calc.effectiveDownPaymentPct).toFixed(1)}%)`);
     row("Loan Amount", fmt(calc.loanAmount), inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}` : `LTV ${fmtPct(calc.ltv)}`);
     row(
       inputs.loanType === "dscr" ? "Estimated Closing Costs (~4%)" : "Estimated Closing Costs (~3%)",
@@ -1752,12 +1768,17 @@ export default function Estimate() {
       inputs.loanType === "dscr" ? `Incl. DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})` : undefined,
     );
     if (inputs.sellerConcessions > 0) row("Seller Concessions", `− ${fmt(inputs.sellerConcessions)}`);
+    if (calc.dpaActive) {
+      row("DPA Covers Down Payment", `− ${fmt(calc.dpaDownPaymentCredit)}`, `${calc.dpaPct}% assistance program`);
+      if (calc.dpaClosingCostCredit > 0) row("DPA Closing-Cost Credit (1.5%)", `− ${fmt(calc.dpaClosingCostCredit)}`);
+      if (calc.dpaExtraPointsCost > 0) row("DPA Discount Points (2 pts)", fmt(calc.dpaExtraPointsCost), "Included in closing costs");
+    }
     row("Estimated Cash to Close", fmt(calc.cashToClose));
 
     // ── Mortgage ──────────────────────────────────────────────────────────
     checkPage(20);
     sectionHeader("Monthly Mortgage Breakdown");
-    row("Principal & Interest", fmt(calc.pi), `${inputs.interestRate.toFixed(3)}% / 30 yr`);
+    row("Principal & Interest", fmt(calc.pi), `${calc.finalRate.toFixed(3)}% / 30 yr`);
     row("Property Taxes", `${fmt(calc.monthlyTax)}/mo`, `${fmt(inputs.annualTaxes)}/yr`);
     row("Homeowners Insurance", `${fmt(calc.monthlyHOIns)}/mo`);
     row("Flood Insurance", `${fmt(calc.monthlyFlood)}/mo`);
@@ -1766,6 +1787,12 @@ export default function Estimate() {
     if (calc.mortgageInsurance > 0) {
       const miLabel = inputs.loanType === "fha" ? "FHA MIP" : "PMI";
       row(miLabel, fmt(calc.mortgageInsurance));
+    }
+    if (calc.dpaActive && calc.dpaSecondType === "amortizing") {
+      row("DPA 2nd Mortgage", fmt(calc.dpaSecondMonthly), `${fmt(calc.dpaAmount)} @ ${calc.dpaSecondRate.toFixed(3)}% / 10 yr`);
+    }
+    if (calc.dpaActive && calc.dpaSecondType === "silent") {
+      row("DPA Silent 2nd", fmt(0), `${fmt(calc.dpaAmount)} — no payments; due in full on refinance; keep home 10 yrs`);
     }
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
@@ -1821,16 +1848,19 @@ export default function Estimate() {
   const [leadScenarioDetails, setLeadScenarioDetails] = useState<string | undefined>();
 
   function buildScenarioDetails(): string {
-    const { purchasePrice, downPaymentPct, loanType, interestRate } = inputs;
+    const { purchasePrice, loanType } = inputs;
     const c = calc;
     const money = (n: number) => "$" + Math.round(n).toLocaleString();
     const loanLabel = loanType === "conventional" ? "Conventional" : loanType === "fha" ? "FHA" : loanType === "va" ? "VA" : loanType === "usda" ? "USDA" : loanType === "dscr" ? "DSCR" : loanType === "bank_statement" ? "Bank Statement" : (loanType as string).toUpperCase();
     return [
       `Purchase Price: ${money(purchasePrice)}`,
-      `Down Payment: ${money(c.downPaymentAmt)} (${Number(downPaymentPct).toFixed(1)}%)`,
+      `Down Payment: ${money(c.downPaymentAmt)} (${Number(c.effectiveDownPaymentPct).toFixed(1)}%)`,
       `Loan Amount: ${money(c.loanAmount)}`,
       `Loan Type: ${loanLabel}`,
-      `Interest Rate: ${interestRate.toFixed(3)}%`,
+      `Interest Rate: ${c.finalRate.toFixed(3)}%`,
+      ...(c.dpaActive
+        ? [`DPA: ${c.dpaPct}% (${money(c.dpaAmount)}) · ${c.dpaSecondType === "amortizing" ? `10-yr 2nd @ ${c.dpaSecondRate.toFixed(3)}% (${money(c.dpaSecondMonthly)}/mo)` : "silent 2nd (no payments)"}`]
+        : []),
       `Monthly P&I: ${money(c.pi)}`,
       `Total Monthly Housing: ${money(c.totalHousing)}`,
       `Est. Cash to Close: ${money(c.cashToClose)}`,
@@ -2277,6 +2307,27 @@ export default function Estimate() {
           }
         }
         return Object.keys(base0).length > 0 ? base0 : undefined;
+      })(),
+      // FHA DPA answers round-trip through the persisted
+      // `userAnswerSources` jsonb (no dedicated columns needed).
+      ...(() => {
+        const uas = (saved.userAnswerSources && typeof saved.userAnswerSources === "object")
+          ? (saved.userAnswerSources as Record<string, string>)
+          : {};
+        return {
+          dpaEnabled:
+            uas.dpa_enabled === "yes" ? true :
+            uas.dpa_enabled === "no" ? false :
+            base.dpaEnabled ?? null,
+          dpaPct:
+            uas.dpa_pct === "3.5" ? (3.5 as const) :
+            uas.dpa_pct === "5" ? (5 as const) :
+            base.dpaPct ?? null,
+          dpaSecondType:
+            uas.dpa_second === "amortizing" || uas.dpa_second === "silent"
+              ? uas.dpa_second
+              : base.dpaSecondType ?? null,
+        };
       })(),
     };
   }
@@ -2853,6 +2904,21 @@ export default function Estimate() {
    *  the style of `renderSellerConcessions()` a few lines below it. */
   function renderDownPayment() {
     const price = inputs.purchasePrice;
+    if (dpaSelectionComplete) {
+      return (
+        <div className="space-y-1" data-testid="dpa-down-payment-covered-re">
+          <span className="text-xs text-muted-foreground">
+            Down Payment
+            <span className="ml-1.5 text-foreground/80 font-medium">
+              3.50% / {fmt(Math.round(price * 0.035))}
+            </span>
+          </span>
+          <p className="text-[10px] text-emerald-700 font-medium leading-tight">
+            Fully covered by your Down Payment Assistance program.
+          </p>
+        </div>
+      );
+    }
     const minDown = getMinDown(inputs.loanType, inputs.hasMortgage, inputs.occupancy);
     const mode: "percent" | "amount" = inputs.downPaymentMode ?? "percent";
     const dpAmt =
@@ -2927,6 +2993,45 @@ export default function Estimate() {
     );
   }
 
+  /** Write FHA DPA answers. Mirrors every answer into
+   *  `userAnswerSources` (dpa_enabled / dpa_pct / dpa_second) so the
+   *  choices persist through the existing jsonb round-trip without a
+   *  schema migration. When the program is fully selected, the down
+   *  payment is snapped to the FHA minimum 3.5% (the DPA covers it). */
+  function setDpa(patch: Partial<Pick<Inputs, "dpaEnabled" | "dpaPct" | "dpaSecondType">>) {
+    setInputs((p) => {
+      const next: Inputs = { ...p, ...patch };
+      if (patch.dpaEnabled === false) {
+        next.dpaPct = null;
+        next.dpaSecondType = null;
+      }
+      const uas: Record<string, string> = { ...(p.userAnswerSources ?? {}) };
+      if (next.dpaEnabled === true) uas.dpa_enabled = "yes";
+      else if (next.dpaEnabled === false) uas.dpa_enabled = "no";
+      else delete uas.dpa_enabled;
+      if (next.dpaPct === 3.5) uas.dpa_pct = "3.5";
+      else if (next.dpaPct === 5) uas.dpa_pct = "5";
+      else delete uas.dpa_pct;
+      if (next.dpaSecondType === "amortizing" || next.dpaSecondType === "silent") uas.dpa_second = next.dpaSecondType;
+      else delete uas.dpa_second;
+      next.userAnswerSources = uas;
+      if (next.loanType === "fha" && next.dpaEnabled === true && next.dpaPct != null && next.dpaSecondType != null) {
+        next.downPaymentPct = 3.5;
+        next.downPaymentMode = "percent";
+        next.downPaymentAmount = Math.round(next.purchasePrice * 0.035);
+      }
+      return next;
+    });
+  }
+
+  /** True when the FHA DPA program is fully selected and should
+   *  drive the calc (loan must currently be FHA). */
+  const dpaSelectionComplete =
+    inputs.loanType === "fha" &&
+    inputs.dpaEnabled === true &&
+    (inputs.dpaPct === 3.5 || inputs.dpaPct === 5) &&
+    (inputs.dpaSecondType === "amortizing" || inputs.dpaSecondType === "silent");
+
   // ─── Calculations ──────────────────────────────────────────────────────────
 
   const calc = useMemo(() => {
@@ -2951,7 +3056,34 @@ export default function Estimate() {
     // for DTI math so changing loan type recomputes DTI instantly.
     const effectiveMonthlyDebts = monthlyDebts + deferredStudentLoanMonthly;
 
-    const downPaymentAmt = purchasePrice * (downPaymentPct / 100);
+    // ─── FHA Down Payment Assistance (DPA) ─────────────────────────────────
+    // Only applies when the loan is FHA and every DPA question is
+    // answered. All effects are derived here (never written back into
+    // `inputs`) so flipping loan types can never double-count.
+    const dpaActive =
+      loanType === "fha" &&
+      inputs.dpaEnabled === true &&
+      (inputs.dpaPct === 3.5 || inputs.dpaPct === 5) &&
+      (inputs.dpaSecondType === "amortizing" || inputs.dpaSecondType === "silent");
+    const dpaPct = dpaActive ? (inputs.dpaPct as 3.5 | 5) : 0;
+    const dpaSecondType = dpaActive ? (inputs.dpaSecondType as "amortizing" | "silent") : null;
+    // Total assistance funds = 3.5% or 5% of purchase price. This is
+    // also the principal of the 2nd lien.
+    const dpaAmount = dpaActive ? Math.round(purchasePrice * (dpaPct / 100)) : 0;
+    // Rate adjustment applied ON TOP of the priced FHA rate
+    // (i.e. "the rate without these options"):
+    //   3.5% + amortizing → +1.00%   3.5% + silent → +1.75%
+    //   5%   + amortizing → +1.25%   5%   + silent → +1.75% + 2 pts cash
+    const dpaRateBump = !dpaActive ? 0
+      : dpaPct === 3.5
+        ? (dpaSecondType === "amortizing" ? 1.0 : 1.75)
+        : (dpaSecondType === "amortizing" ? 1.25 : 1.75);
+    const dpaExtraPointsPct = dpaActive && dpaPct === 5 && dpaSecondType === "silent" ? 2 : 0;
+
+    // With DPA active the down payment is always the FHA minimum
+    // 3.5% — fully funded by the assistance.
+    const effectiveDownPaymentPct = dpaActive ? 3.5 : downPaymentPct;
+    const downPaymentAmt = purchasePrice * (effectiveDownPaymentPct / 100);
     const baseLoanAmount = purchasePrice - downPaymentAmt;
     const fhaUFMIP = loanType === "fha" ? Math.round(baseLoanAmount * 0.0175 * 100) / 100 : 0;
     const vaFundingFeeAmt = loanType === "va" ? calcVAFundingFeeAmt(baseLoanAmount, vaDisability, vaLoanUse) : 0;
@@ -2983,11 +3115,23 @@ export default function Estimate() {
     const discountPointsCost = Math.round(
       baseLoanAmount * (discountPointsPctSnapped / 100),
     );
-    // Use the bought-down rate for P&I so monthly payment / DTI /
-    // qualification all reflect the buydown.
-    const rate = rateAfterDiscountPoints / 100;
+    // Final first-mortgage rate = bought-down rate + DPA rate
+    // adjustment (0 when no DPA). Used for P&I so monthly payment /
+    // DTI / qualification all reflect both.
+    const finalRate = Math.round((rateAfterDiscountPoints + dpaRateBump) * 1000) / 1000;
+    const rate = finalRate / 100;
 
     const pi = calcPI(loanAmount, rate);
+
+    // DPA 2nd lien: amortizing = repaid over 10 years at the final
+    // first-mortgage rate + 2%. Silent = no monthly payment (must
+    // keep the home 10 years; full amount due on refinance).
+    const dpaSecondRate = dpaActive && dpaSecondType === "amortizing"
+      ? Math.round((finalRate + 2) * 1000) / 1000
+      : 0;
+    const dpaSecondMonthly = dpaActive && dpaSecondType === "amortizing"
+      ? calcPI(dpaAmount, dpaSecondRate / 100, 120)
+      : 0;
     const monthlyTax = annualTaxes / 12;
     const monthlyHOIns = annualHOIns / 12;
     const monthlyFlood = annualFloodIns / 12;
@@ -2997,7 +3141,7 @@ export default function Estimate() {
     const mip = loanType === "fha" ? calcFHAMIP(loanAmount) : 0;
     const mortgageInsurance = pmi + mip;
 
-    const totalHousing = pi + monthlyTax + monthlyHOIns + monthlyFlood + hoaMonthly + monthlyCDD + mortgageInsurance;
+    const totalHousing = pi + monthlyTax + monthlyHOIns + monthlyFlood + hoaMonthly + monthlyCDD + mortgageInsurance + dpaSecondMonthly;
     // Base closing costs ≈ 3% of purchase price. DSCR adds a 1.00%
     // origination charge on top per spec; the add-on is derived here
     // and never written back into `inputs`, so switching loan types
@@ -3010,7 +3154,13 @@ export default function Estimate() {
     // origination charge — the two are separate line items per
     // spec — and is derived from `inputs.discountPointsPct` only,
     // so re-renders / loan-type flips never double-count.
-    const closingCosts = baseClosingCosts + dscrOriginationAmount + discountPointsCost;
+    // 5% DPA + silent 2nd: lender charges 2 discount points (2% of
+    // the base loan amount) in cash to close. This is a cost only —
+    // it does NOT buy the rate down.
+    const dpaExtraPointsCost = dpaExtraPointsPct > 0
+      ? Math.round(baseLoanAmount * (dpaExtraPointsPct / 100))
+      : 0;
+    const closingCosts = baseClosingCosts + dscrOriginationAmount + discountPointsCost + dpaExtraPointsCost;
     if (loanType === "dscr") {
       console.debug("[dscr-costs] base closing costs", baseClosingCosts);
       console.debug("[dscr-costs] origination add-on", dscrOriginationAmount);
@@ -3022,7 +3172,16 @@ export default function Estimate() {
     // or go below $0 cash-to-close. The user's selected concession
     // amount is preserved in `inputs.sellerConcessions` for display.
     const sellerConcessionsApplied = Math.min(sellerConcessions, closingCosts);
-    const cashToClose = Math.round(downPaymentAmt + closingCosts - sellerConcessionsApplied);
+    // DPA credits: the assistance always covers the full 3.5% down
+    // payment; the 5% program additionally credits 1.5% of the
+    // purchase price toward closing costs. Floored at $0 so credits
+    // can never produce negative cash to close.
+    const dpaDownPaymentCredit = dpaActive ? downPaymentAmt : 0;
+    const dpaClosingCostCredit = dpaActive && dpaPct === 5 ? Math.round(purchasePrice * 0.015) : 0;
+    const cashToClose = Math.round(
+      Math.max(0, downPaymentAmt - dpaDownPaymentCredit) +
+      Math.max(0, closingCosts - sellerConcessionsApplied - dpaClosingCostCredit)
+    );
 
     // Rental income: lenders allow 75% of gross rental income to count toward qualifying income
     const rentalIncomeQualifying = Math.round((monthlyRentalIncome ?? 0) * 0.75);
@@ -3082,6 +3241,14 @@ export default function Estimate() {
       discountPointsRateReduction,
       rateBeforeDiscountPoints,
       rateAfterDiscountPoints,
+      // FHA DPA surface — drives the Page 3 controls, Page 4 rows,
+      // PDF, and share text. `finalRate` is the rate actually used
+      // for P&I (buydown + DPA bump applied).
+      finalRate,
+      dpaActive, dpaPct, dpaSecondType, dpaAmount, dpaRateBump,
+      dpaSecondRate, dpaSecondMonthly,
+      dpaDownPaymentCredit, dpaClosingCostCredit, dpaExtraPointsCost,
+      effectiveDownPaymentPct,
       cashToClose, housingDTI, dti, maxHousingDti, maxTotalDti, maxDti, requiredIncome, requiredReserves, availableReserves,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
       rentalIncomeQualifying, qualifyingIncome,
@@ -4345,7 +4512,119 @@ export default function Estimate() {
                     )}
                   </div>
 
+                  {/* FHA Down Payment Assistance (DPA) — only offered on
+                      FHA loans. Answers are persisted via
+                      userAnswerSources and applied in the calc memo. */}
+                  {inputs.loanType === "fha" && (
+                    <div className="space-y-3 rounded-md border border-border p-3" data-testid="dpa-section">
+                      <div>
+                        <Label className="text-xs text-muted-foreground mb-1.5 block">Would you like Down Payment Assistance (DPA)?</Label>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            data-testid="dpa-yes"
+                            onClick={() => setDpa({ dpaEnabled: true })}
+                            className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.dpaEnabled === true ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                          >Yes</button>
+                          <button
+                            type="button"
+                            data-testid="dpa-no"
+                            onClick={() => setDpa({ dpaEnabled: false })}
+                            className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.dpaEnabled === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
+                          >No</button>
+                        </div>
+                      </div>
+                      {inputs.dpaEnabled === true && (
+                        <div>
+                          <Label className="text-xs text-muted-foreground mb-1.5 block">How much assistance?</Label>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              data-testid="dpa-pct-35"
+                              onClick={() => setDpa({ dpaPct: 3.5 })}
+                              className={`flex-1 py-1.5 px-2 rounded-md border text-left transition-colors ${inputs.dpaPct === 3.5 ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                            >
+                              <span className="block text-xs font-semibold">3.5%</span>
+                              <span className="block text-[10px] text-muted-foreground leading-tight">Covers your full down payment</span>
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="dpa-pct-5"
+                              onClick={() => setDpa({ dpaPct: 5 })}
+                              className={`flex-1 py-1.5 px-2 rounded-md border text-left transition-colors ${inputs.dpaPct === 5 ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                            >
+                              <span className="block text-xs font-semibold">5%</span>
+                              <span className="block text-[10px] text-muted-foreground leading-tight">Down payment + 1.5% toward closing costs</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {inputs.dpaEnabled === true && inputs.dpaPct != null && (
+                        <div>
+                          <Label className="text-xs text-muted-foreground mb-1.5 block">How is the assistance repaid?</Label>
+                          <div className="space-y-1.5">
+                            <button
+                              type="button"
+                              data-testid="dpa-second-amortizing"
+                              onClick={() => setDpa({ dpaSecondType: "amortizing" })}
+                              className={`w-full py-1.5 px-2 rounded-md border text-left transition-colors ${inputs.dpaSecondType === "amortizing" ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                            >
+                              <span className="block text-xs font-semibold">Fully Amortizing 2nd Mortgage</span>
+                              <span className="block text-[10px] text-muted-foreground leading-tight">Repay the {inputs.dpaPct}% over 10 years at the FHA rate + 2%</span>
+                            </button>
+                            <button
+                              type="button"
+                              data-testid="dpa-second-silent"
+                              onClick={() => setDpa({ dpaSecondType: "silent" })}
+                              className={`w-full py-1.5 px-2 rounded-md border text-left transition-colors ${inputs.dpaSecondType === "silent" ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                            >
+                              <span className="block text-xs font-semibold">Fully Silent 2nd Mortgage</span>
+                              <span className="block text-[10px] text-muted-foreground leading-tight">No payments — but you must keep the home 10 years. If you refinance, the full amount is owed back.</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                      {calc.dpaActive && (
+                        <div className="rounded-md bg-muted/50 p-2 space-y-0.5" data-testid="dpa-summary">
+                          <p className="text-[11px] leading-tight">
+                            <span className="font-semibold">DPA applied:</span> {fmt(calc.dpaAmount)} assistance · rate adjusted +{calc.dpaRateBump.toFixed(2)}% → <span className="font-semibold">{calc.finalRate.toFixed(3)}%</span>
+                          </p>
+                          {calc.dpaSecondType === "amortizing" && (
+                            <p className="text-[11px] leading-tight text-muted-foreground">
+                              Adds a 2nd mortgage payment of <span className="font-semibold text-foreground">{fmt(calc.dpaSecondMonthly)}/mo</span> ({fmt(calc.dpaAmount)} @ {calc.dpaSecondRate.toFixed(3)}% over 10 yrs)
+                            </p>
+                          )}
+                          {calc.dpaSecondType === "silent" && (
+                            <p className="text-[11px] leading-tight text-muted-foreground">
+                              No 2nd mortgage payment. You must keep the home 10 years — refinancing means the full {fmt(calc.dpaAmount)} is owed back.
+                            </p>
+                          )}
+                          {calc.dpaExtraPointsCost > 0 && (
+                            <p className="text-[11px] leading-tight text-amber-700 font-medium">
+                              Adds 2 discount points ({fmt(calc.dpaExtraPointsCost)}) to your cash to close.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {(() => {
+                    if (dpaSelectionComplete) {
+                      return (
+                        <div className="space-y-1" data-testid="dpa-down-payment-covered">
+                          <span className="text-xs text-muted-foreground">
+                            Down Payment
+                            <span className="ml-1.5 text-foreground/80 font-medium">
+                              3.50% / ${Math.round(inputs.purchasePrice * 0.035).toLocaleString()}
+                            </span>
+                          </span>
+                          <p className="text-[11px] text-emerald-700 font-medium leading-tight">
+                            Fully covered by your Down Payment Assistance program.
+                          </p>
+                        </div>
+                      );
+                    }
                     const minDown = getMinDown(inputs.loanType, inputs.hasMortgage, inputs.occupancy);
                     const mode: "percent" | "amount" = inputs.downPaymentMode ?? "percent";
                     const dpAmt =
@@ -4473,6 +4752,11 @@ export default function Estimate() {
                       suffix="%"
                       decimals={3}
                     />
+                    {calc.dpaActive && (
+                      <p className="text-[11px] text-amber-700 font-medium pt-1" data-testid="note-dpa-rate-bump">
+                        DPA rate adjustment: +{calc.dpaRateBump.toFixed(2)}% → final rate {calc.finalRate.toFixed(3)}%
+                      </p>
+                    )}
                     {/* AMI-based Conventional rate discount note.
                         Only rendered for Primary + Conventional;
                         helper short-circuits to discountPercent=0
@@ -4704,6 +4988,19 @@ export default function Estimate() {
                           <SummaryRow label="Purchase Price" value={fmt(inputs.purchasePrice)} onEdit={() => setEditingPage(3)} />
                           <SummaryRow label="Property Type" value={inputs.propertyType ?? "Single Family Residence"} onEdit={() => setEditingPage(3)} />
                           <SummaryRow label="Loan Type" value={loanTypeLabel[inputs.loanType]} onEdit={() => setEditingPage(3)} />
+                          {inputs.loanType === "fha" && (
+                            <SummaryRow
+                              label="Down Payment Assistance"
+                              value={
+                                calc.dpaActive
+                                  ? `${calc.dpaPct}% (${fmt(calc.dpaAmount)}) · ${calc.dpaSecondType === "amortizing" ? "10-yr amortizing 2nd" : "silent 2nd"}`
+                                  : inputs.dpaEnabled === false
+                                  ? "No"
+                                  : "—"
+                              }
+                              onEdit={() => setEditingPage(3)}
+                            />
+                          )}
                           <SummaryRow
                             label={dpMode === "amount" ? "Down Payment ($)" : "Down Payment (%)"}
                             value={
@@ -4735,7 +5032,12 @@ export default function Estimate() {
                           {inputs.cddAnnual > 0 && (
                             <SummaryRow label="CDD" value={`${fmt(inputs.cddAnnual)}/yr`} onEdit={() => setEditingPage(3)} />
                           )}
-                          <SummaryRow label="Interest Rate" value={`${inputs.interestRate.toFixed(3)}%`} onEdit={() => setEditingPage(3)} />
+                          <SummaryRow
+                            label="Interest Rate"
+                            value={`${calc.finalRate.toFixed(3)}%`}
+                            sub={calc.dpaActive ? `Includes +${calc.dpaRateBump.toFixed(2)}% DPA adjustment` : undefined}
+                            onEdit={() => setEditingPage(3)}
+                          />
                           <SummaryRow label="Loan Term" value="30 yr fixed" onEdit={() => setEditingPage(3)} />
                         </div>
                       </div>
@@ -4885,11 +5187,16 @@ export default function Estimate() {
                         instantly — no stale state. */}
                   <Row
                     label="Interest Rate"
-                    value={`${calc.rateAfterDiscountPoints.toFixed(3)}%`}
+                    value={`${calc.finalRate.toFixed(3)}%`}
                     sub={
-                      calc.discountPointsPct > 0
-                        ? `Includes ${calc.discountPointsPct.toFixed(1)} discount point buydown`
-                        : undefined
+                      [
+                        calc.discountPointsPct > 0
+                          ? `Includes ${calc.discountPointsPct.toFixed(1)} discount point buydown`
+                          : null,
+                        calc.dpaActive
+                          ? `Includes +${calc.dpaRateBump.toFixed(2)}% DPA adjustment`
+                          : null,
+                      ].filter(Boolean).join(" · ") || undefined
                     }
                   />
                   {/* Per spec the explicit "Base Rate Before Points"
@@ -4946,6 +5253,18 @@ export default function Estimate() {
                       value={fmt(calc.mortgageInsurance)}
                     />
                   )}
+                  {calc.dpaActive && calc.dpaSecondType === "amortizing" && (
+                    <Row
+                      label="DPA 2nd Mortgage"
+                      value={fmt(calc.dpaSecondMonthly)}
+                      sub={`${fmt(calc.dpaAmount)} @ ${calc.dpaSecondRate.toFixed(3)}% / 10 yr`}
+                    />
+                  )}
+                  {calc.dpaActive && calc.dpaSecondType === "silent" && (
+                    <p className="text-[11px] text-muted-foreground px-1 py-1" data-testid="note-dpa-silent-second">
+                      Silent 2nd of {fmt(calc.dpaAmount)}: no monthly payment. You must keep the home 10 years — if you refinance, the full amount is owed back.
+                    </p>
+                  )}
                   <Separator />
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm font-semibold">Total Monthly Payment</span>
@@ -4986,7 +5305,13 @@ export default function Estimate() {
                   <Row
                     label={inputs.loanType === "dscr" ? "Estimated Closing Costs (~4%)" : "Estimated Closing Costs (~3%)"}
                     value={fmt(calc.closingCosts)}
-                    sub={inputs.loanType === "dscr" ? `Includes DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})` : undefined}
+                    sub={
+                      inputs.loanType === "dscr"
+                        ? `Includes DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})`
+                        : calc.dpaExtraPointsCost > 0
+                        ? `Includes 2 discount points (${fmt(calc.dpaExtraPointsCost)}) — DPA 5% silent 2nd`
+                        : undefined
+                    }
                   />
                   {/* Seller Concessions — same control as Page 3,
                       writes the same `inputs.sellerConcessions` field
@@ -5054,6 +5379,22 @@ export default function Estimate() {
                     </div>
                   </div>
                   <Separator />
+                  {calc.dpaActive && (
+                    <>
+                      <Row
+                        label="DPA Covers Down Payment"
+                        value={`− ${fmt(calc.dpaDownPaymentCredit)}`}
+                        sub={`${calc.dpaPct}% assistance program`}
+                      />
+                      {calc.dpaClosingCostCredit > 0 && (
+                        <Row
+                          label="DPA Closing-Cost Credit (1.5%)"
+                          value={`− ${fmt(calc.dpaClosingCostCredit)}`}
+                        />
+                      )}
+                      <Separator />
+                    </>
+                  )}
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm font-semibold">Estimated Cash to Close</span>
                     <span className="text-base font-bold text-primary">{fmt(calc.cashToClose)}</span>
