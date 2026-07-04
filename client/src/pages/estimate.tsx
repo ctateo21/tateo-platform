@@ -5207,9 +5207,6 @@ export default function Estimate() {
                   {calc.qualifies
                     ? "✓ Likely Qualifies"
                     : "⚠ Needs Review — DTI exceeds guidelines"}
-                  <span className="block text-xs font-normal opacity-90 mt-0.5">
-                    Housing DTI {fmtPct(calc.housingDTI)} · Total DTI {fmtPct(calc.dti)}
-                  </span>
                 </div>
                 {/* Metrics row */}
                 <div className="bg-primary/5 px-5 py-4">
