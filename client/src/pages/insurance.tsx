@@ -1229,18 +1229,11 @@ export default function InsuranceDashboard() {
         console.error("[qr-auto-hydrate]", e);
       }
 
-      // 3) Nothing cached anywhere — trigger only if we have a
-      //    Coverage A value. If rebuild is 0, the effect will re-run
-      //    when rebuild becomes > 0 (via the dependency array).
+      // 3) Nothing cached anywhere — do NOT auto-trigger a quote.
+      //    Per product decision, live carrier quotes only run when the
+      //    user explicitly clicks "Get Live Quotes" in this detailed
+      //    insurance view. Leaving qrStatus "idle" surfaces that button.
       if (cancelled) return;
-      if (!rebuild) {
-        console.log(
-          "[qr-auto] waiting for rebuild:",
-          address
-        );
-        return;
-      }
-      startQuoteRush();
     })();
 
     return () => {

@@ -26,7 +26,6 @@ import {
   type TrackedLoan,
 } from "@/lib/auth";
 import { notifyNewScenario } from "@/lib/notify-scenario";
-import { triggerAutoQuote } from "@/lib/quoterush-auto";
 import { normalizePropertyKey } from "@/lib/property-key";
 import { posthog } from "@/lib/posthog";
 import { applySellerSalePriceToRefinance } from "@/lib/refinance-from-seller";
@@ -447,16 +446,9 @@ export default function SellerEstimatePage() {
     })();
   }, [scenario.address]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Pre-warm the shared QuoteRUSH cache once an address + sale price are
-  // known, so the Insurance page loads live carrier quotes instantly.
-  useEffect(() => {
-    triggerAutoQuote({
-      address: scenario.address,
-      price: scenario.estimatedSalePrice ?? 0,
-      isAuthenticated,
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenario.address, scenario.estimatedSalePrice, isAuthenticated]);
+  // NOTE: Automatic QuoteRUSH pre-warming is disabled. Live carrier
+  // quotes now run only when the user explicitly requests them from the
+  // Insurance tab's detailed view.
 
   // ── Debounced auto-save ───────────────────────────────────────────
   // Guards (in order):

@@ -2,7 +2,6 @@ import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import ScenarioActions from "@/components/scenario-actions";
 import { buildScenarioFileName } from "@/lib/scenario-pdf";
 import {
-  triggerAutoQuote,
   getQRCache,
   setQRCache,
   type QRQuote,
@@ -2375,12 +2374,10 @@ export default function Estimate() {
       estQrAddrRef.current = activeAddress;
     }
 
-    // Fire background trigger (deduplicates automatically)
-    triggerAutoQuote({
-      address: activeAddress,
-      price,
-      isAuthenticated,
-    });
+    // NOTE: Automatic QuoteRUSH triggering is disabled. Live carrier
+    // quotes now run only when the user explicitly requests them from the
+    // Insurance tab's detailed view. Here we only surface any existing
+    // cached results.
 
     // Load any existing cache results into local state for display
     const cached = getQRCache(activeAddress);
