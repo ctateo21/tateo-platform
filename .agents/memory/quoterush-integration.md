@@ -72,3 +72,19 @@ qr-start splits the formatted address on commas and scans segments
 **from the end** for a `ST 12345` pattern (not just the last segment),
 so a trailing country segment like ", USA" from Google doesn't swallow
 the state/zip.
+
+## Auto-hydrate effect must not bail permanently on missing rebuild
+The insurance-page auto-quote effect must NOT include `!rebuild` in its
+early-return guard. `rebuild` is computed asynchronously; if the guard
+bails when it's absent the effect never starts a quote even after rebuild
+arrives. Correct shape: early-return only on `!isAuthenticated || !address`,
+then check `if (!rebuild) return;` as a fallthrough right before starting —
+with `rebuild` in the dep array so the effect re-runs once it's ready.
+
+## Per-page QR display polling: tear down on address change
+Any page that shows live QR quotes with its own poll (e.g. estimate page)
+must, on active-address change, clear the interval AND reset leadId, gate
+"start poll" on `!pollRef.current` (not `!leadIdRef.current`), and inside
+the poll callback ignore results when unmounted or `addrRef.current !== addr`.
+**Why:** cached pending/success for a new address otherwise leaves the old
+interval running and a stale leadId ref blocking the new poll → wrong quotes.

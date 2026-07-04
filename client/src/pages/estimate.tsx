@@ -2348,6 +2348,17 @@ export default function Estimate() {
       scenarios.find(s => s.id === activeScenarioId)?.address || address;
     const price = inputs.purchasePrice;
 
+    // When the active address changes, tear down any polling from the
+    // previous address so we never show stale quotes or leak intervals.
+    if (estQrAddrRef.current !== activeAddress) {
+      if (estQrPollRef.current) {
+        clearInterval(estQrPollRef.current);
+        estQrPollRef.current = null;
+      }
+      estQrLeadIdRef.current = null;
+      estQrAddrRef.current = activeAddress;
+    }
+
     // Fire background trigger (deduplicates automatically)
     triggerAutoQuote({
       address: activeAddress,
@@ -2357,29 +2368,23 @@ export default function Estimate() {
 
     // Load any existing cache results into local state for display
     const cached = getQRCache(activeAddress);
-    if (cached) {
-      if (
-        cached.status === "success" &&
-        cached.quotes.length > 0
-      ) {
-        setEstQrQuotes(cached.quotes);
-        setEstQrStatus("success");
-      } else if (cached.status === "pending") {
-        setEstQrStatus("pending");
-        if (cached.leadId && !estQrLeadIdRef.current) {
-          estQrLeadIdRef.current = cached.leadId;
-          startEstPolling(activeAddress, cached.leadId);
-        }
+    if (cached && cached.status === "success" && cached.quotes.length > 0) {
+      setEstQrQuotes(cached.quotes);
+      setEstQrStatus("success");
+    } else if (cached && cached.status === "pending") {
+      setEstQrQuotes(cached.quotes ?? []);
+      setEstQrStatus("pending");
+      // Only start a poll if one isn't already running for this address.
+      if (cached.leadId && !estQrPollRef.current) {
+        estQrLeadIdRef.current = cached.leadId;
+        startEstPolling(activeAddress, cached.leadId);
       }
     } else {
-      // Reset display for new address
+      // No cache yet for this address
       setEstQrQuotes([]);
       setEstQrStatus(
         isAuthenticated && price > 0 ? "pending" : "idle"
       );
-      estQrLeadIdRef.current = null;
-      if (estQrPollRef.current)
-        clearInterval(estQrPollRef.current);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeScenarioId, inputs.purchasePrice, isAuthenticated]);
@@ -2396,6 +2401,8 @@ export default function Estimate() {
   const estQrPollRef = useRef<
     ReturnType<typeof setInterval> | null
   >(null);
+  const estQrAddrRef = useRef<string | null>(null);
+  const estQrMountedRef = useRef(true);
   const [insRegionKey, setInsRegionKey] = useState<InsRegionKey>(() => getInsRegionFromAddress(address));
   const [insRoofIdx, setInsRoofIdx] = useState(1);
   const [insWindIdx, setInsWindIdx] = useState(1);
@@ -3101,7 +3108,14 @@ export default function Estimate() {
     let count = 0;
     let prevN = 0;
     let stable = 0;
-    estQrPollRef.current = setInterval(async () => {
+    let gotAny = false;
+    const stop = () => {
+      if (estQrPollRef.current) {
+        clearInterval(estQrPollRef.current);
+        estQrPollRef.current = null;
+      }
+    };
+    const interval = setInterval(async () => {
       count++;
       try {
         const res = await fetch("/api/insurance/qr-quotes", {
@@ -3110,8 +3124,14 @@ export default function Estimate() {
           body: JSON.stringify({ leadId, address: addr }),
         });
         const data = await res.json();
+        // Ignore results if unmounted or the user moved to another address.
+        if (!estQrMountedRef.current || estQrAddrRef.current !== addr) {
+          if (estQrPollRef.current === interval) stop();
+          return;
+        }
         const n = data.quoteCounter ?? 0;
         if (n > 0) {
+          gotAny = true;
           setEstQrQuotes(data.quotes ?? []);
           setEstQrStatus("success");
           setQRCache(addr, {
@@ -3122,24 +3142,24 @@ export default function Estimate() {
           if (n === prevN) stable++;
           else stable = 0;
           prevN = n;
-          if (stable >= 3 || count >= 24) {
-            if (estQrPollRef.current)
-              clearInterval(estQrPollRef.current);
-          }
+          if (stable >= 3 || count >= 24) stop();
         } else if (count >= 24) {
-          if (estQrPollRef.current)
-            clearInterval(estQrPollRef.current);
-          if (estQrQuotes.length === 0)
-            setEstQrStatus("error");
+          stop();
+          if (!gotAny) setEstQrStatus("error");
         }
       } catch {}
     }, 30000);
+    estQrPollRef.current = interval;
   }
 
   useEffect(() => {
+    estQrMountedRef.current = true;
     return () => {
-      if (estQrPollRef.current)
+      estQrMountedRef.current = false;
+      if (estQrPollRef.current) {
         clearInterval(estQrPollRef.current);
+        estQrPollRef.current = null;
+      }
     };
   }, []);
 

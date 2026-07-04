@@ -1,0 +1,422 @@
+Fix two specific bugs in the QuoteRUSH
+integration. Read everything before touching
+any file.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BUG 1 — insurance.tsx
+File: client/src/pages/insurance.tsx
+
+The auto-hydrate useEffect at line ~1154
+has this guard at the very top:
+
+  if (!isAuthenticated || !address ||
+      !rebuild) return;
+
+The `!rebuild` check is blocking the entire
+effect — including the cache lookup — when
+rebuild = 0. rebuild is 0 when the user
+navigates from another page to the Insurance
+tab before a purchase scenario has been
+autosaved to localStorage for that address.
+
+THE FIX:
+Find that exact guard line. Change it to:
+
+  if (!isAuthenticated || !address) return;
+  if (address === "Unknown Address") return;
+
+Then find the section inside the same
+useEffect that falls through to step 3
+(triggers a new quote). It looks like:
+
+  // 3) Nothing cached anywhere →
+  //    auto-trigger fresh quote.
+  if (cancelled) return;
+  startQuoteRush();
+
+Replace those two lines with:
+
+  // 3) Nothing cached anywhere —
+  //    trigger only if we have a
+  //    Coverage A value. If rebuild is
+  //    0, the effect will re-run when
+  //    rebuild becomes > 0 (via the
+  //    dependency array).
+  if (cancelled) return;
+  if (!rebuild) {
+    console.log(
+      "[qr-auto] waiting for rebuild:",
+      address
+    );
+    return;
+  }
+  startQuoteRush();
+
+Do not change anything else in this file.
+The dependency array [address, rebuild,
+isAuthenticated] already ensures the
+effect re-runs when rebuild updates from
+0 to a real value — no change needed there.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BUG 2 — estimate.tsx insurance card
+File: client/src/pages/estimate.tsx
+
+triggerAutoQuote already fires from this
+page, but the results are never displayed.
+The insurance card only shows the OIR
+formula. There is no QuoteRUSH panel, no
+status indicator, and no link to the
+Insurance tab.
+
+── 2A. Add state near the insurance
+panel state block ──────────────────────
+
+Find this existing line:
+  const insuranceSectionRef =
+    useRef<HTMLDivElement>(null);
+
+Directly AFTER it, add:
+
+  // QuoteRUSH status display for the
+  // insurance card on this page
+  const [estQrQuotes, setEstQrQuotes] =
+    useState
+      import("@/lib/quoterush-auto")
+        .QRQuote[]
+    >([]);
+  const [estQrStatus, setEstQrStatus] =
+    useState
+      "idle"|"pending"|"success"|"error"
+    >("idle");
+  const estQrLeadIdRef =
+    useRef<number | null>(null);
+  const estQrPollRef = useRef
+    ReturnType<typeof setInterval>|null
+  >(null);
+
+── 2B. Add QRQuote to the import ────────
+
+The existing import at line 4 is:
+  import { triggerAutoQuote }
+    from "@/lib/quoterush-auto";
+
+Change it to:
+  import {
+    triggerAutoQuote,
+    getQRCache,
+    setQRCache,
+    type QRQuote,
+  } from "@/lib/quoterush-auto";
+
+Then update the state declaration from
+step 2A to use QRQuote directly:
+  const [estQrQuotes, setEstQrQuotes] =
+    useState<QRQuote[]>([]);
+
+── 2C. Update the existing auto-trigger
+useEffect to also load from cache ──────
+
+Find the existing useEffect that calls
+triggerAutoQuote in estimate.tsx. It
+currently looks like:
+
+  useEffect(() => {
+    const activeAddress =
+      scenarios.find(
+        s => s.id === activeScenarioId
+      )?.address || address;
+    triggerAutoQuote({
+      address: activeAddress,
+      price: inputs.purchasePrice,
+      isAuthenticated,
+    });
+    // eslint-disable-next-line
+  }, [activeScenarioId,
+      inputs.purchasePrice,
+      isAuthenticated]);
+
+Replace the ENTIRE useEffect with:
+
+  useEffect(() => {
+    const activeAddress =
+      scenarios.find(
+        s => s.id === activeScenarioId
+      )?.address || address;
+    const price = inputs.purchasePrice;
+
+    // Fire background trigger
+    // (deduplicates automatically)
+    triggerAutoQuote({
+      address: activeAddress,
+      price,
+      isAuthenticated,
+    });
+
+    // Load any existing cache results
+    // into local state for display
+    const cached = getQRCache(activeAddress);
+    if (cached) {
+      if (
+        cached.status === "success" &&
+        cached.quotes.length > 0
+      ) {
+        setEstQrQuotes(cached.quotes);
+        setEstQrStatus("success");
+      } else if (cached.status === "pending") {
+        setEstQrStatus("pending");
+        if (cached.leadId &&
+            !estQrLeadIdRef.current) {
+          estQrLeadIdRef.current =
+            cached.leadId;
+          startEstPolling(
+            activeAddress,
+            cached.leadId
+          );
+        }
+      }
+    } else {
+      // Reset display for new address
+      setEstQrQuotes([]);
+      setEstQrStatus(
+        isAuthenticated && price > 0
+          ? "pending"
+          : "idle"
+      );
+      estQrLeadIdRef.current = null;
+      if (estQrPollRef.current)
+        clearInterval(estQrPollRef.current);
+    }
+    // eslint-disable-next-line
+  }, [activeScenarioId,
+      inputs.purchasePrice,
+      isAuthenticated]);
+
+── 2D. Add startEstPolling and cleanup ──
+
+Find this line:
+  const calc = useMemo(() => {
+
+Directly BEFORE it, add:
+
+  // Polls qr-quotes until carriers
+  // respond and updates the local
+  // display state. Non-blocking —
+  // only for the insurance card on
+  // this page.
+  function startEstPolling(
+    addr: string,
+    leadId: number
+  ): void {
+    if (estQrPollRef.current)
+      clearInterval(estQrPollRef.current);
+    let count = 0;
+    let prevN = 0;
+    let stable = 0;
+    estQrPollRef.current = setInterval(
+      async () => {
+        count++;
+        try {
+          const res = await fetch(
+            "/api/insurance/qr-quotes",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({
+                leadId,
+                address: addr,
+              }),
+            }
+          );
+          const data = await res.json();
+          const n =
+            data.quoteCounter ?? 0;
+          if (n > 0) {
+            setEstQrQuotes(
+              data.quotes ?? []
+            );
+            setEstQrStatus("success");
+            setQRCache(addr, {
+              status: "success",
+              quotes: data.quotes ?? [],
+              quoteCounter: n,
+            });
+            if (n === prevN) stable++;
+            else stable = 0;
+            prevN = n;
+            if (
+              stable >= 3 ||
+              count >= 24
+            ) {
+              if (estQrPollRef.current)
+                clearInterval(
+                  estQrPollRef.current
+                );
+            }
+          } else if (count >= 24) {
+            if (estQrPollRef.current)
+              clearInterval(
+                estQrPollRef.current
+              );
+            if (estQrQuotes.length === 0)
+              setEstQrStatus("error");
+          }
+        } catch {}
+      },
+      30000
+    );
+  }
+
+Also add a cleanup effect directly after:
+
+  useEffect(() => {
+    return () => {
+      if (estQrPollRef.current)
+        clearInterval(estQrPollRef.current);
+    };
+  }, []);
+
+── 2E. Add the QuoteRUSH display panel
+inside the insurance card ───────────────
+
+Find this EXACT line in estimate.tsx:
+  <p className="text-[10px]
+    text-muted-foreground mt-3
+    leading-relaxed">
+    Estimates sourced from FL OIR
+    CHOICES filings, 2026.
+    For planning only — not a
+    binding quote.
+  </p>
+
+INSERT the following block IMMEDIATELY
+BEFORE that paragraph tag. Do not remove
+or change the paragraph.
+
+                    {/* Live carrier
+                        quotes from
+                        QuoteRUSH */}
+                    <div className="mt-4 rounded-xl border border-primary/20 overflow-hidden">
+                      <div className="bg-primary/5 px-4 py-2.5 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Shield className="h-3.5 w-3.5 text-primary shrink-0" />
+                          <span className="text-xs font-semibold text-primary">
+                            Live Carrier Quotes
+                          </span>
+                          {estQrStatus === "pending" && (
+                            <div className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse" />
+                          )}
+                        </div>
+                        {estQrStatus === "success" && (
+                          
+                            href={`/insurance?address=${encodeURIComponent(
+                              scenarios.find(
+                                s => s.id === activeScenarioId
+                              )?.address || address
+                            )}`}
+                            className="text-[10px] text-primary underline"
+                          >
+                            See full details →
+                          </a>
+                        )}
+                      </div>
+
+                      <div className="px-4 py-3">
+                        {estQrStatus === "idle" && !isAuthenticated && (
+                          <p className="text-xs text-muted-foreground">
+                            Sign in to get live carrier quotes for this address.
+                          </p>
+                        )}
+
+                        {estQrStatus === "pending" && estQrQuotes.length === 0 && (
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <div className="h-2 w-2 rounded-full bg-primary/40 animate-pulse" />
+                            Getting real carrier rates in the background. Check back in 2–5 minutes or visit the Insurance tab.
+                          </div>
+                        )}
+
+                        {estQrQuotes.length > 0 && (
+                          <div className="space-y-2.5">
+                            {estQrQuotes.slice(0, 3).map((q, i) => (
+                              <div
+                                key={q.siteName + i}
+                                className="flex items-center justify-between"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm">
+                                    {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}
+                                  </span>
+                                  <span className="text-xs font-medium">
+                                    {q.siteName}
+                                  </span>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-sm font-bold font-mono text-primary">
+                                    {new Intl.NumberFormat("en-US", {
+                                      style: "currency",
+                                      currency: "USD",
+                                      maximumFractionDigits: 0,
+                                    }).format(q.annualPremium)}/yr
+                                  </div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    {new Intl.NumberFormat("en-US", {
+                                      style: "currency",
+                                      currency: "USD",
+                                      maximumFractionDigits: 0,
+                                    }).format(q.monthlyPremium)}/mo
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                            {estQrStatus === "pending" && (
+                              <p className="text-[10px] text-muted-foreground">
+                                More quotes may still be arriving…
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {estQrStatus === "error" && estQrQuotes.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Could not retrieve live quotes.{" "}
+                            
+                              href={`/insurance?address=${encodeURIComponent(
+                                scenarios.find(
+                                  s => s.id === activeScenarioId
+                                )?.address || address
+                              )}`}
+                              className="text-primary underline"
+                            >
+                              Try the Insurance tab →
+                            </a>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   Fix type errors only.
+   Do not change any existing logic.
+
+2. Run: npx vite build
+   Confirm clean build.
+
+3. Confirm the guard in insurance.tsx
+   auto-hydrate now reads:
+     if (!isAuthenticated || !address)
+       return;
+   (NOT: !rebuild)
+
+4. Confirm estimate.tsx insurance card
+   has the Live Carrier Quotes panel
+   above the OIR disclaimer paragraph.
+
+5. Report what changed in each file
+   and build status.
