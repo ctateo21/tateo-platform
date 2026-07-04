@@ -25,7 +25,7 @@ import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
 import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
 import { supabaseAdmin } from "./supabase";
 import { db } from "./db";
-import { userSubscriptions } from "@shared/schema";
+import { userSubscriptions, insuranceQuoteCache } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import {
   createSubscriptionCheckout,
@@ -589,19 +589,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Lookup property by address
-  // Get insurance quote from Canopy Connect
-  // In-process map binding each QuoteRUSH LeadId to the user who
-  // created it, so qr-quotes can only be polled by that same user
-  // (prevents enumerating other users' leads). Not persisted: a
-  // server restart mid-poll invalidates the binding by design.
-  const qrLeadOwners = new Map<number, string>();
+  // ── QuoteRUSH shared, address-keyed quote cache ──────────────────
+  // Quotes are shared by property address (not per user): the first
+  // search of an address pays the QuoteRUSH cost and results are cached
+  // in the insurance_quote_cache table for 30 days, so anyone searching
+  // the same address within that window gets the cached result for free.
+
+  // Normalizes an address into a stable cache key (lowercased, single
+  // spaces, punctuation stripped, capped at 200 chars).
+  function normalizeAddr(addr: string): string {
+    return addr
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .replace(/[,\.#]+/g, "")
+      .slice(0, 200);
+  }
+
+  // Since quote-polling routes are unauthenticated (auto-trigger runs
+  // before/without a session), we still guard against enumerating
+  // arbitrary QuoteRUSH agency LeadIds by only serving LeadIds that
+  // exist in our own cache table (i.e. leads Havo actually created).
+  async function qrLeadIsKnown(leadId: number): Promise<boolean> {
+    const rows = await db
+      .select({ id: insuranceQuoteCache.id })
+      .from(insuranceQuoteCache)
+      .where(eq(insuranceQuoteCache.leadId, leadId))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  // Extracts the Supabase user from an optional Bearer token. Returns
+  // null when no valid token is present (auth is OPTIONAL here).
+  async function optionalUser(req: any) {
+    try {
+      const m = /^Bearer\s+(.+)$/i.exec(
+        req.headers.authorization ?? ""
+      );
+      if (m && supabaseAdmin) {
+        const { data } = await supabaseAdmin.auth.getUser(m[1]);
+        if (data?.user) return data.user;
+      }
+    } catch {}
+    return null;
+  }
+
+  // Public cache lookup — no auth. Used by the client to hydrate from
+  // the shared cache before deciding whether to trigger a new quote.
+  app.get(
+    "/api/insurance/qr-cache",
+    async (req, res) => {
+      try {
+        const address = String(req.query.address ?? "");
+        if (!address) {
+          return res
+            .status(400)
+            .json({ error: "address required" });
+        }
+        const norm = normalizeAddr(address);
+        const rows = await db
+          .select()
+          .from(insuranceQuoteCache)
+          .where(eq(insuranceQuoteCache.addressNormalized, norm))
+          .limit(1);
+
+        if (!rows.length) {
+          return res.json({ found: false });
+        }
+
+        const row = rows[0];
+        const now = new Date();
+        const expired = row.expiresAt < now;
+
+        return res.json({
+          found: true,
+          expired,
+          status: row.status,
+          leadId: row.leadId,
+          quotes: row.quotes ?? [],
+          quoteCounter: row.quoteCounter ?? 0,
+          coverageA: row.coverageA ?? 0,
+          triggeredAt: row.triggeredAt,
+          expiresAt: row.expiresAt,
+        });
+      } catch (err: any) {
+        console.error("[qr-cache] error:", err);
+        res.status(500).json({ found: false });
+      }
+    }
+  );
 
   app.post(
     "/api/insurance/qr-start",
     async (req, res) => {
-      const user = await requireUser(req, res);
-      if (!user) return;
+      // Auth is OPTIONAL — use the user's details for FUB when present,
+      // otherwise fall back to generic lead details.
+      const user = await optionalUser(req);
+      const userEmail = user?.email ?? "";
+      const userMeta =
+        (user?.user_metadata ?? {}) as Record<string, any>;
+      const userName = String(userMeta.name ?? "");
+      const userPhone = String(userMeta.phone ?? "");
 
       try {
         const schema = z.object({
@@ -621,6 +709,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         const b = schema.parse(req.body);
+        const norm = normalizeAddr(b.address);
+        const now = new Date();
+
+        // ── Shared cache check ──────────────────────────────────────
+        const existing = await db
+          .select()
+          .from(insuranceQuoteCache)
+          .where(eq(insuranceQuoteCache.addressNormalized, norm))
+          .limit(1);
+
+        if (existing.length > 0) {
+          const row = existing[0];
+          const notExpired = row.expiresAt > now;
+
+          if (
+            notExpired &&
+            row.status === "success" &&
+            row.quotes &&
+            (row.quotes as any[]).length > 0
+          ) {
+            console.log("[qr-start] cache hit (success):", norm);
+            return res.json({
+              leadId: row.leadId,
+              fromCache: true,
+              quotes: row.quotes,
+              quoteCounter: row.quoteCounter,
+              expiresAt: row.expiresAt,
+            });
+          }
+
+          // A non-expired pending row means another concurrent request is
+          // already submitting this address (leadId may still be null in
+          // the brief window before importAndSubmit resolves). Never delete
+          // it — return the pending state so the caller waits instead of
+          // re-submitting (which would double-spend the QuoteRUSH cost).
+          if (notExpired && row.status === "pending") {
+            console.log("[qr-start] cache hit (pending):", norm);
+            return res.json({
+              leadId: row.leadId,
+              fromCache: true,
+              status: "pending",
+            });
+          }
+
+          // Expired or errored — drop it and re-run.
+          await db
+            .delete(insuranceQuoteCache)
+            .where(eq(insuranceQuoteCache.addressNormalized, norm));
+        }
 
         // Map index values to QuoteRUSH strings
         const YEAR_MAP = [2015, 1995, 1980, 1960];
@@ -695,18 +832,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const state = stateZip?.[1] ?? "FL";
         const zip = stateZip?.[2] ?? "";
 
-        // Extract name and phone from user metadata
-        const meta =
-          (user.user_metadata ?? {}) as
-            Record<string, any>;
-        const nameParts = String(meta.name ?? "")
+        const nameParts = userName
           .trim()
           .split(/\s+/)
           .filter(Boolean);
         const firstName = nameParts[0] ?? "Havo";
         const lastName =
           nameParts.slice(1).join(" ") || "Lead";
-        const phone = String(meta.phone ?? "");
 
         const params: QuoteRushParams = {
           streetAddress,
@@ -731,15 +863,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
           newPurchase: b.newPurchase ? "Yes" : "No",
           firstName,
           lastName,
-          email: user.email ?? "",
-          phone,
+          email: userEmail,
+          phone: userPhone,
           ...constFields(b.constIdx),
           ...windFields(b.windIdx),
         };
 
+        // Atomically claim the address slot. `address_normalized` is
+        // UNIQUE, so onConflictDoNothing lets exactly one concurrent
+        // request win the insert; the loser gets 0 rows back and returns
+        // the pending state instead of firing a second (paid) submission.
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 30);
+        const claimed = await db
+          .insert(insuranceQuoteCache)
+          .values({
+            addressNormalized: norm,
+            addressDisplay: b.address,
+            leadId: null,
+            status: "pending",
+            quotes: [],
+            quoteCounter: 0,
+            coverageA: b.coverageA,
+            policyType: b.policyType,
+            triggeredAt: new Date(),
+            expiresAt,
+          })
+          .onConflictDoNothing({
+            target: insuranceQuoteCache.addressNormalized,
+          })
+          .returning({ id: insuranceQuoteCache.id });
+
+        if (claimed.length === 0) {
+          // Lost the race — another request just claimed this address.
+          const rows = await db
+            .select()
+            .from(insuranceQuoteCache)
+            .where(eq(insuranceQuoteCache.addressNormalized, norm))
+            .limit(1);
+          const row = rows[0];
+          console.log("[qr-start] lost claim race:", norm);
+          return res.json({
+            leadId: row?.leadId ?? null,
+            fromCache: true,
+            status: row?.status ?? "pending",
+          });
+        }
+
         const result = await importAndSubmit(params);
 
         if (!result.submitted || !result.leadId) {
+          await db
+            .update(insuranceQuoteCache)
+            .set({ status: "error" })
+            .where(eq(insuranceQuoteCache.addressNormalized, norm));
           return res.status(500).json({
             error:
               result.error ??
@@ -747,26 +924,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
-        // Bind this lead to the requesting user for polling authz
-        qrLeadOwners.set(result.leadId, user.id);
+        // Store the leadId on the cache row.
+        await db
+          .update(insuranceQuoteCache)
+          .set({ leadId: result.leadId })
+          .where(eq(insuranceQuoteCache.addressNormalized, norm));
 
-        // Notify FUB (non-blocking)
-        createFollowUpBossContact({
-          firstName,
-          lastName,
-          email: user.email ?? "",
-          phone,
-          address: b.address,
-          agent: "Christian Tateo",
-          scenarioDetails:
-            `QuoteRUSH quotes started: ` +
-            `${b.address} · Coverage A: ` +
-            `$${b.coverageA.toLocaleString()} · ` +
-            `Zone: ${b.floodZone} · ` +
-            `LeadId: ${result.leadId}`,
-        }).catch((e: any) =>
-          console.error("[FUB] qr-start failed:", e)
-        );
+        // Notify FUB (non-blocking) only when we know who the user is.
+        if (userEmail) {
+          createFollowUpBossContact({
+            firstName,
+            lastName,
+            email: userEmail,
+            phone: userPhone,
+            address: b.address,
+            agent: "Christian Tateo",
+            scenarioDetails:
+              `QuoteRUSH quotes started: ` +
+              `${b.address} · Coverage A: ` +
+              `$${b.coverageA.toLocaleString()} · ` +
+              `Zone: ${b.floodZone} · ` +
+              `LeadId: ${result.leadId}`,
+          }).catch((e: any) =>
+            console.error("[FUB] qr-start failed:", e)
+          );
+        }
 
         res.json({ leadId: result.leadId });
 
@@ -787,20 +969,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/insurance/qr-quotes",
     async (req, res) => {
-      const user = await requireUser(req, res);
-      if (!user) return;
-
       try {
         const schema = z.object({
           leadId: z.number().int().positive(),
+          address: z.string().optional(),
         });
         const { leadId } = schema.parse(req.body);
-        if (qrLeadOwners.get(leadId) !== user.id) {
+
+        if (!(await qrLeadIsKnown(leadId))) {
           return res
-            .status(403)
-            .json({ error: "Lead not found for this account" });
+            .status(404)
+            .json({ error: "Unknown lead" });
         }
+
         const result = await getQuotes(leadId);
+
+        // Persist quotes to the shared cache when they arrive. Update the
+        // row BOUND to this leadId (never a caller-supplied address) so a
+        // known leadId can't poison another address's cached quotes.
+        if (
+          result.status === "success" &&
+          result.quotes.length > 0
+        ) {
+          await db
+            .update(insuranceQuoteCache)
+            .set({
+              status: "success",
+              quotes: result.quotes as any,
+              quoteCounter: result.quoteCounter,
+              completedAt: new Date(),
+            })
+            .where(eq(insuranceQuoteCache.leadId, leadId));
+        }
+
         res.json(result);
       } catch (err: any) {
         console.error("[qr-quotes] error:", err);
@@ -810,6 +1011,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
           leadId: 0,
           quoteCounter: 0,
           errorMessage: err?.message,
+        });
+      }
+    }
+  );
+
+  // Refresh — fetches the latest carrier results from QuoteRUSH for an
+  // existing lead WITHOUT re-submitting (no new cost). Fixes the
+  // "only 1 carrier showing" case by pulling whatever has completed.
+  app.post(
+    "/api/insurance/qr-refresh",
+    async (req, res) => {
+      try {
+        const schema = z.object({
+          leadId: z.number().int().positive(),
+          address: z.string().optional(),
+        });
+        const { leadId } = schema.parse(req.body);
+
+        if (!(await qrLeadIsKnown(leadId))) {
+          return res
+            .status(404)
+            .json({ error: "Unknown lead" });
+        }
+
+        const result = await getQuotes(leadId);
+
+        // Bind the update to the leadId's own row (never a caller-supplied
+        // address) to prevent cross-address cache poisoning.
+        if (result.quotes.length > 0) {
+          await db
+            .update(insuranceQuoteCache)
+            .set({
+              status: "success",
+              quotes: result.quotes as any,
+              quoteCounter: result.quoteCounter,
+              completedAt: new Date(),
+            })
+            .where(eq(insuranceQuoteCache.leadId, leadId));
+        }
+
+        res.json(result);
+      } catch (err: any) {
+        console.error("[qr-refresh] error:", err);
+        res.status(500).json({
+          status: "error",
+          quotes: [],
+          leadId: 0,
+          quoteCounter: 0,
         });
       }
     }

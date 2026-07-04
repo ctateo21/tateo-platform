@@ -1,6 +1,7 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import ScenarioActions from "@/components/scenario-actions";
 import { buildScenarioFileName } from "@/lib/scenario-pdf";
+import { triggerAutoQuote } from "@/lib/quoterush-auto";
 import { estimateAnnualTax, getCountyTaxLink, getCountyName } from "@/lib/county-tax-estimator";
 import { getConventionalAmiRateDiscount } from "@/lib/ami-discount";
 import { useQuery } from "@tanstack/react-query";
@@ -2333,6 +2334,20 @@ export default function Estimate() {
   }
 
   const [inputs, setInputs] = useState<Inputs>(() => inputsForAddress(address));
+
+  // Pre-warm the shared QuoteRUSH cache once an address + price are known,
+  // so the Insurance page loads live carrier quotes instantly (and the
+  // first search of an address pays the cost only once). Safe/idempotent.
+  useEffect(() => {
+    const activeAddress =
+      scenarios.find(s => s.id === activeScenarioId)?.address || address;
+    triggerAutoQuote({
+      address: activeAddress,
+      price: inputs.purchasePrice,
+      isAuthenticated,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeScenarioId, inputs.purchasePrice, isAuthenticated]);
 
   // ── Insurance panel state ───────────────────────────────────────────────────
   const insuranceSectionRef = useRef<HTMLDivElement>(null);

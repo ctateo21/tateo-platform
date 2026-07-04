@@ -24,6 +24,7 @@ import {
   type CashBuyInsuranceFactors,
 } from "@/lib/auth";
 import { notifyNewScenario } from "@/lib/notify-scenario";
+import { triggerAutoQuote } from "@/lib/quoterush-auto";
 import { normalizePropertyKey } from "@/lib/property-key";
 import { posthog } from "@/lib/posthog";
 import { estimateAnnualTax } from "@/lib/county-tax-estimator";
@@ -440,6 +441,17 @@ export default function CashBuyPage() {
       }
     })();
   }, [scenario.id, scenario.address, scenario.purchasePriceSource, toast]);
+
+  // Pre-warm the shared QuoteRUSH cache once an address + price are known,
+  // so the Insurance page loads live carrier quotes instantly. Idempotent.
+  useEffect(() => {
+    triggerAutoQuote({
+      address: scenario.address,
+      price: scenario.purchasePrice ?? 0,
+      isAuthenticated,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenario.address, scenario.purchasePrice, isAuthenticated]);
 
   // ─── Flood zone + flood insurance ───
   // Reuses the exact same FEMA flood-zone source as Purchase with Loan

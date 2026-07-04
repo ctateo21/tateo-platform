@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, json, date, timestamp, varchar, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, json, jsonb, date, timestamp, varchar, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -445,3 +445,49 @@ export const insertQuestionnaireResponseSchema = createInsertSchema(questionnair
 
 export type InsertQuestionnaireResponse = z.infer<typeof insertQuestionnaireResponseSchema>;
 export type QuestionnaireResponse = typeof questionnaireResponses.$inferSelect;
+
+// Shared, address-keyed cache of QuoteRUSH live carrier quotes. The first
+// user to search an address pays the QuoteRUSH cost; everyone searching the
+// same address within 30 days shares the cached result (no duplicate cost).
+export const insuranceQuoteCache = pgTable(
+  "insurance_quote_cache",
+  {
+    id: serial("id").primaryKey(),
+    addressNormalized: text("address_normalized")
+      .notNull()
+      .unique(),
+    addressDisplay: text("address_display")
+      .notNull(),
+    leadId: integer("lead_id"),
+    status: text("status")
+      .notNull()
+      .default("pending"),
+    quotes: jsonb("quotes")
+      .$type<Array<{
+        siteName: string;
+        annualPremium: number;
+        monthlyPremium: number;
+        coverageA: number;
+        hurricaneDeductible: string;
+        aop: string;
+        quoteUrl: string | null;
+        quoteDate: string;
+        rank: number;
+      }>>()
+      .default([]),
+    quoteCounter: integer("quote_counter")
+      .default(0),
+    coverageA: integer("coverage_a").default(0),
+    policyType: text("policy_type")
+      .default("HO3"),
+    triggeredAt: timestamp("triggered_at")
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at"),
+    expiresAt: timestamp("expires_at")
+      .notNull(),
+  }
+);
+
+export type InsuranceQuoteCache =
+  typeof insuranceQuoteCache.$inferSelect;

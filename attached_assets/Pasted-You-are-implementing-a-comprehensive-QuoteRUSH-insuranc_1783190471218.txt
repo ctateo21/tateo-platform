@@ -1,0 +1,1844 @@
+You are implementing a comprehensive QuoteRUSH
+insurance quoting upgrade. Read every section
+before editing any file.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT THIS PROMPT ACCOMPLISHES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Adds a 30-day policy effective date to all
+   QuoteRUSH quote requests
+2. Auto-triggers quotes the moment any address
+   is entered on any page (no button click needed)
+3. Stores quote results in a shared Postgres DB
+   table so two users searching the same address
+   share the same quote (no duplicate API cost)
+4. Enforces a 30-day cooldown on re-running
+   quotes for the same address
+5. Adds a Refresh button that fetches the latest
+   carrier results from QuoteRUSH without
+   triggering a new submission (free, instant)
+6. Fixes the "only 1 carrier showing" issue by
+   continuing to poll until results stabilize
+7. Keeps top 3 carrier quotes visible for 30 days
+   then prompts re-run when expired
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — ADD DB SCHEMA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: shared/schema.ts
+
+── 1A. Update the import line at the top ───
+
+The current import is:
+  import { pgTable, text, serial, integer,
+    boolean, json, date, timestamp, varchar,
+    unique } from "drizzle-orm/pg-core";
+
+Replace it with (adds jsonb):
+  import { pgTable, text, serial, integer,
+    boolean, json, jsonb, date, timestamp,
+    varchar, unique } from "drizzle-orm/pg-core";
+
+── 1B. Add new table at the END of the file ─
+
+Append this export after all existing exports:
+
+export const insuranceQuoteCache = pgTable(
+  "insurance_quote_cache",
+  {
+    id: serial("id").primaryKey(),
+    addressNormalized: text("address_normalized")
+      .notNull()
+      .unique(),
+    addressDisplay: text("address_display")
+      .notNull(),
+    leadId: integer("lead_id"),
+    status: text("status")
+      .notNull()
+      .default("pending"),
+    quotes: jsonb("quotes")
+      .$type<Array<{
+        siteName: string;
+        annualPremium: number;
+        monthlyPremium: number;
+        coverageA: number;
+        hurricaneDeductible: string;
+        aop: string;
+        quoteUrl: string | null;
+        quoteDate: string;
+        rank: number;
+      }>>()
+      .default([]),
+    quoteCounter: integer("quote_counter")
+      .default(0),
+    coverageA: integer("coverage_a").default(0),
+    policyType: text("policy_type")
+      .default("HO3"),
+    triggeredAt: timestamp("triggered_at")
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at"),
+    expiresAt: timestamp("expires_at")
+      .notNull(),
+  }
+);
+
+export type InsuranceQuoteCache =
+  typeof insuranceQuoteCache.$inferSelect;
+
+── 1C. Run the migration ───────────────────
+
+After editing schema.ts, run:
+  npm run db:push
+
+Confirm the table is created successfully
+before proceeding to the next step.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — UPDATE server/integrations/quoterush.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Inside buildImporterPayload(), in the HO
+object, add this field after "YearBuilt":
+
+      PolicyEffectiveDate: (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        return (
+          String(d.getMonth() + 1)
+            .padStart(2, "0") +
+          "/" +
+          String(d.getDate()).padStart(2, "0") +
+          "/" +
+          d.getFullYear()
+        );
+      })(),
+
+This sets the effective date to exactly
+30 days from today on every quote request.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — UPDATE server/routes.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── 3A. Add import ──────────────────────────
+
+At the top of routes.ts, add this to the
+existing import from shared/schema:
+
+Find the existing schema import line and add
+insuranceQuoteCache and InsuranceQuoteCache
+to it. It likely looks like:
+  import { ... } from "@shared/schema";
+Add: insuranceQuoteCache
+
+Also add this import with other drizzle imports:
+  import { eq, and, gt } from "drizzle-orm";
+(If eq is already imported, just add gt and and)
+
+── 3B. Add address normalizer helper ───────
+
+Add this helper function ONCE near the top
+of the registerRoutes function, before any
+route definitions:
+
+  function normalizeAddr(addr: string): string {
+    return addr
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .replace(/[,\.#]+/g, "")
+      .slice(0, 200);
+  }
+
+── 3C. Add qr-cache-lookup route ───────────
+
+Add this route (it does NOT require auth —
+it's a public cache lookup):
+
+  app.get(
+    "/api/insurance/qr-cache",
+    async (req, res) => {
+      try {
+        const address = String(
+          req.query.address ?? ""
+        );
+        if (!address) {
+          return res
+            .status(400)
+            .json({ error: "address required" });
+        }
+        const norm = normalizeAddr(address);
+        const rows = await db
+          .select()
+          .from(insuranceQuoteCache)
+          .where(
+            eq(
+              insuranceQuoteCache.addressNormalized,
+              norm
+            )
+          )
+          .limit(1);
+
+        if (!rows.length) {
+          return res.json({ found: false });
+        }
+
+        const row = rows[0];
+        const now = new Date();
+        const expired = row.expiresAt < now;
+
+        return res.json({
+          found: true,
+          expired,
+          status: row.status,
+          leadId: row.leadId,
+          quotes: row.quotes ?? [],
+          quoteCounter: row.quoteCounter ?? 0,
+          coverageA: row.coverageA ?? 0,
+          triggeredAt: row.triggeredAt,
+          expiresAt: row.expiresAt,
+        });
+      } catch (err: any) {
+        console.error("[qr-cache] error:", err);
+        res.status(500).json({ found: false });
+      }
+    }
+  );
+
+── 3D. Replace the qr-start route ──────────
+
+Find the existing:
+  app.post("/api/insurance/qr-start", ...)
+
+Replace the ENTIRE route with:
+
+  app.post(
+    "/api/insurance/qr-start",
+    async (req, res) => {
+      // Auth is OPTIONAL — use user details
+      // when available, defaults otherwise
+      let userEmail = "";
+      let userName = "";
+      let userPhone = "";
+      try {
+        const m = /^Bearer\s+(.+)$/i.exec(
+          req.headers.authorization ?? ""
+        );
+        if (m && supabaseAdmin) {
+          const { data } =
+            await supabaseAdmin.auth.getUser(
+              m[1]
+            );
+          if (data?.user) {
+            const meta =
+              (data.user.user_metadata ??
+                {}) as Record<string, any>;
+            userEmail = data.user.email ?? "";
+            userName = String(meta.name ?? "");
+            userPhone = String(meta.phone ?? "");
+          }
+        }
+      } catch {}
+
+      try {
+        const schema = z.object({
+          address: z.string().min(5),
+          coverageA: z.number().positive(),
+          policyType: z.string().default("HO3"),
+          yearIdx: z.number().int().min(0).max(3),
+          roofIdx: z.number().int().min(0).max(3),
+          constIdx: z.number().int().min(0).max(2),
+          windIdx: z.number().int().min(0).max(2),
+          hurrIdx: z.number().int().min(0).max(2),
+          claimsIdx: z.number().int().min(0).max(3),
+          aopDeductible: z.number().default(2500),
+          floodZone: z.string().default("X"),
+          sqFt: z.number().default(0),
+          newPurchase: z.boolean().default(false),
+        });
+
+        const b = schema.parse(req.body);
+        const norm = normalizeAddr(b.address);
+
+        // CHECK DB CACHE FIRST
+        const existing = await db
+          .select()
+          .from(insuranceQuoteCache)
+          .where(
+            eq(
+              insuranceQuoteCache.addressNormalized,
+              norm
+            )
+          )
+          .limit(1);
+
+        const now = new Date();
+
+        if (existing.length > 0) {
+          const row = existing[0];
+          const notExpired = row.expiresAt > now;
+
+          if (
+            notExpired &&
+            row.status === "success" &&
+            row.quotes &&
+            (row.quotes as any[]).length > 0
+          ) {
+            // Return cached quotes — no cost
+            console.log(
+              "[qr-start] cache hit (success):",
+              norm
+            );
+            return res.json({
+              leadId: row.leadId,
+              fromCache: true,
+              quotes: row.quotes,
+              quoteCounter: row.quoteCounter,
+              expiresAt: row.expiresAt,
+            });
+          }
+
+          if (
+            notExpired &&
+            row.status === "pending" &&
+            row.leadId
+          ) {
+            // Already pending — return leadId
+            console.log(
+              "[qr-start] cache hit (pending):",
+              norm
+            );
+            return res.json({
+              leadId: row.leadId,
+              fromCache: true,
+            });
+          }
+
+          // Expired or error — delete and re-run
+          await db
+            .delete(insuranceQuoteCache)
+            .where(
+              eq(
+                insuranceQuoteCache.addressNormalized,
+                norm
+              )
+            );
+        }
+
+        // NOT CACHED — trigger QuoteRUSH
+        const YEAR_MAP = [2015, 1995, 1980, 1960];
+        const curYear = new Date().getFullYear();
+        const ROOF_YEAR_MAP = [
+          curYear - 2,
+          curYear - 8,
+          curYear - 17,
+          curYear - 22,
+        ];
+        const HURR_MAP = ["2%", "3%", "5%"];
+        const AOP_MAP: Record<number, string> = {
+          1000: "$1,000",
+          2500: "$2,500",
+          5000: "$5,000",
+        };
+
+        function constFields(idx: number) {
+          if (idx === 0) return {
+            constructionType: "Masonry",
+            masonryConstruction: "Concrete Block",
+            frameConstruction: "",
+          };
+          if (idx === 2) return {
+            constructionType: "Frame",
+            masonryConstruction: "",
+            frameConstruction: "Stucco",
+          };
+          return {
+            constructionType: "Masonry",
+            masonryConstruction: "Concrete Block",
+            frameConstruction: "",
+          };
+        }
+
+        function windFields(idx: number) {
+          if (idx === 0) return {
+            windMitForm: false,
+            openingProtection: "None",
+            secondaryWaterResistance: "No",
+          };
+          if (idx === 2) return {
+            windMitForm: true,
+            openingProtection: "Hurricane Protection",
+            secondaryWaterResistance: "Yes",
+          };
+          return {
+            windMitForm: true,
+            openingProtection: "Basic",
+            secondaryWaterResistance: "No",
+          };
+        }
+
+        const parts = b.address
+          .split(",")
+          .map((p: string) => p.trim());
+        const streetAddress = parts[0] ?? "";
+        const city = parts[1] ?? "";
+        const last = parts[parts.length - 1] ?? "";
+        const sm = last.match(
+          /([A-Z]{2})\s+(\d{5})/
+        );
+        const state = sm?.[1] ?? "FL";
+        const zip = sm?.[2] ?? "";
+
+        const nameParts = userName
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        const firstName =
+          nameParts[0] ?? "Havo";
+        const lastName =
+          nameParts.slice(1).join(" ") || "Lead";
+        const ASSIGNED_EMAIL =
+          process.env.QUOTERUSH_ASSIGNED_EMAIL ??
+          "christian@tateoco.com";
+
+        const params = {
+          streetAddress,
+          city,
+          state,
+          zip,
+          county: "",
+          coverageA: b.coverageA,
+          policyType: b.policyType,
+          yearBuilt: YEAR_MAP[b.yearIdx] ?? 1995,
+          roofYear:
+            ROOF_YEAR_MAP[b.roofIdx] ??
+            curYear - 8,
+          hurrDeductible:
+            HURR_MAP[b.hurrIdx] ?? "2%",
+          aopDeductible:
+            AOP_MAP[b.aopDeductible] ?? "$2,500",
+          priorClaims: b.claimsIdx,
+          floodZone: b.floodZone,
+          sqFt: b.sqFt,
+          usageType: "Primary",
+          newPurchase:
+            b.newPurchase ? "Yes" : "No",
+          firstName,
+          lastName,
+          email: userEmail,
+          phone: userPhone,
+          ...constFields(b.constIdx),
+          ...windFields(b.windIdx),
+        };
+
+        // Write pending row to DB immediately
+        // (prevents duplicate triggers)
+        const expiresAt = new Date();
+        expiresAt.setDate(
+          expiresAt.getDate() + 30
+        );
+        await db.insert(insuranceQuoteCache).values({
+          addressNormalized: norm,
+          addressDisplay: b.address,
+          leadId: null,
+          status: "pending",
+          quotes: [],
+          quoteCounter: 0,
+          coverageA: b.coverageA,
+          policyType: b.policyType,
+          triggeredAt: new Date(),
+          expiresAt,
+        });
+
+        const result = await importAndSubmit(
+          params
+        );
+
+        if (!result.submitted || !result.leadId) {
+          // Mark error in DB
+          await db
+            .update(insuranceQuoteCache)
+            .set({ status: "error" })
+            .where(
+              eq(
+                insuranceQuoteCache.addressNormalized,
+                norm
+              )
+            );
+          return res.status(500).json({
+            error:
+              result.error ??
+              "Failed to start quotes",
+          });
+        }
+
+        // Store leadId in DB
+        await db
+          .update(insuranceQuoteCache)
+          .set({ leadId: result.leadId })
+          .where(
+            eq(
+              insuranceQuoteCache.addressNormalized,
+              norm
+            )
+          );
+
+        // Notify FUB non-blocking
+        if (userEmail) {
+          createFollowUpBossContact({
+            firstName,
+            lastName,
+            email: userEmail,
+            phone: userPhone,
+            address: b.address,
+            agent: "Christian Tateo",
+            scenarioDetails:
+              `QuoteRUSH started: ${b.address} ` +
+              `· CoverageA: $${b.coverageA.toLocaleString()} ` +
+              `· Zone: ${b.floodZone} ` +
+              `· LeadId: ${result.leadId}`,
+            referral: "",
+          }).catch((e: any) =>
+            console.error("[FUB] qr-start:", e)
+          );
+        }
+
+        res.json({ leadId: result.leadId });
+
+      } catch (err: any) {
+        console.error("[qr-start] error:", err);
+        if (err instanceof z.ZodError) {
+          return res.status(400).json({
+            error: "Invalid parameters",
+          });
+        }
+        res
+          .status(500)
+          .json({ error: err?.message });
+      }
+    }
+  );
+
+── 3E. Replace the qr-quotes route ─────────
+
+Find:
+  app.post("/api/insurance/qr-quotes", ...)
+
+Replace the ENTIRE route with:
+
+  app.post(
+    "/api/insurance/qr-quotes",
+    async (req, res) => {
+      try {
+        const schema = z.object({
+          leadId: z.number().int().positive(),
+          address: z.string().optional(),
+        });
+        const { leadId, address } =
+          schema.parse(req.body);
+
+        const result = await getQuotes(leadId);
+
+        // If quotes arrived, update DB cache
+        if (
+          result.status === "success" &&
+          result.quotes.length > 0 &&
+          address
+        ) {
+          const norm = normalizeAddr(address);
+          await db
+            .update(insuranceQuoteCache)
+            .set({
+              status: "success",
+              quotes: result.quotes as any,
+              quoteCounter: result.quoteCounter,
+              completedAt: new Date(),
+            })
+            .where(
+              eq(
+                insuranceQuoteCache.addressNormalized,
+                norm
+              )
+            );
+        }
+
+        res.json(result);
+      } catch (err: any) {
+        console.error("[qr-quotes] error:", err);
+        res.status(500).json({
+          status: "error",
+          quotes: [],
+          leadId: 0,
+          quoteCounter: 0,
+          errorMessage: err?.message,
+        });
+      }
+    }
+  );
+
+── 3F. Add qr-refresh route ────────────────
+
+Add this new route (does NOT re-submit,
+just fetches latest from QuoteRUSH):
+
+  app.post(
+    "/api/insurance/qr-refresh",
+    async (req, res) => {
+      try {
+        const schema = z.object({
+          leadId: z.number().int().positive(),
+          address: z.string().optional(),
+        });
+        const { leadId, address } =
+          schema.parse(req.body);
+
+        // Just fetch — no new submission cost
+        const result = await getQuotes(leadId);
+
+        // Update DB if we got quotes
+        if (
+          result.quotes.length > 0 &&
+          address
+        ) {
+          const norm = normalizeAddr(address);
+          await db
+            .update(insuranceQuoteCache)
+            .set({
+              status: "success",
+              quotes: result.quotes as any,
+              quoteCounter: result.quoteCounter,
+              completedAt: new Date(),
+            })
+            .where(
+              eq(
+                insuranceQuoteCache.addressNormalized,
+                norm
+              )
+            );
+        }
+
+        res.json(result);
+      } catch (err: any) {
+        console.error("[qr-refresh] error:", err);
+        res.status(500).json({
+          status: "error",
+          quotes: [],
+          leadId: 0,
+          quoteCounter: 0,
+        });
+      }
+    }
+  );
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 4 — CREATE client/src/lib/quoterush-auto.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create this file from scratch:
+
+// Shared QuoteRUSH auto-trigger utility.
+// Uses localStorage as a fast local cache
+// backed by the server DB cache.
+// Safe to call from any page — deduplicates
+// automatically.
+
+const LS_PREFIX = "qr_auto_";
+const LS_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+export interface QRCacheEntry {
+  address: string;
+  leadId: number | null;
+  status: "pending" | "success" | "error";
+  quotes: Array<{
+    siteName: string;
+    annualPremium: number;
+    monthlyPremium: number;
+    coverageA: number;
+    hurricaneDeductible: string;
+    aop: string;
+    quoteUrl: string | null;
+    quoteDate: string;
+    rank: number;
+  }>;
+  quoteCounter: number;
+  coverageA: number;
+  expiresAt: string; // ISO
+  triggeredAt: string; // ISO
+}
+
+function lsKey(address: string): string {
+  return (
+    LS_PREFIX +
+    address
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_")
+      .slice(0, 80)
+  );
+}
+
+export function getQRCache(
+  address: string
+): QRCacheEntry | null {
+  if (!address) return null;
+  try {
+    const raw = localStorage.getItem(
+      lsKey(address)
+    );
+    if (!raw) return null;
+    const e = JSON.parse(raw) as QRCacheEntry;
+    if (new Date(e.expiresAt) < new Date()) {
+      localStorage.removeItem(lsKey(address));
+      return null;
+    }
+    return e;
+  } catch {
+    return null;
+  }
+}
+
+export function setQRCache(
+  address: string,
+  patch: Partial<QRCacheEntry>
+): void {
+  if (!address) return;
+  try {
+    const key = lsKey(address);
+    const existing = getQRCache(address);
+    const expiresAt =
+      patch.expiresAt ??
+      existing?.expiresAt ??
+      (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        return d.toISOString();
+      })();
+    const next: QRCacheEntry = {
+      address,
+      leadId: null,
+      status: "pending",
+      quotes: [],
+      quoteCounter: 0,
+      coverageA: 0,
+      triggeredAt: new Date().toISOString(),
+      ...(existing ?? {}),
+      ...patch,
+      expiresAt,
+    };
+    localStorage.setItem(
+      key, JSON.stringify(next)
+    );
+  } catch {}
+}
+
+export function isQRExpired(
+  address: string
+): boolean {
+  const e = getQRCache(address);
+  if (!e) return true;
+  return new Date(e.expiresAt) < new Date();
+}
+
+export function clearQRCache(
+  address: string
+): void {
+  try {
+    localStorage.removeItem(lsKey(address));
+  } catch {}
+}
+
+/**
+ * Checks the server DB cache for an address.
+ * If found and valid, hydrates localStorage.
+ * Returns the cache entry or null.
+ */
+export async function checkServerCache(
+  address: string
+): Promise<QRCacheEntry | null> {
+  if (!address) return null;
+  try {
+    const res = await fetch(
+      `/api/insurance/qr-cache?address=` +
+        encodeURIComponent(address)
+    );
+    const data = await res.json();
+    if (!data.found || data.expired) return null;
+
+    const entry: QRCacheEntry = {
+      address,
+      leadId: data.leadId ?? null,
+      status: data.status ?? "pending",
+      quotes: data.quotes ?? [],
+      quoteCounter: data.quoteCounter ?? 0,
+      coverageA: data.coverageA ?? 0,
+      expiresAt:
+        data.expiresAt ??
+        (() => {
+          const d = new Date();
+          d.setDate(d.getDate() + 30);
+          return d.toISOString();
+        })(),
+      triggeredAt:
+        data.triggeredAt ??
+        new Date().toISOString(),
+    };
+
+    // Hydrate localStorage from server
+    setQRCache(address, entry);
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Main trigger function. Call from any page
+ * when address + price are confirmed.
+ * Safe to call multiple times — deduplicates.
+ */
+export async function triggerAutoQuote(opts: {
+  address: string;
+  price?: number;      // full property value
+  coverageA?: number;  // or Coverage A directly
+  policyType?: string;
+  floodZone?: string;
+  isAuthenticated: boolean;
+}): Promise<void> {
+  const {
+    address,
+    isAuthenticated,
+  } = opts;
+
+  if (!isAuthenticated) return;
+  if (!address || address === "Unknown Address")
+    return;
+
+  const coverageA =
+    opts.coverageA ??
+    Math.round((opts.price ?? 0) * 0.85);
+
+  if (coverageA <= 0) return;
+
+  // Check localStorage first (fast)
+  const cached = getQRCache(address);
+  if (
+    cached &&
+    (cached.status === "pending" ||
+      cached.status === "success")
+  ) return;
+
+  // Check server DB cache
+  const serverCached =
+    await checkServerCache(address);
+  if (
+    serverCached &&
+    (serverCached.status === "pending" ||
+      serverCached.status === "success")
+  ) return;
+
+  // Not cached anywhere — write pending and trigger
+  setQRCache(address, {
+    status: "pending",
+    coverageA,
+    leadId: null,
+    quotes: [],
+    quoteCounter: 0,
+    triggeredAt: new Date().toISOString(),
+  });
+
+  console.log(
+    "[qr-auto] triggering:", address,
+    "coverageA:", coverageA
+  );
+
+  try {
+    const res = await fetch(
+      "/api/insurance/qr-start",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          address,
+          coverageA,
+          policyType: opts.policyType || "HO3",
+          yearIdx: 1,
+          roofIdx: 1,
+          constIdx: 0,
+          windIdx: 1,
+          hurrIdx: 0,
+          claimsIdx: 0,
+          aopDeductible: 2500,
+          floodZone: opts.floodZone || "X",
+          sqFt: 0,
+          newPurchase: false,
+        }),
+      }
+    );
+    const data = await res.json();
+
+    if (data.leadId) {
+      setQRCache(address, {
+        leadId: data.leadId,
+        // If server returned cached quotes, use them
+        ...(data.fromCache &&
+          data.quotes?.length > 0
+          ? {
+              status: "success" as const,
+              quotes: data.quotes,
+              quoteCounter: data.quoteCounter,
+              expiresAt: data.expiresAt,
+            }
+          : {}),
+      });
+    } else {
+      setQRCache(address, { status: "error" });
+    }
+  } catch (e) {
+    console.error("[qr-auto] error:", e);
+    setQRCache(address, { status: "error" });
+  }
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 5 — UPDATE client/src/pages/insurance.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── 5A. Add import ──────────────────────────
+
+Add with the other @/lib imports:
+
+import {
+  getQRCache,
+  setQRCache,
+  checkServerCache,
+  isQRExpired,
+  clearQRCache,
+  triggerAutoQuote,
+  type QRCacheEntry,
+} from "@/lib/quoterush-auto";
+
+── 5B. Add state variables ─────────────────
+
+Find the line:
+  const [floodZone, setFloodZone] =
+    useState<string>("");
+
+After it, add:
+
+  // ── QuoteRUSH state ────────────────────
+  const [qrLeadId, setQrLeadId] =
+    useState<number | null>(null);
+  const [qrQuotes, setQrQuotes] = useState
+    QRCacheEntry["quotes"]
+  >([]);
+  const [qrStatus, setQrStatus] = useState
+    | "idle"
+    | "starting"
+    | "pending"
+    | "success"
+    | "error"
+    | "expired"
+  >("idle");
+  const [qrElapsed, setQrElapsed] =
+    useState(0);
+  const [qrQuoteCounter, setQrQuoteCounter] =
+    useState(0);
+  const [qrExpiresAt, setQrExpiresAt] =
+    useState<string | null>(null);
+  const [qrRefreshing, setQrRefreshing] =
+    useState(false);
+  const qrPollRef = useRef
+    ReturnType<typeof setInterval> | null
+  >(null);
+  const qrTimerRef = useRef
+    ReturnType<typeof setInterval> | null
+  >(null);
+  const qrPrevCounterRef = useRef(0);
+  const qrStableRef = useRef(0);
+
+── 5C. Add helper: loadFromCacheEntry ──────
+
+Find the line:
+  // ── Calculations ──────────────────────
+
+Add this helper BEFORE that comment:
+
+  // ── QuoteRUSH helpers ──────────────────
+
+  function loadFromCacheEntry(
+    e: QRCacheEntry
+  ): void {
+    setQrLeadId(e.leadId);
+    setQrQuotes(e.quotes ?? []);
+    setQrQuoteCounter(e.quoteCounter ?? 0);
+    setQrExpiresAt(e.expiresAt ?? null);
+    if (
+      e.status === "success" &&
+      (e.quotes?.length ?? 0) > 0
+    ) {
+      setQrStatus("success");
+    } else if (
+      e.status === "pending" &&
+      e.leadId
+    ) {
+      setQrStatus("pending");
+    } else if (e.status === "error") {
+      setQrStatus("error");
+    }
+  }
+
+  async function refreshQuotes(): Promise<void> {
+    if (!qrLeadId || qrRefreshing) return;
+    setQrRefreshing(true);
+    try {
+      const res = await fetch(
+        "/api/insurance/qr-refresh",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            leadId: qrLeadId,
+            address,
+          }),
+        }
+      );
+      const data = await res.json();
+      if ((data.quotes?.length ?? 0) > 0) {
+        setQrQuotes(data.quotes);
+        setQrQuoteCounter(data.quoteCounter);
+        setQrStatus("success");
+        setQRCache(address, {
+          status: "success",
+          quotes: data.quotes,
+          quoteCounter: data.quoteCounter,
+        });
+      }
+    } catch (e) {
+      console.error("[qr-refresh]", e);
+    } finally {
+      setQrRefreshing(false);
+    }
+  }
+
+  function startPolling(leadId: number): void {
+    if (qrPollRef.current)
+      clearInterval(qrPollRef.current);
+    if (qrTimerRef.current)
+      clearInterval(qrTimerRef.current);
+
+    setQrElapsed(0);
+    qrPrevCounterRef.current = 0;
+    qrStableRef.current = 0;
+
+    qrTimerRef.current = setInterval(() => {
+      setQrElapsed((p) => p + 1);
+    }, 1000);
+
+    let pollCount = 0;
+    const MAX_POLLS = 24; // 12 minutes
+
+    const doPoll = async () => {
+      pollCount++;
+      try {
+        const res = await fetch(
+          "/api/insurance/qr-quotes",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              leadId,
+              address,
+            }),
+          }
+        );
+        const data = await res.json();
+        const counter: number =
+          data.quoteCounter ?? 0;
+
+        if (counter > 0) {
+          setQrQuotes(data.quotes ?? []);
+          setQrQuoteCounter(counter);
+          setQrStatus("success");
+          setQRCache(address, {
+            status: "success",
+            quotes: data.quotes ?? [],
+            quoteCounter: counter,
+          });
+
+          // Stable detection — stop only after
+          // 3 consecutive polls with same count
+          // (gives carriers time to finish)
+          if (
+            counter === qrPrevCounterRef.current
+          ) {
+            qrStableRef.current += 1;
+          } else {
+            qrStableRef.current = 0;
+          }
+          qrPrevCounterRef.current = counter;
+
+          if (
+            qrStableRef.current >= 3 ||
+            pollCount >= MAX_POLLS
+          ) {
+            if (qrPollRef.current)
+              clearInterval(qrPollRef.current);
+            if (qrTimerRef.current)
+              clearInterval(qrTimerRef.current);
+          }
+        } else if (pollCount >= MAX_POLLS) {
+          if (qrPollRef.current)
+            clearInterval(qrPollRef.current);
+          if (qrTimerRef.current)
+            clearInterval(qrTimerRef.current);
+          if (qrQuotes.length === 0) {
+            setQrStatus("error");
+          }
+        }
+      } catch (e) {
+        console.error("[qr-poll]", e);
+      }
+    };
+
+    qrPollRef.current = setInterval(
+      doPoll, 30000
+    );
+  }
+
+  async function startQuoteRush(): Promise<void> {
+    if (!address || !rebuild || !isAuthenticated)
+      return;
+
+    if (qrPollRef.current)
+      clearInterval(qrPollRef.current);
+    if (qrTimerRef.current)
+      clearInterval(qrTimerRef.current);
+
+    setQrStatus("starting");
+    setQrQuotes([]);
+    setQrQuoteCounter(0);
+    setQrElapsed(0);
+    clearQRCache(address);
+
+    setQrStatus("starting");
+
+    try {
+      const res = await fetch(
+        "/api/insurance/qr-start",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            address,
+            coverageA: rebuild,
+            policyType: policyType || "HO3",
+            yearIdx,
+            roofIdx,
+            constIdx,
+            windIdx,
+            hurrIdx,
+            claimsIdx,
+            aopDeductible,
+            floodZone: floodZone || "X",
+            sqFt: 0,
+            newPurchase: false,
+          }),
+        }
+      );
+      const data = await res.json();
+
+      if (!res.ok || !data.leadId) {
+        setQrStatus("error");
+        return;
+      }
+
+      const leadId: number = data.leadId;
+      setQrLeadId(leadId);
+
+      if (
+        data.fromCache &&
+        (data.quotes?.length ?? 0) > 0
+      ) {
+        setQrQuotes(data.quotes);
+        setQrQuoteCounter(data.quoteCounter);
+        setQrStatus("success");
+        if (data.expiresAt)
+          setQrExpiresAt(data.expiresAt);
+        return;
+      }
+
+      setQrStatus("pending");
+      startPolling(leadId);
+    } catch (err) {
+      console.error("[qr-start]", err);
+      setQrStatus("error");
+      if (qrTimerRef.current)
+        clearInterval(qrTimerRef.current);
+    }
+  }
+
+── 5D. Auto-load useEffect ─────────────────
+
+Find the useEffect that starts with:
+  const f = resolveFactorsFor(addressParam);
+
+Add these lines at the very TOP of that
+effect body BEFORE any existing code:
+
+    // Stop any existing polling
+    if (qrPollRef.current)
+      clearInterval(qrPollRef.current);
+    if (qrTimerRef.current)
+      clearInterval(qrTimerRef.current);
+    // Reset QR state for new address
+    setQrQuotes([]);
+    setQrStatus("idle");
+    setQrLeadId(null);
+    setQrQuoteCounter(0);
+    setQrExpiresAt(null);
+
+── 5E. Auto-trigger useEffect ──────────────
+
+After the existing address-change useEffect
+(the one that calls resolveFactorsFor),
+add a NEW useEffect:
+
+  // Auto-trigger QuoteRUSH when address
+  // and rebuild are both confirmed
+  useEffect(() => {
+    if (
+      !address ||
+      address === "Unknown Address" ||
+      !isAuthenticated ||
+      rebuild <= 0
+    ) return;
+    if (
+      qrStatus === "starting" ||
+      qrStatus === "pending" ||
+      qrStatus === "success"
+    ) return;
+
+    // Load from localStorage or server cache
+    const doLoad = async () => {
+      const local = getQRCache(address);
+      if (local) {
+        if (
+          local.status === "expired" ||
+          isQRExpired(address)
+        ) {
+          setQrStatus("expired");
+          if (local.quotes.length > 0) {
+            setQrQuotes(local.quotes);
+            setQrQuoteCounter(
+              local.quoteCounter
+            );
+            setQrExpiresAt(local.expiresAt);
+          }
+          return;
+        }
+        loadFromCacheEntry(local);
+        if (
+          local.status === "pending" &&
+          local.leadId
+        ) {
+          startPolling(local.leadId);
+        }
+        return;
+      }
+
+      // Check server cache
+      const server = await checkServerCache(
+        address
+      );
+      if (server) {
+        if (isQRExpired(address)) {
+          setQrStatus("expired");
+          if (server.quotes.length > 0) {
+            setQrQuotes(server.quotes);
+            setQrExpiresAt(server.expiresAt);
+          }
+          return;
+        }
+        loadFromCacheEntry(server);
+        if (
+          server.status === "pending" &&
+          server.leadId
+        ) {
+          startPolling(server.leadId);
+        }
+        return;
+      }
+
+      // Nothing cached — auto-trigger
+      void triggerAutoQuote({
+        address,
+        coverageA: rebuild,
+        policyType: policyType || "HO3",
+        floodZone: floodZone || "X",
+        isAuthenticated,
+      });
+
+      // Then start polling after a brief delay
+      // to allow the server to get leadId
+      setTimeout(async () => {
+        const updated = getQRCache(address);
+        if (updated?.leadId) {
+          setQrLeadId(updated.leadId);
+          setQrStatus("pending");
+          startPolling(updated.leadId);
+        } else if (updated?.status !== "error") {
+          setQrStatus("pending");
+        }
+      }, 5000);
+    };
+
+    void doLoad();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, rebuild, isAuthenticated]);
+
+── 5F. Replace the QuoteRUSH UI Card ───────
+
+Find the existing QuoteRUSH card in the JSX
+(it starts with {/* QuoteRUSH Live Carrier
+Quotes */}). Replace the ENTIRE card
+(from the opening card comment to the
+closing </Card> of that card) with:
+
+              {/* QuoteRUSH Live Carrier Quotes */}
+              <Card className="border shadow-sm">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-primary shrink-0" />
+                        Live Carrier Quotes
+                        {qrStatus === "success" &&
+                          qrExpiresAt && (
+                          <span className="text-[10px] font-normal text-muted-foreground ml-1">
+                            · valid{" "}
+                            {Math.max(
+                              0,
+                              Math.ceil(
+                                (new Date(
+                                  qrExpiresAt
+                                ).getTime() -
+                                  Date.now()) /
+                                  86400000
+                              )
+                            )}{" "}
+                            more days
+                          </span>
+                        )}
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                        {qrStatus === "idle" &&
+                          isAuthenticated &&
+                          "Requesting real-time rates…"}
+                        {qrStatus === "idle" &&
+                          !isAuthenticated &&
+                          "Create a free account to get live carrier quotes."}
+                        {qrStatus === "starting" &&
+                          "Submitting to QuoteRUSH…"}
+                        {qrStatus === "pending" &&
+                          `QuoteBot is quoting your carriers — ${qrQuoteCounter} quote${qrQuoteCounter !== 1 ? "s" : ""} so far · ${qrElapsed}s`}
+                        {qrStatus === "success" &&
+                          `${qrQuoteCounter} carrier${qrQuoteCounter !== 1 ? "s" : ""} quoted · via Tateo & Co`}
+                        {qrStatus === "error" &&
+                          "Could not retrieve quotes — try refreshing."}
+                        {qrStatus === "expired" &&
+                          "Quotes are over 30 days old. Re-run for fresh rates."}
+                      </p>
+                    </div>
+
+                    {/* Buttons */}
+                    <div className="shrink-0 flex items-center gap-2">
+                      {/* Refresh — available 
+                          whenever leadId exists,
+                          fetches latest from QR */}
+                      {qrLeadId &&
+                        (qrStatus === "success" ||
+                          qrStatus === "pending" ||
+                          qrStatus === "error") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={refreshQuotes}
+                          disabled={qrRefreshing}
+                        >
+                          {qrRefreshing
+                            ? "Refreshing…"
+                            : "Refresh"}
+                        </Button>
+                      )}
+
+                      {/* Re-run — only when
+                          expired (30+ days old)
+                          or never quoted */}
+                      {(qrStatus === "expired" ||
+                        qrStatus === "error" ||
+                        (qrStatus === "idle" &&
+                          isAuthenticated)) && (
+                        <Button
+                          size="sm"
+                          onClick={startQuoteRush}
+                          disabled={
+                            !address ||
+                            !rebuild ||
+                            !isAuthenticated ||
+                            qrStatus === "starting"
+                          }
+                        >
+                          {qrStatus === "expired"
+                            ? "Re-run Quotes"
+                            : qrStatus === "error"
+                            ? "Try Again"
+                            : "Get Live Quotes"}
+                        </Button>
+                      )}
+
+                      {(qrStatus === "starting" ||
+                        (qrStatus === "pending" &&
+                          qrQuotes.length === 0)) && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <div className="h-2 w-2 rounded-full bg-primary/50 animate-pulse" />
+                          Working…
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+
+                <CardContent className="pt-0">
+
+                  {/* Progress bar */}
+                  {(qrStatus === "starting" ||
+                    (qrStatus === "pending" &&
+                      qrQuotes.length === 0)) && (
+                    <div className="mb-4 space-y-2">
+                      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="h-full bg-primary rounded-full transition-all duration-1000"
+                          style={{
+                            width: `${Math.min(
+                              (qrElapsed / 720) *
+                                100,
+                              90
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground text-center">
+                        QuoteBot is logging into
+                        carrier websites and
+                        pulling real-time rates.
+                        This typically takes
+                        2–5 minutes.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Quotes still loading 
+                      but some have arrived */}
+                  {qrStatus === "pending" &&
+                    qrQuotes.length > 0 && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground mb-3">
+                      <div className="h-2 w-2 rounded-full bg-primary/50 animate-pulse" />
+                      {qrQuoteCounter} carrier
+                      {qrQuoteCounter !== 1
+                        ? "s"
+                        : ""}{" "}
+                      quoted so far · more may
+                      be arriving…
+                    </div>
+                  )}
+
+                  {/* Not authenticated */}
+                  {!isAuthenticated &&
+                    qrStatus === "idle" && (
+                    <p className="text-xs text-muted-foreground text-center py-3">
+                      Create a free account to
+                      get live carrier quotes
+                      from your Florida-appointed
+                      insurers.
+                    </p>
+                  )}
+
+                  {/* Expired notice */}
+                  {qrStatus === "expired" &&
+                    qrQuotes.length > 0 && (
+                    <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-lg">
+                      <p className="text-xs text-amber-800">
+                        These quotes are over
+                        30 days old. Rates may
+                        have changed. Click
+                        "Re-run Quotes" for
+                        fresh rates.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Quote results */}
+                  {qrQuotes.length > 0 && (
+                    <div className="space-y-2">
+                      {qrQuotes
+                        .slice(0, 3)
+                        .map((q, i) => (
+                        <div
+                          key={q.siteName + i}
+                          className={`flex items-start justify-between p-3 rounded-lg border ${
+                            i === 0
+                              ? "border-yellow-300 bg-yellow-50"
+                              : "border-border bg-muted/20"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="text-base mt-0.5">
+                              {i === 0
+                                ? "🥇"
+                                : i === 1
+                                ? "🥈"
+                                : "🥉"}
+                            </span>
+                            <div>
+                              <div className="text-sm font-semibold">
+                                {q.siteName}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+                                {q.hurricaneDeductible && (
+                                  <div>
+                                    Hurricane:{" "}
+                                    {
+                                      q.hurricaneDeductible
+                                    }
+                                  </div>
+                                )}
+                                {q.aop && (
+                                  <div>
+                                    AOP: {q.aop}
+                                  </div>
+                                )}
+                                {q.coverageA >
+                                  0 && (
+                                  <div>
+                                    Coverage A:{" "}
+                                    {new Intl.NumberFormat(
+                                      "en-US",
+                                      {
+                                        style:
+                                          "currency",
+                                        currency:
+                                          "USD",
+                                        maximumFractionDigits: 0,
+                                      }
+                                    ).format(
+                                      q.coverageA
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0 ml-2">
+                            <div className="text-base font-bold font-mono text-primary">
+                              {new Intl.NumberFormat(
+                                "en-US",
+                                {
+                                  style: "currency",
+                                  currency: "USD",
+                                  maximumFractionDigits: 0,
+                                }
+                              ).format(
+                                q.annualPremium
+                              )}
+                              /yr
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {new Intl.NumberFormat(
+                                "en-US",
+                                {
+                                  style: "currency",
+                                  currency: "USD",
+                                  maximumFractionDigits: 0,
+                                }
+                              ).format(
+                                q.monthlyPremium
+                              )}
+                              /mo
+                            </div>
+                            {q.quoteUrl && (
+                              
+                                href={q.quoteUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-primary underline mt-1 block"
+                              >
+                                View quote →
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+
+                      {qrStatus === "pending" && (
+                        <p className="text-xs text-muted-foreground text-center">
+                          More quotes may still
+                          be arriving. Click
+                          Refresh to check.
+                        </p>
+                      )}
+
+                      <p className="text-[10px] text-muted-foreground text-center leading-relaxed pt-1">
+                        Real-time carrier rates
+                        via Tateo &amp; Co ·
+                        Tateo Insurance Corp ·
+                        License #L132640 ·
+                        Not a binding quote.
+                        Coverage not effective
+                        until confirmed by a
+                        licensed agent.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Error fallback */}
+                  {qrStatus === "error" &&
+                    qrQuotes.length === 0 && (
+                    <div className="text-center py-4 space-y-3">
+                      <p className="text-sm text-muted-foreground">
+                        This property may need
+                        a custom quote.
+                      </p>
+                      <div className="flex gap-2 justify-center">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          asChild
+                        >
+                          <a href="tel:+18132148356">
+                            (813) 214-8356
+                          </a>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          asChild
+                        >
+                          <a href="mailto:christian@tateoco.com">
+                            Email Us
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                </CardContent>
+              </Card>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 6 — UPDATE estimate.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/estimate.tsx
+
+Add import with other @/lib imports:
+
+import {
+  triggerAutoQuote,
+} from "@/lib/quoterush-auto";
+
+After isAuthenticated is defined, add:
+
+  useEffect(() => {
+    const price = inputs.purchasePrice;
+    if (
+      !isAuthenticated ||
+      !address ||
+      address === "Unknown Address" ||
+      price <= 0
+    ) return;
+    void triggerAutoQuote({
+      address,
+      price,
+      policyType: "HO3",
+      isAuthenticated,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, inputs.purchasePrice,
+      isAuthenticated]);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 7 — UPDATE cash-buy.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/cash-buy.tsx
+
+Add import:
+
+import {
+  triggerAutoQuote,
+} from "@/lib/quoterush-auto";
+
+After isAuthenticated is defined, add:
+
+  useEffect(() => {
+    const addr = scenario.address;
+    const price = scenario.purchasePrice ?? 0;
+    if (
+      !isAuthenticated ||
+      !addr ||
+      addr === "Unknown Address" ||
+      price <= 0
+    ) return;
+    void triggerAutoQuote({
+      address: addr,
+      price,
+      isAuthenticated,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenario.address,
+      scenario.purchasePrice,
+      isAuthenticated]);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 8 — UPDATE seller-estimate.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/seller-estimate.tsx
+
+Add import:
+
+import {
+  triggerAutoQuote,
+} from "@/lib/quoterush-auto";
+
+After isAuthenticated is defined, add:
+
+  useEffect(() => {
+    const addr = scenario.address;
+    const price =
+      scenario.estimatedSalePrice ?? 0;
+    if (
+      !isAuthenticated ||
+      !addr ||
+      addr === "Unknown Address" ||
+      price <= 0
+    ) return;
+    void triggerAutoQuote({
+      address: addr,
+      price,
+      isAuthenticated,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenario.address,
+      scenario.estimatedSalePrice,
+      isAuthenticated]);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 9 — UPDATE refinance.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/refinance.tsx
+
+Add import:
+
+import {
+  triggerAutoQuote,
+} from "@/lib/quoterush-auto";
+
+After isAuthenticated is defined, add:
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    trackedLoans.forEach((loan) => {
+      const addr = loan.propertyAddress;
+      const price =
+        loan.estimatedHomeValue ?? 0;
+      if (!addr || price <= 0) return;
+      void triggerAutoQuote({
+        address: addr,
+        price,
+        isAuthenticated,
+      });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    trackedLoans
+      .map((l) => l.propertyAddress)
+      .join(","),
+    trackedLoans
+      .map((l) =>
+        String(l.estimatedHomeValue ?? 0)
+      )
+      .join(","),
+    isAuthenticated,
+  ]);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 10 — VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Confirm npm run db:push succeeded and
+   insurance_quote_cache table exists.
+
+2. Run: npx tsc --noEmit
+   Fix type errors only. Do not change logic.
+
+3. Run: npx vite build
+   Confirm clean build.
+
+4. Do NOT change any existing calculation
+   logic, save logic, or unrelated state
+   in any page. Only add the import and
+   the one useEffect per page.
+
+5. Report:
+   - DB migration result
+   - Files created/modified
+   - TypeScript errors found and resolved
+   - Build status
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BEHAVIOR SUMMARY — DO NOT MODIFY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+EFFECTIVE DATE: Every QuoteRUSH submission
+  sets PolicyEffectiveDate = today + 30 days.
+
+AUTO-TRIGGER: When any authenticated user
+  enters an address + price on Purchase,
+  Cash Buy, Seller, Refinance, or Insurance,
+  quotes start immediately in the background.
+  No button click required.
+
+SHARED CACHE: First user to search an address
+  pays the QuoteRUSH cost. All subsequent
+  users within 30 days get cached results
+  instantly (free). Cache lives in the
+  insurance_quote_cache DB table.
+
+30-DAY COOLDOWN: Re-run button only appears
+  after the 30-day TTL expires. Within 30
+  days, only the Refresh button is available.
+
+REFRESH: Calls GetQuotes with the existing
+  leadId. Shows all quotes QuoteRUSH has
+  processed so far. No new submission cost.
+  Fixes the "only 1 carrier showing" issue.
+
+POLLING: Stops only after counter is stable
+  for 3 consecutive 30s polls (not 2).
+  Gives slower carriers time to respond.
+
+TOP 3: Always shows the 3 cheapest carriers
+  sorted by annual premium ascending.

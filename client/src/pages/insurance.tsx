@@ -8,6 +8,12 @@ import {
 import { notifyNewScenario } from "@/lib/notify-scenario";
 import { authedFetch } from "@/lib/authed-fetch";
 import {
+  getQRCache,
+  setQRCache,
+  clearQRCache,
+  type QRCacheEntry,
+} from "@/lib/quoterush-auto";
+import {
   DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
   getInsuranceCoverageMultiplier,
 } from "@/lib/insurance-default";
@@ -556,17 +562,7 @@ export default function InsuranceDashboard() {
   const [qrLeadId, setQrLeadId] =
     useState<number | null>(null);
   const [qrQuotes, setQrQuotes] = useState<
-    Array<{
-      siteName: string;
-      annualPremium: number;
-      monthlyPremium: number;
-      coverageA: number;
-      hurricaneDeductible: string;
-      aop: string;
-      quoteUrl: string | null;
-      quoteDate: string;
-      rank: number;
-    }>
+    QRCacheEntry["quotes"]
   >([]);
   const [qrStatus, setQrStatus] = useState<
     | "idle"
@@ -574,10 +570,15 @@ export default function InsuranceDashboard() {
     | "pending"
     | "success"
     | "error"
+    | "expired"
   >("idle");
   const [qrElapsed, setQrElapsed] = useState(0);
   const [qrQuoteCounter, setQrQuoteCounter] =
     useState(0);
+  const [qrExpiresAt, setQrExpiresAt] =
+    useState<string | null>(null);
+  const [qrRefreshing, setQrRefreshing] =
+    useState(false);
   const qrPollRef = useRef<
     ReturnType<typeof setInterval> | null
   >(null);
@@ -586,6 +587,13 @@ export default function InsuranceDashboard() {
   >(null);
   const qrPrevCounterRef = useRef(0);
   const qrStableRef = useRef(0);
+  // Tracks the retry timer used while waiting for another concurrent
+  // request to publish the shared-cache leadId (lost-claim-race case).
+  const qrWaitRef = useRef<
+    ReturnType<typeof setTimeout> | null
+  >(null);
+  // Guards the auto-trigger effect so a given address is processed once.
+  const qrAutoRef = useRef<string>("");
 
   // Re-hydrate factors when the active address changes (mirrors the
   // manual-premium / policy-type rehydration pattern above) so
@@ -596,10 +604,14 @@ export default function InsuranceDashboard() {
       clearInterval(qrPollRef.current);
     if (qrTimerRef.current)
       clearInterval(qrTimerRef.current);
+    if (qrWaitRef.current)
+      clearTimeout(qrWaitRef.current);
+    qrAutoRef.current = "";
     setQrQuotes([]);
     setQrStatus("idle");
     setQrLeadId(null);
     setQrQuoteCounter(0);
+    setQrExpiresAt(null);
     const f = resolveFactorsFor(addressParam);
     setRoofIdx(f.roof);    setWindIdx(f.wind);    setHurrIdx(f.hurr);
     setConstIdx(f.cons);   setYearIdx(f.year);    setClaimsIdx(f.claims);
@@ -1134,12 +1146,293 @@ export default function InsuranceDashboard() {
     aopDeductible, carrier, floodZone, floodZoneSource,
   ]);
 
+  // Auto-trigger / cache-hydrate QuoteRUSH when address + rebuild ready.
+  // Goal: no manual "Get Quotes" button — entering an address auto-runs a
+  // quote, but shared cache (localStorage → server DB) is consulted first
+  // so a repeat address (within 30 days) never re-pays the cost.
+  useEffect(() => {
+    if (!isAuthenticated || !address || !rebuild) return;
+    if (address === "Unknown Address") return;
+    if (qrAutoRef.current === address) return;
+    qrAutoRef.current = address;
+
+    let cancelled = false;
+    (async () => {
+      // 1) Fast local cache.
+      const local = getQRCache(address);
+      if (
+        local &&
+        (local.status === "success" ||
+          local.status === "pending")
+      ) {
+        loadFromCacheEntry(local);
+        if (local.status === "pending") {
+          if (local.leadId) {
+            startPolling(local.leadId);
+          } else {
+            // Claimed by a concurrent request but leadId not yet
+            // published — wait for it instead of stalling.
+            setQrStatus("pending");
+            pollCacheForLead(address);
+          }
+        }
+        return;
+      }
+
+      // 2) Shared server cache.
+      try {
+        const res = await fetch(
+          `/api/insurance/qr-cache?address=` +
+            encodeURIComponent(address)
+        );
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.found) {
+          const entry: QRCacheEntry = {
+            address,
+            leadId: data.leadId ?? null,
+            status: data.status ?? "pending",
+            quotes: data.quotes ?? [],
+            quoteCounter: data.quoteCounter ?? 0,
+            coverageA: data.coverageA ?? 0,
+            expiresAt:
+              data.expiresAt ??
+              new Date().toISOString(),
+            triggeredAt:
+              data.triggeredAt ??
+              new Date().toISOString(),
+          };
+          if (data.expired) {
+            // Show stale top-3 but flag expired → prompt re-run.
+            setQrLeadId(entry.leadId);
+            setQrQuotes(entry.quotes);
+            setQrQuoteCounter(entry.quoteCounter);
+            setQrExpiresAt(entry.expiresAt);
+            setQrStatus("expired");
+            return;
+          }
+          setQRCache(address, entry);
+          loadFromCacheEntry(entry);
+          if (entry.status === "pending") {
+            if (entry.leadId) {
+              startPolling(entry.leadId);
+            } else {
+              // Row claimed by a concurrent request but leadId not
+              // published yet — wait for it instead of re-submitting.
+              setQrStatus("pending");
+              pollCacheForLead(address);
+            }
+          }
+          return;
+        }
+      } catch (e) {
+        console.error("[qr-auto-hydrate]", e);
+      }
+
+      // 3) Nothing cached anywhere → auto-trigger fresh quote.
+      if (cancelled) return;
+      startQuoteRush();
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address, rebuild, isAuthenticated]);
+
   // ── QuoteRUSH quoting ─────────────────────
-  async function startQuoteRush() {
+
+  // Loads QR component state from a cache entry (localStorage or server).
+  function loadFromCacheEntry(e: QRCacheEntry): void {
+    setQrLeadId(e.leadId);
+    setQrQuotes(e.quotes ?? []);
+    setQrQuoteCounter(e.quoteCounter ?? 0);
+    setQrExpiresAt(e.expiresAt ?? null);
+    if (
+      e.status === "success" &&
+      (e.quotes?.length ?? 0) > 0
+    ) {
+      setQrStatus("success");
+    } else if (e.status === "pending" && e.leadId) {
+      setQrStatus("pending");
+    } else if (e.status === "error") {
+      setQrStatus("error");
+    }
+  }
+
+  // Waits for a concurrent request to publish the shared-cache leadId (the
+  // lost-claim-race case where qr-start returns pending with no leadId).
+  // Polls qr-cache every 5s and hands off to startPolling once ready.
+  function pollCacheForLead(addr: string, attempts = 0): void {
+    if (qrWaitRef.current) clearTimeout(qrWaitRef.current);
+    if (attempts > 24) {
+      if (qrQuotes.length === 0) setQrStatus("error");
+      return;
+    }
+    qrWaitRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/insurance/qr-cache?address=` +
+            encodeURIComponent(addr)
+        );
+        const data = await res.json();
+        if (data.found && data.expired) {
+          setQrStatus("expired");
+          return;
+        }
+        if (
+          data.found &&
+          data.status === "success" &&
+          (data.quotes?.length ?? 0) > 0
+        ) {
+          setQrQuotes(data.quotes);
+          setQrQuoteCounter(data.quoteCounter);
+          setQrExpiresAt(data.expiresAt ?? null);
+          setQrStatus("success");
+          setQRCache(addr, {
+            status: "success",
+            leadId: data.leadId,
+            quotes: data.quotes,
+            quoteCounter: data.quoteCounter,
+            ...(data.expiresAt
+              ? { expiresAt: data.expiresAt }
+              : {}),
+          });
+          return;
+        }
+        if (data.found && data.leadId) {
+          setQrLeadId(data.leadId);
+          setQrStatus("pending");
+          setQRCache(addr, {
+            leadId: data.leadId,
+            status: "pending",
+          });
+          startPolling(data.leadId);
+          return;
+        }
+        pollCacheForLead(addr, attempts + 1);
+      } catch {
+        pollCacheForLead(addr, attempts + 1);
+      }
+    }, 5000);
+  }
+
+  // Refresh — pulls the latest carrier results for an existing lead
+  // WITHOUT re-submitting (no new cost). Fixes "only 1 carrier showing".
+  async function refreshQuotes(): Promise<void> {
+    if (!qrLeadId || qrRefreshing) return;
+    setQrRefreshing(true);
+    try {
+      const res = await authedFetch(
+        "/api/insurance/qr-refresh",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            leadId: qrLeadId,
+            address,
+          }),
+        }
+      );
+      const data = await res.json();
+      if ((data.quotes?.length ?? 0) > 0) {
+        setQrQuotes(data.quotes);
+        setQrQuoteCounter(data.quoteCounter);
+        setQrStatus("success");
+        setQRCache(address, {
+          status: "success",
+          quotes: data.quotes,
+          quoteCounter: data.quoteCounter,
+        });
+      }
+    } catch (e) {
+      console.error("[qr-refresh]", e);
+    } finally {
+      setQrRefreshing(false);
+    }
+  }
+
+  // Polls qr-quotes until the carrier count is stable across 3
+  // consecutive polls (gives slower carriers time to respond).
+  function startPolling(leadId: number): void {
+    if (qrPollRef.current)
+      clearInterval(qrPollRef.current);
+    if (qrTimerRef.current)
+      clearInterval(qrTimerRef.current);
+
+    setQrElapsed(0);
+    qrPrevCounterRef.current = 0;
+    qrStableRef.current = 0;
+
+    qrTimerRef.current = setInterval(() => {
+      setQrElapsed((p) => p + 1);
+    }, 1000);
+
+    let pollCount = 0;
+    const MAX_POLLS = 24; // 12 minutes
+
+    const doPoll = async () => {
+      pollCount++;
+      try {
+        const res = await authedFetch(
+          "/api/insurance/qr-quotes",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ leadId, address }),
+          }
+        );
+        const data = await res.json();
+        const counter: number = data.quoteCounter ?? 0;
+
+        if (counter > 0) {
+          setQrQuotes(data.quotes ?? []);
+          setQrQuoteCounter(counter);
+          setQrStatus("success");
+          setQRCache(address, {
+            status: "success",
+            quotes: data.quotes ?? [],
+            quoteCounter: counter,
+          });
+
+          // Stop only after 3 consecutive stable polls.
+          if (counter === qrPrevCounterRef.current) {
+            qrStableRef.current += 1;
+          } else {
+            qrStableRef.current = 0;
+          }
+          qrPrevCounterRef.current = counter;
+
+          if (
+            qrStableRef.current >= 3 ||
+            pollCount >= MAX_POLLS
+          ) {
+            if (qrPollRef.current)
+              clearInterval(qrPollRef.current);
+            if (qrTimerRef.current)
+              clearInterval(qrTimerRef.current);
+          }
+        } else if (pollCount >= MAX_POLLS) {
+          if (qrPollRef.current)
+            clearInterval(qrPollRef.current);
+          if (qrTimerRef.current)
+            clearInterval(qrTimerRef.current);
+          if (qrQuotes.length === 0) {
+            setQrStatus("error");
+          }
+        }
+      } catch (e) {
+        console.error("[qr-poll]", e);
+      }
+    };
+
+    qrPollRef.current = setInterval(doPoll, 30000);
+  }
+
+  async function startQuoteRush(): Promise<void> {
     if (!address || !rebuild || !isAuthenticated)
       return;
 
-    // Stop any existing polling
     if (qrPollRef.current)
       clearInterval(qrPollRef.current);
     if (qrTimerRef.current)
@@ -1149,12 +1442,7 @@ export default function InsuranceDashboard() {
     setQrQuotes([]);
     setQrQuoteCounter(0);
     setQrElapsed(0);
-    qrPrevCounterRef.current = 0;
-    qrStableRef.current = 0;
-
-    qrTimerRef.current = setInterval(() => {
-      setQrElapsed(prev => prev + 1);
-    }, 1000);
+    clearQRCache(address);
 
     try {
       const startRes = await authedFetch(
@@ -1182,79 +1470,56 @@ export default function InsuranceDashboard() {
         }
       );
 
-      const startData = await startRes.json();
+      const data = await startRes.json();
 
-      if (!startRes.ok || !startData.leadId) {
+      if (!startRes.ok) {
         setQrStatus("error");
         if (qrTimerRef.current)
           clearInterval(qrTimerRef.current);
         return;
       }
 
-      const leadId: number = startData.leadId;
-      setQrLeadId(leadId);
-      setQrStatus("pending");
-
-      let pollCount = 0;
-      const MAX_POLLS = 20; // 10 minutes
-
-      const doPoll = async () => {
-        pollCount++;
-        try {
-          const qRes = await authedFetch(
-            "/api/insurance/qr-quotes",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type":
-                  "application/json",
-              },
-              body: JSON.stringify({ leadId }),
-            }
-          );
-          const qData = await qRes.json();
-          const counter: number =
-            qData.quoteCounter ?? 0;
-
-          if (counter > 0) {
-            setQrQuotes(qData.quotes ?? []);
-            setQrQuoteCounter(counter);
-            setQrStatus("success");
-
-            // Stop when counter stable 2 polls
-            if (counter ===
-                qrPrevCounterRef.current) {
-              qrStableRef.current += 1;
-            } else {
-              qrStableRef.current = 0;
-            }
-            qrPrevCounterRef.current = counter;
-
-            if (qrStableRef.current >= 2 ||
-                pollCount >= MAX_POLLS) {
-              if (qrPollRef.current)
-                clearInterval(qrPollRef.current);
-              if (qrTimerRef.current)
-                clearInterval(qrTimerRef.current);
-            }
-          } else if (pollCount >= MAX_POLLS) {
-            if (qrPollRef.current)
-              clearInterval(qrPollRef.current);
-            if (qrTimerRef.current)
-              clearInterval(qrTimerRef.current);
-            setQrStatus("error");
-          }
-        } catch (e) {
-          console.error("[qr-poll] error:", e);
+      // Lost the claim race — another concurrent request is submitting
+      // this address but its leadId isn't published yet. Wait for it
+      // rather than firing a second (paid) submission.
+      if (!data.leadId) {
+        if (data.status === "pending") {
+          setQrStatus("pending");
+          pollCacheForLead(address);
+        } else {
+          setQrStatus("error");
+          if (qrTimerRef.current)
+            clearInterval(qrTimerRef.current);
         }
-      };
+        return;
+      }
 
-      qrPollRef.current = setInterval(
-        doPoll, 30000
-      );
+      const leadId: number = data.leadId;
+      setQrLeadId(leadId);
+      setQRCache(address, { leadId, status: "pending" });
 
+      // Server may return cached quotes for a shared address.
+      if (data.fromCache && (data.quotes?.length ?? 0) > 0) {
+        setQrQuotes(data.quotes);
+        setQrQuoteCounter(data.quoteCounter);
+        setQrStatus("success");
+        if (data.expiresAt) setQrExpiresAt(data.expiresAt);
+        setQRCache(address, {
+          leadId,
+          status: "success",
+          quotes: data.quotes,
+          quoteCounter: data.quoteCounter,
+          ...(data.expiresAt
+            ? { expiresAt: data.expiresAt }
+            : {}),
+        });
+        return;
+      }
+
+      setQrStatus("pending");
+      startPolling(leadId);
     } catch (err) {
-      console.error("[qr-start] fetch error:", err);
+      console.error("[qr-start]", err);
       setQrStatus("error");
       if (qrTimerRef.current)
         clearInterval(qrTimerRef.current);
@@ -1933,12 +2198,33 @@ export default function InsuranceDashboard() {
                         {qrStatus === "pending" &&
                           `QuoteBot is quoting your carriers — ${qrQuoteCounter} quote${qrQuoteCounter !== 1 ? "s" : ""} so far · ${qrElapsed}s`}
                         {qrStatus === "success" &&
-                          `${qrQuoteCounter} carrier${qrQuoteCounter !== 1 ? "s" : ""} quoted · checking for more…`}
+                          `${qrQuoteCounter} carrier${qrQuoteCounter !== 1 ? "s" : ""} quoted${
+                            qrExpiresAt
+                              ? ` · saved rates, valid ${Math.max(
+                                  0,
+                                  Math.ceil(
+                                    (new Date(qrExpiresAt).getTime() -
+                                      Date.now()) /
+                                      86400000
+                                  )
+                                )} more day${
+                                  Math.ceil(
+                                    (new Date(qrExpiresAt).getTime() -
+                                      Date.now()) /
+                                      86400000
+                                  ) !== 1
+                                    ? "s"
+                                    : ""
+                                }`
+                              : " · checking for more…"
+                          }`}
+                        {qrStatus === "expired" &&
+                          "These saved rates are over 30 days old — re-run for current pricing."}
                         {qrStatus === "error" &&
                           "Quote request failed — call us for a custom quote."}
                       </p>
                     </div>
-                    <div className="shrink-0">
+                    <div className="shrink-0 flex items-center gap-2">
                       {qrStatus === "idle" && (
                         <Button
                           size="sm"
@@ -1959,11 +2245,24 @@ export default function InsuranceDashboard() {
                           Working…
                         </div>
                       )}
-                      {(qrStatus === "success" ||
-                        qrStatus === "error") && (
+                      {qrStatus === "success" && (
                         <Button
                           size="sm"
                           variant="outline"
+                          onClick={refreshQuotes}
+                          disabled={
+                            qrRefreshing || !qrLeadId
+                          }
+                        >
+                          {qrRefreshing
+                            ? "Refreshing…"
+                            : "Refresh"}
+                        </Button>
+                      )}
+                      {(qrStatus === "expired" ||
+                        qrStatus === "error") && (
+                        <Button
+                          size="sm"
                           onClick={startQuoteRush}
                         >
                           Re-run
@@ -2003,10 +2302,10 @@ export default function InsuranceDashboard() {
                     </p>
                   )}
 
-                  {/* Quotes */}
+                  {/* Quotes (top 3) */}
                   {qrQuotes.length > 0 && (
                     <div className="space-y-2">
-                      {qrQuotes.map((q, i) => (
+                      {qrQuotes.slice(0, 3).map((q, i) => (
                         <div
                           key={q.siteName + i}
                           className={`flex items-start justify-between p-3 rounded-lg border ${

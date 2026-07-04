@@ -17,6 +17,7 @@ import {
   type TrackedLoan,
 } from "@/lib/auth";
 import { notifyNewScenario } from "@/lib/notify-scenario";
+import { triggerAutoQuote } from "@/lib/quoterush-auto";
 import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-refinance";
 import { useAuth } from "@/context/auth-context";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
@@ -201,6 +202,31 @@ export default function Refinance() {
     if (fromLoans && fromLoans !== creditScore) setCreditScore(fromLoans);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackedLoans.length]);
+
+  // Pre-warm the shared QuoteRUSH cache once an address + home value are
+  // known, so the Insurance page loads live carrier quotes instantly.
+  // Iterate ALL tracked loans (not just the first) so every property the
+  // user is refinancing gets its quotes warmed.
+  const refiWarmKey = trackedLoans
+    .map(l => `${l.propertyAddress}|${l.estimatedHomeValue ?? 0}`)
+    .join(",");
+  useEffect(() => {
+    const seen = new Set<string>();
+    const targets = trackedLoans.length
+      ? trackedLoans
+      : [{ propertyAddress: address, estimatedHomeValue: 0 }];
+    for (const loan of targets) {
+      const addr = loan?.propertyAddress || address;
+      if (!addr || seen.has(addr)) continue;
+      seen.add(addr);
+      triggerAutoQuote({
+        address: addr,
+        price: loan?.estimatedHomeValue ?? 0,
+        isAuthenticated,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refiWarmKey, isAuthenticated]);
 
   function handleCreditScoreChange(raw: string) {
     const n = parseInt(raw, 10);

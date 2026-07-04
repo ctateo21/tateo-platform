@@ -135,6 +135,17 @@ function buildImporterPayload(
       NewPurchase: p.newPurchase || "No",
       UsageType: p.usageType || "Primary",
       YearBuilt: String(p.yearBuilt || 1995),
+      PolicyEffectiveDate: (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + 30);
+        return (
+          String(d.getMonth() + 1).padStart(2, "0") +
+          "/" +
+          String(d.getDate()).padStart(2, "0") +
+          "/" +
+          d.getFullYear()
+        );
+      })(),
       SquareFeet:
         p.sqFt > 0 ? String(p.sqFt) : "1800",
       ConstructionType: p.constructionType ||
