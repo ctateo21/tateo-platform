@@ -1,6 +1,6 @@
 ---
 name: QuoteRUSH live carrier quoting
-description: How Havo's live insurance quoting talks to QuoteRUSH — secret-name mismatch, DB-backed shared-address cache, lead authz, and the auto-trigger/lost-race flow.
+description: How Havo's live insurance quoting talks to QuoteRUSH — manual-only trigger, secret-name mismatch, DB-backed shared-address cache, lead authz, and the lost-race flow.
 ---
 
 # QuoteRUSH integration
@@ -9,8 +9,23 @@ Live carrier home-insurance quoting on the insurance page. Flow:
 enrich property data → import lead (importer.quoterush.com) → extract
 LeadId → SubmitQuoteRequest (triggers QuoteBot) → client polls
 GetQuotes every 30s (QuoteCounter=0 means still processing; quotes
-arrive over 2–10 min). There is **no manual "Get Quotes" button** —
-entering an address auto-triggers a quote after consulting the cache.
+arrive over 2–10 min).
+
+## Quoting is MANUAL-only (no auto-trigger anywhere)
+Per product decision, a new (paid) QuoteRUSH quote fires **only** when
+the user clicks "Get Live Quotes" in the insurance page's detailed view
+(`startQuoteRush`). All automatic triggering is disabled:
+- The background pre-warm `triggerAutoQuote(...)` calls were removed from
+  the estimate, refinance, seller-estimate, and cash-buy pages.
+- The insurance-page auto-hydrate effect no longer calls `startQuoteRush()`
+  when the cache is empty; it now only *reads* cache to display existing
+  results and otherwise leaves `qrStatus` "idle" so the button shows.
+**Why:** the owner wanted to stop spending on quotes for every address
+that merely gets viewed. Cache display is preserved everywhere; only the
+paid submission is gated behind the explicit click.
+**How to apply:** if asked to "auto-quote" or "warm the cache" again,
+re-add `triggerAutoQuote` and/or restore the `startQuoteRush()` fallthrough
+— but confirm intent first, this was deliberately turned off.
 
 ## Secret-name mismatch (important)
 The original spec referenced `QUOTERUSH_WEBPASSWORD` and
@@ -73,13 +88,15 @@ qr-start splits the formatted address on commas and scans segments
 so a trailing country segment like ", USA" from Google doesn't swallow
 the state/zip.
 
-## Auto-hydrate effect must not bail permanently on missing rebuild
-The insurance-page auto-quote effect must NOT include `!rebuild` in its
-early-return guard. `rebuild` is computed asynchronously; if the guard
-bails when it's absent the effect never starts a quote even after rebuild
-arrives. Correct shape: early-return only on `!isAuthenticated || !address`,
-then check `if (!rebuild) return;` as a fallthrough right before starting —
-with `rebuild` in the dep array so the effect re-runs once it's ready.
+## Auto-hydrate effect + rebuild guard (historical — auto-fire now removed)
+The insurance-page effect used to auto-start a quote once `rebuild`
+(Coverage A) was ready, and the gotcha was to NOT bail permanently on
+missing `rebuild` (it's async — bailing early meant the quote never fired).
+That auto-fire is now removed (see "Quoting is MANUAL-only"), so the effect
+only hydrates cache. **If auto-quoting is ever re-enabled**, restore the
+fallthrough shape: early-return only on `!isAuthenticated || !address`,
+then `if (!rebuild) return;` right before starting, with `rebuild` in the
+dep array so it re-runs once ready — never put `!rebuild` in the top guard.
 
 ## Per-page QR display polling: tear down on address change
 Any page that shows live QR quotes with its own poll (e.g. estimate page)
