@@ -180,6 +180,22 @@ function getDTILimits(loanType: "conventional" | "fha" | "va" | "usda" | "dscr" 
   }
 }
 
+// Qualification thresholds — the buyer "Likely Qualifies" (green) only when
+// BOTH housing DTI and total DTI are strictly below these per-loan-type
+// values; otherwise the estimate flags "Needs Review" (red). These are the
+// underwriting-guideline targets used purely to color the qualification
+// status (distinct from the hard lender maxes in getDTILimits).
+function getQualThresholds(loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement"): { housingGreen: number; totalGreen: number } {
+  switch (loanType) {
+    case "fha":            return { housingGreen: 0.45, totalGreen: 0.53 };
+    case "va":             return { housingGreen: 0.40, totalGreen: 0.50 };
+    case "usda":           return { housingGreen: 0.35, totalGreen: 0.40 };
+    case "dscr":           return { housingGreen: Infinity, totalGreen: Infinity };
+    case "bank_statement": return { housingGreen: Infinity, totalGreen: Infinity };
+    default:               return { housingGreen: 0.43, totalGreen: 0.45 }; // conventional
+  }
+}
+
 function calcInsuranceEstimate(
   purchasePrice: number,
   impactWindows: boolean,
@@ -1730,7 +1746,7 @@ export default function Estimate() {
     // ── Key metrics ──────────────────────────────────────────────────────
     const bw = (W - margin * 2) / 3 - 6;
     const mx = [margin, margin + bw + 6, margin + (bw + 6) * 2];
-    const dtiColor: [number, number, number] = calc.dti > calc.maxTotalDti ? [220, 38, 38] : [22, 163, 74];
+    const dtiColor: [number, number, number] = calc.totalGreen !== Infinity && calc.dti >= calc.totalGreen ? [220, 38, 38] : [22, 163, 74];
     metricBox("Monthly Payment", fmt(calc.totalHousing), mx[0], y);
     metricBox("Total DTI", fmtPct(calc.dti), mx[1], y, dtiColor);
     metricBox("Cash to Close", fmt(calc.cashToClose), mx[2], y);
@@ -1818,8 +1834,8 @@ export default function Estimate() {
       row("Rental Income (75%)", fmt(calc.rentalIncomeQualifying));
     row("Total Qualifying Income", fmt(calc.qualifyingIncome));
     row("Required Monthly Income", fmt(calc.requiredIncome));
-    const hDTIMax = calc.maxHousingDti === Infinity ? "No limit (VA)" : `Max ${fmtPct(calc.maxHousingDti)}`;
-    const tDTIMax = calc.maxTotalDti === Infinity ? "No limit (VA)" : `Max ${fmtPct(calc.maxTotalDti)}`;
+    const hDTIMax = calc.housingGreen === Infinity ? "No limit" : `Target < ${fmtPct(calc.housingGreen)}`;
+    const tDTIMax = calc.totalGreen === Infinity ? "No limit" : `Target < ${fmtPct(calc.totalGreen)}`;
     row("Housing DTI", fmtPct(calc.housingDTI), hDTIMax);
     row("Total DTI", fmtPct(calc.dti), tDTIMax);
     row("Required Reserves (1-3 mo PITI)", fmt(calc.requiredReserves));
@@ -3321,13 +3337,20 @@ export default function Estimate() {
     const housingDTI = qualifyingIncome > 0 ? totalHousing / qualifyingIncome : 0;
     const dti = qualifyingIncome > 0 ? (totalHousing + effectiveMonthlyDebts) / qualifyingIncome : 0;
     const { housingMax: maxHousingDti, totalMax: maxTotalDti } = getDTILimits(loanType);
+    const { housingGreen, totalGreen } = getQualThresholds(loanType);
     const maxDti = maxTotalDti; // keep for backward compat in recs
     const requiredIncome = maxTotalDti === Infinity ? 0 : Math.round((totalHousing + effectiveMonthlyDebts) / maxTotalDti);
     const requiredReserves = Math.round(totalHousing * 2);
     const availableReserves = Math.max(0, reserves - cashToClose);
-    const housingDTIPass = maxHousingDti === Infinity || housingDTI <= maxHousingDti;
-    const totalDTIPass = maxTotalDti === Infinity || dti <= maxTotalDti;
-    const qualifies = (requiredIncome === 0 || qualifyingIncome >= requiredIncome) && housingDTIPass && totalDTIPass && availableReserves >= requiredReserves;
+    // "Likely Qualifies" requires BOTH housing DTI and total DTI strictly
+    // below the per-loan-type green thresholds; anything else "Needs Review".
+    const housingDTIPass = housingGreen === Infinity || housingDTI < housingGreen;
+    const totalDTIPass = totalGreen === Infinity || dti < totalGreen;
+    const dtiLikelyQualifies = housingDTIPass && totalDTIPass;
+    // Per spec, the qualification status is driven purely by the DTI
+    // thresholds. Reserves are surfaced as an advisory row below, not a
+    // gate on the "Likely Qualifies" / "Needs Review" badge.
+    const qualifies = dtiLikelyQualifies;
 
     const estimatedHOIns = calcInsuranceEstimate(purchasePrice, impactWindows, roofAttachment, swr);
 
@@ -3381,6 +3404,7 @@ export default function Estimate() {
       dpaDownPaymentCredit, dpaClosingCostCredit, dpaExtraPointsCost,
       effectiveDownPaymentPct,
       cashToClose, housingDTI, dti, maxHousingDti, maxTotalDti, maxDti, requiredIncome, requiredReserves, availableReserves,
+      housingGreen, totalGreen, dtiLikelyQualifies,
       qualifies, estimatedHOIns, loanComparison, recs, ltv,
       rentalIncomeQualifying, qualifyingIncome,
       // Deferred-student-loan DTI add-on (derived). `baseMonthlyDebts`
@@ -5179,16 +5203,17 @@ export default function Estimate() {
               {/* Summary Banner */}
               <div className="overflow-hidden rounded-xl border-2 border-primary/20">
                 {/* Qualification header bar */}
-                <div className={`w-full py-2 px-4 text-center text-sm font-semibold tracking-wide ${calc.dti > 0.45 || calc.availableReserves < calc.requiredReserves ? "bg-red-600 text-white" : "bg-green-600 text-white"}`}>
-                  {calc.dti > 0.45
-                    ? "⚠ Needs Review — DTI exceeds 45%"
-                    : calc.availableReserves < calc.requiredReserves
-                    ? "⚠ Needs Review — Insufficient reserves"
-                    : "✓ Likely Qualifies"}
+                <div className={`w-full py-2 px-4 text-center text-sm font-semibold tracking-wide ${calc.qualifies ? "bg-green-600 text-white" : "bg-red-600 text-white"}`}>
+                  {calc.qualifies
+                    ? "✓ Likely Qualifies"
+                    : "⚠ Needs Review — DTI exceeds guidelines"}
+                  <span className="block text-xs font-normal opacity-90 mt-0.5">
+                    Housing DTI {fmtPct(calc.housingDTI)} · Total DTI {fmtPct(calc.dti)}
+                  </span>
                 </div>
                 {/* Metrics row */}
                 <div className="bg-primary/5 px-5 py-4">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                     <div className="text-center">
                       <p className="text-xs text-muted-foreground mb-1">New Monthly Mortgage Payment</p>
                       <p className="text-2xl font-bold text-primary">{fmt(calc.totalHousing)}</p>
@@ -5207,8 +5232,14 @@ export default function Estimate() {
                       <p className="text-2xl font-bold text-primary">{fmt(calc.requiredIncome)}</p>
                     </div>
                     <div className="text-center">
-                      <p className="text-xs text-muted-foreground mb-1">Your DTI</p>
-                      <p className={`text-2xl font-bold ${calc.dti > 0.45 ? "text-red-600" : "text-green-600"}`}>
+                      <p className="text-xs text-muted-foreground mb-1">Housing DTI</p>
+                      <p className={`text-2xl font-bold ${calc.housingGreen !== Infinity && calc.housingDTI >= calc.housingGreen ? "text-red-600" : "text-green-600"}`}>
+                        {fmtPct(calc.housingDTI)}
+                      </p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground mb-1">Total DTI</p>
+                      <p className={`text-2xl font-bold ${calc.totalGreen !== Infinity && calc.dti >= calc.totalGreen ? "text-red-600" : "text-green-600"}`}>
                         {fmtPct(calc.dti)}
                       </p>
                     </div>
@@ -5223,7 +5254,7 @@ export default function Estimate() {
               {/* Schedule-showing CTA — only when the buyer Likely Qualifies
                   (same condition as the green status banner above). Sits
                   between the qualification banner and the Mortgage card. */}
-              {!(calc.dti > 0.45) && calc.availableReserves >= calc.requiredReserves && (
+              {calc.qualifies && (
                 <ScheduleShowingButton
                   service="purchase_with_loan"
                   address={address}
@@ -5574,14 +5605,13 @@ export default function Estimate() {
                     label="Housing DTI"
                     value={fmtPct(calc.housingDTI)}
                     sub={
-                      calc.maxHousingDti === Infinity
-                        ? "No limit (VA) · New mortgage ÷ qualifying income"
-                        : `Max ${fmtPct(calc.maxHousingDti)} · New mortgage ÷ qualifying income`
+                      calc.housingGreen === Infinity
+                        ? "No limit · New mortgage ÷ qualifying income"
+                        : `Target < ${fmtPct(calc.housingGreen)} · New mortgage ÷ qualifying income`
                     }
                     status={
-                      calc.maxHousingDti === Infinity ? "green"
-                      : calc.housingDTI <= calc.maxHousingDti * 0.85 ? "green"
-                      : calc.housingDTI <= calc.maxHousingDti ? "yellow"
+                      calc.housingGreen === Infinity ? "green"
+                      : calc.housingDTI < calc.housingGreen ? "green"
                       : "red"
                     }
                   />
@@ -5589,16 +5619,15 @@ export default function Estimate() {
                     label="Total DTI"
                     value={fmtPct(calc.dti)}
                     sub={
-                      calc.maxTotalDti === Infinity
-                        ? "No limit (VA) · New mortgage + debts ÷ qualifying income"
-                        : calc.dti > calc.maxTotalDti
-                        ? `Exceeds max ${fmtPct(calc.maxTotalDti)} — needs review`
-                        : `Max ${fmtPct(calc.maxTotalDti)} · New mortgage + debts ÷ qualifying income`
+                      calc.totalGreen === Infinity
+                        ? "No limit · New mortgage + debts ÷ qualifying income"
+                        : calc.dti >= calc.totalGreen
+                        ? `Exceeds target < ${fmtPct(calc.totalGreen)} — needs review`
+                        : `Target < ${fmtPct(calc.totalGreen)} · New mortgage + debts ÷ qualifying income`
                     }
                     status={
-                      calc.maxTotalDti === Infinity ? "green"
-                      : calc.dti < calc.maxTotalDti * 0.85 ? "green"
-                      : calc.dti <= calc.maxTotalDti ? "yellow"
+                      calc.totalGreen === Infinity ? "green"
+                      : calc.dti < calc.totalGreen ? "green"
                       : "red"
                     }
                   />
