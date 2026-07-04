@@ -1,11 +1,6 @@
 import { useMemo, useState, useRef, useEffect, useCallback } from "react";
 import ScenarioActions from "@/components/scenario-actions";
 import { buildScenarioFileName } from "@/lib/scenario-pdf";
-import {
-  getQRCache,
-  setQRCache,
-  type QRQuote,
-} from "@/lib/quoterush-auto";
 import { estimateAnnualTax, getCountyTaxLink, getCountyName } from "@/lib/county-tax-estimator";
 import { getConventionalAmiRateDiscount } from "@/lib/ami-discount";
 import { useQuery } from "@tanstack/react-query";
@@ -2355,67 +2350,9 @@ export default function Estimate() {
 
   const [inputs, setInputs] = useState<Inputs>(() => inputsForAddress(address));
 
-  // Pre-warm the shared QuoteRUSH cache once an address + price are known,
-  // so the Insurance page loads live carrier quotes instantly (and the
-  // first search of an address pays the cost only once). Safe/idempotent.
-  useEffect(() => {
-    const activeAddress =
-      scenarios.find(s => s.id === activeScenarioId)?.address || address;
-    const price = inputs.purchasePrice;
-
-    // When the active address changes, tear down any polling from the
-    // previous address so we never show stale quotes or leak intervals.
-    if (estQrAddrRef.current !== activeAddress) {
-      if (estQrPollRef.current) {
-        clearInterval(estQrPollRef.current);
-        estQrPollRef.current = null;
-      }
-      estQrLeadIdRef.current = null;
-      estQrAddrRef.current = activeAddress;
-    }
-
-    // NOTE: Automatic QuoteRUSH triggering is disabled. Live carrier
-    // quotes now run only when the user explicitly requests them from the
-    // Insurance tab's detailed view. Here we only surface any existing
-    // cached results.
-
-    // Load any existing cache results into local state for display
-    const cached = getQRCache(activeAddress);
-    if (cached && cached.status === "success" && cached.quotes.length > 0) {
-      setEstQrQuotes(cached.quotes);
-      setEstQrStatus("success");
-    } else if (cached && cached.status === "pending") {
-      setEstQrQuotes(cached.quotes ?? []);
-      setEstQrStatus("pending");
-      // Only start a poll if one isn't already running for this address.
-      if (cached.leadId && !estQrPollRef.current) {
-        estQrLeadIdRef.current = cached.leadId;
-        startEstPolling(activeAddress, cached.leadId);
-      }
-    } else {
-      // No cache yet for this address
-      setEstQrQuotes([]);
-      setEstQrStatus(
-        isAuthenticated && price > 0 ? "pending" : "idle"
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeScenarioId, inputs.purchasePrice, isAuthenticated]);
-
   // ── Insurance panel state ───────────────────────────────────────────────────
   const insuranceSectionRef = useRef<HTMLDivElement>(null);
 
-  // QuoteRUSH status display for the insurance card on this page
-  const [estQrQuotes, setEstQrQuotes] = useState<QRQuote[]>([]);
-  const [estQrStatus, setEstQrStatus] = useState<
-    "idle" | "pending" | "success" | "error"
-  >("idle");
-  const estQrLeadIdRef = useRef<number | null>(null);
-  const estQrPollRef = useRef<
-    ReturnType<typeof setInterval> | null
-  >(null);
-  const estQrAddrRef = useRef<string | null>(null);
-  const estQrMountedRef = useRef(true);
   const [insRegionKey, setInsRegionKey] = useState<InsRegionKey>(() => getInsRegionFromAddress(address));
   const [insRoofIdx, setInsRoofIdx] = useState(1);
   const [insWindIdx, setInsWindIdx] = useState(1);
@@ -3112,69 +3049,6 @@ export default function Estimate() {
     (inputs.dpaPct === 3.5 || inputs.dpaPct === 5) &&
     (inputs.dpaSecondType === "amortizing" || inputs.dpaSecondType === "silent");
 
-  // Polls qr-quotes until carriers respond and updates the local
-  // display state. Non-blocking — only for the insurance card on
-  // this page.
-  function startEstPolling(addr: string, leadId: number): void {
-    if (estQrPollRef.current)
-      clearInterval(estQrPollRef.current);
-    let count = 0;
-    let prevN = 0;
-    let stable = 0;
-    let gotAny = false;
-    const stop = () => {
-      if (estQrPollRef.current) {
-        clearInterval(estQrPollRef.current);
-        estQrPollRef.current = null;
-      }
-    };
-    const interval = setInterval(async () => {
-      count++;
-      try {
-        const res = await fetch("/api/insurance/qr-quotes", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leadId, address: addr }),
-        });
-        const data = await res.json();
-        // Ignore results if unmounted or the user moved to another address.
-        if (!estQrMountedRef.current || estQrAddrRef.current !== addr) {
-          if (estQrPollRef.current === interval) stop();
-          return;
-        }
-        const n = data.quoteCounter ?? 0;
-        if (n > 0) {
-          gotAny = true;
-          setEstQrQuotes(data.quotes ?? []);
-          setEstQrStatus("success");
-          setQRCache(addr, {
-            status: "success",
-            quotes: data.quotes ?? [],
-            quoteCounter: n,
-          });
-          if (n === prevN) stable++;
-          else stable = 0;
-          prevN = n;
-          if (stable >= 3 || count >= 24) stop();
-        } else if (count >= 24) {
-          stop();
-          if (!gotAny) setEstQrStatus("error");
-        }
-      } catch {}
-    }, 30000);
-    estQrPollRef.current = interval;
-  }
-
-  useEffect(() => {
-    estQrMountedRef.current = true;
-    return () => {
-      estQrMountedRef.current = false;
-      if (estQrPollRef.current) {
-        clearInterval(estQrPollRef.current);
-        estQrPollRef.current = null;
-      }
-    };
-  }, []);
 
   // ─── Calculations ──────────────────────────────────────────────────────────
 
@@ -5812,105 +5686,6 @@ export default function Estimate() {
                       <p className="text-xs text-blue-900 leading-relaxed">
                         <strong>Risk tier: {INS_REGIONS[insRegionKey].tier}.</strong> {INS_REGIONS[insRegionKey].note}
                       </p>
-                    </div>
-
-                    {/* Live carrier quotes from QuoteRUSH */}
-                    <div className="mt-4 rounded-xl border border-primary/20 overflow-hidden">
-                      <div className="bg-primary/5 px-4 py-2.5 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Shield className="h-3.5 w-3.5 text-primary shrink-0" />
-                          <span className="text-xs font-semibold text-primary">
-                            Live Carrier Quotes
-                          </span>
-                          {estQrStatus === "pending" && (
-                            <div className="h-1.5 w-1.5 rounded-full bg-primary/60 animate-pulse" />
-                          )}
-                        </div>
-                        {estQrStatus === "success" && (
-                          <a
-                            href={`/insurance?address=${encodeURIComponent(
-                              scenarios.find(
-                                s => s.id === activeScenarioId
-                              )?.address || address
-                            )}`}
-                            className="text-[10px] text-primary underline"
-                          >
-                            See full details →
-                          </a>
-                        )}
-                      </div>
-
-                      <div className="px-4 py-3">
-                        {estQrStatus === "idle" && !isAuthenticated && (
-                          <p className="text-xs text-muted-foreground">
-                            Sign in to get live carrier quotes for this address.
-                          </p>
-                        )}
-
-                        {estQrStatus === "pending" && estQrQuotes.length === 0 && (
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <div className="h-2 w-2 rounded-full bg-primary/40 animate-pulse" />
-                            Getting real carrier rates in the background. Check back in 2–5 minutes or visit the Insurance tab.
-                          </div>
-                        )}
-
-                        {estQrQuotes.length > 0 && (
-                          <div className="space-y-2.5">
-                            {estQrQuotes.slice(0, 3).map((q, i) => (
-                              <div
-                                key={q.siteName + i}
-                                className="flex items-center justify-between"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm">
-                                    {i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}
-                                  </span>
-                                  <span className="text-xs font-medium">
-                                    {q.siteName}
-                                  </span>
-                                </div>
-                                <div className="text-right">
-                                  <div className="text-sm font-bold font-mono text-primary">
-                                    {new Intl.NumberFormat("en-US", {
-                                      style: "currency",
-                                      currency: "USD",
-                                      maximumFractionDigits: 0,
-                                    }).format(q.annualPremium)}/yr
-                                  </div>
-                                  <div className="text-[10px] text-muted-foreground">
-                                    {new Intl.NumberFormat("en-US", {
-                                      style: "currency",
-                                      currency: "USD",
-                                      maximumFractionDigits: 0,
-                                    }).format(q.monthlyPremium)}/mo
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                            {estQrStatus === "pending" && (
-                              <p className="text-[10px] text-muted-foreground">
-                                More quotes may still be arriving…
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {estQrStatus === "error" && estQrQuotes.length === 0 && (
-                          <p className="text-xs text-muted-foreground">
-                            Could not retrieve live quotes.{" "}
-                            <a
-                              href={`/insurance?address=${encodeURIComponent(
-                                scenarios.find(
-                                  s => s.id === activeScenarioId
-                                )?.address || address
-                              )}`}
-                              className="text-primary underline"
-                            >
-                              Try the Insurance tab →
-                            </a>
-                          </p>
-                        )}
-                      </div>
                     </div>
 
                     <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">

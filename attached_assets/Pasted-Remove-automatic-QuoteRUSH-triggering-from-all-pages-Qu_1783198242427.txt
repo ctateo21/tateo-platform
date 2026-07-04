@@ -1,0 +1,250 @@
+Remove automatic QuoteRUSH triggering from
+all pages. Quotes should only run when a
+user is on the Insurance tab, has an address
+loaded, and manually clicks the
+"Get Live Quotes" button.
+
+Do not remove the QuoteRUSH card, the button,
+the cache system, or the polling logic from
+insurance.tsx — those stay exactly as-is.
+Only remove the parts that fire quotes
+automatically without user action.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 1 — estimate.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/estimate.tsx
+
+── 1A. Remove the QuoteRUSH import ─────
+
+Find this import block at the top:
+  import {
+    triggerAutoQuote,
+    getQRCache,
+    setQRCache,
+    type QRQuote,
+  } from "@/lib/quoterush-auto";
+
+Delete it entirely.
+
+── 1B. Remove the auto-trigger useEffect ─
+
+Find and delete the entire useEffect that
+starts with this comment:
+  // Pre-warm the shared QuoteRUSH cache
+  // once an address + price are known,
+
+Delete from that comment line through the
+closing of the useEffect (the line that
+reads):
+  }, [activeScenarioId,
+      inputs.purchasePrice,
+      isAuthenticated]);
+
+── 1C. Remove the QR state variables ───
+
+Find and delete these five state/ref
+declarations (they appear together near
+the insurance panel state block):
+
+  const [estQrQuotes, setEstQrQuotes] =
+    useState<QRQuote[]>([]);
+  const [estQrStatus, setEstQrStatus] =
+    useState
+      "idle" | "pending" | "success" |
+      "error"
+    >("idle");
+  const estQrLeadIdRef =
+    useRef<number | null>(null);
+  const estQrPollRef = useRef
+    ReturnType<typeof setInterval> | null
+  >(null);
+  const estQrAddrRef =
+    useRef<string | null>(null);
+  const estQrMountedRef = useRef(true);
+
+── 1D. Remove startEstPolling function ──
+
+Find and delete the entire function that
+starts with:
+  function startEstPolling(
+    addr: string,
+    leadId: number
+  ): void {
+
+Delete from that line through its closing
+brace.
+
+── 1E. Remove the Live Carrier Quotes
+panel from the insurance card UI ────────
+
+Find and delete the entire JSX block that
+starts with:
+  {/* Live carrier quotes from
+      QuoteRUSH */}
+  <div className="mt-4 rounded-xl
+    border border-primary/20
+    overflow-hidden">
+
+Delete from that comment through the
+closing </div> of that block. Stop before
+the paragraph tag that reads:
+  <p className="text-[10px]
+    text-muted-foreground mt-3
+    leading-relaxed">
+    Estimates sourced from FL OIR...
+
+Do NOT delete that paragraph — it stays.
+
+Also find and delete the cleanup useEffect
+that was added near startEstPolling:
+  useEffect(() => {
+    return () => {
+      if (estQrPollRef.current)
+        clearInterval(estQrPollRef.current);
+    };
+  }, []);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 2 — cash-buy.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/cash-buy.tsx
+
+Remove the import line:
+  import { triggerAutoQuote }
+    from "@/lib/quoterush-auto";
+
+Remove the entire useEffect that starts
+with this comment:
+  // Pre-warm the shared QuoteRUSH cache
+  // once an address + price are known,
+
+Delete from that comment through its
+closing:
+  }, [scenario.address,
+      scenario.purchasePrice,
+      isAuthenticated]);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 3 — seller-estimate.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/seller-estimate.tsx
+
+Remove the import line:
+  import { triggerAutoQuote }
+    from "@/lib/quoterush-auto";
+
+Remove the entire useEffect that starts
+with this comment:
+  // Pre-warm the shared QuoteRUSH cache
+  // once an address + sale price are
+  // known,
+
+Delete from that comment through its
+closing:
+  }, [scenario.address,
+      scenario.estimatedSalePrice,
+      isAuthenticated]);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 4 — refinance.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/refinance.tsx
+
+Remove the import line:
+  import { triggerAutoQuote }
+    from "@/lib/quoterush-auto";
+
+Find the useEffect that contains the
+triggerAutoQuote call. It iterates over
+tracked loans and calls triggerAutoQuote
+for each one. Delete the entire useEffect
+including its dependency array.
+It ends with:
+  }, [refiWarmKey, isAuthenticated]);
+
+Also find and delete the variable
+refiWarmKey if it was created solely for
+this useEffect (check if it is used
+anywhere else in the file first — only
+delete it if this was its only use).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE 5 — insurance.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/insurance.tsx
+
+The auto-hydrate useEffect does two things:
+1. Checks the cache (localStorage + server DB)
+   and loads results if found — KEEP THIS
+2. Calls startQuoteRush() when nothing is
+   cached — REMOVE THIS PART ONLY
+
+Find the section near the bottom of the
+auto-hydrate useEffect that says:
+
+  // 3) Nothing cached anywhere — trigger
+  //    only if we have a Coverage A value.
+  //    If rebuild is 0, the effect will
+  //    re-run when rebuild becomes > 0
+  //    (via the dependency array).
+  if (cancelled) return;
+  if (!rebuild) {
+    console.log(
+      "[qr-auto] waiting for rebuild:",
+      address
+    );
+    return;
+  }
+  startQuoteRush();
+
+Replace those lines with just:
+
+  // Manual trigger only — user must click
+  // "Get Live Quotes" on this page.
+  // Nothing auto-fires here.
+
+That is the only change to insurance.tsx.
+The cache lookup (steps 1 and 2) stays
+exactly as-is so that previously-requested
+quotes load instantly when the user returns
+to the Insurance tab. Only the automatic
+trigger of new quotes is removed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   Fix any type errors from removing
+   the estQr* variables. The only valid
+   errors are unused-variable errors from
+   the removed state — fix them by
+   ensuring nothing still references
+   estQrQuotes, estQrStatus, etc.
+
+2. Run: npx vite build
+   Confirm clean build.
+
+3. Confirm that insurance.tsx still has:
+   - The QR state variables (qrQuotes,
+     qrStatus, qrLeadId, etc.)
+   - The startQuoteRush() function
+   - The "Get Live Quotes" button
+   - The polling logic
+   - The cache lookup in the useEffect
+     (steps 1 and 2)
+   Only the automatic call to
+   startQuoteRush() at step 3 is removed.
+
+4. Confirm triggerAutoQuote is not
+   imported or called anywhere in:
+   estimate.tsx, cash-buy.tsx,
+   seller-estimate.tsx, refinance.tsx
+
+5. Report files changed and build status.
