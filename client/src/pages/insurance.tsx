@@ -6,6 +6,7 @@ import {
   getPurchaseScenarios, getCashBuyScenarios, getTrackedLoans,
 } from "@/lib/auth";
 import { notifyNewScenario } from "@/lib/notify-scenario";
+import { authedFetch } from "@/lib/authed-fetch";
 import {
   DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
   getInsuranceCoverageMultiplier,
@@ -551,11 +552,54 @@ export default function InsuranceDashboard() {
   const [floodZone, setFloodZone]             = useState<string>("");
   const [floodZoneSource, setFloodZoneSource] = useState<string>("");
 
+  // ── QuoteRUSH live quotes ──────────────────
+  const [qrLeadId, setQrLeadId] =
+    useState<number | null>(null);
+  const [qrQuotes, setQrQuotes] = useState<
+    Array<{
+      siteName: string;
+      annualPremium: number;
+      monthlyPremium: number;
+      coverageA: number;
+      hurricaneDeductible: string;
+      aop: string;
+      quoteUrl: string | null;
+      quoteDate: string;
+      rank: number;
+    }>
+  >([]);
+  const [qrStatus, setQrStatus] = useState<
+    | "idle"
+    | "starting"
+    | "pending"
+    | "success"
+    | "error"
+  >("idle");
+  const [qrElapsed, setQrElapsed] = useState(0);
+  const [qrQuoteCounter, setQrQuoteCounter] =
+    useState(0);
+  const qrPollRef = useRef<
+    ReturnType<typeof setInterval> | null
+  >(null);
+  const qrTimerRef = useRef<
+    ReturnType<typeof setInterval> | null
+  >(null);
+  const qrPrevCounterRef = useRef(0);
+  const qrStableRef = useRef(0);
+
   // Re-hydrate factors when the active address changes (mirrors the
   // manual-premium / policy-type rehydration pattern above) so
   // switching between scenario tabs restores each property's saved
   // dropdown picks.
   useEffect(() => {
+    if (qrPollRef.current)
+      clearInterval(qrPollRef.current);
+    if (qrTimerRef.current)
+      clearInterval(qrTimerRef.current);
+    setQrQuotes([]);
+    setQrStatus("idle");
+    setQrLeadId(null);
+    setQrQuoteCounter(0);
     const f = resolveFactorsFor(addressParam);
     setRoofIdx(f.roof);    setWindIdx(f.wind);    setHurrIdx(f.hurr);
     setConstIdx(f.cons);   setYearIdx(f.year);    setClaimsIdx(f.claims);
@@ -1089,6 +1133,133 @@ export default function InsuranceDashboard() {
     manualAnnualPremium, roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx,
     aopDeductible, carrier, floodZone, floodZoneSource,
   ]);
+
+  // ── QuoteRUSH quoting ─────────────────────
+  async function startQuoteRush() {
+    if (!address || !rebuild || !isAuthenticated)
+      return;
+
+    // Stop any existing polling
+    if (qrPollRef.current)
+      clearInterval(qrPollRef.current);
+    if (qrTimerRef.current)
+      clearInterval(qrTimerRef.current);
+
+    setQrStatus("starting");
+    setQrQuotes([]);
+    setQrQuoteCounter(0);
+    setQrElapsed(0);
+    qrPrevCounterRef.current = 0;
+    qrStableRef.current = 0;
+
+    qrTimerRef.current = setInterval(() => {
+      setQrElapsed(prev => prev + 1);
+    }, 1000);
+
+    try {
+      const startRes = await authedFetch(
+        "/api/insurance/qr-start",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            address,
+            coverageA: rebuild,
+            policyType: policyType || "HO3",
+            yearIdx,
+            roofIdx,
+            constIdx,
+            windIdx,
+            hurrIdx,
+            claimsIdx,
+            aopDeductible,
+            floodZone: floodZone || "X",
+            sqFt: 0,
+            newPurchase: false,
+          }),
+        }
+      );
+
+      const startData = await startRes.json();
+
+      if (!startRes.ok || !startData.leadId) {
+        setQrStatus("error");
+        if (qrTimerRef.current)
+          clearInterval(qrTimerRef.current);
+        return;
+      }
+
+      const leadId: number = startData.leadId;
+      setQrLeadId(leadId);
+      setQrStatus("pending");
+
+      let pollCount = 0;
+      const MAX_POLLS = 20; // 10 minutes
+
+      const doPoll = async () => {
+        pollCount++;
+        try {
+          const qRes = await authedFetch(
+            "/api/insurance/qr-quotes",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({ leadId }),
+            }
+          );
+          const qData = await qRes.json();
+          const counter: number =
+            qData.quoteCounter ?? 0;
+
+          if (counter > 0) {
+            setQrQuotes(qData.quotes ?? []);
+            setQrQuoteCounter(counter);
+            setQrStatus("success");
+
+            // Stop when counter stable 2 polls
+            if (counter ===
+                qrPrevCounterRef.current) {
+              qrStableRef.current += 1;
+            } else {
+              qrStableRef.current = 0;
+            }
+            qrPrevCounterRef.current = counter;
+
+            if (qrStableRef.current >= 2 ||
+                pollCount >= MAX_POLLS) {
+              if (qrPollRef.current)
+                clearInterval(qrPollRef.current);
+              if (qrTimerRef.current)
+                clearInterval(qrTimerRef.current);
+            }
+          } else if (pollCount >= MAX_POLLS) {
+            if (qrPollRef.current)
+              clearInterval(qrPollRef.current);
+            if (qrTimerRef.current)
+              clearInterval(qrTimerRef.current);
+            setQrStatus("error");
+          }
+        } catch (e) {
+          console.error("[qr-poll] error:", e);
+        }
+      };
+
+      qrPollRef.current = setInterval(
+        doPoll, 30000
+      );
+
+    } catch (err) {
+      console.error("[qr-start] fetch error:", err);
+      setQrStatus("error");
+      if (qrTimerRef.current)
+        clearInterval(qrTimerRef.current);
+    }
+  }
 
   // ── Calculations ─────────────────────────────────────────────────────────
   const region = REGIONS[regionKey];
@@ -1744,6 +1915,231 @@ export default function InsuranceDashboard() {
                   </Card>
                 ))}
               </div>
+
+              {/* QuoteRUSH Live Carrier Quotes */}
+              <Card className="border shadow-sm">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-primary shrink-0" />
+                        Live Carrier Quotes
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                        {qrStatus === "idle" &&
+                          "Get real-time rates from your Florida-appointed carriers."}
+                        {qrStatus === "starting" &&
+                          "Submitting to QuoteRUSH…"}
+                        {qrStatus === "pending" &&
+                          `QuoteBot is quoting your carriers — ${qrQuoteCounter} quote${qrQuoteCounter !== 1 ? "s" : ""} so far · ${qrElapsed}s`}
+                        {qrStatus === "success" &&
+                          `${qrQuoteCounter} carrier${qrQuoteCounter !== 1 ? "s" : ""} quoted · checking for more…`}
+                        {qrStatus === "error" &&
+                          "Quote request failed — call us for a custom quote."}
+                      </p>
+                    </div>
+                    <div className="shrink-0">
+                      {qrStatus === "idle" && (
+                        <Button
+                          size="sm"
+                          onClick={startQuoteRush}
+                          disabled={
+                            !address ||
+                            !rebuild ||
+                            !isAuthenticated
+                          }
+                        >
+                          Get Live Quotes
+                        </Button>
+                      )}
+                      {(qrStatus === "starting" ||
+                        qrStatus === "pending") && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <div className="h-2.5 w-2.5 rounded-full bg-primary/50 animate-pulse" />
+                          Working…
+                        </div>
+                      )}
+                      {(qrStatus === "success" ||
+                        qrStatus === "error") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={startQuoteRush}
+                        >
+                          Re-run
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+
+                  {/* Progress bar */}
+                  {(qrStatus === "starting" ||
+                    qrStatus === "pending") && (
+                    <div className="mb-4 space-y-2">
+                      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="h-full bg-primary rounded-full transition-all duration-1000"
+                          style={{
+                            width: `${Math.min(
+                              (qrElapsed / 600) * 100,
+                              90
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground text-center">
+                        QuoteBot is logging into carrier websites and pulling real-time rates. This typically takes 2–5 minutes.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Not authenticated */}
+                  {!isAuthenticated &&
+                    qrStatus === "idle" && (
+                    <p className="text-xs text-muted-foreground text-center py-3">
+                      Create a free account to get live carrier quotes from your Florida-appointed insurers.
+                    </p>
+                  )}
+
+                  {/* Quotes */}
+                  {qrQuotes.length > 0 && (
+                    <div className="space-y-2">
+                      {qrQuotes.map((q, i) => (
+                        <div
+                          key={q.siteName + i}
+                          className={`flex items-start justify-between p-3 rounded-lg border ${
+                            i === 0
+                              ? "border-yellow-300 bg-yellow-50"
+                              : "border-border bg-muted/20"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="text-base mt-0.5">
+                              {i === 0
+                                ? "🥇"
+                                : i === 1
+                                ? "🥈"
+                                : i === 2
+                                ? "🥉"
+                                : "•"}
+                            </span>
+                            <div>
+                              <div className="text-sm font-semibold">
+                                {q.siteName}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+                                {q.hurricaneDeductible && (
+                                  <div>
+                                    Hurricane deductible:{" "}
+                                    {q.hurricaneDeductible}
+                                  </div>
+                                )}
+                                {q.aop && (
+                                  <div>
+                                    AOP deductible: {q.aop}
+                                  </div>
+                                )}
+                                {q.coverageA > 0 && (
+                                  <div>
+                                    Coverage A:{" "}
+                                    {new Intl.NumberFormat(
+                                      "en-US",
+                                      {
+                                        style: "currency",
+                                        currency: "USD",
+                                        maximumFractionDigits: 0,
+                                      }
+                                    ).format(q.coverageA)}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0 ml-2">
+                            <div className="text-base font-bold font-mono text-primary">
+                              {new Intl.NumberFormat(
+                                "en-US",
+                                {
+                                  style: "currency",
+                                  currency: "USD",
+                                  maximumFractionDigits: 0,
+                                }
+                              ).format(q.annualPremium)}
+                              /yr
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {new Intl.NumberFormat(
+                                "en-US",
+                                {
+                                  style: "currency",
+                                  currency: "USD",
+                                  maximumFractionDigits: 0,
+                                }
+                              ).format(q.monthlyPremium)}
+                              /mo
+                            </div>
+                            {q.quoteUrl && (
+                              <a
+                                href={q.quoteUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-primary underline mt-1 block"
+                              >
+                                View quote →
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {qrStatus === "pending" && (
+                        <p className="text-xs text-muted-foreground text-center">
+                          More quotes may still be arriving…
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground text-center leading-relaxed pt-1">
+                        Real-time carrier rates via Tateo &amp; Co ·
+                        Tateo Insurance Corp · License #L132640 ·
+                        Not a binding quote. Coverage not effective
+                        until confirmed by a licensed agent.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Error / no quotes fallback */}
+                  {qrStatus === "error" &&
+                    qrQuotes.length === 0 && (
+                    <div className="text-center py-4 space-y-3">
+                      <p className="text-sm text-muted-foreground">
+                        This property may need a custom quote.
+                        Contact Tateo &amp; Co directly.
+                      </p>
+                      <div className="flex gap-2 justify-center">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          asChild
+                        >
+                          <a href="tel:+18132148356">
+                            (813) 214-8356
+                          </a>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          asChild
+                        >
+                          <a href="mailto:christian@tateoco.com">
+                            Email Us
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                </CardContent>
+              </Card>
 
               {/* Region insight */}
               <div className="flex gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">

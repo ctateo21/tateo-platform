@@ -13,13 +13,11 @@ import {
   realEstateFormSchema, 
   mortgageFormSchema, 
   insuranceFormSchema, 
-  InsuranceFormData,
   constructionFormSchema, 
   propertyManagementFormSchema, 
   homeServicesFormSchema, 
   serviceCategories
 } from "@shared/schema";
-import { canopyConnectIntegration } from "./integrations/canopy-connect";
 import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowProperty } from "./integrations/zillow";
 import { getHillsboroughTaxEstimate, isHillsboroughCountyAddress } from "./integrations/hillsborough-tax";
 import { fetchGoogleReviews, getMockReviews } from "./integrations/google-reviews";
@@ -38,6 +36,11 @@ import {
 import { sendWelcomeEmail, sendInternalAlert } from "./integrations/property-alert-emails";
 import { getOrGenerateMarketAnalysis, type ListingInput } from "./integrations/listing-market-analysis";
 import { enrichListingFromPropertyCache } from "./integrations/listing-enrichment";
+import {
+  importAndSubmit,
+  getQuotes,
+  type QuoteRushParams,
+} from "./integrations/quoterush";
 import {
   getMarketAnalysisForDisplay,
   precomputeWeeklyMarketAnalysesForAllSellerScenarios,
@@ -588,41 +591,229 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Lookup property by address
   // Get insurance quote from Canopy Connect
-  app.post("/api/insurance/quote", async (req, res) => {
-    try {
-      // Validate request body
-      const schema = z.object({
-        address: z.string().min(5),
-        placeId: z.string().optional(),
-        propertyType: z.string().optional(),
-        type: z.enum(['auto', 'property', 'other']).default('property')
-      });
-      
-      const params = schema.parse(req.body);
-      
-      
-      // Create a form data object compatible with our schema
-      const formData: InsuranceFormData = {
-        type: params.type,
-        coverageAmount: params.type === 'property' ? "$500,000" : "$100,000",
-        address: params.address,
-        placeId: params.placeId,
-        propertyType: (params.propertyType as InsuranceFormData["propertyType"]) || 'primary',
-        notes: ""
-      };
-      
-      // Process the insurance quote
-      const quote = await canopyConnectIntegration(formData);
-      
-      res.json(quote);
-    } catch (error) {
-      console.error("Error getting insurance quote:", error);
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid parameters", errors: error.format() });
+  // In-process map binding each QuoteRUSH LeadId to the user who
+  // created it, so qr-quotes can only be polled by that same user
+  // (prevents enumerating other users' leads). Not persisted: a
+  // server restart mid-poll invalidates the binding by design.
+  const qrLeadOwners = new Map<number, string>();
+
+  app.post(
+    "/api/insurance/qr-start",
+    async (req, res) => {
+      const user = await requireUser(req, res);
+      if (!user) return;
+
+      try {
+        const schema = z.object({
+          address: z.string().min(5),
+          coverageA: z.number().positive(),
+          policyType: z.string().default("HO3"),
+          yearIdx: z.number().int().min(0).max(3),
+          roofIdx: z.number().int().min(0).max(3),
+          constIdx: z.number().int().min(0).max(2),
+          windIdx: z.number().int().min(0).max(2),
+          hurrIdx: z.number().int().min(0).max(2),
+          claimsIdx: z.number().int().min(0).max(3),
+          aopDeductible: z.number().default(2500),
+          floodZone: z.string().default("X"),
+          sqFt: z.number().default(0),
+          newPurchase: z.boolean().default(false),
+        });
+
+        const b = schema.parse(req.body);
+
+        // Map index values to QuoteRUSH strings
+        const YEAR_MAP = [2015, 1995, 1980, 1960];
+        const curYear = new Date().getFullYear();
+        const ROOF_YEAR_MAP = [
+          curYear - 2,
+          curYear - 8,
+          curYear - 17,
+          curYear - 22,
+        ];
+        const HURR_MAP = ["2%", "3%", "5%"];
+        const AOP_MAP: Record<number, string> = {
+          1000: "$1,000",
+          2500: "$2,500",
+          5000: "$5,000",
+        };
+
+        function constFields(idx: number) {
+          if (idx === 0)
+            return {
+              constructionType: "Masonry",
+              masonryConstruction: "Concrete Block",
+              frameConstruction: "",
+            };
+          if (idx === 2)
+            return {
+              constructionType: "Frame",
+              masonryConstruction: "",
+              frameConstruction: "Stucco",
+            };
+          return {
+            constructionType: "Masonry",
+            masonryConstruction: "Concrete Block",
+            frameConstruction: "",
+          };
+        }
+
+        function windFields(idx: number) {
+          if (idx === 0)
+            return {
+              windMitForm: false,
+              openingProtection: "None",
+              secondaryWaterResistance: "No",
+            };
+          if (idx === 2)
+            return {
+              windMitForm: true,
+              openingProtection: "Hurricane Protection",
+              secondaryWaterResistance: "Yes",
+            };
+          return {
+            windMitForm: true,
+            openingProtection: "Basic",
+            secondaryWaterResistance: "No",
+          };
+        }
+
+        // Parse address components
+        const parts = b.address
+          .split(",")
+          .map((p: string) => p.trim());
+        const streetAddress = parts[0] ?? "";
+        const city = parts[1] ?? "";
+        // Scan segments from the end for a "ST 12345" match so a
+        // trailing country segment (e.g. ", USA" from Google) does
+        // not swallow the state/zip.
+        let stateZip: RegExpMatchArray | null = null;
+        for (let i = parts.length - 1; i >= 0; i--) {
+          const m = parts[i].match(/([A-Z]{2})\s+(\d{5})/);
+          if (m) { stateZip = m; break; }
+        }
+        const state = stateZip?.[1] ?? "FL";
+        const zip = stateZip?.[2] ?? "";
+
+        // Extract name and phone from user metadata
+        const meta =
+          (user.user_metadata ?? {}) as
+            Record<string, any>;
+        const nameParts = String(meta.name ?? "")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
+        const firstName = nameParts[0] ?? "Havo";
+        const lastName =
+          nameParts.slice(1).join(" ") || "Lead";
+        const phone = String(meta.phone ?? "");
+
+        const params: QuoteRushParams = {
+          streetAddress,
+          city,
+          state,
+          zip,
+          county: "",
+          coverageA: b.coverageA,
+          policyType: b.policyType,
+          yearBuilt: YEAR_MAP[b.yearIdx] ?? 1995,
+          roofYear:
+            ROOF_YEAR_MAP[b.roofIdx] ??
+            curYear - 8,
+          hurrDeductible:
+            HURR_MAP[b.hurrIdx] ?? "2%",
+          aopDeductible:
+            AOP_MAP[b.aopDeductible] ?? "$2,500",
+          priorClaims: b.claimsIdx,
+          floodZone: b.floodZone,
+          sqFt: b.sqFt,
+          usageType: "Primary",
+          newPurchase: b.newPurchase ? "Yes" : "No",
+          firstName,
+          lastName,
+          email: user.email ?? "",
+          phone,
+          ...constFields(b.constIdx),
+          ...windFields(b.windIdx),
+        };
+
+        const result = await importAndSubmit(params);
+
+        if (!result.submitted || !result.leadId) {
+          return res.status(500).json({
+            error:
+              result.error ??
+              "Failed to start quotes",
+          });
+        }
+
+        // Bind this lead to the requesting user for polling authz
+        qrLeadOwners.set(result.leadId, user.id);
+
+        // Notify FUB (non-blocking)
+        createFollowUpBossContact({
+          firstName,
+          lastName,
+          email: user.email ?? "",
+          phone,
+          address: b.address,
+          agent: "Christian Tateo",
+          scenarioDetails:
+            `QuoteRUSH quotes started: ` +
+            `${b.address} · Coverage A: ` +
+            `$${b.coverageA.toLocaleString()} · ` +
+            `Zone: ${b.floodZone} · ` +
+            `LeadId: ${result.leadId}`,
+        }).catch((e: any) =>
+          console.error("[FUB] qr-start failed:", e)
+        );
+
+        res.json({ leadId: result.leadId });
+
+      } catch (err: any) {
+        console.error("[qr-start] error:", err);
+        if (err instanceof z.ZodError) {
+          return res
+            .status(400)
+            .json({ error: "Invalid parameters" });
+        }
+        res
+          .status(500)
+          .json({ error: err?.message });
       }
-      res.status(500).json({ message: "An error occurred while getting insurance quote" });
     }
-  });
+  );
+
+  app.post(
+    "/api/insurance/qr-quotes",
+    async (req, res) => {
+      const user = await requireUser(req, res);
+      if (!user) return;
+
+      try {
+        const schema = z.object({
+          leadId: z.number().int().positive(),
+        });
+        const { leadId } = schema.parse(req.body);
+        if (qrLeadOwners.get(leadId) !== user.id) {
+          return res
+            .status(403)
+            .json({ error: "Lead not found for this account" });
+        }
+        const result = await getQuotes(leadId);
+        res.json(result);
+      } catch (err: any) {
+        console.error("[qr-quotes] error:", err);
+        res.status(500).json({
+          status: "error",
+          quotes: [],
+          leadId: 0,
+          quoteCounter: 0,
+          errorMessage: err?.message,
+        });
+      }
+    }
+  );
 
   app.post("/api/properties/lookup-by-address", async (req, res) => {
     try {

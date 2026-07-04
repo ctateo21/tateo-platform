@@ -1,0 +1,1350 @@
+You are adding a QuoteRUSH live carrier quoting
+integration to the Havo insurance page.
+Read every section completely before editing
+any file. Make every change exactly as written.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFIED API REFERENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All credentials from process.env only. Never
+hardcode any values.
+
+IMPORTER API (creates the lead, free):
+  POST https://importer.quoterush.com/Json/Import/{WEBID}
+  Header: webpassword: {WEBPASSWORD}
+  Body: JSON payload (see buildImporterPayload)
+  Response: plain text containing the LeadId integer
+
+CLIENT API (base: https://api.quoterush.com):
+  All endpoints are POST with JSON body.
+  Quote endpoint auth (in body): EndpointKey, Agency
+  Lead endpoint auth (headers): WebId, WebIdPassword
+
+  POST /GetPropertyData
+    Body: { EndpointKey, Agency, AddressLine1,
+            AddressLine2, City, State, Zip }
+    Response: property details (sq footage,
+              year built, construction type)
+
+  POST /SubmitQuoteRequest
+    Body: { EndpointKey, Agency, LeadId (number),
+            LOB: "Home", Submitter: email }
+    NOTE: No Carriers array — QuoteRUSH auto-selects
+    Response: success confirmation (log it)
+
+  POST /GetQuotes
+    Body: { EndpointKey, Agency, LeadId (number),
+            LOB: "Home" }
+    Response: {
+      Quotes: [{
+        SiteName: "Carrier Name",
+        Premium: "2189.00",
+        QuoteDate: "02/11/2026",
+        CoverageA: "450000",
+        HurricaneDeductible: "2%",
+        AOP: "$2,500",
+        QuoteURL: "https://..." or null,
+        QuoteMessage: "..."
+      }],
+      Status: "Success",
+      QuoteCounter: 3
+    }
+    NOTE: QuoteCounter is 0 while QuoteBot is
+    still processing. Quotes arrive progressively
+    over 2-10 minutes as carriers respond.
+
+  GET /GetNewLeads
+    Headers: WebId: {WEBID}, WebIdPassword: {WEBPASSWORD}
+    Response: array of recent leads (fallback for
+              extracting LeadId if import response
+              does not contain it)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — CREATE server/integrations/quoterush.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create this file from scratch with the
+exact content below. Do not change any
+logic, just create it.
+
+─── TypeScript interfaces ───────────────────
+
+export interface QuoteRushParams {
+  streetAddress: string;
+  city: string;
+  state: string;
+  zip: string;
+  county: string;
+  coverageA: number;
+  policyType: string;
+  yearBuilt: number;
+  roofYear: number;
+  constructionType: string;
+  masonryConstruction: string;
+  frameConstruction: string;
+  hurrDeductible: string;
+  aopDeductible: string;
+  priorClaims: number;
+  floodZone: string;
+  sqFt: number;
+  windMitForm: boolean;
+  openingProtection: string;
+  secondaryWaterResistance: string;
+  usageType: string;
+  newPurchase: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+}
+
+export interface QuoteRushQuote {
+  siteName: string;
+  annualPremium: number;
+  monthlyPremium: number;
+  coverageA: number;
+  hurricaneDeductible: string;
+  aop: string;
+  quoteUrl: string | null;
+  quoteMessage: string;
+  quoteDate: string;
+  rank: number;
+}
+
+export interface QuoteRushResult {
+  status: "success" | "pending" | "error";
+  quotes: QuoteRushQuote[];
+  leadId: number;
+  quoteCounter: number;
+  errorMessage?: string;
+}
+
+─── Helper: parseLeadId ─────────────────────
+
+function parseLeadId(text: string): number | null {
+  try {
+    const json = JSON.parse(text);
+    const id = json.id ?? json.leadId ?? json.LeadId
+               ?? json.lead_id ?? json.Id;
+    if (id) return parseInt(String(id), 10);
+  } catch {}
+  const m = text.match(/\d+/);
+  return m ? parseInt(m[0], 10) : null;
+}
+
+─── Helper: buildImporterPayload ────────────
+
+function buildImporterPayload(
+  p: QuoteRushParams,
+  assignedEmail: string
+): Record<string, any> {
+  const formTypeMap: Record<string, string> = {
+    HO3: "HO-3: Home Owners Policy",
+    HO6: "HO-6: Condo Unit Owners Policy",
+    DP3: "DP-3: Dwelling Fire Policy",
+  };
+  const formType =
+    formTypeMap[p.policyType] ||
+    "HO-3: Home Owners Policy";
+  const includeFlood =
+    !!p.floodZone &&
+    p.floodZone !== "X" &&
+    p.floodZone !== "";
+
+  const payload: Record<string, any> = {
+    Client: {
+      NameFirst: p.firstName || "Havo",
+      NameLast: p.lastName || "Lead",
+      PhoneCell: p.phone || "",
+      EmailAddress: p.email || "",
+      EPolicy: true,
+      Address: p.streetAddress,
+      City: p.city,
+      State: p.state || "FL",
+      Zip: p.zip,
+      County: p.county || "",
+      International: false,
+      AssumedCreditScore: "Excellent",
+      CreditPermission: "Yes",
+      Assigned: assignedEmail,
+      LeadSource: "Havo Platform",
+      LeadStatus: "New Lead",
+      Lob_Home: true,
+      Lob_Auto: false,
+      Lob_Flood: includeFlood,
+    },
+    HO: {
+      FormType: formType,
+      Address: p.streetAddress,
+      City: p.city,
+      State: p.state || "FL",
+      Zip: p.zip,
+      County: p.county || "",
+      NewPurchase: p.newPurchase || "No",
+      UsageType: p.usageType || "Primary",
+      YearBuilt: String(p.yearBuilt || 1995),
+      SquareFeet:
+        p.sqFt > 0 ? String(p.sqFt) : "1800",
+      ConstructionType: p.constructionType ||
+        "Masonry",
+      Construction:
+        p.masonryConstruction ||
+        p.frameConstruction ||
+        p.constructionType ||
+        "Concrete Block",
+      FrameConstruction: p.frameConstruction || "",
+      MasonryConstruction:
+        p.masonryConstruction || "",
+      FoundationType: "Slab",
+      RoofShape: "Gable",
+      RoofMaterial: "Composite Shingle",
+      UpdateRoofYear: String(p.roofYear),
+      UpdateRoofType: "Full",
+      CoverageA: String(p.coverageA),
+      CoverageB: String(
+        Math.round(p.coverageA * 0.02)
+      ),
+      CoverageBPercent: "2%",
+      CoverageC: String(
+        Math.round(p.coverageA * 0.25)
+      ),
+      CoverageCPercent: "25%",
+      CoverageD: String(
+        Math.round(p.coverageA * 0.10)
+      ),
+      CoverageDPercent: "10%",
+      CoverageE: "$300,000",
+      CoverageF: "$5,000",
+      AllOtherPerilsDeductible: p.aopDeductible,
+      HurricaneDeductible: p.hurrDeductible,
+      WindHailDeductible: p.hurrDeductible,
+      FloodZone: p.floodZone || "X",
+      FloodPolicy: includeFlood,
+      CurrentlyInsured: "Yes",
+      AnyLapses: "No",
+      CurrentCarrier: "Unknown",
+      Claims: p.priorClaims > 0 ? "Yes" : "No",
+      HaveWindMitForm: p.windMitForm,
+      OpeningProtection: p.openingProtection,
+      SecondaryWaterResistance:
+        p.secondaryWaterResistance,
+      Terrain: "Exposure B",
+      BurglarAlarm: "None",
+      FireAlarm: "None",
+      FireHydrant: "Within 1000 Feet",
+      FireStation: "Within 5 Miles",
+      Mortgage: "No",
+      EPolicy: true,
+      WaterBackup: true,
+      WaterBackupAmount: "$10,000",
+      RoofLossSettlement: "Replacement Cost",
+      PersonalInjuryCoverage: true,
+      IdentityTheft: true,
+      IncreaseReplacementCostOnDwelling: true,
+    },
+  };
+
+  if (includeFlood) {
+    payload.Flood = {
+      FloodZone: p.floodZone,
+      BuildingCoverage: String(p.coverageA),
+      ContentsCoverage: "100000",
+      FloodDeductible: "$1,250",
+      PolicyType: "Preferred Risk (PRP)",
+      FloodCarrier: "Wright Flood",
+      CarrierType: "NFIP",
+    };
+  }
+
+  if (p.priorClaims > 0) {
+    const currentYear = new Date().getFullYear();
+    payload.Claims = Array.from(
+      { length: Math.min(p.priorClaims, 3) },
+      (_, i) => ({
+        ClaimDetail: "Water Damage",
+        Date: `01/01/${currentYear - (i + 2)}`,
+        Amount: "5000",
+        ActOfGod: false,
+        CatastrophicLoss: false,
+        PriorResidence: false,
+        Paid: true,
+      })
+    );
+  }
+
+  return payload;
+}
+
+─── Function: getPropertyData ───────────────
+
+async function getPropertyData(
+  streetAddress: string,
+  city: string,
+  state: string,
+  zip: string
+): Promise<{
+  sqFt: number;
+  yearBuilt: number;
+  constructionType: string;
+  masonryConstruction: string;
+} | null> {
+  const ENDPOINT_KEY =
+    process.env.QUOTERUSH_ENDPOINT_KEY ?? "";
+  const AGENCY =
+    process.env.QUOTERUSH_AGENCY ?? "";
+
+  try {
+    const res = await fetch(
+      "https://api.quoterush.com/GetPropertyData",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          EndpointKey: ENDPOINT_KEY,
+          Agency: AGENCY,
+          AddressLine1: streetAddress,
+          AddressLine2: "",
+          City: city,
+          State: state,
+          Zip: zip,
+        }),
+      }
+    );
+    const text = await res.text();
+    console.log(
+      "[quoterush] GetPropertyData response:",
+      text
+    );
+    if (!res.ok) return null;
+    const json = JSON.parse(text);
+    return {
+      sqFt: parseInt(
+        String(
+          json.SquareFeet ?? json.sqFt ??
+          json.square_feet ?? 0
+        ),
+        10
+      ),
+      yearBuilt: parseInt(
+        String(
+          json.YearBuilt ?? json.yearBuilt ?? 0
+        ),
+        10
+      ),
+      constructionType:
+        json.ConstructionType ??
+        json.constructionType ?? "",
+      masonryConstruction:
+        json.MasonryConstruction ??
+        json.masonry ?? "",
+    };
+  } catch (e) {
+    console.error(
+      "[quoterush] GetPropertyData error:", e
+    );
+    return null;
+  }
+}
+
+─── Exported function: importAndSubmit ──────
+
+export async function importAndSubmit(
+  params: QuoteRushParams
+): Promise<{
+  leadId: number;
+  submitted: boolean;
+  error?: string;
+}> {
+  const WEBID =
+    process.env.QUOTERUSH_WEBID ?? "";
+  const WEBPASSWORD =
+    process.env.QUOTERUSH_WEBPASSWORD ?? "";
+  const ENDPOINT_KEY =
+    process.env.QUOTERUSH_ENDPOINT_KEY ?? "";
+  const AGENCY =
+    process.env.QUOTERUSH_AGENCY ?? "";
+  const ASSIGNED_EMAIL =
+    process.env.QUOTERUSH_ASSIGNED_EMAIL ??
+    "christian@tateoco.com";
+
+  if (!WEBID || !WEBPASSWORD ||
+      !ENDPOINT_KEY || !AGENCY) {
+    return {
+      leadId: 0,
+      submitted: false,
+      error: "QuoteRUSH env vars not set",
+    };
+  }
+
+  // Step A: Enrich with real property data
+  const propData = await getPropertyData(
+    params.streetAddress,
+    params.city,
+    params.state,
+    params.zip
+  );
+  if (propData) {
+    console.log(
+      "[quoterush] property data enrichment:",
+      propData
+    );
+    if (propData.sqFt > 0)
+      params.sqFt = propData.sqFt;
+    if (
+      propData.yearBuilt > 1900 &&
+      params.yearBuilt === 1995
+    ) params.yearBuilt = propData.yearBuilt;
+    if (propData.constructionType) {
+      params.constructionType =
+        propData.constructionType;
+      params.masonryConstruction =
+        propData.masonryConstruction;
+    }
+  }
+
+  // Step B: Import lead
+  console.log(
+    "[quoterush] importing lead:",
+    params.streetAddress, params.city
+  );
+  const importPayload = buildImporterPayload(
+    params, ASSIGNED_EMAIL
+  );
+  const importRes = await fetch(
+    `https://importer.quoterush.com/Json/Import/${WEBID}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "webpassword": WEBPASSWORD,
+      },
+      body: JSON.stringify(importPayload),
+    }
+  );
+  const importText = await importRes.text();
+  console.log(
+    "[quoterush] import response:", importText
+  );
+
+  if (!importRes.ok) {
+    return {
+      leadId: 0,
+      submitted: false,
+      error: `Import failed ${importRes.status}: ` +
+             importText,
+    };
+  }
+
+  // Step C: Extract LeadId
+  let leadId = parseLeadId(importText);
+
+  // Fallback: GetNewLeads if parse failed
+  if (!leadId || leadId <= 0) {
+    console.log(
+      "[quoterush] fallback to GetNewLeads"
+    );
+    try {
+      const newLeadsRes = await fetch(
+        "https://api.quoterush.com/GetNewLeads",
+        {
+          method: "GET",
+          headers: {
+            "WebId": WEBID,
+            "WebIdPassword": WEBPASSWORD,
+          },
+        }
+      );
+      const newLeadsText =
+        await newLeadsRes.text();
+      console.log(
+        "[quoterush] GetNewLeads:", newLeadsText
+      );
+      const arr = JSON.parse(newLeadsText);
+      const leads = Array.isArray(arr)
+        ? arr
+        : (arr.Leads ?? arr.leads ?? []);
+      if (leads.length > 0) {
+        const first = leads[0];
+        leadId = parseInt(
+          String(
+            first.id ?? first.Id ??
+            first.leadId ?? first.LeadId ?? 0
+          ),
+          10
+        );
+      }
+    } catch (e) {
+      console.error(
+        "[quoterush] GetNewLeads fallback error:",
+        e
+      );
+    }
+  }
+
+  if (!leadId || leadId <= 0) {
+    return {
+      leadId: 0,
+      submitted: false,
+      error: "Could not extract LeadId",
+    };
+  }
+  console.log("[quoterush] LeadId:", leadId);
+
+  // Step D: Submit quote request (triggers QuoteBot)
+  const submitRes = await fetch(
+    "https://api.quoterush.com/SubmitQuoteRequest",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        EndpointKey: ENDPOINT_KEY,
+        Agency: AGENCY,
+        LeadId: leadId,
+        LOB: "Home",
+        Submitter: ASSIGNED_EMAIL,
+      }),
+    }
+  );
+  const submitText = await submitRes.text();
+  console.log(
+    "[quoterush] SubmitQuoteRequest:", submitText
+  );
+
+  return {
+    leadId,
+    submitted: submitRes.ok,
+    error: submitRes.ok ? undefined : submitText,
+  };
+}
+
+─── Exported function: getQuotes ────────────
+
+export async function getQuotes(
+  leadId: number
+): Promise<QuoteRushResult> {
+  const ENDPOINT_KEY =
+    process.env.QUOTERUSH_ENDPOINT_KEY ?? "";
+  const AGENCY =
+    process.env.QUOTERUSH_AGENCY ?? "";
+
+  try {
+    const res = await fetch(
+      "https://api.quoterush.com/GetQuotes",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          EndpointKey: ENDPOINT_KEY,
+          Agency: AGENCY,
+          LeadId: leadId,
+          LOB: "Home",
+        }),
+      }
+    );
+    const text = await res.text();
+    console.log(
+      "[quoterush] GetQuotes response:", text
+    );
+
+    if (!res.ok) {
+      return {
+        status: "error",
+        quotes: [],
+        leadId,
+        quoteCounter: 0,
+        errorMessage: `GetQuotes ${res.status}: ` +
+                      text,
+      };
+    }
+
+    const json = JSON.parse(text);
+    const rawQuotes: any[] = json.Quotes ?? [];
+    const quoteCounter: number =
+      json.QuoteCounter ?? 0;
+
+    if (quoteCounter === 0) {
+      return {
+        status: "pending",
+        quotes: [],
+        leadId,
+        quoteCounter: 0,
+      };
+    }
+
+    const quotes: QuoteRushQuote[] = rawQuotes
+      .filter(
+        (q: any) =>
+          q.Premium &&
+          parseFloat(String(q.Premium)) > 0
+      )
+      .map((q: any) => {
+        const annual = parseFloat(
+          String(q.Premium ?? "0")
+        );
+        return {
+          siteName: String(
+            q.SiteName ?? "Unknown Carrier"
+          ),
+          annualPremium: Math.round(annual),
+          monthlyPremium: Math.round(annual / 12),
+          coverageA: parseInt(
+            String(q.CoverageA ?? "0"), 10
+          ),
+          hurricaneDeductible: String(
+            q.HurricaneDeductible ?? ""
+          ),
+          aop: String(q.AOP ?? ""),
+          quoteUrl: q.QuoteURL ?? null,
+          quoteMessage: String(
+            q.QuoteMessage ?? ""
+          ),
+          quoteDate: String(q.QuoteDate ?? ""),
+          rank: 0,
+        };
+      })
+      .sort(
+        (a: QuoteRushQuote, b: QuoteRushQuote) =>
+          a.annualPremium - b.annualPremium
+      )
+      .map(
+        (q: QuoteRushQuote, i: number) => ({
+          ...q, rank: i + 1,
+        })
+      );
+
+    return {
+      status: "success",
+      quotes,
+      leadId,
+      quoteCounter,
+    };
+  } catch (err: any) {
+    console.error(
+      "[quoterush] getQuotes error:", err
+    );
+    return {
+      status: "error",
+      quotes: [],
+      leadId,
+      quoteCounter: 0,
+      errorMessage: err?.message,
+    };
+  }
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — UPDATE server/routes.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── 2A. Add import at the top of routes.ts ───
+
+Add this line with the other integration imports
+at the top of the file:
+
+import {
+  importAndSubmit,
+  getQuotes,
+  type QuoteRushParams,
+} from "./integrations/quoterush";
+
+── 2B. Replace the existing insurance route ──
+
+Find this exact line in routes.ts:
+  app.post("/api/insurance/quote", async (req, res) => {
+
+Delete that entire route and replace it with
+the following two routes:
+
+app.post(
+  "/api/insurance/qr-start",
+  async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+
+    try {
+      const schema = z.object({
+        address: z.string().min(5),
+        coverageA: z.number().positive(),
+        policyType: z.string().default("HO3"),
+        yearIdx: z.number().int().min(0).max(3),
+        roofIdx: z.number().int().min(0).max(3),
+        constIdx: z.number().int().min(0).max(2),
+        windIdx: z.number().int().min(0).max(2),
+        hurrIdx: z.number().int().min(0).max(2),
+        claimsIdx: z.number().int().min(0).max(3),
+        aopDeductible: z.number().default(2500),
+        floodZone: z.string().default("X"),
+        sqFt: z.number().default(0),
+        newPurchase: z.boolean().default(false),
+      });
+
+      const b = schema.parse(req.body);
+
+      // Map index values to QuoteRUSH strings
+      const YEAR_MAP = [2015, 1995, 1980, 1960];
+      const curYear = new Date().getFullYear();
+      const ROOF_YEAR_MAP = [
+        curYear - 2,
+        curYear - 8,
+        curYear - 17,
+        curYear - 22,
+      ];
+      const HURR_MAP = ["2%", "3%", "5%"];
+      const AOP_MAP: Record<number, string> = {
+        1000: "$1,000",
+        2500: "$2,500",
+        5000: "$5,000",
+      };
+
+      function constFields(idx: number) {
+        if (idx === 0)
+          return {
+            constructionType: "Masonry",
+            masonryConstruction: "Concrete Block",
+            frameConstruction: "",
+          };
+        if (idx === 2)
+          return {
+            constructionType: "Frame",
+            masonryConstruction: "",
+            frameConstruction: "Stucco",
+          };
+        return {
+          constructionType: "Masonry",
+          masonryConstruction: "Concrete Block",
+          frameConstruction: "",
+        };
+      }
+
+      function windFields(idx: number) {
+        if (idx === 0)
+          return {
+            windMitForm: false,
+            openingProtection: "None",
+            secondaryWaterResistance: "No",
+          };
+        if (idx === 2)
+          return {
+            windMitForm: true,
+            openingProtection: "Hurricane Protection",
+            secondaryWaterResistance: "Yes",
+          };
+        return {
+          windMitForm: true,
+          openingProtection: "Basic",
+          secondaryWaterResistance: "No",
+        };
+      }
+
+      // Parse address components
+      const parts = b.address
+        .split(",")
+        .map((p: string) => p.trim());
+      const streetAddress = parts[0] ?? "";
+      const city = parts[1] ?? "";
+      const last = parts[parts.length - 1] ?? "";
+      const stateZip = last.match(
+        /([A-Z]{2})\s+(\d{5})/
+      );
+      const state = stateZip?.[1] ?? "FL";
+      const zip = stateZip?.[2] ?? "";
+
+      // Extract name and phone from user metadata
+      const meta =
+        (user.user_metadata ?? {}) as
+          Record<string, any>;
+      const nameParts = String(meta.name ?? "")
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean);
+      const firstName = nameParts[0] ?? "Havo";
+      const lastName =
+        nameParts.slice(1).join(" ") ?? "Lead";
+      const phone = String(meta.phone ?? "");
+
+      const params: QuoteRushParams = {
+        streetAddress,
+        city,
+        state,
+        zip,
+        county: "",
+        coverageA: b.coverageA,
+        policyType: b.policyType,
+        yearBuilt: YEAR_MAP[b.yearIdx] ?? 1995,
+        roofYear:
+          ROOF_YEAR_MAP[b.roofIdx] ??
+          curYear - 8,
+        hurrDeductible:
+          HURR_MAP[b.hurrIdx] ?? "2%",
+        aopDeductible:
+          AOP_MAP[b.aopDeductible] ?? "$2,500",
+        priorClaims: b.claimsIdx,
+        floodZone: b.floodZone,
+        sqFt: b.sqFt,
+        usageType: "Primary",
+        newPurchase: b.newPurchase ? "Yes" : "No",
+        firstName,
+        lastName,
+        email: user.email ?? "",
+        phone,
+        ...constFields(b.constIdx),
+        ...windFields(b.windIdx),
+      };
+
+      const result = await importAndSubmit(params);
+
+      if (!result.submitted || !result.leadId) {
+        return res.status(500).json({
+          error:
+            result.error ??
+            "Failed to start quotes",
+        });
+      }
+
+      // Notify FUB (non-blocking)
+      createFollowUpBossContact({
+        firstName,
+        lastName,
+        email: user.email ?? "",
+        phone,
+        address: b.address,
+        agent: "Christian Tateo",
+        scenarioDetails:
+          `QuoteRUSH quotes started: ` +
+          `${b.address} · Coverage A: ` +
+          `$${b.coverageA.toLocaleString()} · ` +
+          `Zone: ${b.floodZone} · ` +
+          `LeadId: ${result.leadId}`,
+        referral: "",
+      }).catch((e: any) =>
+        console.error("[FUB] qr-start failed:", e)
+      );
+
+      res.json({ leadId: result.leadId });
+
+    } catch (err: any) {
+      console.error("[qr-start] error:", err);
+      if (err instanceof z.ZodError) {
+        return res
+          .status(400)
+          .json({ error: "Invalid parameters" });
+      }
+      res
+        .status(500)
+        .json({ error: err?.message });
+    }
+  }
+);
+
+app.post(
+  "/api/insurance/qr-quotes",
+  async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+
+    try {
+      const schema = z.object({
+        leadId: z.number().int().positive(),
+      });
+      const { leadId } = schema.parse(req.body);
+      const result = await getQuotes(leadId);
+      res.json(result);
+    } catch (err: any) {
+      console.error("[qr-quotes] error:", err);
+      res.status(500).json({
+        status: "error",
+        quotes: [],
+        leadId: 0,
+        quoteCounter: 0,
+        errorMessage: err?.message,
+      });
+    }
+  }
+);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — UPDATE client/src/pages/insurance.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Do NOT change any existing state, calculations,
+useEffects, or save logic. Only add new things.
+
+── 3A. Add new state variables ───────────────
+
+Find this exact line:
+  const [floodZone, setFloodZone] = useState<string>("");
+
+Directly AFTER that line add:
+
+  // ── QuoteRUSH live quotes ──────────────────
+  const [qrLeadId, setQrLeadId] =
+    useState<number | null>(null);
+  const [qrQuotes, setQrQuotes] = useState
+    Array<{
+      siteName: string;
+      annualPremium: number;
+      monthlyPremium: number;
+      coverageA: number;
+      hurricaneDeductible: string;
+      aop: string;
+      quoteUrl: string | null;
+      quoteDate: string;
+      rank: number;
+    }>
+  >([]);
+  const [qrStatus, setQrStatus] = useState
+    | "idle"
+    | "starting"
+    | "pending"
+    | "success"
+    | "error"
+  >("idle");
+  const [qrElapsed, setQrElapsed] = useState(0);
+  const [qrQuoteCounter, setQrQuoteCounter] =
+    useState(0);
+  const qrPollRef = useRef
+    ReturnType<typeof setInterval> | null
+  >(null);
+  const qrTimerRef = useRef
+    ReturnType<typeof setInterval> | null
+  >(null);
+  const qrPrevCounterRef = useRef(0);
+  const qrStableRef = useRef(0);
+
+── 3B. Add startQuoteRush function ───────────
+
+Find this exact line:
+  // ── Calculations ─────────────────────────────────────────────────────────
+
+Directly BEFORE that comment line, add:
+
+  // ── QuoteRUSH quoting ─────────────────────
+  async function startQuoteRush() {
+    if (!address || !rebuild || !isAuthenticated)
+      return;
+
+    // Stop any existing polling
+    if (qrPollRef.current)
+      clearInterval(qrPollRef.current);
+    if (qrTimerRef.current)
+      clearInterval(qrTimerRef.current);
+
+    setQrStatus("starting");
+    setQrQuotes([]);
+    setQrQuoteCounter(0);
+    setQrElapsed(0);
+    qrPrevCounterRef.current = 0;
+    qrStableRef.current = 0;
+
+    qrTimerRef.current = setInterval(() => {
+      setQrElapsed(prev => prev + 1);
+    }, 1000);
+
+    try {
+      const startRes = await fetch(
+        "/api/insurance/qr-start",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            address,
+            coverageA: rebuild,
+            policyType: policyType || "HO3",
+            yearIdx,
+            roofIdx,
+            constIdx,
+            windIdx,
+            hurrIdx,
+            claimsIdx,
+            aopDeductible,
+            floodZone: floodZone || "X",
+            sqFt: 0,
+            newPurchase: false,
+          }),
+        }
+      );
+
+      const startData = await startRes.json();
+
+      if (!startRes.ok || !startData.leadId) {
+        setQrStatus("error");
+        if (qrTimerRef.current)
+          clearInterval(qrTimerRef.current);
+        return;
+      }
+
+      const leadId: number = startData.leadId;
+      setQrLeadId(leadId);
+      setQrStatus("pending");
+
+      let pollCount = 0;
+      const MAX_POLLS = 20; // 10 minutes
+
+      const doPoll = async () => {
+        pollCount++;
+        try {
+          const qRes = await fetch(
+            "/api/insurance/qr-quotes",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              body: JSON.stringify({ leadId }),
+            }
+          );
+          const qData = await qRes.json();
+          const counter: number =
+            qData.quoteCounter ?? 0;
+
+          if (counter > 0) {
+            setQrQuotes(qData.quotes ?? []);
+            setQrQuoteCounter(counter);
+            setQrStatus("success");
+
+            // Stop when counter stable 2 polls
+            if (counter ===
+                qrPrevCounterRef.current) {
+              qrStableRef.current += 1;
+            } else {
+              qrStableRef.current = 0;
+            }
+            qrPrevCounterRef.current = counter;
+
+            if (qrStableRef.current >= 2 ||
+                pollCount >= MAX_POLLS) {
+              if (qrPollRef.current)
+                clearInterval(qrPollRef.current);
+              if (qrTimerRef.current)
+                clearInterval(qrTimerRef.current);
+            }
+          } else if (pollCount >= MAX_POLLS) {
+            if (qrPollRef.current)
+              clearInterval(qrPollRef.current);
+            if (qrTimerRef.current)
+              clearInterval(qrTimerRef.current);
+            setQrStatus("error");
+          }
+        } catch (e) {
+          console.error("[qr-poll] error:", e);
+        }
+      };
+
+      qrPollRef.current = setInterval(
+        doPoll, 30000
+      );
+
+    } catch (err) {
+      console.error("[qr-start] fetch error:", err);
+      setQrStatus("error");
+      if (qrTimerRef.current)
+        clearInterval(qrTimerRef.current);
+    }
+  }
+
+── 3C. Reset on address change ───────────────
+
+Find this exact line inside the useEffect:
+  const f = resolveFactorsFor(addressParam);
+
+Add these lines at the very TOP of that
+useEffect body, before that line:
+
+    if (qrPollRef.current)
+      clearInterval(qrPollRef.current);
+    if (qrTimerRef.current)
+      clearInterval(qrTimerRef.current);
+    setQrQuotes([]);
+    setQrStatus("idle");
+    setQrLeadId(null);
+    setQrQuoteCounter(0);
+
+── 3D. Add the live quotes UI card ───────────
+
+Find this exact comment and opening div:
+  {/* Region insight */}
+  <div className="flex gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
+
+Insert the following block IMMEDIATELY BEFORE
+that comment. Do not change anything after.
+
+              {/* QuoteRUSH Live Carrier Quotes */}
+              <Card className="border shadow-sm">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <CardTitle className="text-sm flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-primary shrink-0" />
+                        Live Carrier Quotes
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                        {qrStatus === "idle" &&
+                          "Get real-time rates from your Florida-appointed carriers."}
+                        {qrStatus === "starting" &&
+                          "Submitting to QuoteRUSH…"}
+                        {qrStatus === "pending" &&
+                          `QuoteBot is quoting your carriers — ${qrQuoteCounter} quote${qrQuoteCounter !== 1 ? "s" : ""} so far · ${qrElapsed}s`}
+                        {qrStatus === "success" &&
+                          `${qrQuoteCounter} carrier${qrQuoteCounter !== 1 ? "s" : ""} quoted · checking for more…`}
+                        {qrStatus === "error" &&
+                          "Quote request failed — call us for a custom quote."}
+                      </p>
+                    </div>
+                    <div className="shrink-0">
+                      {qrStatus === "idle" && (
+                        <Button
+                          size="sm"
+                          onClick={startQuoteRush}
+                          disabled={
+                            !address ||
+                            !rebuild ||
+                            !isAuthenticated
+                          }
+                        >
+                          Get Live Quotes
+                        </Button>
+                      )}
+                      {(qrStatus === "starting" ||
+                        qrStatus === "pending") && (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <div className="h-2.5 w-2.5 rounded-full bg-primary/50 animate-pulse" />
+                          Working…
+                        </div>
+                      )}
+                      {(qrStatus === "success" ||
+                        qrStatus === "error") && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={startQuoteRush}
+                        >
+                          Re-run
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="pt-0">
+
+                  {/* Progress bar */}
+                  {(qrStatus === "starting" ||
+                    qrStatus === "pending") && (
+                    <div className="mb-4 space-y-2">
+                      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="h-full bg-primary rounded-full transition-all duration-1000"
+                          style={{
+                            width: `${Math.min(
+                              (qrElapsed / 600) * 100,
+                              90
+                            )}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground text-center">
+                        QuoteBot is logging into carrier websites and pulling real-time rates. This typically takes 2–5 minutes.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Not authenticated */}
+                  {!isAuthenticated &&
+                    qrStatus === "idle" && (
+                    <p className="text-xs text-muted-foreground text-center py-3">
+                      Create a free account to get live carrier quotes from your Florida-appointed insurers.
+                    </p>
+                  )}
+
+                  {/* Quotes */}
+                  {qrQuotes.length > 0 && (
+                    <div className="space-y-2">
+                      {qrQuotes.map((q, i) => (
+                        <div
+                          key={q.siteName + i}
+                          className={`flex items-start justify-between p-3 rounded-lg border ${
+                            i === 0
+                              ? "border-yellow-300 bg-yellow-50"
+                              : "border-border bg-muted/20"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className="text-base mt-0.5">
+                              {i === 0
+                                ? "🥇"
+                                : i === 1
+                                ? "🥈"
+                                : i === 2
+                                ? "🥉"
+                                : "•"}
+                            </span>
+                            <div>
+                              <div className="text-sm font-semibold">
+                                {q.siteName}
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+                                {q.hurricaneDeductible && (
+                                  <div>
+                                    Hurricane deductible:{" "}
+                                    {q.hurricaneDeductible}
+                                  </div>
+                                )}
+                                {q.aop && (
+                                  <div>
+                                    AOP deductible: {q.aop}
+                                  </div>
+                                )}
+                                {q.coverageA > 0 && (
+                                  <div>
+                                    Coverage A:{" "}
+                                    {new Intl.NumberFormat(
+                                      "en-US",
+                                      {
+                                        style: "currency",
+                                        currency: "USD",
+                                        maximumFractionDigits: 0,
+                                      }
+                                    ).format(q.coverageA)}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0 ml-2">
+                            <div className="text-base font-bold font-mono text-primary">
+                              {new Intl.NumberFormat(
+                                "en-US",
+                                {
+                                  style: "currency",
+                                  currency: "USD",
+                                  maximumFractionDigits: 0,
+                                }
+                              ).format(q.annualPremium)}
+                              /yr
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {new Intl.NumberFormat(
+                                "en-US",
+                                {
+                                  style: "currency",
+                                  currency: "USD",
+                                  maximumFractionDigits: 0,
+                                }
+                              ).format(q.monthlyPremium)}
+                              /mo
+                            </div>
+                            {q.quoteUrl && (
+                              
+                                href={q.quoteUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-primary underline mt-1 block"
+                              >
+                                View quote →
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {qrStatus === "pending" && (
+                        <p className="text-xs text-muted-foreground text-center">
+                          More quotes may still be arriving…
+                        </p>
+                      )}
+                      <p className="text-[10px] text-muted-foreground text-center leading-relaxed pt-1">
+                        Real-time carrier rates via Tateo &amp; Co ·
+                        Tateo Insurance Corp · License #L132640 ·
+                        Not a binding quote. Coverage not effective
+                        until confirmed by a licensed agent.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Error / no quotes fallback */}
+                  {qrStatus === "error" &&
+                    qrQuotes.length === 0 && (
+                    <div className="text-center py-4 space-y-3">
+                      <p className="text-sm text-muted-foreground">
+                        This property may need a custom quote.
+                        Contact Tateo &amp; Co directly.
+                      </p>
+                      <div className="flex gap-2 justify-center">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          asChild
+                        >
+                          <a href="tel:+18132148356">
+                            (813) 214-8356
+                          </a>
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          asChild
+                        >
+                          <a href="mailto:christian@tateoco.com">
+                            Email Us
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                </CardContent>
+              </Card>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 4 — VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   Fix only type annotation errors.
+   Do not change any logic.
+
+2. Run: npx vite build
+   Confirm clean build with no errors.
+
+3. Confirm these 5 Replit Secrets exist:
+   QUOTERUSH_WEBID
+   QUOTERUSH_WEBPASSWORD
+   QUOTERUSH_ENDPOINT_KEY
+   QUOTERUSH_AGENCY
+   QUOTERUSH_ASSIGNED_EMAIL
+
+4. Confirm the existing insurance formula
+   (REGIONS, ROOF_ADJ, WIND_ADJ, HURR_ADJ,
+   CONST_ADJ, YEAR_ADJ, CLAIM_ADJ, calc)
+   is completely unchanged.
+
+5. Report:
+   - Files created
+   - Exact lines added to each file
+   - Any TypeScript errors found and resolved
+   - Build status
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LOGGING NOTES — DO NOT REMOVE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All console.log statements in quoterush.ts
+are intentional and must remain. After the
+first live test, watch the Replit console for:
+
+  [quoterush] GetPropertyData response: ...
+  [quoterush] import response: ...
+  [quoterush] LeadId: 12345
+  [quoterush] SubmitQuoteRequest: ...
+  [quoterush] GetQuotes response: ...
+
+These logs confirm the integration is live
+and show the exact API response shapes.
