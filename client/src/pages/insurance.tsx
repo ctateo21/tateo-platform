@@ -1151,7 +1151,7 @@ export default function InsuranceDashboard() {
   // quote, but shared cache (localStorage → server DB) is consulted first
   // so a repeat address (within 30 days) never re-pays the cost.
   useEffect(() => {
-    if (!isAuthenticated || !address || !rebuild) return;
+    if (!isAuthenticated || !address) return;
     if (address === "Unknown Address") return;
     if (qrAutoRef.current === address) return;
     qrAutoRef.current = address;
@@ -1229,8 +1229,17 @@ export default function InsuranceDashboard() {
         console.error("[qr-auto-hydrate]", e);
       }
 
-      // 3) Nothing cached anywhere → auto-trigger fresh quote.
+      // 3) Nothing cached anywhere — trigger only if we have a
+      //    Coverage A value. If rebuild is 0, the effect will re-run
+      //    when rebuild becomes > 0 (via the dependency array).
       if (cancelled) return;
+      if (!rebuild) {
+        console.log(
+          "[qr-auto] waiting for rebuild:",
+          address
+        );
+        return;
+      }
       startQuoteRush();
     })();
 

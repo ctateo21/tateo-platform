@@ -96,4 +96,8 @@ Changelog:
 
 ```
 Preferred communication style: Simple, everyday language.
+GitHub sync: After every code change, push the codebase to the connected
+GitHub repo ctateo21/tateo-platform (branch main). Use the GitHub
+connection token; normal fast-forward push (the workspace history is
+ahead of the repo). Do not print the token.
 ```
