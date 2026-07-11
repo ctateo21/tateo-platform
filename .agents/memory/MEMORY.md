@@ -10,3 +10,4 @@
 - [Full-project tsc time limit](tsc-env-limit.md) — `npx tsc --noEmit` won't finish in the sandbox; verify small edits via Vite HMR "hot updated" / no transform errors instead.
 - [GitHub sync method & checkpoint gotcha](github-sync.md) — push via connectors-sdk proxy (no raw tokens); diff vs REMOTE tree, never `git diff HEAD` (checkpoints auto-commit).
 - [QuoteRUSH live quoting](quoterush-integration.md) — secret names *_WEBID_PASSWORD/*_AGENCY_ID; shared DB address-cache (first pays, 30d TTL); cache updates keyed by leadId not caller address; auto-trigger + lost-race pollCacheForLead; poll-until-stable(3).
+- [FUB leaderboard data sources](fub-leaderboard-data-sources.md) — calls in /v1/calls (userId), showings in /v1/appointments (createdById, -1=system); texts/emails not listable globally.
