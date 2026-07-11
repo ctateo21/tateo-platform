@@ -1833,62 +1833,84 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
     if (!apiKey) return res.status(500).json({ error: "FOLLOWUPBOSS_API_KEY not set" });
 
-    try {
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-
-      // Check all these endpoints in parallel
-      const [usersRaw, allEventsRaw, notesRaw, callNotesRaw, peopleRaw] = await Promise.all([
-        fetch("https://api.followupboss.com/v1/users?limit=25", { headers: fubHeaders(apiKey) }),
-        fetch("https://api.followupboss.com/v1/events?limit=10", { headers: fubHeaders(apiKey) }),
-        fetch("https://api.followupboss.com/v1/notes?limit=10", { headers: fubHeaders(apiKey) }),
-        fetch(`https://api.followupboss.com/v1/notes?subject=Call&since=${encodeURIComponent(thirtyDaysAgo)}&limit=5`, { headers: fubHeaders(apiKey) }),
-        fetch("https://api.followupboss.com/v1/people?limit=3", { headers: fubHeaders(apiKey) }),
-      ]);
-
-      const [usersData, allEventsData, notesData, callNotesData, peopleData] = await Promise.all([
-        usersRaw.json(), allEventsRaw.json(), notesRaw.json(), callNotesRaw.json(), peopleRaw.json(),
-      ]);
-
-      // Distinct event types to see what's actually in FUB
-      const eventTypes = [...new Set((allEventsData.events ?? []).map((e: any) => e.type))];
-
-      // Distinct note subjects/types
-      const noteSubjects = [...new Set((notesData.notes ?? []).map((n: any) => n.subject ?? n.type ?? "unknown"))];
-
-      res.json({
-        // All FUB users with their IDs
-        allUsers: (usersData.users ?? []).map((u: any) => ({ id: u.id, email: u.email, name: u.name })),
-
-        // What event types actually exist
-        eventTypesFound: eventTypes,
-        sampleEvents: (allEventsData.events ?? []).slice(0, 3).map((ev: any) => ({
-          id: ev.id, type: ev.type, created: ev.created, userId: ev.userId,
-        })),
-
-        // Notes — this is where calls/texts/emails logged by agents are stored
-        noteSubjectsFound: noteSubjects,
-        sampleNotes: (notesData.notes ?? []).slice(0, 5).map((n: any) => ({
-          id: n.id, subject: n.subject, type: n.type, created: n.created,
-          userId: n.userId, personId: n.personId, isEmailNote: n.isEmailNote,
-        })),
-
-        // Notes filtered by subject=Call last 30 days
-        callNotesLast30Days: {
-          total: callNotesData._metadata?.total ?? (callNotesData.notes ?? []).length,
-          sample: (callNotesData.notes ?? []).slice(0, 3).map((n: any) => ({
-            id: n.id, subject: n.subject, created: n.created, userId: n.userId,
-          })),
-        },
-
-        // People to confirm assignedUserId field works
-        samplePeople: (peopleData.people ?? []).slice(0, 3).map((p: any) => ({
-          id: p.id, stage: p.stage, assignedUserId: p.assignedUserId,
-          assignedTo: p.assignedTo, updated: p.updated,
-        })),
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    async function tryFetch(label: string, url: string) {
+      try {
+        const r = await fetch(url, { headers: fubHeaders(apiKey!) });
+        const text = await r.text();
+        let data: any;
+        try { data = JSON.parse(text); } catch { return { label, status: r.status, error: "non-JSON", raw: text.slice(0, 200) }; }
+        if (!r.ok) return { label, status: r.status, error: data };
+        // Find the first array key and return count + first 2 items
+        const arrayKey = Object.keys(data).find(k => k !== "_metadata" && Array.isArray(data[k]));
+        const items: any[] = arrayKey ? data[arrayKey] : [];
+        return {
+          label,
+          status: r.status,
+          arrayKey,
+          total: data._metadata?.total ?? items.length,
+          sample: items.slice(0, 2),
+          allKeys: Object.keys(data),
+        };
+      } catch (err: any) {
+        return { label, error: err.message };
+      }
     }
+
+    // Get a real person ID to test person-specific endpoints
+    const peopleR = await fetch("https://api.followupboss.com/v1/people?limit=1", { headers: fubHeaders(apiKey) });
+    const peopleD = await peopleR.json();
+    const samplePersonId: number | null = peopleD?.people?.[0]?.id ?? null;
+
+    const results = await Promise.all([
+      // The endpoints we already know about
+      tryFetch("notes (recent 5)",          "https://api.followupboss.com/v1/notes?limit=5"),
+      tryFetch("notes (all — paginated)",   "https://api.followupboss.com/v1/notes?limit=5&offset=0"),
+
+      // Dedicated call/text/email endpoints FUB may expose
+      tryFetch("calls",                     "https://api.followupboss.com/v1/calls?limit=5"),
+      tryFetch("textMessages",              "https://api.followupboss.com/v1/textMessages?limit=5"),
+      tryFetch("texts",                     "https://api.followupboss.com/v1/texts?limit=5"),
+      tryFetch("sms",                       "https://api.followupboss.com/v1/sms?limit=5"),
+      tryFetch("emails",                    "https://api.followupboss.com/v1/emails?limit=5"),
+      tryFetch("activities",                "https://api.followupboss.com/v1/activities?limit=5"),
+      tryFetch("appointments",              "https://api.followupboss.com/v1/appointments?limit=5"),
+      tryFetch("tasks",                     "https://api.followupboss.com/v1/tasks?limit=5"),
+
+      // Events with no type filter — see ALL event types
+      tryFetch("events (no filter)",        "https://api.followupboss.com/v1/events?limit=10"),
+
+      // Notes filtered by specific subjects
+      tryFetch("notes subject=Call",        "https://api.followupboss.com/v1/notes?subject=Call&limit=5"),
+      tryFetch("notes subject=Text",        "https://api.followupboss.com/v1/notes?subject=Text&limit=5"),
+      tryFetch("notes subject=Email",       "https://api.followupboss.com/v1/notes?subject=Email&limit=5"),
+
+      // Events filtered by type — try every plausible string
+      tryFetch("events type=Call",          "https://api.followupboss.com/v1/events?type=Call&limit=5"),
+      tryFetch("events type=call",          "https://api.followupboss.com/v1/events?type=call&limit=5"),
+      tryFetch("events type=Text",          "https://api.followupboss.com/v1/events?type=Text&limit=5"),
+      tryFetch("events type=Text Message",  "https://api.followupboss.com/v1/events?type=Text%20Message&limit=5"),
+      tryFetch("events type=SMS",           "https://api.followupboss.com/v1/events?type=SMS&limit=5"),
+      tryFetch("events type=Email",         "https://api.followupboss.com/v1/events?type=Email&limit=5"),
+      tryFetch("events type=Note",          "https://api.followupboss.com/v1/events?type=Note&limit=5"),
+
+      // Person-specific activity — check one real person's full history
+      ...(samplePersonId ? [
+        tryFetch(`person ${samplePersonId} notes`,  `https://api.followupboss.com/v1/notes?personId=${samplePersonId}&limit=10`),
+        tryFetch(`person ${samplePersonId} events`, `https://api.followupboss.com/v1/events?personId=${samplePersonId}&limit=10`),
+        tryFetch(`person ${samplePersonId} calls`,  `https://api.followupboss.com/v1/calls?personId=${samplePersonId}&limit=10`),
+      ] : []),
+    ]);
+
+    // Summarise which endpoints returned data
+    const withData    = results.filter((r: any) => r.total > 0).map((r: any) => `${r.label} (${r.total})`);
+    const withErrors  = results.filter((r: any) => r.status !== 200 && !r.total).map((r: any) => `${r.label} → ${r.status ?? r.error}`);
+
+    res.json({
+      samplePersonId,
+      endpointsWithData: withData,
+      endpointsWithErrors: withErrors,
+      fullResults: results,
+    });
   });
 
   // POST /api/fub/showing-request
