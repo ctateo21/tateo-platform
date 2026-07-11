@@ -1770,6 +1770,64 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── FUB Team Leaderboard ─────────────────────────────────────────────────
+  app.get("/api/fub/leaderboard", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const token = authHeader.slice(7);
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: "Auth backend not configured" });
+    }
+    try {
+      const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+      if (error || !user) return res.status(401).json({ error: "Invalid session" });
+      const email = user.email?.toLowerCase() ?? "";
+      const allowed = LEADERBOARD_TEAM.some((m) => m.email === email);
+      if (!allowed) return res.status(403).json({ error: "Access denied" });
+    } catch {
+      return res.status(401).json({ error: "Auth check failed" });
+    }
+
+    const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "FOLLOWUPBOSS_API_KEY not set on server" });
+    }
+
+    const raw = (req.query.period as string) ?? "today";
+    const validPeriods: Period[] = ["today", "week", "month", "quarter", "year"];
+    const period: Period = (validPeriods.includes(raw as Period) ? raw : "today") as Period;
+
+    try {
+      const data = await getLeaderboardData(apiKey, period);
+      res.json(data);
+    } catch (err: any) {
+      console.error("[leaderboard] fetch error:", err.message);
+      res.status(500).json({ error: err.message ?? "Failed to fetch leaderboard data" });
+    }
+  });
+
+  app.post("/api/fub/leaderboard/refresh", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Not authenticated" });
+    const token = authHeader.slice(7);
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: "Auth backend not configured" });
+    }
+    try {
+      const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+      if (error || !user) return res.status(401).json({ error: "Invalid session" });
+      const email = user.email?.toLowerCase() ?? "";
+      const isAdmin = LEADERBOARD_TEAM.some((m) => m.email === email && m.isAdmin);
+      if (!isAdmin) return res.status(403).json({ error: "Admin only" });
+    } catch {
+      return res.status(401).json({ error: "Auth check failed" });
+    }
+    bustLeaderboardCache();
+    res.json({ ok: true, message: "Leaderboard cache cleared" });
+  });
+
   // POST /api/fub/showing-request
   // Fired when a user taps "Schedule your showing now" on Purchase with Loan
   // (Likely Qualifies only) or Purchase with Cash. Notifies Follow Up Boss
@@ -2766,33 +2824,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.json(result);
     } catch (e: any) {
       return res.status(500).json({ error: e?.message ?? "Unknown error" });
-    }
-  });
-
-  // ── GET /api/fub/leaderboard?period= — Tateo & Co team leaderboard ─
-  // Internal page: only the 4 team emails defined in LEADERBOARD_TEAM
-  // may access. Everyone on the team sees the full leaderboard.
-  app.get("/api/fub/leaderboard", async (req, res) => {
-    const user = await requireUser(req, res);
-    if (!user) return;
-    const email = (user.email || "").toLowerCase();
-    const isTeamMember = LEADERBOARD_TEAM.some((m) => m.email === email);
-    if (!isTeamMember) {
-      return res.status(403).json({ error: "Team members only" });
-    }
-    const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
-    if (!apiKey) {
-      return res.status(503).json({ error: "FollowUpBoss not configured" });
-    }
-    const raw = String(req.query.period || "week");
-    const allowed = ["today", "week", "month", "quarter", "year"] as const;
-    const period = (allowed as readonly string[]).includes(raw) ? (raw as typeof allowed[number]) : "week";
-    try {
-      const data = await getLeaderboardData(apiKey, period);
-      return res.json(data);
-    } catch (e: any) {
-      console.error("[leaderboard] error:", e?.message);
-      return res.status(500).json({ error: e?.message ?? "Failed to load leaderboard" });
     }
   });
 
