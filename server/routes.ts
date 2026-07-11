@@ -45,6 +45,12 @@ import {
   getMarketAnalysisForDisplay,
   precomputeWeeklyMarketAnalysesForAllSellerScenarios,
 } from "./integrations/market-analysis-scheduler";
+import {
+  getLeaderboardData,
+  bustLeaderboardCache,
+  LEADERBOARD_TEAM,
+  type Period,
+} from "./integrations/fub-leaderboard";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API routes
@@ -2769,7 +2775,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/fub/leaderboard", async (req, res) => {
     const user = await requireUser(req, res);
     if (!user) return;
-    const { LEADERBOARD_TEAM, getLeaderboardData } = await import("./integrations/fub-leaderboard");
     const email = (user.email || "").toLowerCase();
     const isTeamMember = LEADERBOARD_TEAM.some((m) => m.email === email);
     if (!isTeamMember) {

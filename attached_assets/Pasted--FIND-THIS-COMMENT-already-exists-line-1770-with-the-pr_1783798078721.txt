@@ -1,0 +1,56 @@
+// FIND THIS COMMENT (already exists ~line 1770):
+  // with the property address. The tel: link is handled entirely client-side
+
+// PASTE THESE TWO NEW ROUTES DIRECTLY BEFORE THAT COMMENT:
+
+  // ── FUB Team Leaderboard ─────────────────────────────────────────────────
+  app.get("/api/fub/leaderboard", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const token = authHeader.slice(7);
+    try {
+      const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+      if (error || !user) return res.status(401).json({ error: "Invalid session" });
+      const email = user.email?.toLowerCase() ?? "";
+      const allowed = LEADERBOARD_TEAM.some((m) => m.email === email);
+      if (!allowed) return res.status(403).json({ error: "Access denied" });
+    } catch {
+      return res.status(401).json({ error: "Auth check failed" });
+    }
+
+    const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "FOLLOWUPBOSS_API_KEY not set on server" });
+    }
+
+    const raw = (req.query.period as string) ?? "today";
+    const validPeriods: Period[] = ["today", "week", "month", "quarter", "year"];
+    const period: Period = (validPeriods.includes(raw as Period) ? raw : "today") as Period;
+
+    try {
+      const data = await getLeaderboardData(apiKey, period);
+      res.json(data);
+    } catch (err: any) {
+      console.error("[leaderboard] fetch error:", err.message);
+      res.status(500).json({ error: err.message ?? "Failed to fetch leaderboard data" });
+    }
+  });
+
+  app.post("/api/fub/leaderboard/refresh", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Not authenticated" });
+    const token = authHeader.slice(7);
+    try {
+      const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+      if (error || !user) return res.status(401).json({ error: "Invalid session" });
+      const email = user.email?.toLowerCase() ?? "";
+      const isAdmin = LEADERBOARD_TEAM.some((m) => m.email === email && m.isAdmin);
+      if (!isAdmin) return res.status(403).json({ error: "Admin only" });
+    } catch {
+      return res.status(401).json({ error: "Auth check failed" });
+    }
+    bustLeaderboardCache();
+    res.json({ ok: true, message: "Leaderboard cache cleared" });
+  });
