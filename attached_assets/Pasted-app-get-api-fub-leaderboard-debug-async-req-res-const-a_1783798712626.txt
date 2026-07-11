@@ -1,0 +1,40 @@
+app.get("/api/fub/leaderboard/debug", async (_req, res) => {
+    const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: "FOLLOWUPBOSS_API_KEY not set" });
+
+    try {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      const [usersRaw, eventsRaw, peopleRaw, callsRaw] = await Promise.all([
+        fetch("https://api.followupboss.com/v1/users?limit=5",           { headers: fubHeaders(apiKey) }),
+        fetch("https://api.followupboss.com/v1/events?limit=2",          { headers: fubHeaders(apiKey) }),
+        fetch("https://api.followupboss.com/v1/people?limit=2",          { headers: fubHeaders(apiKey) }),
+        fetch(`https://api.followupboss.com/v1/events?type=Call&since=${encodeURIComponent(thirtyDaysAgo)}&limit=5`, { headers: fubHeaders(apiKey) }),
+      ]);
+
+      const [usersData, eventsData, peopleData, callsData] = await Promise.all([
+        usersRaw.json(), eventsRaw.json(), peopleRaw.json(), callsRaw.json(),
+      ]);
+
+      res.json({
+        users: (usersData.users ?? []).slice(0, 3).map((u: any) => ({ id: u.id, email: u.email, name: u.name })),
+        sampleEvents: (eventsData.events ?? []).slice(0, 2).map((ev: any) => ({
+          id: ev.id, type: ev.type, created: ev.created,
+          userId: ev.userId, assignedTo: ev.assignedTo,
+        })),
+        samplePeople: (peopleData.people ?? []).slice(0, 2).map((p: any) => ({
+          id: p.id, stage: p.stage,
+          assignedUserId: p.assignedUserId, assignedTo: p.assignedTo,
+          ownerId: p.ownerId, updated: p.updated,
+        })),
+        callsLast30Days: {
+          total: callsData._metadata?.total ?? 0,
+          sample: (callsData.events ?? []).slice(0, 3).map((ev: any) => ({
+            id: ev.id, type: ev.type, created: ev.created, userId: ev.userId,
+          })),
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });

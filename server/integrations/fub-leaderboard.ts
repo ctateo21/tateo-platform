@@ -81,7 +81,7 @@ export interface LeaderboardPayload {
 export type Period = "today" | "week" | "month" | "quarter" | "year";
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
-function fubHeaders(apiKey: string): Record<string, string> {
+export function fubHeaders(apiKey: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
     "Accept": "application/json",
