@@ -1,0 +1,384 @@
+/**
+ * fub-leaderboard.ts — v6
+ *
+ * Data sources confirmed from debug probe:
+ *   /v1/calls        → 691 calls, each has userId + userName + created date
+ *   /v1/appointments → 21 appointments (ShowingTime syncs here) + userId
+ *   /v1/textMessages → requires userId filter per agent (global list blocked)
+ *   /v1/emails       → same restriction as textMessages
+ *   /v1/people       → pipeline stages + assignedUserId (working in v5)
+ *
+ * FUB user IDs confirmed: Christian=1, Omar=2, Kyle=5, Alex=6
+ */
+
+const FUB_BASE = "https://api.followupboss.com/v1";
+
+const _cache = new Map<string, { data: LeaderboardPayload; ts: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+export const LEADERBOARD_TEAM = [
+  { email: "christian@tateoco.com", name: "Christian Tateo", initials: "CT", isAdmin: true  },
+  { email: "omar@tateoco.com",      name: "Omar Andujar",    initials: "OA", isAdmin: false },
+  { email: "kyle@tateoco.com",      name: "Kyle Schweinitz", initials: "KS", isAdmin: false },
+  { email: "alex@tateoco.com",      name: "Alex Szabo",      initials: "AS", isAdmin: false },
+] as const;
+
+export type TeamEmail = typeof LEADERBOARD_TEAM[number]["email"];
+
+// All FUB user IDs confirmed from /v1/users + people.assignedUserId debug data
+const FUB_ID_TO_TEAM_EMAIL: Record<number, TeamEmail> = {
+  1: "christian@tateoco.com",
+  2: "omar@tateoco.com",
+  5: "kyle@tateoco.com",
+  6: "alex@tateoco.com",
+};
+
+const FUB_NAME_TO_TEAM_EMAIL: Record<string, TeamEmail> = {
+  "christian tateo": "christian@tateoco.com",
+  "omar andujar":    "omar@tateoco.com",
+  "kyle schweinitz": "kyle@tateoco.com",
+  "alex szabo":      "alex@tateoco.com",
+};
+
+export const PIPELINE_STAGES = [
+  "Lead", "Attempted Contact", "Spoke with Customer", "Appointment Set",
+  "Met with Customer", "Showing Homes", "Listing Agreement", "Active Listing",
+  "Submitting Offers", "Under Contract", "Nurture", "Closed", "Trash",
+] as const;
+
+export type PipelineStage = typeof PIPELINE_STAGES[number];
+
+export interface AgentRow {
+  email: string;
+  name: string;
+  initials: string;
+  isAdmin: boolean;
+  fubUserId: number | null;
+  calls: number;
+  texts: number;
+  emails: number;
+  showings: number;
+  closedDeals: number;
+  closedDealsAllTime: number;
+  underContract: number;
+  pipeline: Record<string, number>;
+  totalActivity: number;
+  totalLeads: number;
+}
+
+export interface LeaderboardPayload {
+  period: string;
+  generatedAt: string;
+  agents: AgentRow[];
+  teamTotals: {
+    calls: number;
+    texts: number;
+    emails: number;
+    showings: number;
+    closedDeals: number;
+    underContract: number;
+    totalActivity: number;
+    totalLeads: number;
+  };
+}
+
+export type Period = "today" | "week" | "month" | "quarter" | "year";
+
+export function fubHeaders(apiKey: string): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "Authorization": "Basic " + Buffer.from(`${apiKey}:`).toString("base64"),
+  };
+}
+
+async function fubGet(apiKey: string, path: string, params: Record<string, string> = {}): Promise<any> {
+  const url = new URL(`${FUB_BASE}${path}`);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const res = await fetch(url.toString(), { headers: fubHeaders(apiKey) });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`FUB ${path} → ${res.status}: ${body.slice(0, 200)}`);
+  }
+  return res.json();
+}
+
+async function fetchAllPages(apiKey: string, path: string, params: Record<string, string> = {}): Promise<any[]> {
+  const LIMIT = 200;
+  let offset = 0;
+  const all: any[] = [];
+
+  while (true) {
+    const data = await fubGet(apiKey, path, { ...params, limit: String(LIMIT), offset: String(offset) });
+    const key = Object.keys(data).find((k) => k !== "_metadata" && Array.isArray(data[k]));
+    const items: any[] = key ? data[key] : [];
+    all.push(...items);
+    const total: number = data._metadata?.total ?? items.length;
+    offset += LIMIT;
+    if (offset >= total || items.length === 0) break;
+  }
+
+  return all;
+}
+
+function getPeriodDates(period: Period): { startMs: number; startIso: string } {
+  const now = new Date();
+  let start: Date;
+
+  switch (period) {
+    case "today":   start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); break;
+    case "week": {
+      start = new Date(now);
+      start.setDate(now.getDate() - now.getDay());
+      start.setHours(0, 0, 0, 0);
+      break;
+    }
+    case "month":   start = new Date(now.getFullYear(), now.getMonth(), 1); break;
+    case "quarter": {
+      const q = Math.floor(now.getMonth() / 3);
+      start = new Date(now.getFullYear(), q * 3, 1);
+      break;
+    }
+    case "year":    start = new Date(now.getFullYear(), 0, 1); break;
+    default:        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  }
+
+  return { startMs: start.getTime(), startIso: start.toISOString() };
+}
+
+// Extract a timestamp from any FUB record — field name varies by endpoint
+function getRecordMs(record: any): number {
+  const raw = record.created ?? record.createdAt ?? record.date ??
+              record.startTime ?? record.updatedAt ?? record.updated ?? null;
+  if (!raw) return 0;
+  const ms = new Date(raw).getTime();
+  return isNaN(ms) ? 0 : ms;
+}
+
+// Resolve a FUB record to a team email using userId (numeric) then name string
+function resolveEmail(
+  obj: any,
+  idMap: Map<number, TeamEmail>,
+  nameMap: Map<string, TeamEmail>,
+): TeamEmail | undefined {
+  const numId = obj.userId ?? obj.assignedUserId ?? obj.createdByUserId;
+  if (numId != null) {
+    const e = idMap.get(Number(numId));
+    if (e) return e;
+  }
+  // Name string fallbacks — field names vary by endpoint
+  const name = (obj.userName ?? obj.assignedTo ?? obj.createdBy ?? "").toLowerCase();
+  if (name) {
+    const e = nameMap.get(name);
+    if (e) return e;
+  }
+  return undefined;
+}
+
+export async function getLeaderboardData(apiKey: string, period: Period): Promise<LeaderboardPayload> {
+  const cached = _cache.get(period);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    console.log(`[fub-lb] cache hit: ${period}`);
+    return cached.data;
+  }
+
+  console.log(`[fub-lb] fetching: period=${period}`);
+  const { startMs, startIso } = getPeriodDates(period);
+
+  // Build lookup maps from hardcoded confirmed IDs
+  const idMap = new Map<number, TeamEmail>(
+    Object.entries(FUB_ID_TO_TEAM_EMAIL).map(([id, e]) => [Number(id), e as TeamEmail]),
+  );
+  const nameMap = new Map<string, TeamEmail>(
+    Object.entries(FUB_NAME_TO_TEAM_EMAIL).map(([n, e]) => [n, e as TeamEmail]),
+  );
+  const teamEmailToFubId = new Map<TeamEmail, number>(
+    Object.entries(FUB_ID_TO_TEAM_EMAIL).map(([id, e]) => [e as TeamEmail, Number(id)]),
+  );
+
+  // Zero out counters
+  const counts: Record<string, { calls: number; texts: number; emails: number; showings: number }> = {};
+  for (const m of LEADERBOARD_TEAM) counts[m.email] = { calls: 0, texts: 0, emails: 0, showings: 0 };
+
+  // ── CALLS from /v1/calls ─────────────────────────────────────────────────
+  // Confirmed: 691 calls exist, each has userId + userName + created date.
+  // Try `since` param; client-side date filter is the reliable fallback.
+  try {
+    const calls = await fetchAllPages(apiKey, "/calls", { since: startIso });
+    let matched = 0;
+    for (const call of calls) {
+      if (getRecordMs(call) < startMs) continue; // client-side date guard
+      const email = resolveEmail(call, idMap, nameMap);
+      if (email && counts[email]) { counts[email].calls++; matched++; }
+    }
+    console.log(`[fub-lb] calls: ${calls.length} fetched, ${matched} in period for team`);
+  } catch (err: any) {
+    console.error("[fub-lb] /calls error:", err.message);
+  }
+
+  // ── SHOWINGS from /v1/appointments ──────────────────────────────────────
+  // Confirmed: 21 appointments (ShowingTime syncs here). Has userId.
+  try {
+    const appts = await fetchAllPages(apiKey, "/appointments", { since: startIso });
+    let matched = 0;
+    for (const appt of appts) {
+      if (getRecordMs(appt) < startMs) continue;
+      const email = resolveEmail(appt, idMap, nameMap);
+      if (email && counts[email]) { counts[email].showings++; matched++; }
+    }
+    console.log(`[fub-lb] appointments: ${appts.length} fetched, ${matched} in period for team`);
+  } catch (err: any) {
+    console.error("[fub-lb] /appointments error:", err.message);
+  }
+
+  // ── TEXTS from /v1/textMessages per agent ────────────────────────────────
+  // Global list is blocked — must filter by userId per agent.
+  // Fetch each team member's texts separately.
+  for (const m of LEADERBOARD_TEAM) {
+    const fubId = teamEmailToFubId.get(m.email);
+    if (!fubId) continue;
+    try {
+      const texts = await fetchAllPages(apiKey, "/textMessages", { userId: String(fubId) });
+      let matched = 0;
+      for (const t of texts) {
+        if (getRecordMs(t) < startMs) continue;
+        counts[m.email].texts++;
+        matched++;
+      }
+      if (texts.length > 0) console.log(`[fub-lb] texts for ${m.name}: ${texts.length} total, ${matched} in period`);
+    } catch (err: any) {
+      // textMessages endpoint may not support userId filter — silently skip
+      console.warn(`[fub-lb] /textMessages userId=${fubId} unavailable:`, err.message);
+    }
+  }
+
+  // ── EMAILS from /v1/emails per agent ────────────────────────────────────
+  // Same restriction as textMessages — fetch per agent userId.
+  for (const m of LEADERBOARD_TEAM) {
+    const fubId = teamEmailToFubId.get(m.email);
+    if (!fubId) continue;
+    try {
+      const emails = await fetchAllPages(apiKey, "/emails", { userId: String(fubId) });
+      let matched = 0;
+      for (const e of emails) {
+        if (getRecordMs(e) < startMs) continue;
+        counts[m.email].emails++;
+        matched++;
+      }
+      if (emails.length > 0) console.log(`[fub-lb] emails for ${m.name}: ${emails.length} total, ${matched} in period`);
+    } catch (err: any) {
+      console.warn(`[fub-lb] /emails userId=${fubId} unavailable:`, err.message);
+    }
+  }
+
+  // ── PIPELINE from /v1/people ─────────────────────────────────────────────
+  // No extra params — confirmed working in v5 without sort/direction.
+  const pipeline: Record<string, Record<string, number>> = {};
+  for (const m of LEADERBOARD_TEAM) {
+    pipeline[m.email] = {};
+    for (const s of PIPELINE_STAGES) pipeline[m.email][s] = 0;
+  }
+
+  let peopleTotal = 0;
+  let pipelineMatched = 0;
+
+  try {
+    const people = await fetchAllPages(apiKey, "/people");
+    peopleTotal = people.length;
+    for (const person of people) {
+      const stage = (person.stage ?? "") as string;
+      const email = resolveEmail(person, idMap, nameMap);
+      if (stage && email && pipeline[email] && pipeline[email][stage] !== undefined) {
+        pipeline[email][stage]++;
+        pipelineMatched++;
+      }
+    }
+    console.log(`[fub-lb] pipeline: ${peopleTotal} people, ${pipelineMatched} matched team`);
+  } catch (err: any) {
+    console.error("[fub-lb] /people error:", err.message);
+  }
+
+  // ── CLOSED DEALS from /v1/people?stage=Closed ────────────────────────────
+  const closedThisPeriod: Record<string, number> = {};
+  const closedAllTime: Record<string, number>    = {};
+  for (const m of LEADERBOARD_TEAM) { closedThisPeriod[m.email] = 0; closedAllTime[m.email] = 0; }
+
+  try {
+    const closedPeople = await fetchAllPages(apiKey, "/people", { stage: "Closed" });
+    for (const person of closedPeople) {
+      const email = resolveEmail(person, idMap, nameMap);
+      if (!email) continue;
+      if (closedAllTime[email] !== undefined) closedAllTime[email]++;
+      if (getRecordMs(person) >= startMs && closedThisPeriod[email] !== undefined) {
+        closedThisPeriod[email]++;
+      }
+    }
+    console.log(`[fub-lb] closed: ${closedPeople.length} all-time`);
+  } catch (err: any) {
+    // Fallback: use already-fetched pipeline data
+    console.warn("[fub-lb] stage=Closed filter failed, falling back to pipeline:", err.message);
+    for (const m of LEADERBOARD_TEAM) {
+      closedAllTime[m.email]    = pipeline[m.email]?.["Closed"] ?? 0;
+      closedThisPeriod[m.email] = closedAllTime[m.email];
+    }
+  }
+
+  // ── Build rows ────────────────────────────────────────────────────────────
+  const agents: AgentRow[] = LEADERBOARD_TEAM.map((m) => {
+    const c = counts[m.email];
+    const p = pipeline[m.email] ?? {};
+    const totalActivity = c.calls + c.texts + c.emails;
+    const totalLeads    = Object.values(p).reduce((sum, n) => sum + n, 0);
+
+    return {
+      email:              m.email,
+      name:               m.name,
+      initials:           m.initials,
+      isAdmin:            m.isAdmin,
+      fubUserId:          teamEmailToFubId.get(m.email) ?? null,
+      calls:              c.calls,
+      texts:              c.texts,
+      emails:             c.emails,
+      showings:           c.showings,
+      closedDeals:        closedThisPeriod[m.email] ?? 0,
+      closedDealsAllTime: closedAllTime[m.email]    ?? 0,
+      underContract:      p["Under Contract"] ?? 0,
+      pipeline:           p,
+      totalActivity,
+      totalLeads,
+    };
+  });
+
+  agents.sort((a, b) =>
+    b.totalActivity !== a.totalActivity
+      ? b.totalActivity - a.totalActivity
+      : b.closedDeals - a.closedDeals,
+  );
+
+  const teamTotals = {
+    calls:         agents.reduce((s, r) => s + r.calls, 0),
+    texts:         agents.reduce((s, r) => s + r.texts, 0),
+    emails:        agents.reduce((s, r) => s + r.emails, 0),
+    showings:      agents.reduce((s, r) => s + r.showings, 0),
+    closedDeals:   agents.reduce((s, r) => s + r.closedDeals, 0),
+    underContract: agents.reduce((s, r) => s + r.underContract, 0),
+    totalActivity: agents.reduce((s, r) => s + r.totalActivity, 0),
+    totalLeads:    agents.reduce((s, r) => s + r.totalLeads, 0),
+  };
+
+  const payload: LeaderboardPayload = {
+    period,
+    generatedAt: new Date().toISOString(),
+    agents,
+    teamTotals,
+  };
+
+  _cache.set(period, { data: payload, ts: Date.now() });
+  console.log(`[fub-lb] done — calls:${teamTotals.calls} texts:${teamTotals.texts} emails:${teamTotals.emails} showings:${teamTotals.showings} closed:${teamTotals.closedDeals}`);
+  return payload;
+}
+
+export function bustLeaderboardCache(period?: Period): void {
+  if (period) _cache.delete(period);
+  else _cache.clear();
+}
