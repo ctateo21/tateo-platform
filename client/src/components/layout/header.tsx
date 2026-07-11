@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Menu, Home, Briefcase, ChevronDown,
   LayoutDashboard, LogIn, LogOut, User, Settings as SettingsIcon,
-  Key, Banknote, RefreshCw, Shield, Tag, GraduationCap, Trophy,
+  Key, Banknote, RefreshCw, Shield, Tag, GraduationCap, BarChart2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -18,42 +18,37 @@ import { useAuth } from "@/context/auth-context";
 import AuthDialog from "@/components/ui/auth-dialog";
 import havoLogo from "@assets/havo-logo.png";
 
+const TEAM_EMAILS = new Set([
+  "christian@tateoco.com",
+  "omar@tateoco.com",
+  "kyle@tateoco.com",
+  "alex@tateoco.com",
+]);
+
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const { user, logout } = useAuth();
   const [, setLocation] = useLocation();
 
-  // Shared, single-source service list. `tabId` is the stable dashboard
-  // tab id; `serviceType` is the query param we hand off to the logged-out
-  // home/address-entry flow so it can preselect that service after the
-  // user types an address.
+  const isTeamMember = Boolean(user && TEAM_EMAILS.has((user.email ?? "").toLowerCase()));
+
   const SERVICES = [
     { label: "Purchase with Loan", tabId: "purchase",  serviceType: "purchase",  icon: Key },
     { label: "Purchase with Cash", tabId: "cash_buy",  serviceType: "cash_buy",  icon: Banknote },
     { label: "Refinance",          tabId: "refinance", serviceType: "refinance", icon: RefreshCw },
     { label: "Insurance",          tabId: "insurance", serviceType: "insurance", icon: Shield },
-    // Stable tab id in dashboard is "sellers"; route accordingly.
     { label: "Sell Your Home",     tabId: "sellers",   serviceType: "seller",    icon: Tag },
   ] as const;
 
   function handleServiceClick(svc: typeof SERVICES[number]) {
-    setIsOpen(false); // close mobile sheet if open
+    setIsOpen(false);
     if (user) {
       setLocation(`/dashboard?tab=${svc.tabId}`);
     } else {
       setLocation(`/?service=${svc.serviceType}`);
     }
   }
-
-  // Internal team-only leaderboard tab (mirrors the server-side allowlist).
-  const LEADERBOARD_TEAM_EMAILS = new Set([
-    "christian@tateoco.com",
-    "omar@tateoco.com",
-    "kyle@tateoco.com",
-    "alex@tateoco.com",
-  ]);
-  const isTeamMember = !!user && LEADERBOARD_TEAM_EMAILS.has((user.email ?? "").toLowerCase());
 
   const links = [
     { href: "/", label: "HOME", icon: <Home className="mr-2 h-4 w-4" /> },
@@ -66,7 +61,7 @@ export default function Header() {
     },
     { href: "/education", label: "EDUCATION", icon: <GraduationCap className="mr-2 h-4 w-4" /> },
     ...(isTeamMember
-      ? [{ href: "/leaderboard", label: "LEADERBOARD", icon: <Trophy className="mr-2 h-4 w-4" /> }]
+      ? [{ href: "/leaderboard", label: "LEADERBOARD", icon: <BarChart2 className="mr-2 h-4 w-4" /> }]
       : []),
   ];
 
@@ -145,7 +140,6 @@ export default function Header() {
             )
           ))}
 
-          {/* Auth section */}
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -163,6 +157,13 @@ export default function Header() {
                     <LayoutDashboard className="h-4 w-4" /> My Dashboard
                   </Link>
                 </DropdownMenuItem>
+                {isTeamMember && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/leaderboard" className="w-full cursor-pointer flex items-center gap-2">
+                      <BarChart2 className="h-4 w-4" /> Team Leaderboard
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem asChild>
                   <Link href="/settings" className="w-full cursor-pointer flex items-center gap-2">
                     <SettingsIcon className="h-4 w-4" /> Settings
@@ -199,7 +200,6 @@ export default function Header() {
               <img src={havoLogo} alt="Havo" className="h-10 w-auto" />
             </div>
 
-            {/* Mobile user info */}
             {user && (
               <div className="flex items-center gap-3 mb-6 pb-6 border-b">
                 <div className="h-9 w-9 rounded-full bg-primary text-white flex items-center justify-center font-bold text-sm shrink-0">
@@ -254,6 +254,15 @@ export default function Header() {
                   >
                     <LayoutDashboard className="h-5 w-5 mr-1" /> My Dashboard
                   </Link>
+                  {isTeamMember && (
+                    <Link
+                      href="/leaderboard"
+                      className="flex items-center text-lg font-medium text-gray-700 gap-2"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      <BarChart2 className="h-5 w-5 mr-1" /> Team Leaderboard
+                    </Link>
+                  )}
                   <Link
                     href="/settings"
                     className="flex items-center text-lg font-medium text-gray-700 gap-2"
@@ -281,7 +290,6 @@ export default function Header() {
         </Sheet>
       </div>
 
-      {/* Auth dialog (triggered from header) */}
       <AuthDialog open={authOpen} onOpenChange={setAuthOpen} />
     </header>
   );
