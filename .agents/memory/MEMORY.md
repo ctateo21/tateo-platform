@@ -8,4 +8,5 @@
 - [Seller net-proceeds shared helper](seller-net-proceeds-helper.md) — detail view, dashboard overview, and save handler must all use seller-net-proceeds.ts; gate "—" on hasSalePrice to avoid drift.
 - [Auth & password reset](auth-password-reset.md) — Supabase-only passwords (never in public tables); email-only login; reset link needs origin on Supabase Auth redirect allowlist.
 - [Full-project tsc time limit](tsc-env-limit.md) — `npx tsc --noEmit` won't finish in the sandbox; verify small edits via Vite HMR "hot updated" / no transform errors instead.
+- [GitHub sync method & checkpoint gotcha](github-sync.md) — push via connectors-sdk proxy (no raw tokens); diff vs REMOTE tree, never `git diff HEAD` (checkpoints auto-commit).
 - [QuoteRUSH live quoting](quoterush-integration.md) — secret names *_WEBID_PASSWORD/*_AGENCY_ID; shared DB address-cache (first pays, 30d TTL); cache updates keyed by leadId not caller address; auto-trigger + lost-race pollCacheForLead; poll-until-stable(3).

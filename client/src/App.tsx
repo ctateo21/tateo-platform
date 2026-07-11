@@ -27,13 +27,13 @@ import Refinance from "./pages/refinance";
 import SellerEstimate from "./pages/seller-estimate";
 import CashBuy from "./pages/cash-buy";
 import ResetPassword from "./pages/reset-password";
-import Leaderboard from "./pages/leaderboard";
 import SelectService from "./pages/select-service";
 import Subscribe from "./pages/subscribe";
 import SubscribeSuccess from "./pages/subscribe-success";
 import ProtectedRoute from "./components/protected-route";
 import ToolGate from "./components/tool-gate";
 import NotFound from "./pages/not-found";
+import Leaderboard from "./pages/leaderboard";
 
 function App() {
   return (
@@ -71,9 +71,11 @@ function App() {
                       <Route path="/cash-buy">
                         <ToolGate><CashBuy /></ToolGate>
                       </Route>
-                      <Route path="/leaderboard" component={Leaderboard} />
                       <Route path="/reset-password" component={ResetPassword} />
                       <Route path="/select-service" component={SelectService} />
+                      <Route path="/leaderboard">
+                        <ProtectedRoute><Leaderboard /></ProtectedRoute>
+                      </Route>
                       <Route component={NotFound} />
                     </Switch>
                   </main>
