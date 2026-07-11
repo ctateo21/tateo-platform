@@ -1836,34 +1836,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-      const [usersRaw, eventsRaw, peopleRaw, callsRaw] = await Promise.all([
-        fetch("https://api.followupboss.com/v1/users?limit=5",           { headers: fubHeaders(apiKey) }),
-        fetch("https://api.followupboss.com/v1/events?limit=2",          { headers: fubHeaders(apiKey) }),
-        fetch("https://api.followupboss.com/v1/people?limit=2",          { headers: fubHeaders(apiKey) }),
-        fetch(`https://api.followupboss.com/v1/events?type=Call&since=${encodeURIComponent(thirtyDaysAgo)}&limit=5`, { headers: fubHeaders(apiKey) }),
+      // Check all these endpoints in parallel
+      const [usersRaw, allEventsRaw, notesRaw, callNotesRaw, peopleRaw] = await Promise.all([
+        fetch("https://api.followupboss.com/v1/users?limit=25", { headers: fubHeaders(apiKey) }),
+        fetch("https://api.followupboss.com/v1/events?limit=10", { headers: fubHeaders(apiKey) }),
+        fetch("https://api.followupboss.com/v1/notes?limit=10", { headers: fubHeaders(apiKey) }),
+        fetch(`https://api.followupboss.com/v1/notes?subject=Call&since=${encodeURIComponent(thirtyDaysAgo)}&limit=5`, { headers: fubHeaders(apiKey) }),
+        fetch("https://api.followupboss.com/v1/people?limit=3", { headers: fubHeaders(apiKey) }),
       ]);
 
-      const [usersData, eventsData, peopleData, callsData] = await Promise.all([
-        usersRaw.json(), eventsRaw.json(), peopleRaw.json(), callsRaw.json(),
+      const [usersData, allEventsData, notesData, callNotesData, peopleData] = await Promise.all([
+        usersRaw.json(), allEventsRaw.json(), notesRaw.json(), callNotesRaw.json(), peopleRaw.json(),
       ]);
+
+      // Distinct event types to see what's actually in FUB
+      const eventTypes = [...new Set((allEventsData.events ?? []).map((e: any) => e.type))];
+
+      // Distinct note subjects/types
+      const noteSubjects = [...new Set((notesData.notes ?? []).map((n: any) => n.subject ?? n.type ?? "unknown"))];
 
       res.json({
-        users: (usersData.users ?? []).slice(0, 3).map((u: any) => ({ id: u.id, email: u.email, name: u.name })),
-        sampleEvents: (eventsData.events ?? []).slice(0, 2).map((ev: any) => ({
-          id: ev.id, type: ev.type, created: ev.created,
-          userId: ev.userId, assignedTo: ev.assignedTo,
+        // All FUB users with their IDs
+        allUsers: (usersData.users ?? []).map((u: any) => ({ id: u.id, email: u.email, name: u.name })),
+
+        // What event types actually exist
+        eventTypesFound: eventTypes,
+        sampleEvents: (allEventsData.events ?? []).slice(0, 3).map((ev: any) => ({
+          id: ev.id, type: ev.type, created: ev.created, userId: ev.userId,
         })),
-        samplePeople: (peopleData.people ?? []).slice(0, 2).map((p: any) => ({
-          id: p.id, stage: p.stage,
-          assignedUserId: p.assignedUserId, assignedTo: p.assignedTo,
-          ownerId: p.ownerId, updated: p.updated,
+
+        // Notes — this is where calls/texts/emails logged by agents are stored
+        noteSubjectsFound: noteSubjects,
+        sampleNotes: (notesData.notes ?? []).slice(0, 5).map((n: any) => ({
+          id: n.id, subject: n.subject, type: n.type, created: n.created,
+          userId: n.userId, personId: n.personId, isEmailNote: n.isEmailNote,
         })),
-        callsLast30Days: {
-          total: callsData._metadata?.total ?? 0,
-          sample: (callsData.events ?? []).slice(0, 3).map((ev: any) => ({
-            id: ev.id, type: ev.type, created: ev.created, userId: ev.userId,
+
+        // Notes filtered by subject=Call last 30 days
+        callNotesLast30Days: {
+          total: callNotesData._metadata?.total ?? (callNotesData.notes ?? []).length,
+          sample: (callNotesData.notes ?? []).slice(0, 3).map((n: any) => ({
+            id: n.id, subject: n.subject, created: n.created, userId: n.userId,
           })),
         },
+
+        // People to confirm assignedUserId field works
+        samplePeople: (peopleData.people ?? []).slice(0, 3).map((p: any) => ({
+          id: p.id, stage: p.stage, assignedUserId: p.assignedUserId,
+          assignedTo: p.assignedTo, updated: p.updated,
+        })),
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
