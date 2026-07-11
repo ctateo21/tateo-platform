@@ -1,51 +1,53 @@
 /**
- * fub-leaderboard.ts — FIXED v2
+ * fub-leaderboard.ts — v4
  *
- * Root bugs fixed vs v1:
- *   1. Events have `userId` (number), not `assignedTo.email`. Build fubIdToEmail
- *      reverse map and use ev.userId for attribution.
- *   2. People have `assignedUserId` (number), not `assignedTo.email`. Same fix.
- *   3. FUB events date filter is `since` (ISO string), not `created[gte]`.
- *   4. Pipeline stages reflect *current* state — removed date filter from people
- *      so pipeline always shows the live snapshot. Closed-this-period is counted
- *      via a dedicated stage=Closed people query filtered by updated date.
+ * Critical finding from debug endpoint:
+ * - FUB /v1/events only contains lead tracking events ("Viewed Page", etc.)
+ * - Agent activities (calls, texts, emails logged in FUB) are in /v1/notes
+ * - FUB user IDs confirmed: Christian=1, Omar=2, Courtney=3, Kyle=5, Alex=6
+ * - Christian and Omar do not appear in /v1/users but their IDs work on people records
  */
 
 const FUB_BASE = "https://api.followupboss.com/v1";
 
 const _cache = new Map<string, { data: LeaderboardPayload; ts: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
-// ── Team ─────────────────────────────────────────────────────────────────────
 export const LEADERBOARD_TEAM = [
   { email: "christian@tateoco.com", name: "Christian Tateo", initials: "CT", isAdmin: true  },
   { email: "omar@tateoco.com",      name: "Omar Andujar",    initials: "OA", isAdmin: false },
   { email: "kyle@tateoco.com",      name: "Kyle Schweinitz", initials: "KS", isAdmin: false },
-  { email: "alex@tateoco.com",      name: "Alex",            initials: "AL", isAdmin: false },
+  { email: "alex@tateoco.com",      name: "Alex Szabo",      initials: "AS", isAdmin: false },
 ] as const;
 
 export type TeamEmail = typeof LEADERBOARD_TEAM[number]["email"];
 
-// ── Pipeline stages ───────────────────────────────────────────────────────────
+// Confirmed FUB user IDs from debug endpoint output.
+// Christian=1 and Omar=2 confirmed via FUB_AGENT_IDS in routes.ts + people.assignedUserId data.
+// Kyle=5 and Alex=6 confirmed directly from /v1/users response.
+const FUB_ID_TO_TEAM_EMAIL: Record<number, TeamEmail> = {
+  1: "christian@tateoco.com",
+  2: "omar@tateoco.com",
+  5: "kyle@tateoco.com",
+  6: "alex@tateoco.com",
+};
+
+// Name fallback for people.assignedTo (which is a display name string, not an id)
+const FUB_NAME_TO_TEAM_EMAIL: Record<string, TeamEmail> = {
+  "christian tateo": "christian@tateoco.com",
+  "omar andujar":    "omar@tateoco.com",
+  "kyle schweinitz": "kyle@tateoco.com",
+  "alex szabo":      "alex@tateoco.com",
+};
+
 export const PIPELINE_STAGES = [
-  "Lead",
-  "Attempted Contact",
-  "Spoke with Customer",
-  "Appointment Set",
-  "Met with Customer",
-  "Showing Homes",
-  "Listing Agreement",
-  "Active Listing",
-  "Submitting Offers",
-  "Under Contract",
-  "Nurture",
-  "Closed",
-  "Trash",
+  "Lead", "Attempted Contact", "Spoke with Customer", "Appointment Set",
+  "Met with Customer", "Showing Homes", "Listing Agreement", "Active Listing",
+  "Submitting Offers", "Under Contract", "Nurture", "Closed", "Trash",
 ] as const;
 
 export type PipelineStage = typeof PIPELINE_STAGES[number];
 
-// ── Types ─────────────────────────────────────────────────────────────────────
 export interface AgentRow {
   email: string;
   name: string;
@@ -56,10 +58,10 @@ export interface AgentRow {
   texts: number;
   emails: number;
   showings: number;
-  closedDeals: number;       // leads with stage=Closed, updated in period
-  closedDealsAllTime: number;// leads with stage=Closed, any time (for reference)
+  closedDeals: number;
+  closedDealsAllTime: number;
   underContract: number;
-  pipeline: Record<string, number>; // current live pipeline snapshot
+  pipeline: Record<string, number>;
   totalActivity: number;
 }
 
@@ -80,7 +82,6 @@ export interface LeaderboardPayload {
 
 export type Period = "today" | "week" | "month" | "quarter" | "year";
 
-// ── HTTP helpers ──────────────────────────────────────────────────────────────
 export function fubHeaders(apiKey: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
@@ -89,11 +90,7 @@ export function fubHeaders(apiKey: string): Record<string, string> {
   };
 }
 
-async function fubGet(
-  apiKey: string,
-  path: string,
-  params: Record<string, string> = {},
-): Promise<any> {
+async function fubGet(apiKey: string, path: string, params: Record<string, string> = {}): Promise<any> {
   const url = new URL(`${FUB_BASE}${path}`);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
   const res = await fetch(url.toString(), { headers: fubHeaders(apiKey) });
@@ -104,26 +101,14 @@ async function fubGet(
   return res.json();
 }
 
-/** Paginate any FUB list endpoint. Finds the first top-level array key that
- *  isn't `_metadata` and collects all pages. */
-async function fetchAllPages(
-  apiKey: string,
-  path: string,
-  params: Record<string, string> = {},
-): Promise<any[]> {
+async function fetchAllPages(apiKey: string, path: string, params: Record<string, string> = {}): Promise<any[]> {
   const LIMIT = 200;
   let offset = 0;
   const all: any[] = [];
 
   while (true) {
-    const data = await fubGet(apiKey, path, {
-      ...params,
-      limit: String(LIMIT),
-      offset: String(offset),
-    });
-    const key = Object.keys(data).find(
-      (k) => k !== "_metadata" && Array.isArray(data[k]),
-    );
+    const data = await fubGet(apiKey, path, { ...params, limit: String(LIMIT), offset: String(offset) });
+    const key = Object.keys(data).find((k) => k !== "_metadata" && Array.isArray(data[k]));
     const items: any[] = key ? data[key] : [];
     all.push(...items);
     const total: number = data._metadata?.total ?? items.length;
@@ -134,141 +119,149 @@ async function fetchAllPages(
   return all;
 }
 
-// ── Date helpers ──────────────────────────────────────────────────────────────
 function getPeriodDates(period: Period): { start: string; end: string } {
   const now = new Date();
   let start: Date;
 
   switch (period) {
-    case "today":
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      break;
+    case "today":   start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); break;
     case "week": {
       start = new Date(now);
-      start.setDate(now.getDate() - now.getDay()); // Sunday
+      start.setDate(now.getDate() - now.getDay());
       start.setHours(0, 0, 0, 0);
       break;
     }
-    case "month":
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      break;
+    case "month":   start = new Date(now.getFullYear(), now.getMonth(), 1); break;
     case "quarter": {
       const q = Math.floor(now.getMonth() / 3);
       start = new Date(now.getFullYear(), q * 3, 1);
       break;
     }
-    case "year":
-      start = new Date(now.getFullYear(), 0, 1);
-      break;
-    default:
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    case "year":    start = new Date(now.getFullYear(), 0, 1); break;
+    default:        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   }
 
   return { start: start.toISOString(), end: now.toISOString() };
 }
 
-// ── Main fetch ────────────────────────────────────────────────────────────────
-export async function getLeaderboardData(
-  apiKey: string,
-  period: Period,
-): Promise<LeaderboardPayload> {
+// Resolve any FUB record to a team email using the confirmed ID map.
+// Events and notes use `userId`; people use `assignedUserId`.
+// `assignedTo` (string name) is the fallback for people records.
+function resolveTeamEmail(
+  obj: any,
+  idMap: Map<number, TeamEmail>,
+  nameMap: Map<string, TeamEmail>,
+): TeamEmail | undefined {
+  const numId = obj.userId ?? obj.assignedUserId;
+  if (numId != null) {
+    const e = idMap.get(Number(numId));
+    if (e) return e;
+  }
+  if (typeof obj.assignedTo === "string" && obj.assignedTo) {
+    const e = nameMap.get(obj.assignedTo.toLowerCase());
+    if (e) return e;
+  }
+  return undefined;
+}
+
+export async function getLeaderboardData(apiKey: string, period: Period): Promise<LeaderboardPayload> {
   const cached = _cache.get(period);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
     console.log(`[fub-lb] cache hit: ${period}`);
     return cached.data;
   }
 
-  console.log(`[fub-lb] fetching fresh: ${period}`);
+  console.log(`[fub-lb] fetching: period=${period}`);
   const { start } = getPeriodDates(period);
 
-  // ── Step 1: Resolve user IDs ─────────────────────────────────────────────
-  // FIX: Build *both* maps so we can go id→email when reading events/people.
-  const emailToFubId = new Map<string, number>(); // email → numeric FUB id
-  const fubIdToEmail = new Map<number, string>(); // numeric FUB id → email  ← KEY FIX
-  const fubNameToEmail = new Map<string, string>(); // "Christian Tateo" → email (fallback)
+  // Build id→email and name→email lookup maps from hardcoded confirmed IDs.
+  // We also call /v1/users to pick up any new team members not yet hardcoded.
+  const idMap = new Map<number, TeamEmail>(
+    Object.entries(FUB_ID_TO_TEAM_EMAIL).map(([id, email]) => [Number(id), email as TeamEmail]),
+  );
+  const nameMap = new Map<string, TeamEmail>(
+    Object.entries(FUB_NAME_TO_TEAM_EMAIL).map(([n, e]) => [n, e as TeamEmail]),
+  );
+  const teamEmailToFubId = new Map<TeamEmail, number>(
+    Object.entries(FUB_ID_TO_TEAM_EMAIL).map(([id, email]) => [email as TeamEmail, Number(id)]),
+  );
 
+  // Supplement with /v1/users for any ids we don't have yet
   try {
     const { users = [] } = await fubGet(apiKey, "/users");
     for (const u of users) {
-      if (!u.email || !u.id) continue;
-      const email = u.email.toLowerCase();
       const id = Number(u.id);
-      emailToFubId.set(email, id);
-      fubIdToEmail.set(id, email);          // ← the reverse map we were missing
-      if (u.name) fubNameToEmail.set(u.name.toLowerCase(), email);
+      const email = (u.email ?? "").toLowerCase() as TeamEmail;
+      const nameLower = (u.name ?? "").toLowerCase();
+      if (!idMap.has(id)) {
+        // Try matching by team email or name
+        const teamEmail = LEADERBOARD_TEAM.find(m => m.email === email)?.email
+          ?? nameMap.get(nameLower);
+        if (teamEmail) {
+          idMap.set(id, teamEmail);
+          teamEmailToFubId.set(teamEmail, id);
+          console.log(`[fub-lb] auto-resolved: ${u.name} (id=${id}) → ${teamEmail}`);
+        }
+      }
+      if (!nameMap.has(nameLower) && idMap.has(id)) {
+        nameMap.set(nameLower, idMap.get(id)!);
+      }
     }
-    console.log(`[fub-lb] resolved ${fubIdToEmail.size} FUB users`);
   } catch (err: any) {
-    console.error("[fub-lb] /users failed:", err.message);
+    console.warn("[fub-lb] /users supplemental fetch failed:", err.message);
   }
 
-  // Helper: resolve the agent email from any FUB event or person object.
-  // Events carry `userId` (number). People carry `assignedUserId` (number).
-  // Fallback to name-string for people that predate the numeric field.
-  function resolveEmail(obj: any): string | undefined {
-    // ① Numeric userId (events)
-    if (obj.userId != null) {
-      const e = fubIdToEmail.get(Number(obj.userId));
-      if (e) return e;
-    }
-    // ② Numeric assignedUserId (people)  ← FIX: was reading assignedTo.email which doesn't exist
-    if (obj.assignedUserId != null) {
-      const e = fubIdToEmail.get(Number(obj.assignedUserId));
-      if (e) return e;
-    }
-    // ③ Name string fallback (people.assignedTo is sometimes a display name)
-    if (typeof obj.assignedTo === "string" && obj.assignedTo) {
-      const e = fubNameToEmail.get(obj.assignedTo.toLowerCase());
-      if (e) return e;
-    }
-    return undefined;
-  }
+  console.log(`[fub-lb] id map: ${JSON.stringify(Object.fromEntries(idMap))}`);
 
-  // ── Step 2: Activity events (time-filtered by period) ─────────────────────
-  // FIX: FUB events API uses `since` not `created[gte]`.
-  // FUB event types: "Call", "Text Message", "Email", "Note", "Appointment"
-  const EVENT_TYPE_MAP = [
-    { fubType: "Call",         key: "calls"    },
-    { fubType: "Text Message", key: "texts"    },
-    { fubType: "Email",        key: "emails"   },
-    { fubType: "Appointment",  key: "showings" },
-  ] as const;
-
-  type ActivityKey = typeof EVENT_TYPE_MAP[number]["key"];
-
-  const activityCounts: Record<string, Record<ActivityKey, number>> = {};
+  // ── Activity: notes (calls, texts, emails logged by agents in FUB) ─────────
+  // FUB's /v1/events only contains lead tracking events (Viewed Page, form fills).
+  // Agent-logged activities live in /v1/notes with a `subject` field indicating type.
+  // Common FUB note subjects for agent activities: "Call", "Text Message", "Email",
+  // "Note". We fetch notes since the period start and bucket by subject + userId.
+  const activityCounts: Record<string, { calls: number; texts: number; emails: number; showings: number }> = {};
   for (const m of LEADERBOARD_TEAM) {
     activityCounts[m.email] = { calls: 0, texts: 0, emails: 0, showings: 0 };
   }
 
-  for (const { fubType, key } of EVENT_TYPE_MAP) {
-    try {
-      // FIX: use `since` (ISO string) — the correct FUB date filter param
-      const events = await fetchAllPages(apiKey, "/events", {
-        type:  fubType,
-        since: start,     // ← was `created[gte]` which FUB ignores
-      });
+  // Subject strings FUB uses for each activity type (covering common variations)
+  const CALL_SUBJECTS    = new Set(["call", "phone call", "outbound call", "inbound call"]);
+  const TEXT_SUBJECTS    = new Set(["text message", "text", "sms", "outbound text"]);
+  const EMAIL_SUBJECTS   = new Set(["email", "outbound email"]);
+  const SHOWING_SUBJECTS = new Set(["appointment", "showing", "meeting"]);
 
-      let matched = 0;
-      for (const ev of events) {
-        // FIX: ev.userId (number) not ev.assignedTo?.email (doesn't exist on GET)
-        const email = resolveEmail(ev);
-        if (email && activityCounts[email]) {
-          activityCounts[email][key]++;
-          matched++;
-        }
-      }
+  try {
+    // Fetch all notes created since start of period
+    const notes = await fetchAllPages(apiKey, "/notes", { since: start });
+    let matched = 0;
 
-      console.log(`[fub-lb] ${fubType}: ${events.length} events, ${matched} matched team`);
-    } catch (err: any) {
-      console.error(`[fub-lb] ${fubType} events error:`, err.message);
+    for (const note of notes) {
+      const email = resolveTeamEmail(note, idMap, nameMap);
+      if (!email || !activityCounts[email]) continue;
+
+      const subjectRaw = (note.subject ?? note.type ?? "").toLowerCase();
+
+      if (CALL_SUBJECTS.has(subjectRaw))         { activityCounts[email].calls++;    matched++; }
+      else if (TEXT_SUBJECTS.has(subjectRaw))    { activityCounts[email].texts++;    matched++; }
+      else if (EMAIL_SUBJECTS.has(subjectRaw))   { activityCounts[email].emails++;   matched++; }
+      else if (SHOWING_SUBJECTS.has(subjectRaw)) { activityCounts[email].showings++; matched++; }
     }
+
+    // Log a subject breakdown so we can see what types exist in this account
+    const subjectBreakdown: Record<string, number> = {};
+    for (const note of notes) {
+      const s = (note.subject ?? note.type ?? "unknown").toLowerCase();
+      subjectBreakdown[s] = (subjectBreakdown[s] ?? 0) + 1;
+    }
+
+    console.log(`[fub-lb] notes since ${start.slice(0,10)}: ${notes.length} total, ${matched} matched team`);
+    console.log(`[fub-lb] note subjects: ${JSON.stringify(subjectBreakdown)}`);
+  } catch (err: any) {
+    console.error("[fub-lb] /notes error:", err.message);
   }
 
-  // ── Step 3: Pipeline — current live snapshot (no date filter) ────────────
-  // FIX: Pipeline stages on people reflect *current* state, not historical.
-  // Removing the date filter so we see the real pipeline regardless of period.
-  // "This month/quarter" pipeline = who's in the pipeline right now.
+  // ── Pipeline: current live snapshot from /v1/people ───────────────────────
+  // People.assignedUserId (number) and people.assignedTo (string name) both
+  // confirmed working from debug output. No date filter — shows live pipeline.
   const pipeline: Record<string, Record<string, number>> = {};
   for (const m of LEADERBOARD_TEAM) {
     pipeline[m.email] = {};
@@ -276,18 +269,12 @@ export async function getLeaderboardData(
   }
 
   try {
-    // Fetch all people — no date filter on pipeline (see FIX note above)
-    const people = await fetchAllPages(apiKey, "/people", {
-      sort:      "updated",
-      direction: "desc",
-    });
-
+    const people = await fetchAllPages(apiKey, "/people", { sort: "updated", direction: "desc" });
     let matched = 0;
+
     for (const person of people) {
       const stage = person.stage as string | undefined;
-      // FIX: use assignedUserId (number) not assignedTo.email (wrong field)
-      const email = resolveEmail(person);
-
+      const email = resolveTeamEmail(person, idMap, nameMap);
       if (stage && email && pipeline[email] && pipeline[email][stage] !== undefined) {
         pipeline[email][stage]++;
         matched++;
@@ -296,12 +283,10 @@ export async function getLeaderboardData(
 
     console.log(`[fub-lb] pipeline: ${people.length} people, ${matched} matched team`);
   } catch (err: any) {
-    console.error("[fub-lb] people error:", err.message);
+    console.error("[fub-lb] /people error:", err.message);
   }
 
-  // ── Step 4: Closed-this-period count ─────────────────────────────────────
-  // FIX: query people whose stage=Closed AND were updated within the period.
-  // This gives "deals closed this week/month/quarter" as a true time-filtered number.
+  // ── Closed deals: stage=Closed people, filtered by updated date ───────────
   const closedThisPeriod: Record<string, number> = {};
   const closedAllTime: Record<string, number>    = {};
   for (const m of LEADERBOARD_TEAM) {
@@ -310,31 +295,25 @@ export async function getLeaderboardData(
   }
 
   try {
-    // All people currently staged as Closed
-    const closedPeople = await fetchAllPages(apiKey, "/people", {
-      stage: "Closed",
-    });
-
+    const closedPeople = await fetchAllPages(apiKey, "/people", { stage: "Closed" });
     const startMs = new Date(start).getTime();
 
     for (const person of closedPeople) {
-      const email = resolveEmail(person);
-      if (!email || closedAllTime[email] === undefined) continue;
-      closedAllTime[email]++;
-
-      // Count as "closed this period" if the record was last updated in range
-      const updatedAt = person.updated ? new Date(person.updated).getTime() : 0;
-      if (email && updatedAt >= startMs && closedThisPeriod[email] !== undefined) {
+      const email = resolveTeamEmail(person, idMap, nameMap);
+      if (!email) continue;
+      if (closedAllTime[email] !== undefined) closedAllTime[email]++;
+      const updatedMs = person.updated ? new Date(person.updated).getTime() : 0;
+      if (updatedMs >= startMs && closedThisPeriod[email] !== undefined) {
         closedThisPeriod[email]++;
       }
     }
 
-    console.log(`[fub-lb] closed all-time: ${closedPeople.length} leads`);
+    console.log(`[fub-lb] closed: ${closedPeople.length} all-time, ${Object.values(closedThisPeriod).reduce((a,b)=>a+b,0)} this period`);
   } catch (err: any) {
-    console.error("[fub-lb] closed people error:", err.message);
+    console.error("[fub-lb] closed error:", err.message);
   }
 
-  // ── Step 5: Build rows ────────────────────────────────────────────────────
+  // ── Build rows ────────────────────────────────────────────────────────────
   const agents: AgentRow[] = LEADERBOARD_TEAM.map((m) => {
     const a = activityCounts[m.email];
     const p = pipeline[m.email] ?? {};
@@ -345,7 +324,7 @@ export async function getLeaderboardData(
       name:               m.name,
       initials:           m.initials,
       isAdmin:            m.isAdmin,
-      fubUserId:          emailToFubId.get(m.email) ?? null,
+      fubUserId:          teamEmailToFubId.get(m.email) ?? null,
       calls:              a.calls,
       texts:              a.texts,
       emails:             a.emails,
@@ -382,6 +361,7 @@ export async function getLeaderboardData(
   };
 
   _cache.set(period, { data: payload, ts: Date.now() });
+  console.log(`[fub-lb] done: ${JSON.stringify(teamTotals)}`);
   return payload;
 }
 
