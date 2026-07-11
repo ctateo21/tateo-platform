@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Menu, Home, Briefcase, ChevronDown,
   LayoutDashboard, LogIn, LogOut, User, Settings as SettingsIcon,
-  Key, Banknote, RefreshCw, Shield, Tag, GraduationCap,
+  Key, Banknote, RefreshCw, Shield, Tag, GraduationCap, Trophy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -46,6 +46,15 @@ export default function Header() {
     }
   }
 
+  // Internal team-only leaderboard tab (mirrors the server-side allowlist).
+  const LEADERBOARD_TEAM_EMAILS = new Set([
+    "christian@tateoco.com",
+    "omar@tateoco.com",
+    "kyle@tateoco.com",
+    "alex@tateoco.com",
+  ]);
+  const isTeamMember = !!user && LEADERBOARD_TEAM_EMAILS.has((user.email ?? "").toLowerCase());
+
   const links = [
     { href: "/", label: "HOME", icon: <Home className="mr-2 h-4 w-4" /> },
     {
@@ -56,6 +65,9 @@ export default function Header() {
       dropdownItems: SERVICES.map(s => ({ label: s.label, onClick: () => handleServiceClick(s) })),
     },
     { href: "/education", label: "EDUCATION", icon: <GraduationCap className="mr-2 h-4 w-4" /> },
+    ...(isTeamMember
+      ? [{ href: "/leaderboard", label: "LEADERBOARD", icon: <Trophy className="mr-2 h-4 w-4" /> }]
+      : []),
   ];
 
   async function handleLogout() {
