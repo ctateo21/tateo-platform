@@ -2763,6 +2763,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ── GET /api/fub/leaderboard?period= — Tateo & Co team leaderboard ─
+  // Internal page: only the 4 team emails defined in LEADERBOARD_TEAM
+  // may access. Everyone on the team sees the full leaderboard.
+  app.get("/api/fub/leaderboard", async (req, res) => {
+    const user = await requireUser(req, res);
+    if (!user) return;
+    const { LEADERBOARD_TEAM, getLeaderboardData } = await import("./integrations/fub-leaderboard");
+    const email = (user.email || "").toLowerCase();
+    const isTeamMember = LEADERBOARD_TEAM.some((m) => m.email === email);
+    if (!isTeamMember) {
+      return res.status(403).json({ error: "Team members only" });
+    }
+    const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: "FollowUpBoss not configured" });
+    }
+    const raw = String(req.query.period || "week");
+    const allowed = ["today", "week", "month", "quarter", "year"] as const;
+    const period = (allowed as readonly string[]).includes(raw) ? (raw as typeof allowed[number]) : "week";
+    try {
+      const data = await getLeaderboardData(apiKey, period);
+      return res.json(data);
+    } catch (e: any) {
+      console.error("[leaderboard] error:", e?.message);
+      return res.status(500).json({ error: e?.message ?? "Failed to load leaderboard" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
