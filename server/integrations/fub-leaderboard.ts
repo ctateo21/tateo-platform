@@ -138,11 +138,16 @@ function getPeriodDates(period: Period): { startMs: number; startIso: string } {
     case "today":   start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); break;
     case "week": {
       start = new Date(now);
-      start.setDate(now.getDate() - now.getDay());
+      start.setDate(now.getDate() - 7);
       start.setHours(0, 0, 0, 0);
       break;
     }
-    case "month":   start = new Date(now.getFullYear(), now.getMonth(), 1); break;
+    case "month": {
+      start = new Date(now);
+      start.setDate(now.getDate() - 30);
+      start.setHours(0, 0, 0, 0);
+      break;
+    }
     case "quarter": {
       const q = Math.floor(now.getMonth() / 3);
       start = new Date(now.getFullYear(), q * 3, 1);

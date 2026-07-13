@@ -53,8 +53,8 @@ const TEAM_EMAILS = new Set([
 
 const PERIOD_LABELS: Record<Period, string> = {
   today:   "Today",
-  week:    "This Week",
-  month:   "This Month",
+  week:    "Last 7 Days",
+  month:   "Last 30 Days",
   quarter: "This Quarter",
   year:    "This Year",
 };
