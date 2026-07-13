@@ -1,14 +1,7 @@
 /**
- * fub-leaderboard.ts — v7
- *
- * Confirmed working endpoints:
- *   /v1/calls        → global list, userId field ✓
- *   /v1/appointments → global list, createdById field ✓
- *   /v1/textMessages → per-person only (personId required)
- *   /v1/emails       → per-person only (personId required)
- *   /v1/people       → pipeline + assignedUserId ✓
- *
- * FUB user IDs: Christian=1, Omar=2, Kyle=5, Alex=6
+ * fub-leaderboard.ts — v8
+ * Added: newLeads — people whose person.created falls within the period window.
+ * Counted inside the existing people loop, zero extra API calls.
  */
 
 const FUB_BASE = "https://api.followupboss.com/v1";
@@ -63,6 +56,7 @@ export interface AgentRow {
   pipeline: Record<string, number>;
   totalActivity: number;
   totalLeads: number;
+  newLeads: number;
 }
 
 export interface LeaderboardPayload {
@@ -78,6 +72,7 @@ export interface LeaderboardPayload {
     underContract: number;
     totalActivity: number;
     totalLeads: number;
+    newLeads: number;
   };
 }
 
@@ -126,11 +121,7 @@ async function fetchAllPages(apiKey: string, path: string, params: Record<string
   return all;
 }
 
-/** Run an array of async tasks with at most `concurrency` running at once */
-async function runBatched<T>(
-  tasks: (() => Promise<T>)[],
-  concurrency = 10,
-): Promise<T[]> {
+async function runBatched<T>(tasks: (() => Promise<T>)[], concurrency = 10): Promise<T[]> {
   const results: T[] = [];
   for (let i = 0; i < tasks.length; i += concurrency) {
     const batch = tasks.slice(i, i + concurrency);
@@ -163,7 +154,6 @@ function getPeriodDates(period: Period): { startMs: number; startIso: string } {
   return { startMs: start.getTime(), startIso: start.toISOString() };
 }
 
-/** Extract the best available timestamp from a FUB record */
 function getCreatedMs(record: any): number {
   const raw = record.created ?? record.createdAt ?? record.date ?? record.startTime ?? null;
   if (!raw) return 0;
@@ -171,7 +161,6 @@ function getCreatedMs(record: any): number {
   return isNaN(ms) ? 0 : ms;
 }
 
-/** Extract the last-updated timestamp from a FUB person record */
 function getUpdatedMs(record: any): number {
   const raw = record.updated ?? record.updatedAt ?? null;
   if (!raw) return 0;
@@ -179,15 +168,7 @@ function getUpdatedMs(record: any): number {
   return isNaN(ms) ? 0 : ms;
 }
 
-/** Resolve any FUB record to a team email.
- *  Checks userId, assignedUserId, createdById (appointments use this),
- *  then falls back to name strings. */
-function resolveEmail(
-  obj: any,
-  idMap: Map<number, TeamEmail>,
-  nameMap: Map<string, TeamEmail>,
-): TeamEmail | undefined {
-  // Numeric ID fields — try all known variants
+function resolveEmail(obj: any, idMap: Map<number, TeamEmail>, nameMap: Map<string, TeamEmail>): TeamEmail | undefined {
   for (const field of ["userId", "assignedUserId", "createdById", "createdByUserId"]) {
     const raw = obj[field];
     if (raw != null && Number(raw) > 0) {
@@ -195,7 +176,6 @@ function resolveEmail(
       if (e) return e;
     }
   }
-  // Name string fallbacks
   const name = (obj.userName ?? obj.assignedTo ?? obj.createdBy ?? "").toLowerCase().trim();
   if (name) return nameMap.get(name);
   return undefined;
@@ -224,7 +204,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
   const counts: Record<string, { calls: number; texts: number; emails: number; showings: number }> = {};
   for (const m of LEADERBOARD_TEAM) counts[m.email] = { calls: 0, texts: 0, emails: 0, showings: 0 };
 
-  // ── CALLS (/v1/calls — global, confirmed working) ────────────────────────
+  // ── CALLS ────────────────────────────────────────────────────────────────
   try {
     const calls = await fetchAllPages(apiKey, "/calls", { since: startIso });
     let matched = 0;
@@ -238,7 +218,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     console.error("[fub-lb] /calls error:", err.message);
   }
 
-  // ── SHOWINGS (/v1/appointments — global, uses createdById) ───────────────
+  // ── SHOWINGS ─────────────────────────────────────────────────────────────
   try {
     const appts = await fetchAllPages(apiKey, "/appointments", { since: startIso });
     let matched = 0;
@@ -252,20 +232,21 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     console.error("[fub-lb] /appointments error:", err.message);
   }
 
-  // ── PIPELINE (/v1/people — fetch all, no extra params) ──────────────────
+  // ── PIPELINE + NEW LEADS (single people fetch, no extra API calls) ────────
   const pipeline: Record<string, Record<string, number>> = {};
+  const newLeadCounts: Record<string, number> = {};
   for (const m of LEADERBOARD_TEAM) {
     pipeline[m.email] = {};
     for (const s of PIPELINE_STAGES) pipeline[m.email][s] = 0;
+    newLeadCounts[m.email] = 0;
   }
 
-  // Store active people per team member for the text/email per-person fetch below
-  // "Active in period" = person.updated falls within the period window
   const activePeopleByEmail: Record<string, Array<{ id: number }>> = {};
   for (const m of LEADERBOARD_TEAM) activePeopleByEmail[m.email] = [];
 
   let peopleTotal = 0;
   let pipelineMatched = 0;
+  let newLeadsTotal = 0;
 
   try {
     const people = await fetchAllPages(apiKey, "/people");
@@ -276,12 +257,17 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       const email = resolveEmail(person, idMap, nameMap);
 
       if (email) {
-        // Pipeline count — all people regardless of period
+        // Pipeline — all people regardless of period
         if (stage && pipeline[email] && pipeline[email][stage] !== undefined) {
           pipeline[email][stage]++;
           pipelineMatched++;
         }
-        // Track people active in this period for text/email lookup
+        // New leads — created within the period window
+        if (getCreatedMs(person) >= startMs && newLeadCounts[email] !== undefined) {
+          newLeadCounts[email]++;
+          newLeadsTotal++;
+        }
+        // Active in period — for text/email per-person fetch
         if (getUpdatedMs(person) >= startMs) {
           activePeopleByEmail[email].push({ id: person.id });
         }
@@ -289,31 +275,21 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     }
 
     const activeCount = Object.values(activePeopleByEmail).reduce((s, a) => s + a.length, 0);
-    console.log(`[fub-lb] pipeline: ${peopleTotal} people, ${pipelineMatched} matched, ${activeCount} active in period`);
+    console.log(`[fub-lb] pipeline: ${peopleTotal} people, ${pipelineMatched} matched, ${activeCount} active in period, ${newLeadsTotal} new leads`);
   } catch (err: any) {
     console.error("[fub-lb] /people error:", err.message);
   }
 
-  // ── TEXTS (/v1/textMessages — per-person, batched) ───────────────────────
-  // Fetch texts only for contacts that were active in the period.
-  // Batched 10 at a time to stay within FUB rate limits.
+  // ── TEXTS (per-person, batched) ──────────────────────────────────────────
   for (const m of LEADERBOARD_TEAM) {
     const activePeople = activePeopleByEmail[m.email];
     if (activePeople.length === 0) continue;
-
     const tasks = activePeople.map(({ id }) => async () => {
       try {
         const texts = await fetchAllPages(apiKey, "/textMessages", { personId: String(id) });
-        let n = 0;
-        for (const t of texts) {
-          if (getCreatedMs(t) >= startMs) n++;
-        }
-        return n;
-      } catch {
-        return 0;
-      }
+        return texts.filter((t) => getCreatedMs(t) >= startMs).length;
+      } catch { return 0; }
     });
-
     try {
       const results = await runBatched(tasks, 10);
       const total = results.reduce((s, n) => s + n, 0);
@@ -324,24 +300,16 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     }
   }
 
-  // ── EMAILS (/v1/emails — per-person, batched) ────────────────────────────
+  // ── EMAILS (per-person, batched) ─────────────────────────────────────────
   for (const m of LEADERBOARD_TEAM) {
     const activePeople = activePeopleByEmail[m.email];
     if (activePeople.length === 0) continue;
-
     const tasks = activePeople.map(({ id }) => async () => {
       try {
         const emails = await fetchAllPages(apiKey, "/emails", { personId: String(id) });
-        let n = 0;
-        for (const e of emails) {
-          if (getCreatedMs(e) >= startMs) n++;
-        }
-        return n;
-      } catch {
-        return 0;
-      }
+        return emails.filter((e) => getCreatedMs(e) >= startMs).length;
+      } catch { return 0; }
     });
-
     try {
       const results = await runBatched(tasks, 10);
       const total = results.reduce((s, n) => s + n, 0);
@@ -352,10 +320,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     }
   }
 
-  // ── CLOSED DEALS — use updated date so recent closings count ─────────────
-  // FIX: v6 used getCreatedMs (lead creation date) which meant leads created
-  // before the period never counted as closed this period. Now using updated
-  // date — when a lead moves to Closed, FUB updates the record that day.
+  // ── CLOSED DEALS (updated date = when moved to Closed) ───────────────────
   const closedThisPeriod: Record<string, number> = {};
   const closedAllTime: Record<string, number>    = {};
   for (const m of LEADERBOARD_TEAM) { closedThisPeriod[m.email] = 0; closedAllTime[m.email] = 0; }
@@ -366,12 +331,11 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       const email = resolveEmail(person, idMap, nameMap);
       if (!email) continue;
       if (closedAllTime[email] !== undefined) closedAllTime[email]++;
-      // Use updated date: the day the lead was moved to Closed
       if (getUpdatedMs(person) >= startMs && closedThisPeriod[email] !== undefined) {
         closedThisPeriod[email]++;
       }
     }
-    console.log(`[fub-lb] closed: ${closedPeople.length} all-time, ${Object.values(closedThisPeriod).reduce((a,b)=>a+b,0)} this period`);
+    console.log(`[fub-lb] closed: ${closedPeople.length} all-time, ${Object.values(closedThisPeriod).reduce((a, b) => a + b, 0)} this period`);
   } catch (err: any) {
     console.warn("[fub-lb] stage=Closed filter failed, using pipeline fallback:", err.message);
     for (const m of LEADERBOARD_TEAM) {
@@ -403,6 +367,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       pipeline:           p,
       totalActivity,
       totalLeads,
+      newLeads:           newLeadCounts[m.email] ?? 0,
     };
   });
 
@@ -421,6 +386,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     underContract: agents.reduce((s, r) => s + r.underContract, 0),
     totalActivity: agents.reduce((s, r) => s + r.totalActivity, 0),
     totalLeads:    agents.reduce((s, r) => s + r.totalLeads, 0),
+    newLeads:      agents.reduce((s, r) => s + r.newLeads, 0),
   };
 
   const payload: LeaderboardPayload = {
@@ -431,7 +397,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
   };
 
   _cache.set(period, { data: payload, ts: Date.now() });
-  console.log(`[fub-lb] done — calls:${teamTotals.calls} texts:${teamTotals.texts} emails:${teamTotals.emails} showings:${teamTotals.showings} closed:${teamTotals.closedDeals}`);
+  console.log(`[fub-lb] done — calls:${teamTotals.calls} texts:${teamTotals.texts} emails:${teamTotals.emails} showings:${teamTotals.showings} closed:${teamTotals.closedDeals} newLeads:${teamTotals.newLeads}`);
   return payload;
 }
 

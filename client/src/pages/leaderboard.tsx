@@ -1,8 +1,6 @@
 /**
- * leaderboard.tsx
- * Team-only activity leaderboard pulling live data from FollowUpBoss.
- * Accessible only to the 4 @tateoco.com team emails.
- * Auto-refreshes every 5 minutes.
+ * leaderboard.tsx — v8
+ * Added: New Leads column (🌱) showing leads created in the selected period.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -25,6 +23,8 @@ interface AgentRow {
   underContract: number;
   pipeline: Record<string, number>;
   totalActivity: number;
+  totalLeads: number;
+  newLeads: number;
 }
 
 interface LeaderboardData {
@@ -39,6 +39,8 @@ interface LeaderboardData {
     closedDeals: number;
     underContract: number;
     totalActivity: number;
+    totalLeads: number;
+    newLeads: number;
   };
 }
 
@@ -132,11 +134,16 @@ function AgentCard({ agent, rank }: { agent: AgentRow; rank: number }) {
         <StatBadge value={agent.emails}   label="Emails"   color="text-orange-400" />
         <StatBadge value={agent.showings} label="Showings" color="text-teal-400" />
       </div>
-      {agent.underContract > 0 && (
-        <p className="text-xs text-yellow-400 font-medium">
-          🔑 {agent.underContract} Under Contract
-        </p>
-      )}
+      <div className="flex gap-4">
+        {agent.underContract > 0 && (
+          <p className="text-xs text-yellow-400 font-medium">🔑 {agent.underContract} Under Contract</p>
+        )}
+        {agent.newLeads > 0 && (
+          <p className="text-xs text-emerald-400 font-medium">
+            🌱 {agent.newLeads} New {agent.newLeads === 1 ? "Lead" : "Leads"}
+          </p>
+        )}
+      </div>
       <div className="border-t border-gray-700 pt-2">
         <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Pipeline</p>
         <PipelineBar pipeline={agent.pipeline} />
@@ -175,6 +182,7 @@ function AgentTableRow({ agent, rank }: { agent: AgentRow; rank: number }) {
         )}
       </td>
       <td className="px-4 py-4 text-center"><span className="text-lg font-bold text-white">{agent.totalActivity}</span></td>
+      <td className="px-4 py-4 text-center"><span className="text-lg font-bold text-emerald-400">{agent.newLeads}</span></td>
       <td className="px-4 py-4"><PipelineBar pipeline={agent.pipeline} /></td>
     </tr>
   );
@@ -291,15 +299,16 @@ export default function Leaderboard() {
 
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
         {totals && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
             {[
-              { label: "📞 Calls",    value: totals.calls,          color: "text-blue-400" },
-              { label: "💬 Texts",    value: totals.texts,          color: "text-purple-400" },
-              { label: "📧 Emails",   value: totals.emails,         color: "text-orange-400" },
-              { label: "🏠 Showings", value: totals.showings,       color: "text-teal-400" },
-              { label: "🔑 Contract", value: totals.underContract,  color: "text-yellow-400" },
-              { label: "🏆 Closed",   value: totals.closedDeals,    color: "text-green-400" },
-              { label: "⚡ Total",     value: totals.totalActivity,  color: "text-white" },
+              { label: "📞 Calls",     value: totals.calls,         color: "text-blue-400" },
+              { label: "💬 Texts",     value: totals.texts,         color: "text-purple-400" },
+              { label: "📧 Emails",    value: totals.emails,        color: "text-orange-400" },
+              { label: "🏠 Showings",  value: totals.showings,      color: "text-teal-400" },
+              { label: "🔑 Contract",  value: totals.underContract, color: "text-yellow-400" },
+              { label: "🏆 Closed",    value: totals.closedDeals,   color: "text-green-400" },
+              { label: "⚡ Total",      value: totals.totalActivity, color: "text-white" },
+              { label: "🌱 New Leads", value: totals.newLeads,      color: "text-emerald-400" },
             ].map(({ label, value, color }) => (
               <div key={label} className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
                 <p className={`text-2xl font-bold ${color}`}>{value}</p>
@@ -334,7 +343,7 @@ export default function Leaderboard() {
                 <thead>
                   <tr className="bg-gray-900/60 border-b border-gray-700">
                     <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wide w-12">#</th>
-                    <th className="px-4 py-3 text-left   text-xs font-semibold text-gray-400 uppercase tracking-wide">Agent</th>
+                    <th className="px-4 py-3 text-left   text-xs font-semibold text-gray-400   uppercase tracking-wide">Agent</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-blue-400   uppercase tracking-wide">📞 Calls</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-purple-400 uppercase tracking-wide">💬 Texts</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-orange-400 uppercase tracking-wide">📧 Emails</th>
@@ -342,6 +351,7 @@ export default function Leaderboard() {
                     <th className="px-4 py-3 text-center text-xs font-semibold text-yellow-400 uppercase tracking-wide">🔑 Contract</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-green-400  uppercase tracking-wide">🏆 Closed</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-white      uppercase tracking-wide">⚡ Total</th>
+                    <th className="px-4 py-3 text-center text-xs font-semibold text-emerald-400 uppercase tracking-wide">🌱 New Leads</th>
                     <th className="px-4 py-3 text-left   text-xs font-semibold text-gray-400   uppercase tracking-wide">Pipeline</th>
                   </tr>
                 </thead>
@@ -366,7 +376,7 @@ export default function Leaderboard() {
         {data && (
           <p className="text-center text-xs text-gray-600">
             Period: <strong className="text-gray-500">{PERIOD_LABELS[period as Period]}</strong>
-            {" · "}Showings = FUB Appointment events · Pipeline = leads updated in period
+            {" · "}New Leads = FUB person.created in period · Pipeline = current stage snapshot
             {" · "}Data generated {new Date(data.generatedAt).toLocaleString()}
           </p>
         )}
