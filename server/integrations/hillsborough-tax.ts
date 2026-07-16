@@ -275,7 +275,7 @@ export async function getHillsboroughTax(params: {
     municipality: parcel.siteCity || "Unincorporated",
     millageRate: totalMills,
     homestead: params.isPrimaryResidence,
-    source: "hcpa-api",
+    source: rates ? "hcpa-api" : "formula-fallback",
   };
 }
 
