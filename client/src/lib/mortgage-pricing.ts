@@ -120,6 +120,7 @@ export interface PricingInputs {
   creditScore?: number | null;
   propertyType: PropertyType;
   liveRates: LiveRate[];
+  loanAmount?: number | null;
 }
 
 export interface PricingResult {
@@ -131,6 +132,7 @@ export interface PricingResult {
   /** False for loan types where dedicated pricing is not yet wired
    *  (DSCR, Bank Statement). UI should surface a warning. */
   pricingConnected: boolean;
+  loanAmountAdj: number;
 }
 
 /** Round a percentage rate to the nearest 3 decimal places. Used by
@@ -156,7 +158,12 @@ export function priceLoan(inputs: PricingInputs): PricingResult {
   // so it can never be double-applied. FHA / VA / USDA / DSCR /
   // Bank Statement are untouched.
   const conventionalAdj = loanType === "conventional" ? -0.1 : 0;
-  const rate = roundRateToThreeDecimals(baseRate + creditAdj + occupancyAdj + conventionalAdj);
+  const { loanAmount } = inputs;
+  const loanAmountAdj =
+    (loanAmount && loanAmount > 0 && loanAmount < 250_000)
+      ? 0.25
+      : 0;
+  const rate = roundRateToThreeDecimals(baseRate + creditAdj + occupancyAdj + conventionalAdj + loanAmountAdj);
 
   // Temporary debug logs — see spec request.
   // Property value / loan amount / LTV are not pricing inputs in the
@@ -170,5 +177,6 @@ export function priceLoan(inputs: PricingInputs): PricingResult {
     creditAdj,
     occupancyAdj,
     pricingConnected: loanType !== "dscr" && loanType !== "bank_statement",
+    loanAmountAdj,
   };
 }

@@ -452,6 +452,15 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
     creditScore: loan.creditScore,
     propertyType,
     liveRates,
+    // Spec: pass the new refinance loan amount. `clampedLoan` lives in
+    // CashOutSection's scope, so use the persisted cash-out amount when
+    // on the cash-out tab, otherwise the current balance (rate & term).
+    loanAmount:
+      activeTab === "cash_out" &&
+      typeof loan.cashOutNewLoanAmount === "number" &&
+      loan.cashOutNewLoanAmount > 0
+        ? loan.cashOutNewLoanAmount
+        : loan.loanBalance,
   });
   const adjustedRate = pricing.rate;
   const rateAdj = pricing.occupancyAdj;

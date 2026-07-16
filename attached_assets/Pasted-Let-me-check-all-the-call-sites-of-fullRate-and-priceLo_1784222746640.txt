@@ -1,0 +1,334 @@
+Let me check all the call sites of `fullRate` and `priceLoan` before writing the prompt so Replit knows exactly what to update.Good — I have everything I need. The loan amount in `estimate.tsx` is `inputs.purchasePrice * (1 - inputs.downPaymentPct / 100)` and in `loan-tracker.tsx` it's `clampedLoan` (the new loan amount on the refinance). Here's the precise prompt:
+
+```
+Add a small loan balance add-on to the rate
+engine: when the loan amount is strictly
+less than $250,000, add 0.25% to the final
+rate. Apply this after all other adjustments
+(credit score, occupancy, AMI discount,
+concessions) but before the final rounding.
+
+Make changes in exactly two files.
+Do not change anything else.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILE 1 — client/src/pages/estimate.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── 1A. Add loanAmount to fullRate ────────
+
+Find the fullRate function signature:
+
+  function fullRate(
+    base: number,
+    score: number,
+    occupancy: "primary" | "secondary" |
+      "investment",
+    downPct: number,
+    loanType?: string,
+    monthlyIncome?: number | null,
+    annualAMI?: number | null,
+    propertyType?: string | null,
+  ): number {
+
+Add loanAmount as the last parameter:
+
+  function fullRate(
+    base: number,
+    score: number,
+    occupancy: "primary" | "secondary" |
+      "investment",
+    downPct: number,
+    loanType?: string,
+    monthlyIncome?: number | null,
+    annualAMI?: number | null,
+    propertyType?: string | null,
+    loanAmount?: number | null,
+  ): number {
+
+── 1B. Add the adjustment inside fullRate ─
+
+Find this line near the end of fullRate,
+just before the return statement:
+
+  return Math.round(rate * 1000) / 1000;
+
+Insert these lines directly BEFORE it:
+
+  // Small loan balance add-on:
+  // loans under $250k carry a +0.25%
+  // rate increase to offset lower yield.
+  if (loanAmount && loanAmount > 0 &&
+      loanAmount < 250_000) {
+    rate += 0.25;
+  }
+
+── 1C. Update every fullRate call site ───
+
+There are 13 call sites of fullRate in this
+file. For each one, compute the loan amount
+and pass it as the final argument.
+
+The loan amount formula is:
+  p.purchasePrice *
+    (1 - (p.downPaymentPct ?? 0) / 100)
+
+For call sites that use a different local
+variable name for down payment percentage
+(e.g. newDown, finalPct), use that
+variable instead of p.downPaymentPct.
+
+Go through EVERY call to fullRate and add
+the loanAmount argument at the end.
+
+Here are the exact current call sites —
+update each one by appending the computed
+loanAmount:
+
+CALL SITE 1 (line ~2542):
+  fullRate(
+    (liveRates as any)[p.loanType]
+      ?? liveRates.fha,
+    p.creditScore, p.occupancy,
+    p.downPaymentPct, p.loanType,
+    p.monthlyIncome, amiData?.annualAMI,
+    p.propertyType
+  )
+→ Append:
+    p.purchasePrice *
+      (1 - (p.downPaymentPct ?? 0) / 100)
+
+CALL SITE 2 (line ~2559):
+  fullRate(baseRate, p.creditScore,
+    p.occupancy, p.downPaymentPct,
+    p.loanType, p.monthlyIncome,
+    amiData?.annualAMI, p.propertyType)
+→ Append:
+    p.purchasePrice *
+      (1 - (p.downPaymentPct ?? 0) / 100)
+
+CALL SITE 3 (line ~2574):
+  fullRate(baseRate, p.creditScore,
+    p.occupancy, p.downPaymentPct,
+    p.loanType, p.monthlyIncome,
+    amiData?.annualAMI, p.propertyType)
+→ Append:
+    p.purchasePrice *
+      (1 - (p.downPaymentPct ?? 0) / 100)
+
+CALL SITE 4 (line ~2631, uses newDown):
+  fullRate(baseRate, p.creditScore,
+    p.occupancy, newDown, lt,
+    p.monthlyIncome, amiData?.annualAMI,
+    p.propertyType)
+→ Append:
+    p.purchasePrice *
+      (1 - (newDown ?? 0) / 100)
+
+CALL SITE 5 (line ~2666, uses newDown
+and forcedLoan):
+  fullRate(baseRate, p.creditScore, occ,
+    newDown, forcedLoan, p.monthlyIncome,
+    amiData?.annualAMI, p.propertyType)
+→ Append:
+    p.purchasePrice *
+      (1 - (newDown ?? 0) / 100)
+
+CALL SITE 6 (line ~2704):
+  fullRate(baseRate, score, p.occupancy,
+    p.downPaymentPct, autoLoanType,
+    p.monthlyIncome, amiData?.annualAMI,
+    p.propertyType)
+→ Append:
+    p.purchasePrice *
+      (1 - (p.downPaymentPct ?? 0) / 100)
+
+CALL SITE 7 (line ~2776, uses newDown):
+  fullRate(baseRate, p.creditScore,
+    p.occupancy, newDown, rec,
+    p.monthlyIncome, amiData?.annualAMI,
+    p.propertyType)
+→ Append:
+    p.purchasePrice *
+      (1 - (newDown ?? 0) / 100)
+
+CALL SITE 8 (line ~2805, uses newDown):
+  fullRate(
+    (rates as any)[p.loanType]
+      ?? rates.conventional,
+    p.creditScore, p.occupancy, newDown,
+    p.loanType, p.monthlyIncome,
+    amiData?.annualAMI, p.propertyType)
+→ Append:
+    p.purchasePrice *
+      (1 - (newDown ?? 0) / 100)
+
+CALL SITE 9 (line ~2831, uses finalPct):
+  fullRate(
+    (rates as any)[p.loanType]
+      ?? rates.conventional,
+    p.creditScore, p.occupancy, finalPct,
+    p.loanType, p.monthlyIncome,
+    amiData?.annualAMI, p.propertyType)
+→ Append:
+    p.purchasePrice *
+      (1 - (finalPct ?? 0) / 100)
+
+CALL SITE 10 (line ~4281, VA suggestion):
+  fullRate(rates.va, p.creditScore,
+    p.occupancy, 0, "va")
+→ Append:
+    p.purchasePrice * 1
+  (0% down = full price as loan amount
+   for this suggestion display)
+
+CALL SITE 11 (line ~4297, conventional
+suggestion):
+  fullRate(rates.conventional,
+    p.creditScore, p.occupancy,
+    p.downPaymentPct, "conventional",
+    p.monthlyIncome, amiData?.annualAMI,
+    p.propertyType)
+→ Append:
+    p.purchasePrice *
+      (1 - (p.downPaymentPct ?? 0) / 100)
+
+For any other fullRate call sites not
+listed above, apply the same pattern:
+compute purchasePrice × (1 - downPct/100)
+using whichever down payment variable is
+in scope and pass it as the last argument.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILE 2 — client/src/lib/mortgage-pricing.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── 2A. Add loanAmount to PricingInputs ───
+
+Find the PricingInputs interface:
+
+  export interface PricingInputs {
+    loanType: LoanType;
+    creditScore?: number | null;
+    propertyType: PropertyType;
+    liveRates: LiveRate[];
+  }
+
+Add the new optional field:
+
+  export interface PricingInputs {
+    loanType: LoanType;
+    creditScore?: number | null;
+    propertyType: PropertyType;
+    liveRates: LiveRate[];
+    loanAmount?: number | null;
+  }
+
+── 2B. Add loanAmount to PricingResult ───
+
+Find the PricingResult interface and add:
+
+  export interface PricingResult {
+    rate: number;
+    baseRate: number;
+    creditAdj: number;
+    occupancyAdj: number;
+    pricingConnected: boolean;
+    loanAmountAdj: number;
+  }
+
+── 2C. Apply the adjustment in priceLoan ─
+
+Find the priceLoan function. Locate this
+section inside it:
+
+  const rate = roundRateToThreeDecimals(
+    baseRate + creditAdj +
+    occupancyAdj + conventionalAdj
+  );
+
+Replace it with:
+
+  const { loanAmount } = inputs;
+  const loanAmountAdj =
+    (loanAmount && loanAmount > 0 &&
+      loanAmount < 250_000)
+      ? 0.25
+      : 0;
+
+  const rate = roundRateToThreeDecimals(
+    baseRate + creditAdj +
+    occupancyAdj + conventionalAdj +
+    loanAmountAdj
+  );
+
+Then update the return statement to
+include the new field:
+
+  return {
+    rate,
+    baseRate,
+    creditAdj,
+    occupancyAdj,
+    pricingConnected: loanType !== "dscr"
+      && loanType !== "bank_statement",
+    loanAmountAdj,
+  };
+
+── 2D. Update priceLoan call in
+   loan-tracker.tsx ──────────────────────
+
+File: client/src/components/refi/
+      loan-tracker.tsx
+
+Find the priceLoan call:
+
+  const pricing = priceLoan({
+    loanType,
+    creditScore: loan.creditScore,
+    propertyType,
+    liveRates,
+  });
+
+Replace it with:
+
+  const pricing = priceLoan({
+    loanType,
+    creditScore: loan.creditScore,
+    propertyType,
+    liveRates,
+    loanAmount: clampedLoan,
+  });
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   Fix any type errors. The most likely
+   errors will be missing loanAmountAdj
+   in any PricingResult destructure
+   elsewhere in the codebase. Add
+   loanAmountAdj: number to any
+   interface extension that extends
+   PricingResult.
+
+2. Run: npx vite build
+   Confirm clean build.
+
+3. Sanity check — for a $200,000 loan
+   on a primary conventional with a 740
+   credit score:
+   - Base rate (live or fallback)
+   - creditAdj:     +0.05%  (740–759 tier)
+   - occupancyAdj:   0%     (primary)
+   - conventionalAdj: -0.10%
+   - loanAmountAdj: +0.25%  (< $250k)
+   Final = base + 0.20%
+
+4. Confirm a $300,000 loan on the same
+   scenario gets NO loanAmountAdj (0%).
+
+5. Report lines changed in each file
+   and build status.
+```

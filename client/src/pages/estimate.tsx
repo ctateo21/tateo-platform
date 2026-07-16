@@ -646,6 +646,7 @@ function fullRate(
   monthlyIncome?: number | null,
   annualAMI?: number | null,
   propertyType?: string | null,
+  loanAmount?: number | null,
 ): number {
   // FHA, VA, and USDA share the same credit-score adjustment table
   // (`fhaCreditAdjustment`). Conventional / DSCR / Bank Statement
@@ -697,6 +698,13 @@ function fullRate(
   // Round once at the engine boundary so both the payment math and
   // the displayed rate use the same 3-decimal value (avoids
   // 6.774999% style float artifacts).
+  // Small loan balance add-on:
+  // loans under $250k carry a +0.25%
+  // rate increase to offset lower yield.
+  if (loanAmount && loanAmount > 0 &&
+      loanAmount < 250_000) {
+    rate += 0.25;
+  }
   return Math.round(rate * 1000) / 1000;
 }
 
@@ -2489,7 +2497,7 @@ export default function Estimate() {
   useEffect(() => {
     if (liveRates && !ratesLoadedRef.current) {
       ratesLoadedRef.current = true;
-      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType) }));
+      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (p.downPaymentPct ?? 0) / 100)) }));
     }
   }, [liveRates]);
 
@@ -2506,7 +2514,7 @@ export default function Estimate() {
     if (inputs.loanType !== "conventional" || inputs.occupancy !== "primary") return;
     setInputs((p) => {
       const baseRate = (rates as any)[p.loanType] ?? rates.conventional;
-      const next = fullRate(baseRate, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType);
+      const next = fullRate(baseRate, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (p.downPaymentPct ?? 0) / 100));
       return next === p.interestRate ? p : { ...p, interestRate: next };
     });
   }, [inputs.monthlyIncome, amiData?.annualAMI, inputs.loanType, inputs.occupancy]);
@@ -2521,7 +2529,7 @@ export default function Estimate() {
   useEffect(() => {
     setInputs((p) => {
       const baseRate = (rates as any)[p.loanType] ?? rates.conventional;
-      const next = fullRate(baseRate, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType);
+      const next = fullRate(baseRate, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (p.downPaymentPct ?? 0) / 100));
       return next === p.interestRate ? p : { ...p, interestRate: next };
     });
   }, [inputs.propertyType]);
@@ -2578,7 +2586,7 @@ export default function Estimate() {
       return {
         ...p,
         loanType: lt,
-        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, lt, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
+        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, lt, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (newDown ?? 0) / 100)),
         downPaymentPct: newDown,
       };
     });
@@ -2613,7 +2621,7 @@ export default function Estimate() {
         ...p,
         occupancy: occ,
         loanType: forcedLoan,
-        interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
+        interestRate: fullRate(baseRate, p.creditScore, occ, newDown, forcedLoan, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (newDown ?? 0) / 100)),
         downPaymentPct: newDown,
         rentalType: occ === "investment" ? p.rentalType : null,
         annualTaxes: computePropertyTax(address, p.purchasePrice, occ, p.vaDisabilityRating100),
@@ -2651,7 +2659,7 @@ export default function Estimate() {
         ...p,
         creditScore: score,
         loanType: autoLoanType,
-        interestRate: fullRate(baseRate, score, p.occupancy, p.downPaymentPct, autoLoanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
+        interestRate: fullRate(baseRate, score, p.occupancy, p.downPaymentPct, autoLoanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (p.downPaymentPct ?? 0) / 100)),
       };
     });
   }
@@ -2723,7 +2731,7 @@ export default function Estimate() {
         downPaymentPct: newDown,
         downPaymentAmount: Math.round(p.purchasePrice * (newDown / 100)),
         downPaymentMode: "percent",
-        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, rec, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
+        interestRate: fullRate(baseRate, p.creditScore, p.occupancy, newDown, rec, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (newDown ?? 0) / 100)),
       };
     });
     // NOTE: No FHA-DPA / `uses_dpa` / `dpa_type` fields exist in the
@@ -2752,7 +2760,7 @@ export default function Estimate() {
         downPaymentPct: newDown,
         downPaymentMode: "percent",
         downPaymentAmount: newAmt,
-        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
+        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, newDown, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (newDown ?? 0) / 100)),
       };
     });
   }
@@ -2778,7 +2786,7 @@ export default function Estimate() {
         downPaymentAmount: finalAmt,
         downPaymentPct: finalPct,
         downPaymentMode: "amount",
-        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, finalPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType),
+        interestRate: fullRate((rates as any)[p.loanType] ?? rates.conventional, p.creditScore, p.occupancy, finalPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (finalPct ?? 0) / 100)),
       };
     });
   }
@@ -4173,7 +4181,7 @@ export default function Estimate() {
                             vaDisability: null,
                             vaDisabilityRating100: null,
                             vaLoanUse: null,
-                            interestRate: fullRate(rates.va, p.creditScore, p.occupancy, 0, "va"),
+                            interestRate: fullRate(rates.va, p.creditScore, p.occupancy, 0, "va", undefined, undefined, undefined, p.purchasePrice * 1),
                             // Clear any prior exemption since the rating-100 answer is being reset
                             annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, null),
                           }))}
@@ -4189,7 +4197,7 @@ export default function Estimate() {
                             vaDisability: null,
                             vaDisabilityRating100: null,
                             vaLoanUse: null,
-                            interestRate: fullRate(rates.conventional, p.creditScore, p.occupancy, p.downPaymentPct, "conventional", p.monthlyIncome, amiData?.annualAMI, p.propertyType),
+                            interestRate: fullRate(rates.conventional, p.creditScore, p.occupancy, p.downPaymentPct, "conventional", p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (p.downPaymentPct ?? 0) / 100)),
                             annualTaxes: computePropertyTax(address, p.purchasePrice, p.occupancy, null),
                           }))}
                           className={`flex-1 py-1.5 rounded-md text-xs font-semibold border transition-colors ${inputs.isVeteran === false ? "bg-primary text-white border-primary" : "border-border text-muted-foreground hover:border-primary"}`}
