@@ -49,6 +49,7 @@ export interface HCPATaxResult {
   taxDistrict: string;
   totalMillageRate: number;
   homestead: boolean;
+  folio: string | null;
   source: "hcpa-api";
 }
 
@@ -68,7 +69,7 @@ function streetForSearch(fullAddress: string): string {
  *  Returns null when address is not found. */
 async function lookupPIN(
   address: string
-): Promise<string | null> {
+): Promise<{ pin: string; folio: string | null } | null> {
   const query = encodeURIComponent(
     streetForSearch(address)
   );
@@ -100,7 +101,8 @@ async function lookupPIN(
           .includes(inputCity)
     ) ?? results[0];
 
-  return best.pin ?? null;
+  if (!best.pin) return null;
+  return { pin: best.pin, folio: best.folio ?? null };
 }
 
 /** Step 2: Fetch tax data by PIN. */
@@ -209,14 +211,15 @@ export async function getHillsboroughTax(params: {
   isPrimaryResidence: boolean;
 }): Promise<HCPATaxResult | null> {
   // Step 1: address → PIN
-  const pin = await lookupPIN(params.address);
-  if (!pin) {
+  const found = await lookupPIN(params.address);
+  if (!found) {
     console.log(
       "[hcpa-tax] PIN not found for:",
       params.address
     );
     return null;
   }
+  const pin = found.pin;
   console.log("[hcpa-tax] PIN:", pin);
 
   // Step 2: PIN → tax data
@@ -265,6 +268,7 @@ export async function getHillsboroughTax(params: {
     taxDistrict: taxData.taxDistrict,
     totalMillageRate: taxData.totalTaxRate,
     homestead: params.isPrimaryResidence,
+    folio: found.folio,
     source: "hcpa-api",
   };
 }

@@ -491,3 +491,26 @@ export const insuranceQuoteCache = pgTable(
 
 export type InsuranceQuoteCache =
   typeof insuranceQuoteCache.$inferSelect;
+
+// Cached non-ad valorem assessments (CDD, solid waste, stormwater, etc.)
+// scraped from the Hillsborough Tax Collector's latest annual bill via
+// Apify. Keyed by folio; refreshed yearly.
+export const nonAdValoremCache = pgTable(
+  "non_ad_valorem_cache",
+  {
+    id: serial("id").primaryKey(),
+    folio: text("folio").notNull().unique(),
+    accountNumber: text("account_number"),
+    billYear: integer("bill_year"),
+    status: text("status").notNull().default("pending"),
+    lines: jsonb("lines")
+      .$type<Array<{ authority: string; amount: number }>>()
+      .default([]),
+    totalNonAdValorem: integer("total_non_ad_valorem").default(0),
+    fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  }
+);
+
+export type NonAdValoremCache =
+  typeof nonAdValoremCache.$inferSelect;

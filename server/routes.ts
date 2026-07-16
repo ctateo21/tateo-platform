@@ -20,6 +20,7 @@ import {
 } from "@shared/schema";
 import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowProperty } from "./integrations/zillow";
 import { getHillsboroughTax, isHillsboroughCountyAddress } from "./integrations/hillsborough-tax";
+import { getNonAdValoremForFolio } from "./integrations/tax-bill-scraper";
 import { fetchGoogleReviews, getMockReviews } from "./integrations/google-reviews";
 import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
 import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
@@ -576,11 +577,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         if (result) {
+          // HCPA's nonAdValoremTaxes field is 0 for every parcel, so
+          // fetch the real CDD/assessment lines from the Tax Collector
+          // bill (Apify scrape, cached per folio).
+          let nonAdValoremTax = result.nonAdValoremTax;
+          let nonAdValoremLines:
+            Array<{ authority: string; amount: number }> = [];
+          if (result.folio) {
+            const nav = await getNonAdValoremForFolio(result.folio);
+            if (nav) {
+              nonAdValoremTax = Math.round(nav.total);
+              nonAdValoremLines = nav.lines;
+            }
+          }
+          const annualTax =
+            result.adValoremTax + nonAdValoremTax;
           return res.json({
-            annualTax: result.annualTax,
-            monthlyTax: result.monthlyTax,
+            annualTax,
+            monthlyTax:
+              Math.round((annualTax / 12) * 100) / 100,
             adValoremTax: result.adValoremTax,
-            nonAdValoremTax: result.nonAdValoremTax,
+            nonAdValoremTax,
+            nonAdValoremLines,
             taxDistrict: result.taxDistrict,
             millageRate: result.totalMillageRate,
             homestead: result.homestead,
