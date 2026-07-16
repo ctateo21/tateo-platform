@@ -58,8 +58,8 @@ function emptyBucket(): DealBucket {
 
 function addToBucket(bucket: DealBucket, deal: any): void {
   bucket.count++;
-  bucket.volume     += Number(deal.price          ?? 0);
-  bucket.commission += Number(deal.agentCommission ?? 0);
+  bucket.volume     += Number(deal.price           ?? 0);
+  bucket.commission += Number(deal.commissionValue ?? 0);
 }
 
 export interface AgentDeals {
