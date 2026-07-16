@@ -1,6 +1,7 @@
 /**
- * leaderboard.tsx — v8
- * Added: New Leads column (🌱) showing leads created in the selected period.
+ * leaderboard.tsx — v9
+ * Added: Deal Pipeline section — Real Estate (Active Listing, Under Contract Buy/Sell,
+ * 2026 Buy/Sell) and Mortgage (Under Contract, 2026 Closed) per agent.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -9,6 +10,25 @@ import { useAuth } from "@/context/auth-context";
 import { authedFetch } from "@/lib/authed-fetch";
 
 type Period = "today" | "yesterday" | "week" | "month" | "quarter" | "year";
+
+interface DealBucket {
+  count:      number;
+  volume:     number;
+  commission: number;
+}
+
+interface AgentDeals {
+  reActiveListing:       DealBucket;
+  reUnderContractBuy:    DealBucket;
+  reUnderContractSell:   DealBucket;
+  re2026Buy:             DealBucket;
+  re2026Sell:            DealBucket;
+  mortgageUnderContract: DealBucket;
+  mortgage2026:          DealBucket;
+  totalVolume:     number;
+  totalCommission: number;
+  totalCount:      number;
+}
 
 interface AgentRow {
   email: string;
@@ -25,6 +45,7 @@ interface AgentRow {
   totalActivity: number;
   totalLeads: number;
   newLeads: number;
+  deals: AgentDeals;
 }
 
 interface LeaderboardData {
@@ -41,6 +62,9 @@ interface LeaderboardData {
     totalActivity: number;
     totalLeads: number;
     newLeads: number;
+    dealVolume: number;
+    dealCommission: number;
+    dealCount: number;
   };
 }
 
@@ -55,23 +79,26 @@ const TEAM_EMAILS = new Set([
 const PERIOD_LABELS: Record<Period, string> = {
   today:     "Today",
   yesterday: "Yesterday",
-  week:    "Last 7 Days",
-  month:   "Last 30 Days",
-  quarter: "This Quarter",
-  year:    "This Year",
+  week:      "Last 7 Days",
+  month:     "Last 30 Days",
+  quarter:   "This Quarter",
+  year:      "This Year",
 };
 
 const HIGHLIGHT_STAGES = [
-  "Lead",
-  "Attempted Contact",
-  "Appointment Set",
-  "Showing Homes",
-  "Submitting Offers",
-  "Under Contract",
-  "Closed",
+  "Lead", "Attempted Contact", "Appointment Set",
+  "Showing Homes", "Submitting Offers", "Under Contract", "Closed",
 ];
 
 const AUTO_REFRESH_MS = 5 * 60 * 1000;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmt$(n: number): string {
+  if (n === 0) return "—";
+  if (n >= 1_000_000) return "$" + (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000)     return "$" + (n / 1_000).toFixed(0) + "K";
+  return "$" + n.toLocaleString();
+}
 
 function StatBadge({ value, label, color }: { value: number; label: string; color: string }) {
   return (
@@ -112,6 +139,23 @@ function PipelineBar({ pipeline }: { pipeline: Record<string, number> }) {
   );
 }
 
+// ── Deal bucket cell ──────────────────────────────────────────────────────────
+function BucketCell({ bucket, dimCommission }: { bucket: DealBucket; dimCommission?: boolean }) {
+  if (bucket.count === 0) return <span className="text-gray-600 text-sm">—</span>;
+  return (
+    <div className="text-xs space-y-0.5">
+      <div className="font-bold text-white">{bucket.count} deal{bucket.count !== 1 ? "s" : ""}</div>
+      <div className="text-teal-400">{fmt$(bucket.volume)}</div>
+      {bucket.commission > 0 && (
+        <div className={dimCommission ? "text-gray-500" : "text-green-400"}>
+          {fmt$(bucket.commission)} comm
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Agent card (mobile) ───────────────────────────────────────────────────────
 function AgentCard({ agent, rank }: { agent: AgentRow; rank: number }) {
   return (
     <div className="bg-gray-800 rounded-xl p-4 border border-gray-700 space-y-3">
@@ -136,7 +180,7 @@ function AgentCard({ agent, rank }: { agent: AgentRow; rank: number }) {
         <StatBadge value={agent.emails}   label="Emails"   color="text-orange-400" />
         <StatBadge value={agent.showings} label="Showings" color="text-teal-400" />
       </div>
-      <div className="flex gap-4">
+      <div className="flex flex-wrap gap-3">
         {agent.underContract > 0 && (
           <p className="text-xs text-yellow-400 font-medium">🔑 {agent.underContract} Under Contract</p>
         )}
@@ -146,6 +190,12 @@ function AgentCard({ agent, rank }: { agent: AgentRow; rank: number }) {
           </p>
         )}
       </div>
+      {agent.deals.totalCount > 0 && (
+        <div className="border-t border-gray-700 pt-2 text-xs space-y-1">
+          <p className="text-gray-500 uppercase tracking-wide font-medium">Deal Pipeline</p>
+          <p className="text-white font-semibold">{agent.deals.totalCount} deals · {fmt$(agent.deals.totalVolume)} volume · {fmt$(agent.deals.totalCommission)} comm</p>
+        </div>
+      )}
       <div className="border-t border-gray-700 pt-2">
         <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Pipeline</p>
         <PipelineBar pipeline={agent.pipeline} />
@@ -154,6 +204,7 @@ function AgentCard({ agent, rank }: { agent: AgentRow; rank: number }) {
   );
 }
 
+// ── Agent table row ───────────────────────────────────────────────────────────
 function AgentTableRow({ agent, rank }: { agent: AgentRow; rank: number }) {
   return (
     <tr className="border-b border-gray-700 hover:bg-gray-800/60 transition-colors">
@@ -179,9 +230,7 @@ function AgentTableRow({ agent, rank }: { agent: AgentRow; rank: number }) {
           <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-green-900/60 text-green-300 text-sm font-bold">
             🏆 {agent.closedDeals}
           </span>
-        ) : (
-          <span className="text-gray-600">—</span>
-        )}
+        ) : <span className="text-gray-600">—</span>}
       </td>
       <td className="px-4 py-4 text-center"><span className="text-lg font-bold text-white">{agent.totalActivity}</span></td>
       <td className="px-4 py-4 text-center"><span className="text-lg font-bold text-emerald-400">{agent.newLeads}</span></td>
@@ -190,6 +239,133 @@ function AgentTableRow({ agent, rank }: { agent: AgentRow; rank: number }) {
   );
 }
 
+// ── Deal pipeline section ─────────────────────────────────────────────────────
+function DealPipelineSection({ agents, periodLabel }: { agents: AgentRow[]; periodLabel: string }) {
+  const hasAnyRE  = agents.some(a =>
+    a.deals.reActiveListing.count + a.deals.reUnderContractBuy.count +
+    a.deals.reUnderContractSell.count + a.deals.re2026Buy.count + a.deals.re2026Sell.count > 0
+  );
+  const hasAnyMtg = agents.some(a =>
+    a.deals.mortgageUnderContract.count + a.deals.mortgage2026.count > 0
+  );
+
+  if (!hasAnyRE && !hasAnyMtg) {
+    return (
+      <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 text-center">
+        <p className="text-gray-500 text-sm">No deals found for {periodLabel}.</p>
+        <p className="text-gray-600 text-xs mt-1">Active pipeline always shows. Closed deals (2026) are filtered by projected close date.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Real Estate */}
+      {hasAnyRE && (
+        <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+          <div className="bg-gray-900/60 px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-teal-400 uppercase tracking-wide">🏠 Real Estate</h3>
+            <span className="text-xs text-gray-500">Active Listing + Under Contract = all current · 2026 = filtered by close date</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700 text-xs text-gray-400 uppercase tracking-wide">
+                  <th className="px-4 py-3 text-left">Agent</th>
+                  <th className="px-4 py-3 text-center">Active Listing</th>
+                  <th className="px-4 py-3 text-center">UC – Buy</th>
+                  <th className="px-4 py-3 text-center">UC – Sell</th>
+                  <th className="px-4 py-3 text-center">2026 – Buy</th>
+                  <th className="px-4 py-3 text-center">2026 – Sell</th>
+                  <th className="px-4 py-3 text-center text-white">RE Total Vol</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agents.map((agent) => {
+                  const d = agent.deals;
+                  const reVol = d.reActiveListing.volume + d.reUnderContractBuy.volume +
+                    d.reUnderContractSell.volume + d.re2026Buy.volume + d.re2026Sell.volume;
+                  return (
+                    <tr key={agent.email} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="h-7 w-7 rounded-full bg-[#0D9488] flex items-center justify-center text-white text-xs font-bold shrink-0">
+                            {agent.initials}
+                          </div>
+                          <span className="text-white font-medium text-sm">{agent.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center"><BucketCell bucket={d.reActiveListing} dimCommission /></td>
+                      <td className="px-4 py-3 text-center"><BucketCell bucket={d.reUnderContractBuy} /></td>
+                      <td className="px-4 py-3 text-center"><BucketCell bucket={d.reUnderContractSell} /></td>
+                      <td className="px-4 py-3 text-center"><BucketCell bucket={d.re2026Buy} /></td>
+                      <td className="px-4 py-3 text-center"><BucketCell bucket={d.re2026Sell} /></td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="font-bold text-white">{fmt$(reVol)}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Mortgage */}
+      {hasAnyMtg && (
+        <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+          <div className="bg-gray-900/60 px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-blue-400 uppercase tracking-wide">💰 Mortgage</h3>
+            <span className="text-xs text-gray-500">Under Contract = all current · 2026 = filtered by close date</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-700 text-xs text-gray-400 uppercase tracking-wide">
+                  <th className="px-4 py-3 text-left">Agent</th>
+                  <th className="px-4 py-3 text-center">Under Contract</th>
+                  <th className="px-4 py-3 text-center">2026 (Closed)</th>
+                  <th className="px-4 py-3 text-center text-white">Mtg Total Vol</th>
+                  <th className="px-4 py-3 text-center text-green-400">Total Commission</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agents.map((agent) => {
+                  const d = agent.deals;
+                  const mtgVol  = d.mortgageUnderContract.volume + d.mortgage2026.volume;
+                  const mtgComm = d.mortgageUnderContract.commission + d.mortgage2026.commission;
+                  return (
+                    <tr key={agent.email} className="border-b border-gray-700/50 hover:bg-gray-700/30">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="h-7 w-7 rounded-full bg-[#0D9488] flex items-center justify-center text-white text-xs font-bold shrink-0">
+                            {agent.initials}
+                          </div>
+                          <span className="text-white font-medium text-sm">{agent.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-center"><BucketCell bucket={d.mortgageUnderContract} /></td>
+                      <td className="px-4 py-3 text-center"><BucketCell bucket={d.mortgage2026} /></td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="font-bold text-white">{fmt$(mtgVol)}</span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="font-bold text-green-400">{fmt$(mtgComm)}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function Leaderboard() {
   const { user, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
@@ -216,6 +392,21 @@ export default function Leaderboard() {
         throw new Error(body.error || `Server error ${res.status}`);
       }
       const json: LeaderboardData = await res.json();
+      // Guard: older cached payloads may lack the deals field
+      const emptyBucket = { count: 0, volume: 0, commission: 0 };
+      const emptyDeals: AgentDeals = {
+        reActiveListing: emptyBucket, reUnderContractBuy: emptyBucket, reUnderContractSell: emptyBucket,
+        re2026Buy: emptyBucket, re2026Sell: emptyBucket,
+        mortgageUnderContract: emptyBucket, mortgage2026: emptyBucket,
+        totalVolume: 0, totalCommission: 0, totalCount: 0,
+      };
+      json.agents = (json.agents ?? []).map((a) => ({ ...a, deals: a.deals ?? emptyDeals }));
+      json.teamTotals = {
+        ...json.teamTotals,
+        dealVolume: json.teamTotals?.dealVolume ?? 0,
+        dealCommission: json.teamTotals?.dealCommission ?? 0,
+        dealCount: json.teamTotals?.dealCount ?? 0,
+      };
       setData(json);
       setLastRefresh(new Date());
     } catch (err: any) {
@@ -226,17 +417,13 @@ export default function Leaderboard() {
   }, []);
 
   useEffect(() => {
-    if (user && TEAM_EMAILS.has((user.email ?? "").toLowerCase())) {
-      fetchData(period);
-    }
+    if (user && TEAM_EMAILS.has((user.email ?? "").toLowerCase())) fetchData(period);
   }, [period, user, fetchData]);
 
   useEffect(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
-      if (user && TEAM_EMAILS.has((user.email ?? "").toLowerCase())) {
-        fetchData(period, true);
-      }
+      if (user && TEAM_EMAILS.has((user.email ?? "").toLowerCase())) fetchData(period, true);
     }, AUTO_REFRESH_MS);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, [period, user, fetchData]);
@@ -255,6 +442,7 @@ export default function Leaderboard() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100">
+      {/* Header */}
       <div className="bg-[#0F172A] border-b border-gray-800 px-4 py-6">
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -280,7 +468,6 @@ export default function Leaderboard() {
               Refresh
             </button>
           </div>
-
           <div className="flex gap-1 mt-5 overflow-x-auto">
             {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
               <button
@@ -299,18 +486,19 @@ export default function Leaderboard() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 py-6 space-y-8">
+        {/* Team totals strip */}
         {totals && (
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
             {[
-              { label: "📞 Calls",     value: totals.calls,         color: "text-blue-400" },
-              { label: "💬 Texts",     value: totals.texts,         color: "text-purple-400" },
-              { label: "📧 Emails",    value: totals.emails,        color: "text-orange-400" },
-              { label: "🏠 Showings",  value: totals.showings,      color: "text-teal-400" },
-              { label: "🔑 Contract",  value: totals.underContract, color: "text-yellow-400" },
-              { label: "🏆 Closed",    value: totals.closedDeals,   color: "text-green-400" },
-              { label: "⚡ Total",      value: totals.totalActivity, color: "text-white" },
-              { label: "🌱 New Leads", value: totals.newLeads,      color: "text-emerald-400" },
+              { label: "📞 Calls",      value: totals.calls,         color: "text-blue-400" },
+              { label: "💬 Texts",      value: totals.texts,         color: "text-purple-400" },
+              { label: "📧 Emails",     value: totals.emails,        color: "text-orange-400" },
+              { label: "🏠 Showings",   value: totals.showings,      color: "text-teal-400" },
+              { label: "🔑 Contract",   value: totals.underContract, color: "text-yellow-400" },
+              { label: "🏆 Closed",     value: totals.closedDeals,   color: "text-green-400" },
+              { label: "⚡ Total",       value: totals.totalActivity, color: "text-white" },
+              { label: "🌱 New Leads",  value: totals.newLeads,      color: "text-emerald-400" },
             ].map(({ label, value, color }) => (
               <div key={label} className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
                 <p className={`text-2xl font-bold ${color}`}>{value}</p>
@@ -320,65 +508,95 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {error && (
-          <div className="bg-red-900/30 border border-red-700 rounded-xl p-4 text-red-300 text-sm">
-            <strong>Error loading leaderboard:</strong> {error}
-            <br />
-            <span className="text-red-400/70 text-xs">
-              Make sure FOLLOWUPBOSS_API_KEY is set in your Replit Secrets.
-            </span>
+        {/* Deal volume strip */}
+        {totals && totals.dealCount > 0 && (
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "📋 Total Deals",   value: totals.dealCount.toString(),               color: "text-white" },
+              { label: "💵 Deal Volume",   value: fmt$(totals.dealVolume),                   color: "text-teal-400" },
+              { label: "💰 Commission",    value: fmt$(totals.dealCommission),               color: "text-green-400" },
+            ].map(({ label, value, color }) => (
+              <div key={label} className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
+                <p className={`text-2xl font-bold ${color}`}>{value}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{label}</p>
+              </div>
+            ))}
           </div>
         )}
 
+        {/* Error */}
+        {error && (
+          <div className="bg-red-900/30 border border-red-700 rounded-xl p-4 text-red-300 text-sm">
+            <strong>Error loading leaderboard:</strong> {error}
+          </div>
+        )}
+
+        {/* Loading skeleton */}
         {loading && !data && (
           <div className="space-y-3">
-            {[1, 2, 3, 4].map((i) => (
+            {[1,2,3,4].map((i) => (
               <div key={i} className="bg-gray-800 rounded-xl h-24 animate-pulse border border-gray-700" />
             ))}
           </div>
         )}
 
+        {/* Desktop activity table */}
         {data && (
-          <div className="hidden md:block">
-            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-900/60 border-b border-gray-700">
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wide w-12">#</th>
-                    <th className="px-4 py-3 text-left   text-xs font-semibold text-gray-400   uppercase tracking-wide">Agent</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-blue-400   uppercase tracking-wide">📞 Calls</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-purple-400 uppercase tracking-wide">💬 Texts</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-orange-400 uppercase tracking-wide">📧 Emails</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-teal-400   uppercase tracking-wide">🏠 Showings</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-yellow-400 uppercase tracking-wide">🔑 Contract</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-green-400  uppercase tracking-wide">🏆 Closed</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-white      uppercase tracking-wide">⚡ Total</th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-emerald-400 uppercase tracking-wide">🌱 New Leads</th>
-                    <th className="px-4 py-3 text-left   text-xs font-semibold text-gray-400   uppercase tracking-wide">Pipeline</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.agents.map((agent, i) => (
-                    <AgentTableRow key={agent.email} agent={agent} rank={i + 1} />
-                  ))}
-                </tbody>
-              </table>
+          <div>
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Activity</h2>
+            <div className="hidden md:block">
+              <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gray-900/60 border-b border-gray-700">
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-400 uppercase tracking-wide w-12">#</th>
+                      <th className="px-4 py-3 text-left   text-xs font-semibold text-gray-400   uppercase tracking-wide">Agent</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-blue-400   uppercase tracking-wide">📞 Calls</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-purple-400 uppercase tracking-wide">💬 Texts</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-orange-400 uppercase tracking-wide">📧 Emails</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-teal-400   uppercase tracking-wide">🏠 Showings</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-yellow-400 uppercase tracking-wide">🔑 Contract</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-green-400  uppercase tracking-wide">🏆 Closed</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-white      uppercase tracking-wide">⚡ Total</th>
+                      <th className="px-4 py-3 text-center text-xs font-semibold text-emerald-400 uppercase tracking-wide">🌱 New Leads</th>
+                      <th className="px-4 py-3 text-left   text-xs font-semibold text-gray-400   uppercase tracking-wide">Pipeline</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.agents.map((agent, i) => (
+                      <AgentTableRow key={agent.email} agent={agent} rank={i + 1} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {/* Mobile activity cards */}
+            <div className="md:hidden space-y-3">
+              {data.agents.map((agent, i) => (
+                <AgentCard key={agent.email} agent={agent} rank={i + 1} />
+              ))}
             </div>
           </div>
         )}
 
+        {/* Deal Pipeline section */}
         {data && (
-          <div className="md:hidden space-y-3">
-            {data.agents.map((agent, i) => (
-              <AgentCard key={agent.email} agent={agent} rank={i + 1} />
-            ))}
+          <div>
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
+              Deal Pipeline
+              <span className="ml-2 text-gray-600 normal-case font-normal">
+                · {PERIOD_LABELS[period as Period]}
+              </span>
+            </h2>
+            <DealPipelineSection agents={data.agents} periodLabel={PERIOD_LABELS[period as Period]} />
           </div>
         )}
 
+        {/* Footer */}
         {data && (
           <p className="text-center text-xs text-gray-600">
             Period: <strong className="text-gray-500">{PERIOD_LABELS[period as Period]}</strong>
-            {" · "}New Leads = FUB person.created in period · Pipeline = current stage snapshot
+            {" · "}Deals: active stages always shown, 2026 filtered by projected close date
             {" · "}Data generated {new Date(data.generatedAt).toLocaleString()}
           </p>
         )}

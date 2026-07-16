@@ -1,7 +1,11 @@
 /**
- * fub-leaderboard.ts — v8
- * Added: newLeads — people whose person.created falls within the period window.
- * Counted inside the existing people loop, zero extra API calls.
+ * fub-leaderboard.ts — v9
+ * Added: Deal Pipeline section using /v1/deals endpoint.
+ * Fields confirmed from debug: pipelineName, stageName, customRealEstateTransaction,
+ * price (volume), agentCommission, projectedCloseDate, users[] (team attribution).
+ *
+ * Active stages (Active Listing, Under Contract) = always shown, no period filter.
+ * Closed stages (2026) = filtered by projectedCloseDate within selected period.
  */
 
 const FUB_BASE = "https://api.followupboss.com/v1";
@@ -43,6 +47,55 @@ export const PIPELINE_STAGES = [
 
 export type PipelineStage = typeof PIPELINE_STAGES[number];
 
+// ── Deal types ────────────────────────────────────────────────────────────────
+export interface DealBucket {
+  count: number;
+  volume: number;      // sum of deal.price
+  commission: number;  // sum of deal.agentCommission
+}
+
+function emptyBucket(): DealBucket {
+  return { count: 0, volume: 0, commission: 0 };
+}
+
+function addToBucket(bucket: DealBucket, deal: any): void {
+  bucket.count++;
+  bucket.volume     += Number(deal.price          ?? 0);
+  bucket.commission += Number(deal.agentCommission ?? 0);
+}
+
+export interface AgentDeals {
+  // Real Estate
+  reActiveListing:    DealBucket;
+  reUnderContractBuy: DealBucket;
+  reUnderContractSell:DealBucket;
+  re2026Buy:          DealBucket;
+  re2026Sell:         DealBucket;
+  // Mortgage
+  mortgageUnderContract: DealBucket;
+  mortgage2026:          DealBucket;
+  // Totals across all deal types
+  totalVolume:     number;
+  totalCommission: number;
+  totalCount:      number;
+}
+
+function emptyAgentDeals(): AgentDeals {
+  return {
+    reActiveListing:       emptyBucket(),
+    reUnderContractBuy:    emptyBucket(),
+    reUnderContractSell:   emptyBucket(),
+    re2026Buy:             emptyBucket(),
+    re2026Sell:            emptyBucket(),
+    mortgageUnderContract: emptyBucket(),
+    mortgage2026:          emptyBucket(),
+    totalVolume:     0,
+    totalCommission: 0,
+    totalCount:      0,
+  };
+}
+
+// ── Agent row ─────────────────────────────────────────────────────────────────
 export interface AgentRow {
   email: string;
   name: string;
@@ -60,6 +113,7 @@ export interface AgentRow {
   totalActivity: number;
   totalLeads: number;
   newLeads: number;
+  deals: AgentDeals;
 }
 
 export interface LeaderboardPayload {
@@ -76,11 +130,15 @@ export interface LeaderboardPayload {
     totalActivity: number;
     totalLeads: number;
     newLeads: number;
+    dealVolume: number;
+    dealCommission: number;
+    dealCount: number;
   };
 }
 
 export type Period = "today" | "yesterday" | "week" | "month" | "quarter" | "year";
 
+// ── HTTP helpers ──────────────────────────────────────────────────────────────
 export function fubHeaders(apiKey: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
@@ -96,7 +154,7 @@ async function fubGet(apiKey: string, path: string, params: Record<string, strin
     const res = await fetch(url.toString(), { headers: fubHeaders(apiKey) });
     if (res.status === 429 && attempt < 3) {
       const retryAfter = Number(res.headers.get("retry-after")) || 5;
-      console.warn(`[fub-lb] 429 on ${path}, retrying in ${retryAfter}s (attempt ${attempt + 1}/3)`);
+      console.warn(`[fub-lb] 429 on ${path}, retrying in ${retryAfter}s`);
       await new Promise((r) => setTimeout(r, retryAfter * 1000));
       continue;
     }
@@ -134,17 +192,20 @@ async function runBatched<T>(tasks: (() => Promise<T>)[], concurrency = 10): Pro
   return results;
 }
 
-function getPeriodDates(period: Period): { startMs: number; endMs: number; startIso: string } {
+// ── Date helpers ──────────────────────────────────────────────────────────────
+function getPeriodDates(period: Period): { startMs: number; startIso: string; endMs: number } {
   const now = new Date();
   let start: Date;
-  let end: Date | null = null;
+  let end: Date = now;
+
   switch (period) {
-    case "today":   start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); break;
-    case "yesterday": {
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-      end   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    case "today":
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       break;
-    }
+    case "yesterday":
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      end   = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // midnight tonight
+      break;
     case "week": {
       start = new Date(now);
       start.setDate(now.getDate() - 7);
@@ -162,10 +223,14 @@ function getPeriodDates(period: Period): { startMs: number; endMs: number; start
       start = new Date(now.getFullYear(), q * 3, 1);
       break;
     }
-    case "year":    start = new Date(now.getFullYear(), 0, 1); break;
-    default:        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    case "year":
+      start = new Date(now.getFullYear(), 0, 1);
+      break;
+    default:
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   }
-  return { startMs: start.getTime(), endMs: end ? end.getTime() : Date.now() + 60_000, startIso: start.toISOString() };
+
+  return { startMs: start.getTime(), startIso: start.toISOString(), endMs: end.getTime() };
 }
 
 function getCreatedMs(record: any): number {
@@ -182,7 +247,11 @@ function getUpdatedMs(record: any): number {
   return isNaN(ms) ? 0 : ms;
 }
 
-function resolveEmail(obj: any, idMap: Map<number, TeamEmail>, nameMap: Map<string, TeamEmail>): TeamEmail | undefined {
+function resolveEmail(
+  obj: any,
+  idMap: Map<number, TeamEmail>,
+  nameMap: Map<string, TeamEmail>,
+): TeamEmail | undefined {
   for (const field of ["userId", "assignedUserId", "createdById", "createdByUserId"]) {
     const raw = obj[field];
     if (raw != null && Number(raw) > 0) {
@@ -195,6 +264,42 @@ function resolveEmail(obj: any, idMap: Map<number, TeamEmail>, nameMap: Map<stri
   return undefined;
 }
 
+// ── Deal classification ───────────────────────────────────────────────────────
+type DealCategory =
+  | "reActiveListing" | "reUnderContractBuy" | "reUnderContractSell"
+  | "re2026Buy"       | "re2026Sell"
+  | "mortgageUnderContract" | "mortgage2026"
+  | null;
+
+function classifyDeal(deal: any): { category: DealCategory; isActive: boolean } {
+  const pipeline   = (deal.pipelineName             ?? "").toLowerCase();
+  const stage      = (deal.stageName                ?? "").toLowerCase();
+  const reTxn      = (deal.customRealEstateTransaction ?? "").toLowerCase();
+
+  const isMortgage   = pipeline.includes("mortgage");
+  const isRealEstate = pipeline.includes("real estate");
+
+  if (isMortgage) {
+    if (stage === "under contract") return { category: "mortgageUnderContract", isActive: true  };
+    if (stage === "2026")           return { category: "mortgage2026",          isActive: false };
+  }
+
+  if (isRealEstate) {
+    if (stage === "active listing")  return { category: "reActiveListing",     isActive: true  };
+    if (stage === "under contract") {
+      const cat = reTxn === "sell" ? "reUnderContractSell" : "reUnderContractBuy";
+      return { category: cat, isActive: true };
+    }
+    if (stage === "2026") {
+      const cat = reTxn === "sell" ? "re2026Sell" : "re2026Buy";
+      return { category: cat, isActive: false };
+    }
+  }
+
+  return { category: null, isActive: false };
+}
+
+// ── Main fetch ────────────────────────────────────────────────────────────────
 export async function getLeaderboardData(apiKey: string, period: Period): Promise<LeaderboardPayload> {
   const cached = _cache.get(period);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -203,7 +308,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
   }
 
   console.log(`[fub-lb] fetching: period=${period}`);
-  const { startMs, endMs, startIso } = getPeriodDates(period);
+  const { startMs, startIso, endMs } = getPeriodDates(period);
 
   const idMap = new Map<number, TeamEmail>(
     Object.entries(FUB_ID_TO_TEAM_EMAIL).map(([id, e]) => [Number(id), e as TeamEmail]),
@@ -223,32 +328,26 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     const calls = await fetchAllPages(apiKey, "/calls", { since: startIso });
     let matched = 0;
     for (const call of calls) {
-      const callMs = getCreatedMs(call);
-      if (callMs < startMs || callMs >= endMs) continue;
+      if (getCreatedMs(call) < startMs) continue;
       const email = resolveEmail(call, idMap, nameMap);
       if (email && counts[email]) { counts[email].calls++; matched++; }
     }
-    console.log(`[fub-lb] calls: ${calls.length} fetched, ${matched} matched team in period`);
-  } catch (err: any) {
-    console.error("[fub-lb] /calls error:", err.message);
-  }
+    console.log(`[fub-lb] calls: ${calls.length} fetched, ${matched} matched`);
+  } catch (err: any) { console.error("[fub-lb] /calls error:", err.message); }
 
   // ── SHOWINGS ─────────────────────────────────────────────────────────────
   try {
     const appts = await fetchAllPages(apiKey, "/appointments", { since: startIso });
     let matched = 0;
     for (const appt of appts) {
-      const apptMs = getCreatedMs(appt);
-      if (apptMs < startMs || apptMs >= endMs) continue;
+      if (getCreatedMs(appt) < startMs) continue;
       const email = resolveEmail(appt, idMap, nameMap);
       if (email && counts[email]) { counts[email].showings++; matched++; }
     }
-    console.log(`[fub-lb] appointments: ${appts.length} fetched, ${matched} matched team in period`);
-  } catch (err: any) {
-    console.error("[fub-lb] /appointments error:", err.message);
-  }
+    console.log(`[fub-lb] appointments: ${appts.length} fetched, ${matched} matched`);
+  } catch (err: any) { console.error("[fub-lb] /appointments error:", err.message); }
 
-  // ── PIPELINE + NEW LEADS (single people fetch, no extra API calls) ────────
+  // ── PIPELINE + NEW LEADS ─────────────────────────────────────────────────
   const pipeline: Record<string, Record<string, number>> = {};
   const newLeadCounts: Record<string, number> = {};
   for (const m of LEADERBOARD_TEAM) {
@@ -260,106 +359,119 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
   const activePeopleByEmail: Record<string, Array<{ id: number }>> = {};
   for (const m of LEADERBOARD_TEAM) activePeopleByEmail[m.email] = [];
 
-  let peopleTotal = 0;
-  let pipelineMatched = 0;
   let newLeadsTotal = 0;
-
   try {
     const people = await fetchAllPages(apiKey, "/people");
-    peopleTotal = people.length;
-
     for (const person of people) {
       const stage = (person.stage ?? "") as string;
       const email = resolveEmail(person, idMap, nameMap);
-
       if (email) {
-        // Pipeline — all people regardless of period
-        if (stage && pipeline[email] && pipeline[email][stage] !== undefined) {
-          pipeline[email][stage]++;
-          pipelineMatched++;
+        if (stage && pipeline[email] && pipeline[email][stage] !== undefined) pipeline[email][stage]++;
+        if (getCreatedMs(person) >= startMs && newLeadCounts[email] !== undefined) {
+          newLeadCounts[email]++; newLeadsTotal++;
         }
-        // New leads — created within the period window
-        const personCreatedMs = getCreatedMs(person);
-        if (personCreatedMs >= startMs && personCreatedMs < endMs && newLeadCounts[email] !== undefined) {
-          newLeadCounts[email]++;
-          newLeadsTotal++;
-        }
-        // Active in period — for text/email per-person fetch
-        if (getUpdatedMs(person) >= startMs) {
-          activePeopleByEmail[email].push({ id: person.id });
-        }
+        if (getUpdatedMs(person) >= startMs) activePeopleByEmail[email].push({ id: person.id });
       }
     }
+    console.log(`[fub-lb] people: ${people.length} total, ${newLeadsTotal} new leads in period`);
+  } catch (err: any) { console.error("[fub-lb] /people error:", err.message); }
 
-    const activeCount = Object.values(activePeopleByEmail).reduce((s, a) => s + a.length, 0);
-    console.log(`[fub-lb] pipeline: ${peopleTotal} people, ${pipelineMatched} matched, ${activeCount} active in period, ${newLeadsTotal} new leads`);
-  } catch (err: any) {
-    console.error("[fub-lb] /people error:", err.message);
-  }
-
-  // ── TEXTS (per-person, batched) ──────────────────────────────────────────
+  // ── TEXTS (per-person) ───────────────────────────────────────────────────
   for (const m of LEADERBOARD_TEAM) {
-    const activePeople = activePeopleByEmail[m.email];
-    if (activePeople.length === 0) continue;
-    const tasks = activePeople.map(({ id }) => async () => {
+    const ap = activePeopleByEmail[m.email];
+    if (!ap.length) continue;
+    const tasks = ap.map(({ id }) => async () => {
       try {
-        const texts = await fetchAllPages(apiKey, "/textMessages", { personId: String(id) });
-        return texts.filter((t) => { const ms = getCreatedMs(t); return ms >= startMs && ms < endMs; }).length;
+        const t = await fetchAllPages(apiKey, "/textMessages", { personId: String(id) });
+        return t.filter((x) => getCreatedMs(x) >= startMs).length;
       } catch { return 0; }
     });
     try {
       const results = await runBatched(tasks, 10);
-      const total = results.reduce((s, n) => s + n, 0);
-      counts[m.email].texts = total;
-      if (total > 0) console.log(`[fub-lb] texts for ${m.name}: ${total} in period`);
-    } catch (err: any) {
-      console.warn(`[fub-lb] texts batch error for ${m.name}:`, err.message);
-    }
+      counts[m.email].texts = results.reduce((s, n) => s + n, 0);
+    } catch (err: any) { console.warn(`[fub-lb] texts error ${m.name}:`, err.message); }
   }
 
-  // ── EMAILS (per-person, batched) ─────────────────────────────────────────
+  // ── EMAILS (per-person) ──────────────────────────────────────────────────
   for (const m of LEADERBOARD_TEAM) {
-    const activePeople = activePeopleByEmail[m.email];
-    if (activePeople.length === 0) continue;
-    const tasks = activePeople.map(({ id }) => async () => {
+    const ap = activePeopleByEmail[m.email];
+    if (!ap.length) continue;
+    const tasks = ap.map(({ id }) => async () => {
       try {
-        const emails = await fetchAllPages(apiKey, "/emails", { personId: String(id) });
-        return emails.filter((e) => { const ms = getCreatedMs(e); return ms >= startMs && ms < endMs; }).length;
+        const e = await fetchAllPages(apiKey, "/emails", { personId: String(id) });
+        return e.filter((x) => getCreatedMs(x) >= startMs).length;
       } catch { return 0; }
     });
     try {
       const results = await runBatched(tasks, 10);
-      const total = results.reduce((s, n) => s + n, 0);
-      counts[m.email].emails = total;
-      if (total > 0) console.log(`[fub-lb] emails for ${m.name}: ${total} in period`);
-    } catch (err: any) {
-      console.warn(`[fub-lb] emails batch error for ${m.name}:`, err.message);
-    }
+      counts[m.email].emails = results.reduce((s, n) => s + n, 0);
+    } catch (err: any) { console.warn(`[fub-lb] emails error ${m.name}:`, err.message); }
   }
 
-  // ── CLOSED DEALS (updated date = when moved to Closed) ───────────────────
+  // ── CLOSED DEALS ─────────────────────────────────────────────────────────
   const closedThisPeriod: Record<string, number> = {};
   const closedAllTime: Record<string, number>    = {};
   for (const m of LEADERBOARD_TEAM) { closedThisPeriod[m.email] = 0; closedAllTime[m.email] = 0; }
-
   try {
     const closedPeople = await fetchAllPages(apiKey, "/people", { stage: "Closed" });
     for (const person of closedPeople) {
       const email = resolveEmail(person, idMap, nameMap);
       if (!email) continue;
       if (closedAllTime[email] !== undefined) closedAllTime[email]++;
-      const closedUpdatedMs = getUpdatedMs(person);
-      if (closedUpdatedMs >= startMs && closedUpdatedMs < endMs && closedThisPeriod[email] !== undefined) {
-        closedThisPeriod[email]++;
-      }
+      if (getUpdatedMs(person) >= startMs && closedThisPeriod[email] !== undefined) closedThisPeriod[email]++;
     }
-    console.log(`[fub-lb] closed: ${closedPeople.length} all-time, ${Object.values(closedThisPeriod).reduce((a, b) => a + b, 0)} this period`);
   } catch (err: any) {
-    console.warn("[fub-lb] stage=Closed filter failed, using pipeline fallback:", err.message);
     for (const m of LEADERBOARD_TEAM) {
       closedAllTime[m.email]    = pipeline[m.email]?.["Closed"] ?? 0;
       closedThisPeriod[m.email] = closedAllTime[m.email];
     }
+  }
+
+  // ── DEALS from /v1/deals ─────────────────────────────────────────────────
+  // Active stages (Active Listing, Under Contract) = always shown, no period filter.
+  // Closed stages (2026) = filtered by projectedCloseDate within the period.
+  const agentDeals: Record<string, AgentDeals> = {};
+  for (const m of LEADERBOARD_TEAM) agentDeals[m.email] = emptyAgentDeals();
+
+  try {
+    const allDeals = await fetchAllPages(apiKey, "/deals");
+    let matched = 0;
+
+    for (const deal of allDeals) {
+      const { category, isActive } = classifyDeal(deal);
+      if (!category) continue;
+
+      // Period filter for closed deals — use projectedCloseDate
+      if (!isActive) {
+        const closeMs = deal.projectedCloseDate ? new Date(deal.projectedCloseDate).getTime() : 0;
+        if (!closeMs || closeMs < startMs || closeMs > endMs) continue;
+      }
+
+      // Attribute to every team member in deal.users[]
+      const dealUsers: Array<{ id: number; name: string }> = deal.users ?? [];
+      for (const u of dealUsers) {
+        const email =
+          idMap.get(Number(u.id)) ??
+          nameMap.get((u.name ?? "").toLowerCase().trim());
+        if (!email || !agentDeals[email]) continue;
+        addToBucket(agentDeals[email][category], deal);
+        matched++;
+      }
+    }
+
+    console.log(`[fub-lb] deals: ${allDeals.length} total, ${matched} agent-deal attributions`);
+  } catch (err: any) { console.error("[fub-lb] /deals error:", err.message); }
+
+  // Compute deal totals per agent
+  for (const m of LEADERBOARD_TEAM) {
+    const d = agentDeals[m.email];
+    const buckets = [
+      d.reActiveListing, d.reUnderContractBuy, d.reUnderContractSell,
+      d.re2026Buy, d.re2026Sell, d.mortgageUnderContract, d.mortgage2026,
+    ];
+    d.totalVolume     = buckets.reduce((s, b) => s + b.volume, 0);
+    d.totalCommission = buckets.reduce((s, b) => s + b.commission, 0);
+    d.totalCount      = buckets.reduce((s, b) => s + b.count, 0);
   }
 
   // ── Build rows ────────────────────────────────────────────────────────────
@@ -386,6 +498,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       totalActivity,
       totalLeads,
       newLeads:           newLeadCounts[m.email] ?? 0,
+      deals:              agentDeals[m.email],
     };
   });
 
@@ -396,15 +509,18 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
   );
 
   const teamTotals = {
-    calls:         agents.reduce((s, r) => s + r.calls, 0),
-    texts:         agents.reduce((s, r) => s + r.texts, 0),
-    emails:        agents.reduce((s, r) => s + r.emails, 0),
-    showings:      agents.reduce((s, r) => s + r.showings, 0),
-    closedDeals:   agents.reduce((s, r) => s + r.closedDeals, 0),
-    underContract: agents.reduce((s, r) => s + r.underContract, 0),
-    totalActivity: agents.reduce((s, r) => s + r.totalActivity, 0),
-    totalLeads:    agents.reduce((s, r) => s + r.totalLeads, 0),
-    newLeads:      agents.reduce((s, r) => s + r.newLeads, 0),
+    calls:          agents.reduce((s, r) => s + r.calls, 0),
+    texts:          agents.reduce((s, r) => s + r.texts, 0),
+    emails:         agents.reduce((s, r) => s + r.emails, 0),
+    showings:       agents.reduce((s, r) => s + r.showings, 0),
+    closedDeals:    agents.reduce((s, r) => s + r.closedDeals, 0),
+    underContract:  agents.reduce((s, r) => s + r.underContract, 0),
+    totalActivity:  agents.reduce((s, r) => s + r.totalActivity, 0),
+    totalLeads:     agents.reduce((s, r) => s + r.totalLeads, 0),
+    newLeads:       agents.reduce((s, r) => s + r.newLeads, 0),
+    dealVolume:     agents.reduce((s, r) => s + r.deals.totalVolume, 0),
+    dealCommission: agents.reduce((s, r) => s + r.deals.totalCommission, 0),
+    dealCount:      agents.reduce((s, r) => s + r.deals.totalCount, 0),
   };
 
   const payload: LeaderboardPayload = {
@@ -415,7 +531,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
   };
 
   _cache.set(period, { data: payload, ts: Date.now() });
-  console.log(`[fub-lb] done — calls:${teamTotals.calls} texts:${teamTotals.texts} emails:${teamTotals.emails} showings:${teamTotals.showings} closed:${teamTotals.closedDeals} newLeads:${teamTotals.newLeads}`);
+  console.log(`[fub-lb] done — calls:${teamTotals.calls} texts:${teamTotals.texts} emails:${teamTotals.emails} deals:${teamTotals.dealCount} vol:$${teamTotals.dealVolume.toLocaleString()}`);
   return payload;
 }
 
