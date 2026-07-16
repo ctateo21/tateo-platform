@@ -1,126 +1,195 @@
 /**
- * Integration with Hillsborough County Property Appraiser
- * for retrieving accurate property tax estimates
+ * Hillsborough County property tax estimator.
+ *
+ * Step 1: Parse the street address from the
+ *         full Google Maps address string
+ * Step 2: Call the HCPA ArcGIS parcel API to
+ *         resolve the address to a parcel and
+ *         get its municipality (SiteCity)
+ * Step 3: Apply 2026 Hillsborough millage
+ *         rates + FL homestead exemption to
+ *         compute the ad valorem tax estimate
+ *
+ * Falls back gracefully when:
+ *   - Address not found in HCPA database
+ *   - ArcGIS API is unreachable
+ *   - Address is not in Hillsborough County
  */
 
-import axios from 'axios';
+// ── 2026 Hillsborough millage rates ─────────
+// Source: propertyexemption.com / HCPA TRIM
+const SCHOOL_MILLS = 7.336;
 
-interface TaxEstimateParams {
-  address: string;
-  propertyValue: number;
-  isPrimaryResidence: boolean;
+const CITY_MILLS: Record<string, number> = {
+  "TAMPA": 19.8428,
+  "TEMPLE TERRACE": 19.5319,
+  "PLANT CITY": 18.2926,
+};
+const UNINCORPORATED_MILLS = 18.2515;
+
+// Cities that are in Hillsborough but
+// unincorporated (no city millage layer)
+const HILLSBOROUGH_CITIES = new Set([
+  "TAMPA", "TEMPLE TERRACE", "PLANT CITY",
+  "BRANDON", "RIVERVIEW", "APOLLO BEACH",
+  "RUSKIN", "SUN CITY CENTER", "GIBSONTON",
+  "VALRICO", "LUTZ", "ODESSA", "WESTCHASE",
+  "NEW TAMPA", "TOWN N COUNTRY", "CARROLLWOOD",
+  "CITRUS PARK", "NORTHDALE", "WIMAUMA",
+  "LITHIA", "FISHHAWK", "BOYETTE",
+  "BALM", "SYDNEY", "THONOTOSASSA",
+]);
+
+interface HCPAParcel {
+  folio: string | null;
+  siteCity: string;
+  fullAddress: string;
+  siteZip: string;
 }
 
-interface TaxEstimateResult {
-  annualTaxAmount: number;
-  monthlyTaxAmount: number;
-  taxRate: number;
-  homesteadExemption: boolean;
-  countyName: string;
+interface TaxResult {
+  annualTax: number;
+  monthlyTax: number;
+  municipality: string;
+  millageRate: number;
+  homestead: boolean;
+  source: "hcpa-api" | "formula-fallback";
 }
 
-/**
- * Get property tax estimate for Hillsborough County properties
- * Uses a model based on the Hillsborough County Property Appraiser's tax estimator
- * Official site: https://gis.hcpafl.org/propertysearch/taxestimator.aspx
- */
-export async function getHillsboroughTaxEstimate(params: TaxEstimateParams): Promise<TaxEstimateResult> {
+/** Normalize a city name from HCPA (upper case)
+ *  to the canonical municipality key. */
+function resolveMillage(siteCity: string): number {
+  const upper = siteCity.toUpperCase().trim();
+  return CITY_MILLS[upper] ?? UNINCORPORATED_MILLS;
+}
+
+/** Calculate FL property tax for a new
+ *  purchase using the ad valorem formula. */
+function calcTax(
+  price: number,
+  totalMills: number,
+  homestead: boolean
+): number {
+  if (!homestead) {
+    return Math.round((price * totalMills) / 1000);
+  }
+  const nonSchoolMills = totalMills - SCHOOL_MILLS;
+  const schoolTaxable  = Math.max(0, price - 25_000);
+  const nonSchoolTaxable = Math.max(0, price - 50_000);
+  const schoolTax    = (schoolTaxable * SCHOOL_MILLS)
+                       / 1000;
+  const nonSchoolTax = (nonSchoolTaxable * nonSchoolMills)
+                       / 1000;
+  return Math.round(schoolTax + nonSchoolTax);
+}
+
+/** Parse the street address portion from a
+ *  Google Maps full address string.
+ *  "3102 W Nassau St, Tampa, FL 33607"
+ *  → "3102 W NASSAU" (enough for LIKE match) */
+function parseStreetForQuery(fullAddress: string): string {
+  const street = fullAddress.split(",")[0].trim();
+  // Take just the first 3 tokens (house number +
+  // direction + street name) to avoid suffix
+  // mismatches (St vs Street, Blvd vs Boulevard)
+  const tokens = street.toUpperCase().split(/\s+/);
+  return tokens.slice(0, 3).join(" ");
+}
+
+/** Look up a parcel in the HCPA ArcGIS API.
+ *  Returns null when the parcel is not found
+ *  or the API is unreachable. */
+export async function lookupHCPAParcel(
+  address: string
+): Promise<HCPAParcel | null> {
   try {
-    
-    const propertyValue = params.propertyValue;
-    const isHomestead = params.isPrimaryResidence;
-    
-    // For address 3102 W Nassau St, Tampa, FL 33607 with property value of $700,000:
-    // - With homestead: "Your unofficial estimated taxes are: $10,513.52- $12,513.10"
-    // - Without homestead: "Your unofficial estimated taxes are: $11,331.00- $13,330.59"
-    
-    // Always use the lower range of tax estimates as confirmed from the official website
-    if (isHomestead) {
-      // For primary residences with homestead exemption
-      if (propertyValue === 700000) {
-        // Exact match for our test case - official website value
-        const annualTaxAmount = 10513.52; // Exact value from the official site
-        const monthlyTaxAmount = +(annualTaxAmount / 12).toFixed(2); // Round to nearest cent (876.13)
-        
-        return {
-          annualTaxAmount: +annualTaxAmount.toFixed(2),
-          monthlyTaxAmount,
-          taxRate: (annualTaxAmount / propertyValue) * 100, // Calculate effective rate
-          homesteadExemption: true,
-          countyName: 'Hillsborough'
-        };
-      } else {
-        // For other property values, calculate proportionally using the confirmed tax rate
-        const baseRate = 10513.52 / 700000; // Tax rate based on our known value
-        const calculatedAnnual = +(propertyValue * baseRate).toFixed(2);
-        const calculatedMonthly = +(calculatedAnnual / 12).toFixed(2);
-        
-        
-        return {
-          annualTaxAmount: calculatedAnnual,
-          monthlyTaxAmount: calculatedMonthly,
-          taxRate: +(baseRate * 100).toFixed(4), // Convert to percentage
-          homesteadExemption: true,
-          countyName: 'Hillsborough'
-        };
-      }
-    } else {
-      // For non-primary residences without homestead exemption
-      if (propertyValue === 700000) {
-        // Exact match for our test case - official website value
-        const annualTaxAmount = 11331.00; // From the official site
-        const monthlyTaxAmount = +(annualTaxAmount / 12).toFixed(2); // Round to nearest cent (944.25)
-        
-        return {
-          annualTaxAmount: +annualTaxAmount.toFixed(2),
-          monthlyTaxAmount,
-          taxRate: (annualTaxAmount / propertyValue) * 100, // Calculate effective rate
-          homesteadExemption: false, 
-          countyName: 'Hillsborough'
-        };
-      } else {
-        // For other property values, calculate proportionally using the confirmed tax rate
-        const baseRate = 11331.00 / 700000; // Tax rate based on our known value
-        const calculatedAnnual = +(propertyValue * baseRate).toFixed(2);
-        const calculatedMonthly = +(calculatedAnnual / 12).toFixed(2);
-        
-        
-        return {
-          annualTaxAmount: calculatedAnnual,
-          monthlyTaxAmount: calculatedMonthly,
-          taxRate: +(baseRate * 100).toFixed(4), // Convert to percentage
-          homesteadExemption: false,
-          countyName: 'Hillsborough'
-        };
-      }
-    }
-  } catch (error) {
-    console.error('Error getting Hillsborough tax estimate:', error);
-    throw new Error('Failed to retrieve property tax estimate');
+    const streetQuery = parseStreetForQuery(address);
+    const where = encodeURIComponent(
+      `FullAddress LIKE '${streetQuery}%'`
+    );
+    const fields = "folio,FullAddress,SiteCity,SiteZip";
+    const url =
+      "https://gis.hcpafl.org/arcgis/rest/services/" +
+      "Webmaps/HillsboroughFL_WebParcels/" +
+      `MapServer/0/query?where=${where}` +
+      `&outFields=${fields}&resultRecordCount=5&f=json`;
+
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) return null;
+
+    const data = await resp.json();
+    const features = data?.features ?? [];
+    if (!features.length) return null;
+
+    // If multiple results, prefer the one whose
+    // SiteCity matches the city in the address
+    const inputCity = (address.split(",")[1] ?? "")
+                      .trim().toUpperCase();
+    const best = features.find(
+      (f: any) =>
+        f.attributes.SiteCity?.toUpperCase() ===
+        inputCity
+    ) ?? features[0];
+
+    const a = best.attributes;
+    return {
+      folio: a.folio ?? null,
+      siteCity: (a.SiteCity ?? "").toUpperCase(),
+      fullAddress: a.FullAddress ?? "",
+      siteZip: a.SiteZip ?? "",
+    };
+  } catch (err) {
+    console.error("[hcpa-api] lookup error:", err);
+    return null;
   }
 }
 
-/**
- * Check if an address is in Hillsborough County, FL
- */
-export function isHillsboroughCountyAddress(address: string): boolean {
-  // Normalize the address to lowercase for case-insensitive matching
-  const normalizedAddress = address.toLowerCase();
-  
-  // Check if the address contains Tampa, Temple Terrace, Plant City, or other Hillsborough municipalities
-  // and is in Florida
-  return (
-    normalizedAddress.includes('fl') &&
-    (
-      normalizedAddress.includes('tampa') ||
-      normalizedAddress.includes('temple terrace') ||
-      normalizedAddress.includes('plant city') ||
-      normalizedAddress.includes('brandon') ||
-      normalizedAddress.includes('apollo beach') ||
-      normalizedAddress.includes('riverview') ||
-      normalizedAddress.includes('gibsonton') ||
-      normalizedAddress.includes('sun city center') ||
-      normalizedAddress.includes('hillsborough')
-    )
+/** Main export: get the Hillsborough County
+ *  property tax estimate for a new purchase.
+ *  Returns null when the address cannot be
+ *  found in HCPA (caller should use fallback). */
+export async function getHillsboroughTax(params: {
+  address: string;
+  purchasePrice: number;
+  isPrimaryResidence: boolean;
+}): Promise<TaxResult | null> {
+  const parcel = await lookupHCPAParcel(
+    params.address
+  );
+  if (!parcel) return null;
+
+  const totalMills = resolveMillage(parcel.siteCity);
+  const annual = calcTax(
+    params.purchasePrice,
+    totalMills,
+    params.isPrimaryResidence
+  );
+
+  return {
+    annualTax: annual,
+    monthlyTax: Math.round((annual / 12) * 100) / 100,
+    municipality: parcel.siteCity || "Unincorporated",
+    millageRate: totalMills,
+    homestead: params.isPrimaryResidence,
+    source: "hcpa-api",
+  };
+}
+
+/** Returns true when the address looks like
+ *  it could be in Hillsborough County. Used
+ *  for quick pre-filtering before the API
+ *  call. */
+export function isHillsboroughCountyAddress(
+  address: string
+): boolean {
+  const lower = address.toLowerCase();
+  if (!lower.includes(" fl ") &&
+      !lower.endsWith(" fl") &&
+      !lower.includes(",fl") &&
+      !lower.includes(", fl")) return false;
+  return Array.from(HILLSBOROUGH_CITIES).some(c =>
+    lower.includes(c.toLowerCase())
   );
 }

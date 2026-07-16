@@ -562,28 +562,6 @@ function makeDefaultInputs(price = 350000): Inputs {
   };
 }
 
-/**
- * Single source of truth for annual property tax estimation. Returns $0
- * when the user has confirmed 100% VA disability AND the property will be
- * their primary residence — Florida (and most counties we serve) grant a
- * full homestead property-tax exemption in that case. Final eligibility
- * must still be confirmed with the county property appraiser; this is an
- * estimate-only adjustment shown to the user with a clarifying note next
- * to the Property Taxes row.
- *
- * Any other combination (no VA disability, not 100%, or non-primary use)
- * falls back to the standard county-aware estimate.
- */
-function computePropertyTax(
-  address: string,
-  purchasePrice: number,
-  occupancy: "primary" | "secondary" | "investment",
-  vaDisabilityRating100: boolean | null,
-): number {
-  if (vaDisabilityRating100 === true && occupancy === "primary") return 0;
-  return estimateAnnualTax(address, purchasePrice, occupancy === "primary");
-}
-
 function shortLabel(addr: string): string {
   const parts = addr.split(",")[0].trim().split(" ");
   return parts.slice(0, 3).join(" ");
@@ -2362,6 +2340,117 @@ export default function Estimate() {
   }
 
   const [inputs, setInputs] = useState<Inputs>(() => inputsForAddress(address));
+
+  // HCPA live tax estimate (Hillsborough only)
+  const [hcpaTax, setHcpaTax] =
+    useState<{
+      annualTax: number;
+      municipality: string;
+      millageRate: number;
+    } | null>(null);
+  const [hcpaTaxAddress, setHcpaTaxAddress] =
+    useState<string>("");
+
+  // Live HCPA property tax lookup
+  // (Hillsborough County addresses only)
+  useEffect(() => {
+    const activeAddr = scenarios.find(
+      s => s.id === activeScenarioId
+    )?.address || address;
+    const price = inputs.purchasePrice;
+
+    if (
+      !activeAddr ||
+      activeAddr === "Unknown Address" ||
+      activeAddr === hcpaTaxAddress ||
+      price <= 0
+    ) return;
+
+    // Only attempt for Hillsborough addresses
+    const isHillsborough =
+      /\btampa\b|\bbrandon\b|\briverview\b|\bapollo beach\b|\btemple terrace\b|\bplant city\b|\blithia\b|\bodessa\b|\bwestchase\b|\bcarrollwood\b|\blutz\b|\bruskin\b|\bvalrico\b|\bsun city center\b/i.test(activeAddr);
+
+    if (!isHillsborough) {
+      if (hcpaTax) setHcpaTax(null);
+      return;
+    }
+
+    const isPrimary =
+      inputs.occupancy === "primary";
+
+    fetch("/api/property-tax/hillsborough", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        address: activeAddr,
+        purchasePrice: price,
+        isPrimaryResidence: isPrimary,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.annualTax > 0) {
+          setHcpaTax({
+            annualTax: data.annualTax,
+            municipality: data.municipality,
+            millageRate: data.millageRate,
+          });
+          setHcpaTaxAddress(activeAddr);
+        } else {
+          // useFallback — keep existing formula
+          setHcpaTax(null);
+        }
+      })
+      .catch(() => {
+        setHcpaTax(null);
+      });
+  // Re-run when address, price, or occupancy
+  // changes
+  // eslint-disable-next-line
+  }, [
+    activeScenarioId,
+    inputs.purchasePrice,
+    inputs.occupancy,
+    address,
+  ]);
+
+  /**
+   * Single source of truth for annual property tax estimation. Returns $0
+   * when the user has confirmed 100% VA disability AND the property will be
+   * their primary residence — Florida (and most counties we serve) grant a
+   * full homestead property-tax exemption in that case. Final eligibility
+   * must still be confirmed with the county property appraiser; this is an
+   * estimate-only adjustment shown to the user with a clarifying note next
+   * to the Property Taxes row.
+   *
+   * Uses the live HCPA figure when available; falls back to the formula for
+   * all other counties. Declared inside the component (spec's module-level
+   * placement can't see hcpaTax state); function declaration hoists so all
+   * existing call sites below resolve to this version.
+   */
+  function computePropertyTax(
+    address: string,
+    purchasePrice: number,
+    occupancy: "primary" | "secondary" | "investment",
+    vaDisabilityRating100: boolean | null,
+  ): number {
+    if (vaDisabilityRating100 === true && occupancy === "primary") return 0;
+    // Use live HCPA figure when available
+    if (
+      hcpaTax &&
+      hcpaTaxAddress === address &&
+      purchasePrice === inputs.purchasePrice
+    ) {
+      return hcpaTax.annualTax;
+    }
+    // Fall back to formula for all other counties
+    return estimateAnnualTax(
+      address, purchasePrice,
+      occupancy === "primary"
+    );
+  }
 
   // ── Insurance panel state ───────────────────────────────────────────────────
   const insuranceSectionRef = useRef<HTMLDivElement>(null);

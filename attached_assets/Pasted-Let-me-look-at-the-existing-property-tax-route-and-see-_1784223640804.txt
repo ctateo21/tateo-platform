@@ -1,0 +1,587 @@
+Let me look at the existing property tax route and see what the current data flow looks like, then try to probe the HCPA API directly.The ArcGIS API is live and queryable. Now let me find the tax district and millage data.Now I have the complete picture. Here's what I found:
+
+**Current situation:** The tax estimate is 100% client-side in `county-tax-estimator.ts` using a flat percentage table — Hillsborough is just `1.5498%` applied to the purchase price regardless of whether it's Tampa, Brandon, Riverview, or Plant City. There's no live API call happening at all.
+
+**What I built from the research:**
+- The HCPA ArcGIS API is publicly accessible and returns the exact municipality for any parcel
+- 2026 Hillsborough millage rates by municipality are confirmed
+- The proper Florida homestead exemption formula is clear
+- I can call `FullAddress LIKE` queries to resolve any address to its municipality in ~200ms
+
+Here's the Replit prompt:
+
+```
+Improve the Hillsborough County property tax
+estimate by calling the HCPA public ArcGIS
+API to find the exact municipality for the
+property, then applying accurate 2026 millage
+rates with the proper Florida homestead
+exemption calculation. Fall back to the
+existing formula if the API call fails or the
+address is outside Hillsborough County.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BACKGROUND — HOW THIS WORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The HCPA ArcGIS parcel layer is publicly
+queryable at:
+  https://gis.hcpafl.org/arcgis/rest/services/
+  Webmaps/HillsboroughFL_WebParcels/MapServer/0
+
+A query like this resolves any Tampa address
+to its exact municipality and folio:
+  /query?where=FullAddress+LIKE+'3102+W+NASSAU%25'
+  &outFields=folio,FullAddress,SiteCity,SiteZip
+  &f=json
+
+This returns SiteCity as one of:
+  TAMPA, TEMPLE TERRACE, PLANT CITY,
+  or a community name (unincorporated)
+
+2026 Hillsborough County total millage rates:
+  Tampa:             19.8428 mills
+  Temple Terrace:    19.5319 mills
+  Plant City:        18.2926 mills
+  Unincorporated:    18.2515 mills
+    (Brandon, Riverview, Lutz, Apollo Beach,
+     Sun City Center, Gibsonton, Valrico, etc.)
+
+2026 School millage (applies county-wide,
+all municipalities):
+  7.336 mills
+
+Non-school millage = total - 7.336
+
+Florida homestead exemption (FL Statute
+196.031 + Amendment 5 effective 2026):
+  - First $25,000: exempt from ALL taxes
+    (school + non-school)
+  - Second $25,000: exempt from NON-SCHOOL
+    taxes only (applies to assessed value
+    between $50,001 and $75,000)
+
+Tax calculation for a new homestead purchase:
+  schoolTaxable  = price - 25000
+  nonSchoolTaxable = price - 50000
+  schoolTax      = schoolTaxable
+                   × schoolMillage / 1000
+  nonSchoolTax   = nonSchoolTaxable
+                   × nonSchoolMillage / 1000
+  total          = schoolTax + nonSchoolTax
+  (minimum taxable value = 0, cannot go below)
+
+Tax calculation without homestead:
+  total = price × totalMillage / 1000
+
+The HCPA tax estimator returns a range where
+the LOWER number is the ad valorem taxes only
+(excludes variable non-ad valorem like
+stormwater, solid waste, street lighting).
+Havo should return the lower number = the
+formula above (ad valorem only).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — Rewrite
+server/integrations/hillsborough-tax.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Replace the entire file with:
+
+/**
+ * Hillsborough County property tax estimator.
+ *
+ * Step 1: Parse the street address from the
+ *         full Google Maps address string
+ * Step 2: Call the HCPA ArcGIS parcel API to
+ *         resolve the address to a parcel and
+ *         get its municipality (SiteCity)
+ * Step 3: Apply 2026 Hillsborough millage
+ *         rates + FL homestead exemption to
+ *         compute the ad valorem tax estimate
+ *
+ * Falls back gracefully when:
+ *   - Address not found in HCPA database
+ *   - ArcGIS API is unreachable
+ *   - Address is not in Hillsborough County
+ */
+
+// ── 2026 Hillsborough millage rates ─────────
+// Source: propertyexemption.com / HCPA TRIM
+const SCHOOL_MILLS = 7.336;
+
+const CITY_MILLS: Record<string, number> = {
+  "TAMPA": 19.8428,
+  "TEMPLE TERRACE": 19.5319,
+  "PLANT CITY": 18.2926,
+};
+const UNINCORPORATED_MILLS = 18.2515;
+
+// Cities that are in Hillsborough but
+// unincorporated (no city millage layer)
+const HILLSBOROUGH_CITIES = new Set([
+  "TAMPA", "TEMPLE TERRACE", "PLANT CITY",
+  "BRANDON", "RIVERVIEW", "APOLLO BEACH",
+  "RUSKIN", "SUN CITY CENTER", "GIBSONTON",
+  "VALRICO", "LUTZ", "ODESSA", "WESTCHASE",
+  "NEW TAMPA", "TOWN N COUNTRY", "CARROLLWOOD",
+  "CITRUS PARK", "NORTHDALE", "WIMAUMA",
+  "LITHIA", "FISHHAWK", "BOYETTE",
+  "BALM", "SYDNEY", "THONOTOSASSA",
+]);
+
+interface HCPAParcel {
+  folio: string | null;
+  siteCity: string;
+  fullAddress: string;
+  siteZip: string;
+}
+
+interface TaxResult {
+  annualTax: number;
+  monthlyTax: number;
+  municipality: string;
+  millageRate: number;
+  homestead: boolean;
+  source: "hcpa-api" | "formula-fallback";
+}
+
+/** Normalize a city name from HCPA (upper case)
+ *  to the canonical municipality key. */
+function resolveMillage(siteCity: string): number {
+  const upper = siteCity.toUpperCase().trim();
+  return CITY_MILLS[upper] ?? UNINCORPORATED_MILLS;
+}
+
+/** Calculate FL property tax for a new
+ *  purchase using the ad valorem formula. */
+function calcTax(
+  price: number,
+  totalMills: number,
+  homestead: boolean
+): number {
+  if (!homestead) {
+    return Math.round((price * totalMills) / 1000);
+  }
+  const nonSchoolMills = totalMills - SCHOOL_MILLS;
+  const schoolTaxable  = Math.max(0, price - 25_000);
+  const nonSchoolTaxable = Math.max(0, price - 50_000);
+  const schoolTax    = (schoolTaxable * SCHOOL_MILLS)
+                       / 1000;
+  const nonSchoolTax = (nonSchoolTaxable * nonSchoolMills)
+                       / 1000;
+  return Math.round(schoolTax + nonSchoolTax);
+}
+
+/** Parse the street address portion from a
+ *  Google Maps full address string.
+ *  "3102 W Nassau St, Tampa, FL 33607"
+ *  → "3102 W NASSAU" (enough for LIKE match) */
+function parseStreetForQuery(fullAddress: string): string {
+  const street = fullAddress.split(",")[0].trim();
+  // Take just the first 3 tokens (house number +
+  // direction + street name) to avoid suffix
+  // mismatches (St vs Street, Blvd vs Boulevard)
+  const tokens = street.toUpperCase().split(/\s+/);
+  return tokens.slice(0, 3).join(" ");
+}
+
+/** Look up a parcel in the HCPA ArcGIS API.
+ *  Returns null when the parcel is not found
+ *  or the API is unreachable. */
+export async function lookupHCPAParcel(
+  address: string
+): Promise<HCPAParcel | null> {
+  try {
+    const streetQuery = parseStreetForQuery(address);
+    const where = encodeURIComponent(
+      `FullAddress LIKE '${streetQuery}%'`
+    );
+    const fields = "folio,FullAddress,SiteCity,SiteZip";
+    const url =
+      "https://gis.hcpafl.org/arcgis/rest/services/" +
+      "Webmaps/HillsboroughFL_WebParcels/" +
+      `MapServer/0/query?where=${where}` +
+      `&outFields=${fields}&resultRecordCount=5&f=json`;
+
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) return null;
+
+    const data = await resp.json();
+    const features = data?.features ?? [];
+    if (!features.length) return null;
+
+    // If multiple results, prefer the one whose
+    // SiteCity matches the city in the address
+    const inputCity = (address.split(",")[1] ?? "")
+                      .trim().toUpperCase();
+    const best = features.find(
+      (f: any) =>
+        f.attributes.SiteCity?.toUpperCase() ===
+        inputCity
+    ) ?? features[0];
+
+    const a = best.attributes;
+    return {
+      folio: a.folio ?? null,
+      siteCity: (a.SiteCity ?? "").toUpperCase(),
+      fullAddress: a.FullAddress ?? "",
+      siteZip: a.SiteZip ?? "",
+    };
+  } catch (err) {
+    console.error("[hcpa-api] lookup error:", err);
+    return null;
+  }
+}
+
+/** Main export: get the Hillsborough County
+ *  property tax estimate for a new purchase.
+ *  Returns null when the address cannot be
+ *  found in HCPA (caller should use fallback). */
+export async function getHillsboroughTax(params: {
+  address: string;
+  purchasePrice: number;
+  isPrimaryResidence: boolean;
+}): Promise<TaxResult | null> {
+  const parcel = await lookupHCPAParcel(
+    params.address
+  );
+  if (!parcel) return null;
+
+  const totalMills = resolveMillage(parcel.siteCity);
+  const annual = calcTax(
+    params.purchasePrice,
+    totalMills,
+    params.isPrimaryResidence
+  );
+
+  return {
+    annualTax: annual,
+    monthlyTax: Math.round((annual / 12) * 100) / 100,
+    municipality: parcel.siteCity || "Unincorporated",
+    millageRate: totalMills,
+    homestead: params.isPrimaryResidence,
+    source: "hcpa-api",
+  };
+}
+
+/** Returns true when the address looks like
+ *  it could be in Hillsborough County. Used
+ *  for quick pre-filtering before the API
+ *  call. */
+export function isHillsboroughCountyAddress(
+  address: string
+): boolean {
+  const lower = address.toLowerCase();
+  if (!lower.includes(" fl ") &&
+      !lower.endsWith(" fl") &&
+      !lower.includes(",fl") &&
+      !lower.includes(", fl")) return false;
+  return [...HILLSBOROUGH_CITIES].some(c =>
+    lower.includes(c.toLowerCase())
+  );
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — Update the server route
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: server/routes.ts
+
+Find the existing route:
+  app.post("/api/property-tax/hillsborough",
+    async (req, res) => {
+
+Replace the entire route with:
+
+  app.post(
+    "/api/property-tax/hillsborough",
+    async (req, res) => {
+      try {
+        const schema = z.object({
+          address: z.string().min(5),
+          purchasePrice: z.number().positive(),
+          isPrimaryResidence: z.boolean()
+            .default(true),
+        });
+        const params = schema.parse(req.body);
+
+        // Try the live HCPA ArcGIS lookup
+        const result = await getHillsboroughTax({
+          address: params.address,
+          purchasePrice: params.purchasePrice,
+          isPrimaryResidence:
+            params.isPrimaryResidence,
+        });
+
+        if (result) {
+          console.log(
+            `[hcpa-tax] ${result.municipality}` +
+            ` ${result.millageRate}mills` +
+            ` homestead=${result.homestead}` +
+            ` → $${result.annualTax}/yr`
+          );
+          return res.json({
+            annualTax: result.annualTax,
+            monthlyTax: result.monthlyTax,
+            municipality: result.municipality,
+            millageRate: result.millageRate,
+            homestead: result.homestead,
+            source: result.source,
+          });
+        }
+
+        // Parcel not found — tell client to
+        // use its formula fallback
+        console.log(
+          "[hcpa-tax] parcel not found, " +
+          "using client fallback for:",
+          params.address
+        );
+        res.json({ useFallback: true });
+
+      } catch (err: any) {
+        console.error("[hcpa-tax] error:", err);
+        if (err instanceof z.ZodError) {
+          return res.status(400).json({
+            error: "Invalid parameters"
+          });
+        }
+        res.json({ useFallback: true });
+      }
+    }
+  );
+
+Update the import at the top of routes.ts.
+Find the existing import:
+  import {
+    getHillsboroughTaxEstimate,
+    isHillsboroughCountyAddress,
+  } from "./integrations/hillsborough-tax";
+
+Replace it with:
+  import {
+    getHillsboroughTax,
+    isHillsboroughCountyAddress,
+  } from "./integrations/hillsborough-tax";
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — Add async tax lookup in estimate.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/estimate.tsx
+
+The current `computePropertyTax` function
+calls `estimateAnnualTax` synchronously from
+within useMemo. We'll augment this: the
+synchronous formula runs first as the
+default, then an async server lookup
+overrides it when the address is in
+Hillsborough County.
+
+── 3A. Add state for HCPA tax override ───
+
+Find where the QR state variables are
+declared (around the line:
+  const [qrLeadId, setQrLeadId] = ...)
+
+After those declarations, add:
+
+  // HCPA live tax estimate (Hillsborough only)
+  const [hcpaTax, setHcpaTax] =
+    useState<{
+      annualTax: number;
+      municipality: string;
+      millageRate: number;
+    } | null>(null);
+  const [hcpaTaxAddress, setHcpaTaxAddress] =
+    useState<string>("");
+
+── 3B. Add useEffect to fetch live tax ───
+
+Find this existing comment:
+  // Auto-trigger / cache-hydrate QuoteRUSH
+
+Directly BEFORE that comment, add:
+
+  // Live HCPA property tax lookup
+  // (Hillsborough County addresses only)
+  useEffect(() => {
+    const activeAddr = scenarios.find(
+      s => s.id === activeScenarioId
+    )?.address || address;
+    const price = inputs.purchasePrice;
+
+    if (
+      !activeAddr ||
+      activeAddr === "Unknown Address" ||
+      activeAddr === hcpaTaxAddress ||
+      price <= 0
+    ) return;
+
+    // Only attempt for Hillsborough addresses
+    const isHillsborough =
+      /\btampa\b|\bbrandon\b|\briverview\b|
+      \bapollo beach\b|\btemple terrace\b|
+      \bplant city\b|\blithia\b|\bodessa\b|
+      \bwestchase\b|\bcarrollwood\b|
+      \blotz\b|\brushkin\b|\bvalrico\b|
+      \bsun city center\b/i.test(activeAddr);
+
+    if (!isHillsborough) {
+      if (hcpaTax) setHcpaTax(null);
+      return;
+    }
+
+    const isPrimary =
+      inputs.occupancy === "primary";
+
+    fetch("/api/property-tax/hillsborough", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        address: activeAddr,
+        purchasePrice: price,
+        isPrimaryResidence: isPrimary,
+      }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.annualTax > 0) {
+          setHcpaTax({
+            annualTax: data.annualTax,
+            municipality: data.municipality,
+            millageRate: data.millageRate,
+          });
+          setHcpaTaxAddress(activeAddr);
+        } else {
+          // useFallback — keep existing formula
+          setHcpaTax(null);
+        }
+      })
+      .catch(() => {
+        setHcpaTax(null);
+      });
+  // Re-run when address, price, or occupancy
+  // changes
+  // eslint-disable-next-line
+  }, [
+    activeScenarioId,
+    inputs.purchasePrice,
+    inputs.occupancy,
+    address,
+  ]);
+
+── 3C. Use HCPA value in computePropertyTax ─
+
+Find this function:
+
+  function computePropertyTax(
+    address: string,
+    purchasePrice: number,
+    occupancy: "primary" | "secondary" |
+      "investment",
+    vaDisabilityRating100: boolean | null,
+  ): number {
+    if (vaDisabilityRating100 === true &&
+        occupancy === "primary") return 0;
+    return estimateAnnualTax(
+      address, purchasePrice,
+      occupancy === "primary"
+    );
+  }
+
+Replace it with:
+
+  function computePropertyTax(
+    address: string,
+    purchasePrice: number,
+    occupancy: "primary" | "secondary" |
+      "investment",
+    vaDisabilityRating100: boolean | null,
+  ): number {
+    if (vaDisabilityRating100 === true &&
+        occupancy === "primary") return 0;
+    // Use live HCPA figure when available
+    if (
+      hcpaTax &&
+      hcpaTaxAddress === address &&
+      purchasePrice === inputs.purchasePrice
+    ) {
+      return hcpaTax.annualTax;
+    }
+    // Fall back to formula for all other counties
+    return estimateAnnualTax(
+      address, purchasePrice,
+      occupancy === "primary"
+    );
+  }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   Fix type errors. The only likely errors
+   are around the hcpaTax state type.
+
+2. Run: npx vite build
+   Confirm clean build.
+
+3. Test manually in the browser console:
+   fetch("/api/property-tax/hillsborough", {
+     method: "POST",
+     headers:
+       {"Content-Type":"application/json"},
+     body: JSON.stringify({
+       address:
+         "3102 W Nassau St, Tampa, FL 33607",
+       purchasePrice: 700000,
+       isPrimaryResidence: true,
+     })
+   }).then(r=>r.json()).then(console.log)
+
+   Expected result:
+   {
+     annualTax: ~10500,   (not hardcoded)
+     municipality: "TAMPA",
+     millageRate: 19.8428,
+     homestead: true,
+     source: "hcpa-api"
+   }
+
+   The previous hardcoded implementation
+   always returned $10,513.52 for any
+   Hillsborough address at $700K. The new
+   implementation calculates from the actual
+   municipality returned by the ArcGIS API.
+
+4. Test a Brandon address:
+   { address:
+     "1234 Bloomingdale Ave, Brandon, FL 33511",
+     purchasePrice: 450000,
+     isPrimaryResidence: true }
+
+   Expected: municipality "BRANDON" or similar
+   unincorporated name, millageRate 18.2515
+
+5. Test a non-Hillsborough address:
+   { address:
+     "123 Main St, Sarasota, FL 34236",
+     purchasePrice: 500000,
+     isPrimaryResidence: true }
+
+   Expected: { useFallback: true }
+   Client should then use the existing
+   estimateAnnualTax() formula.
+
+6. Confirm the Replit console shows:
+   [hcpa-tax] TAMPA 19.8428mills
+   homestead=true → $XXXXX/yr
+
+7. Report files changed and build status.
+```
