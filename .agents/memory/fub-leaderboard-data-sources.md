@@ -13,7 +13,7 @@ description: Which Follow Up Boss endpoints actually hold agent activity, and th
 
 ## v9: Deals + verbatim-spec regression pattern
 - Deal pipeline sources from `/v1/deals` (83 deals): price=volume, agentCommission, pipelineName (Mortgage/Real Estate), stageName (Active Listing / Under Contract / 2026), customRealEstateTransaction (Buy/Sell), users[] = agent attribution. Active stages always shown; "2026" stages filtered by projectedCloseDate within period. Other deal-ish endpoints (transactions, closings, opportunities…) are 404 in FUB.
-- **Recurring gotcha:** user's pasted spec files predate my minimal additions and silently drop them. After every verbatim apply, re-add: (1) `LEADERBOARD_VIEWERS` export (routes.ts imports it — server won't boot without), (2) courtney in frontend TEAM_EMAILS, (3) `< endMs` upper bound on all six in-period filters (calls/showings/texts/emails/newLeads/closedThisPeriod) or Yesterday counts today's activity, (4) 429 retry in fubGet if absent.
+- **Recurring gotcha:** user's pasted spec files predate my minimal additions and silently drop them. After every verbatim apply, re-add: (1) `LEADERBOARD_VIEWERS` export (routes.ts imports it — server won't boot without), (2) the extra viewer entry in frontend TEAM_EMAILS (compare with routes.ts allowlist), (3) `< endMs` upper bound on all six in-period filters (calls/showings/texts/emails/newLeads/closedThisPeriod) or Yesterday counts today's activity, (4) 429 retry in fubGet if absent.
 - Client render crashes on payloads missing new fields (stale 5-min server cache spans deploys) — keep the post-fetch normalize guard that defaults missing sections to zeros.
 
 ## Actual FUB deal stage names (debug-confirmed)

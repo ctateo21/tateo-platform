@@ -263,94 +263,108 @@ export default function Footer() {
             </div>
           </div>
 
-          {/* Column 4: Resources & Legal
-              — unchanged */}
+          {/* Column 4: Resources & Legal */}
           <div>
             <div className="mb-8">
               <h4 className="text-xl
-                font-semibold
-                text-[#00B6A9] mb-4">
+                font-semibold text-[#00B6A9]
+                mb-4">
                 Resources
               </h4>
               <ul className="space-y-2">
                 <li>
-                  <Link href="/contact"
+                  <Link href="/education"
                     className="text-white/90
                       hover:text-[#00B6A9]">
-                    Contact
-                  </Link>
-                </li>
-                <li>
-                  <Link href="/meet-the-team"
-                    className="text-white/90
-                      hover:text-[#00B6A9]">
-                    Meet the Team
+                    Florida Real Estate FAQs
                   </Link>
                 </li>
                 <li>
                   <Link href=
-                    "/real-estate-buyers-guide"
+                    "/florida-homeowners-insurance-cost"
                     className="text-white/90
                       hover:text-[#00B6A9]">
-                    RE Buyer's Guide
+                    FL Insurance Cost Guide
                   </Link>
                 </li>
                 <li>
                   <Link href=
-                    "/real-estate-sellers-guide"
+                    "/florida-flood-zones-explained"
                     className="text-white/90
                       hover:text-[#00B6A9]">
-                    RE Seller's Guide
+                    FL Flood Zones Explained
                   </Link>
                 </li>
                 <li>
                   <Link href=
-                    "/mortgage-calculator"
+                    "/florida-real-estate-closing-costs"
                     className="text-white/90
                       hover:text-[#00B6A9]">
-                    Mortgage Calculator
+                    FL Closing Costs Guide
                   </Link>
                 </li>
                 <li>
                   <Link href=
-                    "/insurance-pricing"
+                    "/florida-property-tax-calculator"
                     className="text-white/90
                       hover:text-[#00B6A9]">
-                    Insurance Pricing
+                    FL Property Tax Guide
                   </Link>
                 </li>
                 <li>
                   <Link href=
-                    "/select-service"
+                    "/mortgage-payment-calculator-florida"
                     className="text-white/90
                       hover:text-[#00B6A9]">
-                    Prop Mgmt / Rentals
+                    FL Mortgage Guide
                   </Link>
+                </li>
+                <li>
+                  <a
+                    href="https://www.nmlsconsumeraccess.org"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    NMLS Consumer Access ↗
+                  </a>
                 </li>
               </ul>
             </div>
 
             <div>
               <h4 className="text-xl
-                font-semibold
-                text-[#00B6A9] mb-4">
+                font-semibold text-[#00B6A9]
+                mb-4">
                 Legal
               </h4>
               <ul className="space-y-2">
                 <li>
-                  <Link href=
-                    "/terms-conditions"
+                  <Link href="/terms"
                     className="text-white/90
                       hover:text-[#00B6A9]">
                     Terms &amp; Conditions
                   </Link>
                 </li>
                 <li>
-                  <Link href=
-                    "/privacy-policy"
+                  <Link href="/privacy"
                     className="text-white/90
                       hover:text-[#00B6A9]">
                     Privacy Policy
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/fair-housing"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    Fair Housing Notice
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/sms-terms"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    SMS &amp; Text Terms
                   </Link>
                 </li>
                 <li>
@@ -368,6 +382,21 @@ export default function Footer() {
                   </Link>
                 </li>
               </ul>
+            </div>
+
+            {/* Equal housing / Equal credit
+                disclosures — required for
+                real estate and mortgage */}
+            <div className="mt-6 pt-4
+              border-t border-white/10">
+              <p className="text-white/50
+                text-[10px] leading-relaxed">
+                Equal Housing Opportunity.
+                Equal Credit Opportunity
+                Lender. Barrett Financial
+                Group LLC NMLS #181106.
+                Individual MLO NMLS #1223755.
+              </p>
             </div>
           </div>
 

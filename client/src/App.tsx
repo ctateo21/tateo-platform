@@ -34,6 +34,23 @@ import ProtectedRoute from "./components/protected-route";
 import ToolGate from "./components/tool-gate";
 import NotFound from "./pages/not-found";
 import Leaderboard from "./pages/leaderboard";
+import Terms from "./pages/legal/terms";
+import Privacy from "./pages/legal/privacy";
+import FairHousing from "./pages/legal/fair-housing";
+import SmsTerms from "./pages/legal/sms-terms";
+import Accessibility from "./pages/legal/accessibility";
+import FlInsuranceCost from "./pages/aeo/florida-insurance-cost";
+import FlFloodZones from "./pages/aeo/florida-flood-zones";
+import FlClosingCosts from "./pages/aeo/florida-closing-costs";
+import FlPropertyTax from "./pages/aeo/florida-property-tax";
+import FlMortgageGuide from "./pages/aeo/florida-mortgage-guide";
+
+function SitemapRedirect() {
+  useEffect(() => {
+    window.location.replace("/sitemap.xml");
+  }, []);
+  return null;
+}
 
 function App() {
   return (
@@ -76,6 +93,17 @@ function App() {
                       <Route path="/leaderboard">
                         <ProtectedRoute><Leaderboard /></ProtectedRoute>
                       </Route>
+                      <Route path="/terms" component={Terms} />
+                      <Route path="/privacy" component={Privacy} />
+                      <Route path="/fair-housing" component={FairHousing} />
+                      <Route path="/sms-terms" component={SmsTerms} />
+                      <Route path="/accessibility" component={Accessibility} />
+                      <Route path="/florida-homeowners-insurance-cost" component={FlInsuranceCost} />
+                      <Route path="/florida-flood-zones-explained" component={FlFloodZones} />
+                      <Route path="/florida-real-estate-closing-costs" component={FlClosingCosts} />
+                      <Route path="/florida-property-tax-calculator" component={FlPropertyTax} />
+                      <Route path="/mortgage-payment-calculator-florida" component={FlMortgageGuide} />
+                      <Route path="/sitemap" component={SitemapRedirect} />
                       <Route component={NotFound} />
                     </Switch>
                   </main>

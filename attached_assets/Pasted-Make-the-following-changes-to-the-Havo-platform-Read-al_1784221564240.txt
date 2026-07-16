@@ -1,0 +1,1129 @@
+Make the following changes to the Havo
+platform. Read all sections before editing
+any file.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — Update footer Resources and
+Legal columns
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/components/layout/footer.tsx
+
+Find the entire Column 4 (Resources & Legal)
+div. Replace it with:
+
+          {/* Column 4: Resources & Legal */}
+          <div>
+            <div className="mb-8">
+              <h4 className="text-xl
+                font-semibold text-[#00B6A9]
+                mb-4">
+                Resources
+              </h4>
+              <ul className="space-y-2">
+                <li>
+                  <Link href="/education"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    Florida Real Estate FAQs
+                  </Link>
+                </li>
+                <li>
+                  <Link href=
+                    "/florida-homeowners-insurance-cost"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    FL Insurance Cost Guide
+                  </Link>
+                </li>
+                <li>
+                  <Link href=
+                    "/florida-flood-zones-explained"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    FL Flood Zones Explained
+                  </Link>
+                </li>
+                <li>
+                  <Link href=
+                    "/florida-real-estate-closing-costs"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    FL Closing Costs Guide
+                  </Link>
+                </li>
+                <li>
+                  <Link href=
+                    "/florida-property-tax-calculator"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    FL Property Tax Guide
+                  </Link>
+                </li>
+                <li>
+                  <Link href=
+                    "/mortgage-payment-calculator-florida"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    FL Mortgage Guide
+                  </Link>
+                </li>
+                <li>
+                  
+                    href="https://www.nmlsconsumeraccess.org"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    NMLS Consumer Access ↗
+                  </a>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <h4 className="text-xl
+                font-semibold text-[#00B6A9]
+                mb-4">
+                Legal
+              </h4>
+              <ul className="space-y-2">
+                <li>
+                  <Link href="/terms"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    Terms &amp; Conditions
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/privacy"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    Privacy Policy
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/fair-housing"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    Fair Housing Notice
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/sms-terms"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    SMS &amp; Text Terms
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/accessibility"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    Accessibility
+                  </Link>
+                </li>
+                <li>
+                  <Link href="/sitemap"
+                    className="text-white/90
+                      hover:text-[#00B6A9]">
+                    Sitemap
+                  </Link>
+                </li>
+              </ul>
+            </div>
+
+            {/* Equal housing / Equal credit
+                disclosures — required for
+                real estate and mortgage */}
+            <div className="mt-6 pt-4
+              border-t border-white/10">
+              <p className="text-white/50
+                text-[10px] leading-relaxed">
+                Equal Housing Opportunity.
+                Equal Credit Opportunity
+                Lender. Barrett Financial
+                Group LLC NMLS #181106.
+                Individual MLO NMLS #1223755.
+              </p>
+            </div>
+          </div>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — Create legal page components
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create these 5 new files in
+client/src/pages/legal/
+
+━━ FILE: client/src/pages/legal/terms.tsx
+
+export default function Terms() {
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto
+        px-4 py-16 max-w-3xl">
+        <h1 className="text-3xl font-bold
+          mb-2">Terms & Conditions</h1>
+        <p className="text-muted-foreground
+          text-sm mb-8">
+          Last updated: July 2026
+        </p>
+
+        <div className="prose prose-sm
+          max-w-none space-y-6
+          text-muted-foreground">
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">1. Acceptance of Terms
+            </h2>
+            <p>By accessing or using the
+            Havo platform at havofl.com
+            ("Platform"), you agree to be
+            bound by these Terms and
+            Conditions. If you do not agree,
+            do not use the Platform.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">2. Description of
+              Service</h2>
+            <p>Havo is a Florida property
+            intelligence and insurance
+            platform that provides mortgage
+            estimates, insurance estimates,
+            property tax estimates, and
+            related information for
+            educational and planning
+            purposes only. All estimates
+            are not binding quotes and are
+            subject to change.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">3. Not Financial or
+              Legal Advice</h2>
+            <p>The information provided on
+            this Platform does not
+            constitute financial, legal,
+            insurance, or real estate
+            advice. Always consult a
+            licensed professional before
+            making financial decisions.
+            Mortgage rates, insurance
+            premiums, and tax estimates
+            displayed are for illustrative
+            purposes only.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">4. Real Estate
+              Brokerage</h2>
+            <p>Real estate services are
+            provided through Horizons By
+            The Sea, Inc, License
+            #CQ216715, 661 S Collier Blvd,
+            Marco Island, FL 34145.
+            Licensed real estate brokerage
+            in the State of Florida.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">5. Mortgage Services
+            </h2>
+            <p>Mortgage services are
+            provided through Barrett
+            Financial Group LLC, NMLS
+            #181106, 2701 E Insight Way,
+            Suite 150, Chandler, AZ 85286.
+            Licensed in multiple states.
+            Individual MLO NMLS #1223755.
+            This is not a commitment to
+            lend. All loans subject to
+            credit approval, underwriting,
+            and property appraisal.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">6. Insurance Services
+            </h2>
+            <p>Insurance services are
+            provided through Tateo
+            Insurance Corp, License
+            #L132640, a licensed insurance
+            agency in the State of Florida.
+            Paul Christian Tateo, License
+            #W142842. Insurance quotes
+            are estimates only and are not
+            binding until confirmed in
+            writing by a licensed agent.
+            Coverage is not effective
+            until confirmed by a licensed
+            insurance agent.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">7. User Accounts</h2>
+            <p>You are responsible for
+            maintaining the confidentiality
+            of your account credentials
+            and for all activity under
+            your account. You agree to
+            provide accurate, current, and
+            complete information during
+            registration.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">8. Intellectual
+              Property</h2>
+            <p>All content, trademarks,
+            logos, and intellectual
+            property on this Platform are
+            owned by or licensed to Havo.
+            Unauthorized reproduction or
+            distribution is prohibited.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">9. Limitation of
+              Liability</h2>
+            <p>To the maximum extent
+            permitted by law, Havo and
+            its affiliates shall not be
+            liable for any indirect,
+            incidental, special, or
+            consequential damages arising
+            from your use of the Platform
+            or reliance on any information
+            provided herein.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">10. Governing Law</h2>
+            <p>These Terms are governed
+            by the laws of the State of
+            Florida. Any disputes shall
+            be resolved in the courts of
+            Collier County, Florida.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">11. Changes to Terms
+            </h2>
+            <p>We reserve the right to
+            modify these Terms at any
+            time. Continued use of the
+            Platform after changes
+            constitutes acceptance of
+            the updated Terms.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">12. Contact</h2>
+            <p>Questions about these Terms?
+            Email us at hello@havofl.com
+            or call (239) 580-7786.</p>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+━━ FILE: client/src/pages/legal/privacy.tsx
+
+export default function Privacy() {
+  return (
+    <div className="min-h-screen
+      bg-background">
+      <div className="container mx-auto
+        px-4 py-16 max-w-3xl">
+        <h1 className="text-3xl font-bold
+          mb-2">Privacy Policy</h1>
+        <p className="text-muted-foreground
+          text-sm mb-8">
+          Last updated: July 2026
+        </p>
+
+        <div className="prose prose-sm
+          max-w-none space-y-6
+          text-muted-foreground">
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Information We Collect
+            </h2>
+            <p>We collect information you
+            provide directly, including
+            your name, email address,
+            phone number, and property
+            addresses entered into our
+            platform. We also collect
+            usage data including pages
+            visited, features used, and
+            scenarios calculated.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">How We Use Your
+              Information</h2>
+            <p>We use your information
+            to provide the services you
+            request, communicate with
+            you about your real estate,
+            mortgage, and insurance
+            needs, improve our platform,
+            comply with legal
+            obligations, and, with your
+            consent, send you updates
+            and alerts via email or
+            SMS text message.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Gramm-Leach-Bliley
+              Act (GLBA) Notice</h2>
+            <p>In connection with mortgage
+            services provided through
+            Barrett Financial Group LLC
+            (NMLS #181106), we may collect
+            nonpublic personal financial
+            information. This information
+            is used solely to provide you
+            with mortgage services and is
+            shared only as permitted or
+            required by law. We do not
+            sell your personal financial
+            information to third parties
+            for marketing purposes.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Insurance Information
+            </h2>
+            <p>Property details you enter
+            for insurance estimates may
+            be shared with licensed
+            insurance carriers through
+            QuoteRUSH for the purpose of
+            obtaining quotes. This sharing
+            is limited to what is
+            necessary to provide you
+            with quotes and is governed
+            by carrier privacy policies
+            and Florida insurance law.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">SMS Text Messages</h2>
+            <p>If you consent to receive
+            text messages, your phone
+            number will only be used to
+            send messages related to
+            your real estate, mortgage,
+            and insurance inquiries.
+            Message and data rates may
+            apply. Reply STOP to opt out
+            at any time. See our{" "}
+            <a href="/sms-terms"
+              className="underline
+                text-primary">
+              SMS &amp; Text Terms
+            </a>{" "}
+            for full details.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Data Security</h2>
+            <p>We implement
+            industry-standard security
+            measures including
+            encryption, secure servers,
+            and access controls to
+            protect your personal
+            information in compliance
+            with the Florida Information
+            Protection Act (FIPA).</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Third-Party Services
+            </h2>
+            <p>We use trusted third-party
+            services including Supabase
+            (data storage), PostHog
+            (analytics), Resend (email),
+            and FollowUpBoss (CRM). Each
+            is governed by their own
+            privacy policy and complies
+            with applicable data
+            protection laws.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Your Rights</h2>
+            <p>You have the right to
+            access, correct, or request
+            deletion of your personal
+            information. To exercise
+            these rights, contact us at
+            hello@havofl.com. We will
+            respond within 30 days.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Contact</h2>
+            <p>Privacy questions:
+            hello@havofl.com or
+            (239) 580-7786.</p>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+━━ FILE: client/src/pages/legal/fair-housing.tsx
+
+export default function FairHousing() {
+  return (
+    <div className="min-h-screen
+      bg-background">
+      <div className="container mx-auto
+        px-4 py-16 max-w-3xl">
+        <h1 className="text-3xl font-bold
+          mb-2">Fair Housing Notice</h1>
+        <p className="text-muted-foreground
+          text-sm mb-8">
+          Federal Fair Housing Act
+          Compliance
+        </p>
+
+        <div className="prose prose-sm
+          max-w-none space-y-6
+          text-muted-foreground">
+
+          <div className="bg-primary/5
+            border border-primary/20
+            rounded-xl p-6 mb-6">
+            <p className="text-foreground
+              font-medium text-sm
+              leading-relaxed">
+              We are pledged to the letter
+              and spirit of U.S. policy for
+              the achievement of equal
+              housing opportunity throughout
+              the nation. We encourage and
+              support an affirmative
+              advertising and marketing
+              program in which there are no
+              barriers to obtaining housing
+              because of race, color,
+              religion, sex, handicap,
+              familial status, or national
+              origin.
+            </p>
+          </div>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Federal Fair Housing
+              Act</h2>
+            <p>All real estate advertised
+            on this website is subject to
+            the Federal Fair Housing Act
+            (42 U.S.C. §§ 3601–3619),
+            which makes it illegal to
+            advertise any preference,
+            limitation, or discrimination
+            because of race, color,
+            religion, sex, handicap,
+            familial status, or national
+            origin, or intention to make
+            any such preference,
+            limitation, or
+            discrimination.</p>
+            <p className="mt-3">All persons
+            are hereby informed that all
+            dwellings advertised are
+            available on an equal
+            opportunity basis.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Florida Fair Housing
+              Act</h2>
+            <p>Real estate services are
+            also subject to the Florida
+            Fair Housing Act (Chapter 760,
+            Florida Statutes), which
+            prohibits discrimination in
+            housing based on race, color,
+            national origin, sex,
+            disability, familial status,
+            or religion, and additionally
+            protects against discrimination
+            based on age and marital
+            status under Florida law.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Equal Credit
+              Opportunity</h2>
+            <p>Mortgage services are
+            provided in compliance with
+            the Equal Credit Opportunity
+            Act (ECOA), which prohibits
+            discrimination against credit
+            applicants on the basis of
+            race, color, religion,
+            national origin, sex, marital
+            status, age, or because any
+            part of the applicant's income
+            derives from a public
+            assistance program.</p>
+            <p className="mt-3">Barrett
+            Financial Group LLC (NMLS
+            #181106) is an Equal Housing
+            Opportunity Lender.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Our Commitment</h2>
+            <p>Havo, Horizons By The Sea,
+            Inc (License #CQ216715), and
+            all affiliated professionals
+            are committed to complying
+            with both the letter and
+            spirit of all fair housing
+            and equal credit laws. We
+            will not, on the basis of any
+            protected class:</p>
+            <ul className="list-disc pl-5
+              mt-2 space-y-1">
+              <li>Refuse to show, sell,
+                rent, or negotiate housing
+              </li>
+              <li>Discriminate in the terms
+                or conditions of any
+                housing transaction</li>
+              <li>Discriminate in providing
+                brokerage services</li>
+              <li>Deny a mortgage loan or
+                impose different terms
+                based on a protected
+                characteristic</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Filing a Complaint
+            </h2>
+            <p>If you believe you have been
+            discriminated against in
+            housing, contact:</p>
+            <ul className="mt-2
+              space-y-1">
+              <li><strong>HUD:</strong>{" "}
+                1-800-669-9777 or{" "}
+                
+                  href="https://www.hud.gov"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline
+                    text-primary">
+                  www.hud.gov
+                </a>
+              </li>
+              <li><strong>Florida FCHR:</strong>{" "}
+                (850) 488-7082
+              </li>
+            </ul>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+━━ FILE: client/src/pages/legal/sms-terms.tsx
+
+export default function SmsTerms() {
+  return (
+    <div className="min-h-screen
+      bg-background">
+      <div className="container mx-auto
+        px-4 py-16 max-w-3xl">
+        <h1 className="text-3xl font-bold
+          mb-2">
+          SMS &amp; Text Messaging Terms
+        </h1>
+        <p className="text-muted-foreground
+          text-sm mb-8">
+          TCPA &amp; Florida Telephone
+          Solicitation Act Compliance
+        </p>
+
+        <div className="prose prose-sm
+          max-w-none space-y-6
+          text-muted-foreground">
+
+          <div className="bg-amber-50
+            border border-amber-200
+            rounded-xl p-5 mb-6">
+            <p className="text-amber-900
+              text-sm font-medium">
+              By providing your phone
+              number and checking the SMS
+              consent box on any form,
+              you agree to receive text
+              messages as described below.
+              Consent is never required
+              to purchase any product
+              or service.
+            </p>
+          </div>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Who Sends the Messages
+            </h2>
+            <p>Text messages may be sent
+            by or on behalf of:</p>
+            <ul className="list-disc pl-5
+              mt-2 space-y-1">
+              <li>Havo (havofl.com)</li>
+              <li>Horizons By The Sea, Inc
+                — real estate updates
+              </li>
+              <li>Barrett Financial Group
+                LLC (NMLS #181106) —
+                mortgage rate alerts and
+                loan status updates</li>
+              <li>Tateo Insurance Corp
+                (License #L132640) —
+                insurance quote updates
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Types of Messages
+            </h2>
+            <p>By opting in, you may
+            receive text messages
+            including:</p>
+            <ul className="list-disc pl-5
+              mt-2 space-y-1">
+              <li>Property alerts and
+                listing updates for
+                addresses you search</li>
+              <li>Insurance quote status
+                and carrier results</li>
+              <li>Mortgage rate alerts
+                and pre-approval updates
+              </li>
+              <li>Appointment reminders
+                and showing confirmations
+              </li>
+              <li>Platform notifications
+                about your saved
+                scenarios</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Message Frequency
+            </h2>
+            <p>Message frequency varies
+            based on your activity and
+            requests. You may receive
+            up to 4 messages per month
+            for general updates, plus
+            additional messages triggered
+            by your specific property
+            searches or requests.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Costs</h2>
+            <p>Message and data rates may
+            apply depending on your
+            mobile carrier plan. Havo
+            does not charge for text
+            messages, but your carrier's
+            standard messaging rates
+            will apply.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">How to Opt Out</h2>
+            <p>You may opt out of text
+            messages at any time by:</p>
+            <ul className="list-disc pl-5
+              mt-2 space-y-1">
+              <li>Replying <strong>STOP</strong>{" "}
+                to any text message you
+                receive from us</li>
+              <li>Emailing
+                hello@havofl.com with
+                your phone number and
+                a request to opt out</li>
+              <li>Updating your
+                notification preferences
+                in your Havo account
+                settings</li>
+            </ul>
+            <p className="mt-3">After
+            opting out, you will receive
+            one final confirmation
+            message. You will not receive
+            further marketing messages
+            unless you provide new
+            consent.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Help</h2>
+            <p>Reply <strong>HELP</strong>{" "}
+            to any text message for
+            assistance, or contact us at
+            hello@havofl.com or
+            (239) 580-7786.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Florida Telephone
+              Solicitation Act (FTSA)</h2>
+            <p>In addition to federal TCPA
+            requirements, we comply with
+            the Florida Telephone
+            Solicitation Act (Chapter 501,
+            Florida Statutes). We obtain
+            prior express written consent
+            before sending any commercial
+            text messages to Florida
+            residents. We honor all opt-out
+            requests within 10 business
+            days and maintain records of
+            consent for a minimum of
+            5 years.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">No Condition of
+              Purchase</h2>
+            <p>Providing your phone number
+            or consenting to receive text
+            messages is never a condition
+            of receiving services from
+            Havo, Horizons By The Sea,
+            Inc, Barrett Financial Group
+            LLC, or Tateo Insurance Corp.
+            All services are fully
+            available to you whether or
+            not you opt in to text
+            messages.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Contact</h2>
+            <p>SMS compliance questions:
+            hello@havofl.com or
+            (239) 580-7786.</p>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+━━ FILE: client/src/pages/legal/accessibility.tsx
+
+export default function Accessibility() {
+  return (
+    <div className="min-h-screen
+      bg-background">
+      <div className="container mx-auto
+        px-4 py-16 max-w-3xl">
+        <h1 className="text-3xl font-bold
+          mb-2">Accessibility Statement
+        </h1>
+        <p className="text-muted-foreground
+          text-sm mb-8">
+          ADA Title III Compliance
+        </p>
+
+        <div className="prose prose-sm
+          max-w-none space-y-6
+          text-muted-foreground">
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Our Commitment</h2>
+            <p>Havo is committed to
+            ensuring that our platform
+            at havofl.com is accessible
+            to people with disabilities
+            in accordance with the
+            Americans with Disabilities
+            Act (ADA) Title III and
+            Section 508 of the
+            Rehabilitation Act.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Conformance Status
+            </h2>
+            <p>We aim to conform with
+            the Web Content Accessibility
+            Guidelines (WCAG) 2.1 at
+            Level AA. We are continually
+            working to improve the
+            accessibility of our platform
+            for users with visual,
+            auditory, motor, or cognitive
+            disabilities.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Accessibility Features
+            </h2>
+            <ul className="list-disc pl-5
+              mt-2 space-y-1">
+              <li>Keyboard navigation
+                support throughout the
+                platform</li>
+              <li>Screen reader
+                compatible elements
+                with proper ARIA labels
+              </li>
+              <li>Sufficient color
+                contrast ratios</li>
+              <li>Resizable text without
+                loss of functionality
+              </li>
+              <li>Alt text for images
+                and icons</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-lg
+              font-semibold text-foreground
+              mb-2">Feedback &amp;
+              Contact</h2>
+            <p>If you experience any
+            accessibility barriers
+            while using our platform,
+            please contact us. We will
+            work to provide the
+            information you need through
+            an alternative accessible
+            format.</p>
+            <p className="mt-3">
+              <strong>Email:</strong>{" "}
+              hello@havofl.com<br />
+              <strong>Phone:</strong>{" "}
+              (239) 580-7786<br />
+              <strong>Response time:</strong>{" "}
+              We respond to accessibility
+              feedback within 5 business
+              days.
+            </p>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — Create AEO resource pages
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+These are the AEO-optimized content pages
+that have already been planned. Create
+simple redirect/stub pages that show
+content from the education page until
+full AEO content is added.
+
+Create client/src/pages/aeo/florida-insurance-cost.tsx
+
+import { useEffect } from "react";
+import { useLocation } from "wouter";
+
+export default function FlInsuranceCost() {
+  const [, setLoc] = useLocation();
+  useEffect(() => {
+    setLoc("/education");
+  }, []);
+  return null;
+}
+
+Create the same redirect stub for:
+client/src/pages/aeo/florida-flood-zones.tsx
+client/src/pages/aeo/florida-closing-costs.tsx
+client/src/pages/aeo/florida-property-tax.tsx
+client/src/pages/aeo/florida-mortgage-guide.tsx
+
+All redirect to /education for now.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 4 — Register all new routes
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/App.tsx
+
+Add these imports at the top with the
+other page imports:
+
+import Terms from
+  "./pages/legal/terms";
+import Privacy from
+  "./pages/legal/privacy";
+import FairHousing from
+  "./pages/legal/fair-housing";
+import SmsTerms from
+  "./pages/legal/sms-terms";
+import Accessibility from
+  "./pages/legal/accessibility";
+import FlInsuranceCost from
+  "./pages/aeo/florida-insurance-cost";
+import FlFloodZones from
+  "./pages/aeo/florida-flood-zones";
+import FlClosingCosts from
+  "./pages/aeo/florida-closing-costs";
+import FlPropertyTax from
+  "./pages/aeo/florida-property-tax";
+import FlMortgageGuide from
+  "./pages/aeo/florida-mortgage-guide";
+
+Add these routes inside the Switch,
+BEFORE the catch-all NotFound route:
+
+<Route path="/terms"
+  component={Terms} />
+<Route path="/privacy"
+  component={Privacy} />
+<Route path="/fair-housing"
+  component={FairHousing} />
+<Route path="/sms-terms"
+  component={SmsTerms} />
+<Route path="/accessibility"
+  component={Accessibility} />
+<Route path=
+  "/florida-homeowners-insurance-cost"
+  component={FlInsuranceCost} />
+<Route path=
+  "/florida-flood-zones-explained"
+  component={FlFloodZones} />
+<Route path=
+  "/florida-real-estate-closing-costs"
+  component={FlClosingCosts} />
+<Route path=
+  "/florida-property-tax-calculator"
+  component={FlPropertyTax} />
+<Route path=
+  "/mortgage-payment-calculator-florida"
+  component={FlMortgageGuide} />
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   Fix type errors only.
+
+2. Run: npx vite build
+   Confirm clean build.
+
+3. Confirm every link in the footer
+   Resources and Legal columns resolves
+   to a real page — no 404s.
+
+4. Confirm NMLS Consumer Access opens
+   nmlsconsumeraccess.org in a new tab.
+
+5. Report:
+   - Files created
+   - Routes added
+   - Build status
