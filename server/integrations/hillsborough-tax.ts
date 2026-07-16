@@ -51,9 +51,16 @@ const HILLSBOROUGH_CITIES = new Set([
 
 interface HCPAParcel {
   folio: string | null;
+  strap: string | null;
   siteCity: string;
   fullAddress: string;
   siteZip: string;
+}
+
+interface HCPAParcelRates {
+  schoolTaxRate: number;
+  nonschoolTaxRate: number;
+  nonAdValoremTaxes: number;
 }
 
 interface TaxResult {
@@ -72,25 +79,85 @@ function resolveMillage(siteCity: string): number {
   return CITY_MILLS[upper] ?? UNINCORPORATED_MILLS;
 }
 
-/** Calculate FL property tax for a new
- *  purchase using the ad valorem formula. */
+/** Fetch the parcel's ACTUAL tax-district rates and
+ *  non-ad-valorem assessments (CDD, etc.) from the same
+ *  endpoint HCPA's own Tax Estimator uses. Requires the
+ *  internal PIN (`strap`) format — folio returns decoys. */
+async function fetchParcelRates(
+  strap: string
+): Promise<HCPAParcelRates | null> {
+  try {
+    const url =
+      "https://gis.hcpafl.org/CommonServices/property/" +
+      `search/TaxEstimator?pin=${encodeURIComponent(strap)}`;
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!resp.ok) return null;
+    const d = await resp.json();
+    if (
+      typeof d?.schoolTaxRate !== "number" ||
+      typeof d?.nonschoolTaxRate !== "number" ||
+      // Guard against the obfuscated decoy responses the
+      // endpoint returns for unrecognized PINs: the real
+      // response echoes back the exact PIN we sent.
+      d?.parcelID !== strap
+    ) {
+      return null;
+    }
+    return {
+      schoolTaxRate: d.schoolTaxRate,
+      nonschoolTaxRate: d.nonschoolTaxRate,
+      nonAdValoremTaxes:
+        typeof d.nonAdValoremTaxes === "number"
+          ? d.nonAdValoremTaxes
+          : 0,
+    };
+  } catch (err) {
+    console.error("[hcpa-api] rates error:", err);
+    return null;
+  }
+}
+
+/** Calculate FL property tax for a new purchase.
+ *  This replicates HCPA's own Tax Estimator formula
+ *  (their `calculateEstimatedTaxes`, lower bound):
+ *  taxable = 85% of price, $25k school exemption,
+ *  $50k non-school exemption, plus the parcel's
+ *  fixed non-ad-valorem assessments (CDD etc.). */
 function calcTax(
   price: number,
-  totalMills: number,
+  schoolMills: number,
+  nonSchoolMills: number,
+  nonAdValorem: number,
   homestead: boolean
 ): number {
-  const assessed = price * ASSESSED_RATIO;
+  const T = price * ASSESSED_RATIO;
   if (!homestead) {
-    return Math.round((assessed * totalMills) / 1000);
+    return Math.round(
+      (T * (schoolMills + nonSchoolMills)) / 1000 +
+      nonAdValorem
+    );
   }
-  const nonSchoolMills = totalMills - SCHOOL_MILLS;
-  const schoolTaxable  = Math.max(0, assessed - 25_000);
-  const nonSchoolTaxable = Math.max(0, assessed - 50_000);
-  const schoolTax    = (schoolTaxable * SCHOOL_MILLS)
-                       / 1000;
-  const nonSchoolTax = (nonSchoolTaxable * nonSchoolMills)
-                       / 1000;
-  return Math.round(schoolTax + nonSchoolTax);
+  const schoolTax = Math.max(
+    0, ((T - 25_000) * schoolMills) / 1000
+  );
+  // HCPA's estimator phases in the second $25k
+  // exemption between $50k and $75k of value
+  let nonSchoolTaxable: number;
+  if (T < 50_000) {
+    nonSchoolTaxable = T - 25_000;
+  } else if (T < 75_000) {
+    nonSchoolTaxable = 25_000;
+  } else {
+    nonSchoolTaxable = T - 50_000;
+  }
+  const nonSchoolTax = Math.max(
+    0, (nonSchoolTaxable * nonSchoolMills) / 1000
+  );
+  return Math.round(
+    schoolTax + nonSchoolTax + nonAdValorem
+  );
 }
 
 /** Parse the street address portion from a
@@ -117,7 +184,7 @@ export async function lookupHCPAParcel(
     const where = encodeURIComponent(
       `FullAddress LIKE '${streetQuery}%'`
     );
-    const fields = "folio,FullAddress,SiteCity,SiteZip";
+    const fields = "folio,strap,FullAddress,SiteCity,SiteZip";
     const url =
       "https://gis.hcpafl.org/arcgis/rest/services/" +
       "Webmaps/HillsboroughFL_WebParcels/" +
@@ -146,6 +213,7 @@ export async function lookupHCPAParcel(
     const a = best.attributes;
     return {
       folio: a.folio ?? null,
+      strap: a.strap ?? null,
       siteCity: (a.SiteCity ?? "").toUpperCase(),
       fullAddress: a.FullAddress ?? "",
       siteZip: a.SiteZip ?? "",
@@ -170,10 +238,34 @@ export async function getHillsboroughTax(params: {
   );
   if (!parcel) return null;
 
-  const totalMills = resolveMillage(parcel.siteCity);
+  // Prefer the parcel's ACTUAL district rates from
+  // HCPA (includes CDD millage and non-ad-valorem
+  // assessments); fall back to the municipality
+  // millage table when that endpoint is unavailable.
+  const rates = parcel.strap
+    ? await fetchParcelRates(parcel.strap)
+    : null;
+
+  let schoolMills: number;
+  let nonSchoolMills: number;
+  let nonAdValorem: number;
+  if (rates) {
+    schoolMills = rates.schoolTaxRate;
+    nonSchoolMills = rates.nonschoolTaxRate;
+    nonAdValorem = rates.nonAdValoremTaxes;
+  } else {
+    const totalMills = resolveMillage(parcel.siteCity);
+    schoolMills = SCHOOL_MILLS;
+    nonSchoolMills = totalMills - SCHOOL_MILLS;
+    nonAdValorem = 0;
+  }
+  const totalMills = schoolMills + nonSchoolMills;
+
   const annual = calcTax(
     params.purchasePrice,
-    totalMills,
+    schoolMills,
+    nonSchoolMills,
+    nonAdValorem,
     params.isPrimaryResidence
   );
 
