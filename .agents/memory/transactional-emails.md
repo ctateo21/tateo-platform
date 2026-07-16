@@ -15,8 +15,7 @@ from-address to the verified sender (see below) when it is unset.
 
 **Verified sending domain:** Resend only accepts sends from the verified domain
 `updates.tateoco.com` (NOT `tateoco.com` / `havofl.com`). `ALERT_FROM_EMAIL`
-must be an address on that domain (e.g. `Havo Showing Alerts
-<alerts@updates.tateoco.com>`); the code also defaults to that if unset.
+must be an address on that domain; the code also has a default if unset.
 **Why:** a "no email arrived" report after FUB clearly succeeded is almost
 always Resend rejecting an unverified from-domain — check the from-domain and
 the exact Resend error string, not the send path. Recipient (`INTERNAL_ALERT_EMAIL`)

@@ -188,10 +188,16 @@ export async function getNonAdValoremForFolio(
     console.error("[nav-scrape] scrape error:", e?.message);
   }
 
-  const annuals = items
+  // Only trust items that actually parsed assessment lines with a
+  // positive total (fail closed on malformed pages). Prefer the
+  // newest annual bill.
+  const valid = items.filter(
+    i => i.total > 0 && i.lines.length > 0
+  );
+  const annuals = valid
     .filter(i => i.isAnnual && i.year)
     .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
-  const best = annuals[0] ?? items[0] ?? null;
+  const best = annuals[0] ?? valid[0] ?? null;
 
   const expiresAt = new Date();
   if (best) {
