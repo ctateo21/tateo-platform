@@ -10,5 +10,6 @@
 - [Full-project tsc time limit](tsc-env-limit.md) — `npx tsc --noEmit` won't finish in the sandbox; verify small edits via Vite HMR "hot updated" / no transform errors instead.
 - [GitHub sync method & checkpoint gotcha](github-sync.md) — push via connectors-sdk proxy (no raw tokens); diff vs REMOTE tree, never `git diff HEAD` (checkpoints auto-commit).
 - [QuoteRUSH live quoting](quoterush-integration.md) — secret names *_WEBID_PASSWORD/*_AGENCY_ID; shared DB address-cache (first pays, 30d TTL); cache updates keyed by leadId not caller address; auto-trigger + lost-race pollCacheForLead; poll-until-stable(3).
+- [Tax Collector bill scrape](tax-collector-bill-scrape.md) — HCPA nonAdValorem field is dead; CDD lines come from Apify browser scrape (needs one-time actor approval), cached per folio.
 - [FUB leaderboard data sources](fub-leaderboard-data-sources.md) — calls in /v1/calls (userId), showings in /v1/appointments (createdById, -1=system); texts/emails not listable globally.
 - [Hillsborough property tax estimate](hillsborough-tax-estimate.md) — HCPA estimator range = assessed-value range (85%–100% of price); Havo matches the LOWER bound via 85% assessed ratio.

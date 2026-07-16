@@ -231,8 +231,10 @@ export async function getNonAdValoremForFolio(
     };
   }
 
-  // Failed — cache the failure briefly (1 day) to avoid repeat cost.
-  expiresAt.setDate(expiresAt.getDate() + 1);
+  // Failed — cache the failure briefly (10 min) to avoid hammering
+  // Apify, while allowing a quick retry once issues are resolved
+  // (e.g., after the one-time actor approval).
+  expiresAt.setMinutes(expiresAt.getMinutes() + 10);
   try {
     await db
       .insert(nonAdValoremCache)
