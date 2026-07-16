@@ -1,0 +1,435 @@
+Hit the response length limit mid-investigation. I was right at the most important discovery — the `global_searchUrl` which is `https://gis.hcpafl.org/CommonServices/property/search/`. Let me pick up exactly where I left off and finish this.That's the exact API. Look at `nonAdValoremTaxes` — that's the CDD field. Let me verify with a known CDD property.Found everything. The API is fully documented now. Here's what I've reverse-engineered:
+
+---
+
+## What the HCPA Tax Estimator Actually Does
+
+The key is a two-step call using the `CommonServices` backend, requiring a `Referer` header from the HCPA domain:
+
+**Step 1 — Address → PIN:**
+```
+GET /CommonServices/property/search/BasicSearch?address={street}
+Referer: https://gis.hcpafl.org/PropertySearch/TaxEstimator.aspx
+```
+Returns the `pin` field (not the folio).
+
+**Step 2 — PIN → Tax Data:**
+```
+GET /CommonServices/property/search/TaxEstimator?pin={PIN}
+```
+Returns exactly what we need:
+```json
+{
+  "schoolTaxRate": 6.34,
+  "nonschoolTaxRate": 13.5028,
+  "totalTaxRate": 19.8428,
+  "nonAdValoremTaxes": 0.0,   ← CDD fee lives here
+  "taxDistrict": "TA",
+  "justValue": 568233
+}
+```
+
+**The low estimate formula (matching HCPA exactly):**
+```
+taxableBase = purchasePrice × 0.85
+If homestead:
+  schoolTax    = (taxableBase - 25000) × schoolRate / 1000
+  nonSchoolTax = (taxableBase - 50000) × nonSchoolRate / 1000
+Else:
+  total = taxableBase × totalRate / 1000
+
+finalTotal = adValorem + nonAdValoremTaxes  ← CDD added here
+```
+
+The `nonAdValoremTaxes` field is the property's current annual CDD/non-ad valorem assessment — it doesn't change when the property sells, so the current value is exactly what the new buyer will pay.
+
+---
+
+```
+Update server/integrations/hillsborough-tax.ts
+to use the real HCPA CommonServices API —
+two live API calls instead of hardcoded math.
+This gives accurate millage rates, the correct
+CDD/non-ad valorem amount, and the same low
+estimate formula the HCPA website uses.
+
+Replace the ENTIRE file with:
+
+/**
+ * Hillsborough County property tax estimator.
+ * Uses the live HCPA CommonServices API —
+ * the same backend the Tax Estimator website
+ * at gis.hcpafl.org/PropertySearch/TaxEstimator
+ * calls.
+ *
+ * Two-step flow:
+ *   1. BasicSearch by street address → PIN
+ *   2. TaxEstimator?pin=PIN → millage rates
+ *      + nonAdValoremTaxes (CDD/assessments)
+ *
+ * Returns the LOW estimate (purchasePrice × 0.85
+ * as taxable base) matching HCPA's lower bound,
+ * plus the nonAdValoremTaxes added on top since
+ * the website explicitly excludes them from its
+ * range display.
+ */
+
+const HCPA_BASE =
+  "https://gis.hcpafl.org/CommonServices/" +
+  "property/search";
+const HCPA_REFERER =
+  "https://gis.hcpafl.org/PropertySearch/" +
+  "TaxEstimator.aspx";
+const FETCH_TIMEOUT_MS = 8_000;
+
+const HCPA_HEADERS = {
+  "Referer": HCPA_REFERER,
+  "Accept": "application/json, text/plain, */*",
+  "X-Requested-With": "XMLHttpRequest",
+};
+
+interface HCPATaxData {
+  schoolTaxRate: number;
+  nonschoolTaxRate: number;
+  totalTaxRate: number;
+  nonAdValoremTaxes: number;
+  taxDistrict: string;
+  justValue: number;
+  assessedValue: number;
+}
+
+export interface HCPATaxResult {
+  annualTax: number;
+  monthlyTax: number;
+  adValoremTax: number;
+  nonAdValoremTax: number;
+  taxDistrict: string;
+  totalMillageRate: number;
+  homestead: boolean;
+  source: "hcpa-api";
+}
+
+/** Parse the street portion of a full address
+ *  for the HCPA BasicSearch query.
+ *  "3102 W Nassau St, Tampa, FL 33607"
+ *  → "3102 W Nassau" */
+function streetForSearch(fullAddress: string): string {
+  const street = fullAddress.split(",")[0].trim();
+  const tokens = street.split(/\s+/);
+  // Use first 3 tokens: number + direction + name
+  // Avoids suffix mismatches (St vs Street)
+  return tokens.slice(0, 3).join(" ");
+}
+
+/** Step 1: Resolve address → PIN via BasicSearch.
+ *  Returns null when address is not found. */
+async function lookupPIN(
+  address: string
+): Promise<string | null> {
+  const query = encodeURIComponent(
+    streetForSearch(address)
+  );
+  const url =
+    `${HCPA_BASE}/BasicSearch?address=${query}`;
+
+  const resp = await fetch(url, {
+    headers: HCPA_HEADERS,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!resp.ok) return null;
+
+  const results = await resp.json();
+  if (!Array.isArray(results) || !results.length) {
+    return null;
+  }
+
+  // If multiple results, prefer the one whose
+  // city matches the input address
+  const inputCity = (
+    address.split(",")[1] ?? ""
+  ).trim().toUpperCase();
+
+  const best =
+    results.find(
+      (r: any) =>
+        (r.address ?? "")
+          .toUpperCase()
+          .includes(inputCity)
+    ) ?? results[0];
+
+  return best.pin ?? null;
+}
+
+/** Step 2: Fetch tax data by PIN. */
+async function fetchTaxData(
+  pin: string
+): Promise<HCPATaxData | null> {
+  const url =
+    `${HCPA_BASE}/TaxEstimator?pin=` +
+    encodeURIComponent(pin);
+
+  const resp = await fetch(url, {
+    headers: HCPA_HEADERS,
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+  if (!resp.ok) return null;
+
+  const data = await resp.json();
+
+  // Validate we got useful data back
+  if (
+    typeof data?.schoolTaxRate !== "number" ||
+    typeof data?.nonschoolTaxRate !== "number"
+  ) {
+    return null;
+  }
+
+  return {
+    schoolTaxRate: data.schoolTaxRate,
+    nonschoolTaxRate: data.nonschoolTaxRate,
+    totalTaxRate: data.totalTaxRate,
+    nonAdValoremTaxes: data.nonAdValoremTaxes ?? 0,
+    taxDistrict: data.taxDistrict ?? "",
+    justValue: data.justValue ?? 0,
+    assessedValue: data.assessedValue ?? 0,
+  };
+}
+
+/** Calculate the ad valorem tax portion using
+ *  HCPA's exact formula.
+ *
+ *  Low estimate = purchasePrice × 0.85 as the
+ *  taxable base (matches HCPA website lower bound).
+ *  NonAdValorem (CDD) is added separately on top.
+ */
+function calcAdValorem(
+  purchasePrice: number,
+  homestead: boolean,
+  schoolRate: number,
+  nonSchoolRate: number,
+  totalRate: number
+): number {
+  // HCPA low estimate: 85% of purchase price
+  const taxableBase = purchasePrice * 0.85;
+
+  if (!homestead) {
+    return Math.round(
+      taxableBase * (totalRate / 1000)
+    );
+  }
+
+  // Homestead exemption:
+  //   $25k off ALL taxes (school + non-school)
+  //   $25k more off NON-SCHOOL only
+  //   (for value between $50k and $75k)
+  const schoolTaxable = Math.max(
+    0, taxableBase - 25_000
+  );
+  const schoolTax =
+    schoolTaxable * (schoolRate / 1000);
+
+  let nonSchoolTaxable: number;
+  if (taxableBase < 50_000) {
+    nonSchoolTaxable = Math.max(
+      0, taxableBase - 25_000
+    );
+  } else {
+    nonSchoolTaxable = Math.max(
+      0, taxableBase - 50_000
+    );
+  }
+  const nonSchoolTax =
+    nonSchoolTaxable * (nonSchoolRate / 1000);
+
+  return Math.round(schoolTax + nonSchoolTax);
+}
+
+/** Main export: resolve address → full tax
+ *  estimate including CDD/non-ad valorem.
+ *  Returns null on any API failure. */
+export async function getHillsboroughTax(params: {
+  address: string;
+  purchasePrice: number;
+  isPrimaryResidence: boolean;
+}): Promise<HCPATaxResult | null> {
+  // Step 1: address → PIN
+  const pin = await lookupPIN(params.address);
+  if (!pin) {
+    console.log(
+      "[hcpa-tax] PIN not found for:",
+      params.address
+    );
+    return null;
+  }
+  console.log("[hcpa-tax] PIN:", pin);
+
+  // Step 2: PIN → tax data
+  const taxData = await fetchTaxData(pin);
+  if (!taxData) {
+    console.log("[hcpa-tax] TaxEstimator failed");
+    return null;
+  }
+  console.log("[hcpa-tax] taxData:", {
+    district:     taxData.taxDistrict,
+    totalMills:   taxData.totalTaxRate,
+    nonAdValorem: taxData.nonAdValoremTaxes,
+  });
+
+  // Step 3: calculate
+  const adValorem = calcAdValorem(
+    params.purchasePrice,
+    params.isPrimaryResidence,
+    taxData.schoolTaxRate,
+    taxData.nonschoolTaxRate,
+    taxData.totalTaxRate
+  );
+
+  const nonAdValorem = Math.round(
+    taxData.nonAdValoremTaxes ?? 0
+  );
+
+  const annualTax = adValorem + nonAdValorem;
+
+  console.log(
+    `[hcpa-tax] ${taxData.taxDistrict}` +
+    ` mills=${taxData.totalTaxRate}` +
+    ` homestead=${params.isPrimaryResidence}` +
+    ` adVal=$${adValorem}` +
+    ` nonAdVal=$${nonAdValorem}` +
+    ` total=$${annualTax}`
+  );
+
+  return {
+    annualTax,
+    monthlyTax: Math.round(
+      (annualTax / 12) * 100
+    ) / 100,
+    adValoremTax: adValorem,
+    nonAdValoremTax: nonAdValorem,
+    taxDistrict: taxData.taxDistrict,
+    totalMillageRate: taxData.totalTaxRate,
+    homestead: params.isPrimaryResidence,
+    source: "hcpa-api",
+  };
+}
+
+/** Fast pre-filter: does this address look like
+ *  it could be Hillsborough County? Used to skip
+ *  the API call for clearly out-of-county addresses. */
+export function isHillsboroughCountyAddress(
+  address: string
+): boolean {
+  const lower = address.toLowerCase();
+  const hasFL =
+    lower.includes(", fl ") ||
+    lower.includes(",fl ") ||
+    / fl \d{5}/.test(lower);
+  if (!hasFL) return false;
+
+  return [
+    "tampa", "brandon", "riverview",
+    "apollo beach", "temple terrace",
+    "plant city", "lithia", "odessa",
+    "westchase", "carrollwood", "lutz",
+    "ruskin", "valrico", "sun city center",
+    "gibsonton", "thonotosassa", "wimauma",
+    "fishhawk", "boyette",
+  ].some(c => lower.includes(c));
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+UPDATE server/routes.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The import at the top of routes.ts should
+already be:
+  import {
+    getHillsboroughTax,
+    isHillsboroughCountyAddress,
+  } from "./integrations/hillsborough-tax";
+
+If it still references getHillsboroughTaxEstimate,
+update it to match the above.
+
+The route handler at
+app.post("/api/property-tax/hillsborough"...)
+already exists from the previous prompt.
+It calls getHillsboroughTax and returns the
+result. No changes needed to the route handler
+itself because getHillsboroughTax still returns
+{ annualTax, monthlyTax, source } — but update
+the res.json() call to also pass back the
+new fields so the client can optionally
+display them:
+
+Find:
+  return res.json({
+    annualTax: result.annualTax,
+    monthlyTax: result.monthlyTax,
+    municipality: result.municipality,
+    millageRate: result.millageRate,
+    homestead: result.homestead,
+    source: result.source,
+  });
+
+Replace with:
+  return res.json({
+    annualTax: result.annualTax,
+    monthlyTax: result.monthlyTax,
+    adValoremTax: result.adValoremTax,
+    nonAdValoremTax: result.nonAdValoremTax,
+    taxDistrict: result.taxDistrict,
+    millageRate: result.totalMillageRate,
+    homestead: result.homestead,
+    source: result.source,
+  });
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   Fix type errors only.
+
+2. Run: npx vite build
+   Confirm clean build.
+
+3. Test in browser console:
+
+   fetch("/api/property-tax/hillsborough", {
+     method: "POST",
+     headers:
+       {"Content-Type":"application/json"},
+     body: JSON.stringify({
+       address:
+         "3102 W Nassau St, Tampa, FL 33607",
+       purchasePrice: 700000,
+       isPrimaryResidence: true,
+     })
+   }).then(r=>r.json()).then(console.log)
+
+   Expected result:
+   {
+     annualTax: ~10500 (ad valorem only,
+                no CDD for this property),
+     adValoremTax: ~10500,
+     nonAdValoremTax: 0,
+     taxDistrict: "TA",
+     millageRate: 19.8428,
+     homestead: true,
+     source: "hcpa-api"
+   }
+
+4. Test a CDD property by searching for
+   a community like Waterset or FishHawk.
+   Look for nonAdValoremTax > 0 in the
+   response. Check the Replit console for:
+   [hcpa-tax] U mills=18.2515 homestead=true
+   adVal=$XXXX nonAdVal=$YYYY total=$ZZZZ
+
+5. Confirm the estimate updates in the
+   purchase calculator when a Hillsborough
+   address is entered.
+
+6. Report files changed and build status.
+```

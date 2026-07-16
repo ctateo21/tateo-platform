@@ -1,0 +1,935 @@
+Good. Now I can see the full picture — the current `hillsborough-tax.ts` is the old hardcoded single-data-point version. The route uses `propertyValue` (not `purchasePrice`). `normalizeAddr` already exists in routes.ts. The `hcpa_tax_cache` table is already in Supabase. Here's the single complete prompt:
+
+```
+This prompt completely replaces the Hillsborough
+County property tax integration with a live
+HCPA API implementation that caches results
+in Supabase. The hcpa_tax_cache table already
+exists in Supabase. Read every section before
+editing any file.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HOW THIS WORKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The HCPA (Hillsborough County Property
+Appraiser) exposes a public API that the
+Tax Estimator website uses internally.
+Two calls resolve any address to a full
+tax estimate:
+
+  Step 1: BasicSearch?address={street}
+  → returns the PIN (parcel identifier)
+
+  Step 2: TaxEstimator?pin={PIN}
+  → returns school/non-school millage rates
+    AND the nonAdValoremTaxes (CDD fees)
+
+The ad valorem tax is calculated using
+HCPA's own formula (purchasePrice × 0.85
+as the taxable base for the low estimate,
+then applying the homestead exemption).
+
+The nonAdValoremTaxes field is the CDD /
+special assessment amount — it is a FIXED
+annual dollar amount that does not change
+when the purchase price changes.
+
+After the first live API call, we store:
+  - The millage rates (for accurate recalc)
+  - The adValoremPct (adValorem / price)
+  - The nonAdValoremAmt (fixed CDD dollars)
+
+Subsequent users for the same address skip
+the API entirely and recalculate using the
+cached millage rates + their own price.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — Update shared/schema.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: shared/schema.ts
+
+── 1A. Add numeric to the import ─────────
+
+Find the first line:
+  import { pgTable, text, serial, integer,
+    boolean, json, jsonb, date, timestamp,
+    varchar, unique }
+    from "drizzle-orm/pg-core";
+
+Replace with:
+  import { pgTable, text, serial, integer,
+    boolean, json, jsonb, numeric, date,
+    timestamp, varchar, unique }
+    from "drizzle-orm/pg-core";
+
+── 1B. Add table definition at the END ───
+
+After all existing exports, append:
+
+export const hcpaTaxCache = pgTable(
+  "hcpa_tax_cache",
+  {
+    id: serial("id").primaryKey(),
+    addressNormalized: text(
+      "address_normalized"
+    ).notNull().unique(),
+    addressDisplay: text(
+      "address_display"
+    ).notNull(),
+    pin: text("pin"),
+    taxDistrict: text("tax_district"),
+    schoolTaxRate: numeric(
+      "school_tax_rate",
+      { precision: 8, scale: 4 }
+    ).notNull(),
+    nonSchoolTaxRate: numeric(
+      "non_school_tax_rate",
+      { precision: 8, scale: 4 }
+    ).notNull(),
+    totalMillageRate: numeric(
+      "total_millage_rate",
+      { precision: 8, scale: 4 }
+    ).notNull(),
+    adValoremPct: numeric(
+      "ad_valorem_pct",
+      { precision: 10, scale: 6 }
+    ).notNull(),
+    nonAdValoremAmt: integer(
+      "non_ad_valorem_amt"
+    ).notNull().default(0),
+    homesteadSample: boolean(
+      "homestead_sample"
+    ).notNull(),
+    samplePrice: integer(
+      "sample_price"
+    ).notNull(),
+    queriedAt: timestamp("queried_at")
+      .defaultNow().notNull(),
+    expiresAt: timestamp(
+      "expires_at"
+    ).notNull(),
+  }
+);
+
+export type HcpaTaxCache =
+  typeof hcpaTaxCache.$inferSelect;
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — Completely replace
+server/integrations/hillsborough-tax.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Delete the entire file and replace with:
+
+/**
+ * Hillsborough County property tax estimator.
+ *
+ * Calls the HCPA CommonServices API —
+ * the same backend used by the official
+ * Tax Estimator at:
+ * gis.hcpafl.org/PropertySearch/TaxEstimator
+ *
+ * Two-step flow:
+ *   1. BasicSearch → PIN number
+ *   2. TaxEstimator?pin → millage rates
+ *      + nonAdValoremTaxes (CDD/assessments)
+ *
+ * The low estimate matches HCPA's own formula:
+ *   taxableBase = purchasePrice × 0.85
+ *   Apply FL homestead exemption
+ *   Add nonAdValoremTaxes on top
+ */
+
+const HCPA_BASE =
+  "https://gis.hcpafl.org/CommonServices/" +
+  "property/search";
+
+const HCPA_HEADERS: Record<string, string> = {
+  Referer:
+    "https://gis.hcpafl.org/PropertySearch/" +
+    "TaxEstimator.aspx",
+  Accept:
+    "application/json, text/plain, */*",
+  "X-Requested-With": "XMLHttpRequest",
+};
+
+const TIMEOUT_MS = 8_000;
+
+// ── Interfaces ────────────────────────────
+
+interface HCPAApiTaxData {
+  schoolTaxRate: number;
+  nonschoolTaxRate: number;
+  totalTaxRate: number;
+  nonAdValoremTaxes: number;
+  taxDistrict: string;
+  justValue: number;
+  assessedValue: number;
+}
+
+export interface HCPATaxResult {
+  annualTax: number;
+  monthlyTax: number;
+  adValoremTax: number;
+  nonAdValoremTax: number;
+  taxDistrict: string;
+  schoolTaxRate: number;
+  nonSchoolTaxRate: number;
+  totalMillageRate: number;
+  homestead: boolean;
+  source: "hcpa-api";
+}
+
+// ── Address helpers ───────────────────────
+
+/** Extract street portion for BasicSearch.
+ *  "3102 W Nassau St, Tampa, FL 33607"
+ *  → "3102 W Nassau"
+ *  (3 tokens avoids suffix mismatches) */
+function streetForSearch(
+  fullAddress: string
+): string {
+  const street = fullAddress
+    .split(",")[0]
+    .trim();
+  return street
+    .split(/\s+/)
+    .slice(0, 3)
+    .join(" ");
+}
+
+// ── Tax calculation (mirrors HCPA JS) ────
+
+/**
+ * Calculates ad valorem tax using HCPA's
+ * exact formula.
+ *
+ * HCPA low estimate = purchasePrice × 0.85
+ * as the taxable base. Homestead exemption:
+ *   - $25k off school + non-school taxes
+ *   - $25k more off non-school only
+ *     (value $50k–$75k range)
+ */
+export function calcAdValorem(
+  purchasePrice: number,
+  homestead: boolean,
+  schoolRate: number,
+  nonSchoolRate: number,
+  totalRate: number
+): number {
+  const taxable = purchasePrice * 0.85;
+
+  if (!homestead) {
+    return Math.round(
+      taxable * (totalRate / 1000)
+    );
+  }
+
+  const schoolTaxable = Math.max(
+    0, taxable - 25_000
+  );
+  const schoolTax =
+    schoolTaxable * (schoolRate / 1000);
+
+  const nonSchoolTaxable =
+    taxable < 50_000
+      ? Math.max(0, taxable - 25_000)
+      : Math.max(0, taxable - 50_000);
+  const nonSchoolTax =
+    nonSchoolTaxable * (nonSchoolRate / 1000);
+
+  return Math.round(schoolTax + nonSchoolTax);
+}
+
+// ── API calls ─────────────────────────────
+
+/** Step 1: address → PIN via BasicSearch. */
+async function lookupPIN(
+  address: string
+): Promise<string | null> {
+  const query = encodeURIComponent(
+    streetForSearch(address)
+  );
+  const url =
+    `${HCPA_BASE}/BasicSearch?address=` +
+    query;
+
+  const resp = await fetch(url, {
+    headers: HCPA_HEADERS,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!resp.ok) return null;
+
+  const results = await resp.json();
+  if (
+    !Array.isArray(results) ||
+    !results.length
+  ) return null;
+
+  const inputCity = (
+    address.split(",")[1] ?? ""
+  ).trim().toUpperCase();
+
+  const best =
+    results.find(
+      (r: any) =>
+        (r.address ?? "")
+          .toUpperCase()
+          .includes(inputCity)
+    ) ?? results[0];
+
+  return best?.pin ?? null;
+}
+
+/** Step 2: PIN → tax data. */
+async function fetchTaxData(
+  pin: string
+): Promise<HCPAApiTaxData | null> {
+  const url =
+    `${HCPA_BASE}/TaxEstimator?pin=` +
+    encodeURIComponent(pin);
+
+  const resp = await fetch(url, {
+    headers: HCPA_HEADERS,
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!resp.ok) return null;
+
+  const data = await resp.json();
+
+  if (
+    typeof data?.schoolTaxRate !== "number" ||
+    typeof data?.nonschoolTaxRate !== "number"
+  ) return null;
+
+  return {
+    schoolTaxRate: data.schoolTaxRate,
+    nonschoolTaxRate: data.nonschoolTaxRate,
+    totalTaxRate: data.totalTaxRate,
+    nonAdValoremTaxes:
+      data.nonAdValoremTaxes ?? 0,
+    taxDistrict: data.taxDistrict ?? "",
+    justValue: data.justValue ?? 0,
+    assessedValue: data.assessedValue ?? 0,
+  };
+}
+
+// ── Exported functions ────────────────────
+
+/**
+ * Main live lookup: address + purchase price
+ * → full tax estimate with CDD included.
+ * Returns null on any API failure.
+ */
+export async function getHillsboroughTax(
+  params: {
+    address: string;
+    purchasePrice: number;
+    isPrimaryResidence: boolean;
+  }
+): Promise<HCPATaxResult | null> {
+  const pin = await lookupPIN(params.address);
+  if (!pin) {
+    console.log(
+      "[hcpa-tax] PIN not found:",
+      params.address
+    );
+    return null;
+  }
+  console.log("[hcpa-tax] PIN:", pin);
+
+  const taxData = await fetchTaxData(pin);
+  if (!taxData) {
+    console.log(
+      "[hcpa-tax] TaxEstimator API failed"
+    );
+    return null;
+  }
+
+  const adValorem = calcAdValorem(
+    params.purchasePrice,
+    params.isPrimaryResidence,
+    taxData.schoolTaxRate,
+    taxData.nonschoolTaxRate,
+    taxData.totalTaxRate
+  );
+  const nonAdValorem = Math.round(
+    taxData.nonAdValoremTaxes ?? 0
+  );
+  const annualTax = adValorem + nonAdValorem;
+
+  console.log(
+    `[hcpa-tax] district=${taxData.taxDistrict}` +
+    ` mills=${taxData.totalTaxRate}` +
+    ` homestead=${params.isPrimaryResidence}` +
+    ` adVal=$${adValorem}` +
+    ` nonAdVal=$${nonAdValorem}` +
+    ` total=$${annualTax}`
+  );
+
+  return {
+    annualTax,
+    monthlyTax:
+      Math.round((annualTax / 12) * 100) / 100,
+    adValoremTax: adValorem,
+    nonAdValoremTax: nonAdValorem,
+    taxDistrict: taxData.taxDistrict,
+    schoolTaxRate: taxData.schoolTaxRate,
+    nonSchoolTaxRate: taxData.nonschoolTaxRate,
+    totalMillageRate: taxData.totalTaxRate,
+    homestead: params.isPrimaryResidence,
+    source: "hcpa-api",
+  };
+}
+
+/**
+ * Derives the ad valorem percentage of
+ * purchase price for storage in Supabase.
+ *   adValoremPct = adValoremTax / purchasePrice
+ */
+export function deriveTaxPct(
+  adValoremTax: number,
+  purchasePrice: number
+): number {
+  if (purchasePrice <= 0) return 0;
+  return adValoremTax / purchasePrice;
+}
+
+/**
+ * Recalculates the full tax estimate from
+ * cached millage rates for any new price.
+ * Uses the accurate millage formula so
+ * homestead exemptions are correct at
+ * any price. Falls back to pct × price
+ * if rates unavailable.
+ */
+export function recalcFromCache(params: {
+  purchasePrice: number;
+  isPrimaryResidence: boolean;
+  schoolTaxRate: number;
+  nonSchoolTaxRate: number;
+  totalMillageRate: number;
+  adValoremPct: number;
+  nonAdValoremAmt: number;
+}): {
+  annualTax: number;
+  monthlyTax: number;
+  adValoremTax: number;
+  nonAdValoremTax: number;
+  source: "cache-millage" | "cache-pct";
+} {
+  const {
+    purchasePrice,
+    isPrimaryResidence,
+    schoolTaxRate,
+    nonSchoolTaxRate,
+    totalMillageRate,
+    adValoremPct,
+    nonAdValoremAmt,
+  } = params;
+
+  let adValoremTax: number;
+  let source: "cache-millage" | "cache-pct";
+
+  if (schoolTaxRate > 0 &&
+      nonSchoolTaxRate > 0) {
+    adValoremTax = calcAdValorem(
+      purchasePrice,
+      isPrimaryResidence,
+      schoolTaxRate,
+      nonSchoolTaxRate,
+      totalMillageRate
+    );
+    source = "cache-millage";
+  } else {
+    adValoremTax = Math.round(
+      purchasePrice * adValoremPct
+    );
+    source = "cache-pct";
+  }
+
+  const annualTax =
+    adValoremTax + nonAdValoremAmt;
+
+  return {
+    annualTax,
+    monthlyTax:
+      Math.round((annualTax / 12) * 100) / 100,
+    adValoremTax,
+    nonAdValoremTax: nonAdValoremAmt,
+    source,
+  };
+}
+
+/**
+ * Pre-filter: is this address likely in
+ * Hillsborough County? Used to skip the
+ * API call for clearly out-of-county
+ * addresses.
+ */
+export function isHillsboroughCountyAddress(
+  address: string
+): boolean {
+  const lower = address.toLowerCase();
+  const hasFL =
+    lower.includes(", fl ") ||
+    lower.includes(",fl ") ||
+    / fl \d{5}/.test(lower);
+  if (!hasFL) return false;
+
+  return [
+    "tampa", "brandon", "riverview",
+    "apollo beach", "temple terrace",
+    "plant city", "lithia", "odessa",
+    "westchase", "carrollwood", "lutz",
+    "ruskin", "valrico", "sun city center",
+    "gibsonton", "thonotosassa", "wimauma",
+    "fishhawk", "boyette", "northdale",
+    "new tampa", "town n country",
+  ].some(c => lower.includes(c));
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — Update server/routes.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: server/routes.ts
+
+── 3A. Update the hillsborough-tax import ─
+
+Find the existing import from hillsborough-tax.
+It currently reads:
+  import {
+    getHillsboroughTaxEstimate,
+    isHillsboroughCountyAddress,
+  } from "./integrations/hillsborough-tax";
+
+Replace it with:
+  import {
+    getHillsboroughTax,
+    isHillsboroughCountyAddress,
+    deriveTaxPct,
+    recalcFromCache,
+  } from "./integrations/hillsborough-tax";
+
+── 3B. Add hcpaTaxCache to the schema import
+
+Find the line that imports from @shared/schema.
+It imports insuranceQuoteCache and other
+tables. Add hcpaTaxCache to that import:
+  import { ..., hcpaTaxCache }
+    from "@shared/schema";
+
+── 3C. Add taxCacheExpiry helper ──────────
+
+The normalizeAddr function already exists in
+routes.ts. After it, add this helper:
+
+  function taxCacheExpiry(): Date {
+    // FL millage rates are adopted each
+    // November. Cache expires Nov 30 of
+    // the current year. If we are already
+    // in November, expire next year.
+    const now = new Date();
+    const year =
+      now.getMonth() >= 10
+        ? now.getFullYear() + 1
+        : now.getFullYear();
+    return new Date(
+      `${year}-11-30T23:59:59Z`
+    );
+  }
+
+── 3D. Replace the property tax route ─────
+
+Find the ENTIRE existing route:
+  app.post("/api/property-tax/hillsborough",
+    async (req, res) => {
+
+Delete from that line through the closing
+  });
+
+of that route handler. Replace it with:
+
+  app.post(
+    "/api/property-tax/hillsborough",
+    async (req, res) => {
+      try {
+        const schema = z.object({
+          address: z.string().min(5),
+          purchasePrice: z.number().positive(),
+          isPrimaryResidence: z.boolean()
+            .default(true),
+        });
+        const p = schema.parse(req.body);
+        const norm = normalizeAddr(p.address);
+        const now = new Date();
+
+        // ── 1. DB cache lookup ───────────
+        const cached = await db
+          .select()
+          .from(hcpaTaxCache)
+          .where(
+            eq(
+              hcpaTaxCache.addressNormalized,
+              norm
+            )
+          )
+          .limit(1);
+
+        if (
+          cached.length > 0 &&
+          cached[0].expiresAt > now
+        ) {
+          const row = cached[0];
+          console.log(
+            "[hcpa-tax] cache hit:", norm,
+            "nonAdVal:", row.nonAdValoremAmt
+          );
+
+          const result = recalcFromCache({
+            purchasePrice: p.purchasePrice,
+            isPrimaryResidence:
+              p.isPrimaryResidence,
+            schoolTaxRate: parseFloat(
+              String(row.schoolTaxRate)
+            ),
+            nonSchoolTaxRate: parseFloat(
+              String(row.nonSchoolTaxRate)
+            ),
+            totalMillageRate: parseFloat(
+              String(row.totalMillageRate)
+            ),
+            adValoremPct: parseFloat(
+              String(row.adValoremPct)
+            ),
+            nonAdValoremAmt:
+              row.nonAdValoremAmt ?? 0,
+          });
+
+          return res.json({
+            annualTax: result.annualTax,
+            monthlyTax: result.monthlyTax,
+            adValoremTax: result.adValoremTax,
+            nonAdValoremTax:
+              result.nonAdValoremTax,
+            adValoremPct: parseFloat(
+              String(row.adValoremPct)
+            ),
+            taxDistrict: row.taxDistrict,
+            millageRate: parseFloat(
+              String(row.totalMillageRate)
+            ),
+            homestead: p.isPrimaryResidence,
+            source: "cache",
+            cacheSource: result.source,
+          });
+        }
+
+        // ── 2. Live HCPA API call ────────
+        const live = await getHillsboroughTax({
+          address: p.address,
+          purchasePrice: p.purchasePrice,
+          isPrimaryResidence:
+            p.isPrimaryResidence,
+        });
+
+        if (!live) {
+          console.log(
+            "[hcpa-tax] not found, fallback:",
+            p.address
+          );
+          return res.json({
+            useFallback: true
+          });
+        }
+
+        // ── 3. Derive storage values ─────
+        const adValoremPct = deriveTaxPct(
+          live.adValoremTax,
+          p.purchasePrice
+        );
+        const expiresAt = taxCacheExpiry();
+
+        console.log(
+          "[hcpa-tax] derived:",
+          (adValoremPct * 100).toFixed(4) +
+          "% adVal, $" +
+          live.nonAdValoremTax + " nonAdVal"
+        );
+
+        // ── 4. Write to DB cache ─────────
+        try {
+          await db
+            .insert(hcpaTaxCache)
+            .values({
+              addressNormalized: norm,
+              addressDisplay: p.address,
+              pin: null,
+              taxDistrict: live.taxDistrict,
+              schoolTaxRate: String(
+                live.schoolTaxRate.toFixed(4)
+              ),
+              nonSchoolTaxRate: String(
+                live.nonSchoolTaxRate.toFixed(4)
+              ),
+              totalMillageRate: String(
+                live.totalMillageRate.toFixed(4)
+              ),
+              adValoremPct: String(
+                adValoremPct.toFixed(6)
+              ),
+              nonAdValoremAmt:
+                live.nonAdValoremTax,
+              homesteadSample:
+                p.isPrimaryResidence,
+              samplePrice: p.purchasePrice,
+              queriedAt: new Date(),
+              expiresAt,
+            })
+            .onConflictDoUpdate({
+              target:
+                hcpaTaxCache.addressNormalized,
+              set: {
+                taxDistrict: live.taxDistrict,
+                schoolTaxRate: String(
+                  live.schoolTaxRate.toFixed(4)
+                ),
+                nonSchoolTaxRate: String(
+                  live.nonSchoolTaxRate.toFixed(4)
+                ),
+                totalMillageRate: String(
+                  live.totalMillageRate.toFixed(4)
+                ),
+                adValoremPct: String(
+                  adValoremPct.toFixed(6)
+                ),
+                nonAdValoremAmt:
+                  live.nonAdValoremTax,
+                homesteadSample:
+                  p.isPrimaryResidence,
+                samplePrice: p.purchasePrice,
+                queriedAt: new Date(),
+                expiresAt,
+              },
+            });
+          console.log(
+            "[hcpa-tax] stored to DB:", norm
+          );
+        } catch (dbErr) {
+          console.error(
+            "[hcpa-tax] DB write error:",
+            dbErr
+          );
+          // Non-fatal — still return the result
+        }
+
+        // ── 5. Return result ─────────────
+        return res.json({
+          annualTax: live.annualTax,
+          monthlyTax: live.monthlyTax,
+          adValoremTax: live.adValoremTax,
+          nonAdValoremTax: live.nonAdValoremTax,
+          adValoremPct,
+          taxDistrict: live.taxDistrict,
+          millageRate: live.totalMillageRate,
+          homestead: live.homestead,
+          source: "hcpa-api",
+        });
+
+      } catch (err: any) {
+        console.error(
+          "[hcpa-tax] error:", err
+        );
+        if (err instanceof z.ZodError) {
+          return res.status(400).json({
+            error: "Invalid parameters"
+          });
+        }
+        return res.json({
+          useFallback: true
+        });
+      }
+    }
+  );
+
+Also remove or comment out this import since
+getHillsboroughCountyPropertyTax is no longer
+used:
+  import {
+    getHillsboroughCountyPropertyTax
+  } from "./routes/property-tax";
+
+If removing it causes a TypeScript error
+because it's used elsewhere, leave it in
+place. Only remove it if it is unused.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 4 — Update estimate.tsx for new
+response shape and CDD display
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/estimate.tsx
+
+── 4A. Update hcpaTax state type ──────────
+
+Find:
+  const [hcpaTax, setHcpaTax] =
+    useState<{
+      annualTax: number;
+      municipality: string;
+      millageRate: number;
+    } | null>(null);
+
+Replace with:
+  const [hcpaTax, setHcpaTax] =
+    useState<{
+      annualTax: number;
+      adValoremTax: number;
+      nonAdValoremTax: number;
+      adValoremPct: number;
+      taxDistrict: string;
+      millageRate: number;
+    } | null>(null);
+
+── 4B. Update the fetch call ──────────────
+
+Find the fetch call inside the HCPA tax
+useEffect. The body currently sends either
+purchasePrice or propertyValue. Make sure
+it sends purchasePrice:
+
+  body: JSON.stringify({
+    address: activeAddr,
+    purchasePrice: price,
+    isPrimaryResidence: isPrimary,
+  }),
+
+── 4C. Update the .then handler ───────────
+
+Find the block that calls setHcpaTax.
+It currently sets municipality and
+millageRate. Update it to store the
+new fields:
+
+Find (approximate):
+  if (data.annualTax > 0) {
+    setHcpaTax({
+      annualTax: data.annualTax,
+      municipality: ...,
+      millageRate: data.millageRate,
+    });
+
+Replace with:
+  if ((data.annualTax ?? 0) > 0) {
+    setHcpaTax({
+      annualTax: data.annualTax,
+      adValoremTax:
+        data.adValoremTax ?? data.annualTax,
+      nonAdValoremTax:
+        data.nonAdValoremTax ?? 0,
+      adValoremPct:
+        data.adValoremPct ?? 0,
+      taxDistrict:
+        data.taxDistrict ?? "",
+      millageRate:
+        data.millageRate ?? 0,
+    });
+
+── 4D. Add CDD disclosure line ────────────
+
+Find the section of JSX where the property
+tax dollar amount is displayed to the user
+in the ongoing costs / insurance breakdown
+area. After the tax amount display, add:
+
+  {hcpaTax &&
+    hcpaTax.nonAdValoremTax > 0 && (
+    <p className="text-[10px]
+      text-muted-foreground mt-0.5">
+      Incl.{" "}
+      {new Intl.NumberFormat("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+      }).format(hcpaTax.nonAdValoremTax)}
+      /yr CDD / non-ad valorem assessment
+    </p>
+  )}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   The most common errors will be:
+   - numeric fields from Drizzle returning
+     as string — always use parseFloat(String(...))
+   - hcpaTax fields if old shape is referenced
+     elsewhere (update any reference to
+     hcpaTax.municipality → hcpaTax.taxDistrict)
+   Fix all errors. Do not change logic.
+
+2. Run: npx vite build
+   Confirm clean build.
+
+3. Test in browser console:
+
+   First call (live API):
+   fetch("/api/property-tax/hillsborough", {
+     method: "POST",
+     headers: {
+       "Content-Type": "application/json"
+     },
+     body: JSON.stringify({
+       address:
+         "3102 W Nassau St, Tampa, FL 33607",
+       purchasePrice: 500000,
+       isPrimaryResidence: true
+     })
+   }).then(r => r.json()).then(d => {
+     console.log("source:", d.source)
+     console.log("annualTax:", d.annualTax)
+     console.log("adValoremTax:", d.adValoremTax)
+     console.log("nonAdValoremTax:",
+       d.nonAdValoremTax)
+     console.log("adValoremPct:",
+       (d.adValoremPct * 100).toFixed(4) + "%")
+     console.log("district:", d.taxDistrict)
+   })
+   Expected: source "hcpa-api",
+   taxDistrict "TA", nonAdValoremTax 0 for
+   this address (no CDD).
+
+   Second call same address different price
+   (should use DB cache):
+   fetch("/api/property-tax/hillsborough", {
+     method: "POST",
+     headers: {
+       "Content-Type": "application/json"
+     },
+     body: JSON.stringify({
+       address:
+         "3102 W Nassau St, Tampa, FL 33607",
+       purchasePrice: 750000,
+       isPrimaryResidence: true
+     })
+   }).then(r => r.json()).then(d => {
+     console.log("source:", d.source)
+     console.log("annualTax:", d.annualTax)
+   })
+   Expected: source "cache", annualTax
+   higher than the first call (more expensive
+   property = higher tax). NOT the same number.
+
+4. Check Supabase → Table Editor →
+   hcpa_tax_cache to confirm a row was
+   written with:
+   - ad_valorem_pct around 0.015
+   - non_ad_valorem_amt = 0 for this address
+   - expires_at = Nov 30 of current year
+
+5. Report all files changed and build status.
+```

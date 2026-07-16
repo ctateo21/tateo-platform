@@ -21,6 +21,11 @@ import {
 import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowProperty } from "./integrations/zillow";
 import { getHillsboroughTax, isHillsboroughCountyAddress } from "./integrations/hillsborough-tax";
 import { getNonAdValoremForFolio } from "./integrations/tax-bill-scraper";
+import {
+  lookupPinellasParcel,
+  lookupManateeParcel,
+  lookupPascoParcel,
+} from "./integrations/county-parcel-lookup";
 import { fetchGoogleReviews, getMockReviews } from "./integrations/google-reviews";
 import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
 import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
@@ -631,6 +636,164 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
   );
+
+  // ── Property tax for other FL counties ──────────────────────────
+  // Pinellas & Manatee have live PA APIs; Pasco attempts an HTML
+  // lookup; Sarasota, Hernando, Lee, Collier, Polk use a formula
+  // estimate (their PA sites need sessions/ViewState we can't do
+  // reliably server-side yet). Manatee's ArcGIS layer includes all
+  // non-ad valorem amounts directly — no bill scrape needed there.
+
+  // 2025 effective county tax rates as a share of purchase price.
+  // Used because these counties' PAs don't expose live millage via a
+  // simple API. Format: { h: homestead, nh: non-homestead } decimals.
+  const COUNTY_MILLAGE: Record<string, { h: number; nh: number }> = {
+    pinellas: { h: 0.01517, nh: 0.0185 },
+    pasco: { h: 0.0141, nh: 0.0172 },
+    manatee: { h: 0.01197, nh: 0.0146 },
+    sarasota: { h: 0.0105, nh: 0.0128 },
+    hernando: { h: 0.01197, nh: 0.0146 },
+    lee: { h: 0.01148, nh: 0.014 },
+    collier: { h: 0.00804, nh: 0.0098 },
+    polk: { h: 0.01263, nh: 0.0154 },
+  };
+
+  function calcAdValoremForCounty(
+    purchasePrice: number,
+    homestead: boolean,
+    county: string
+  ): number {
+    const rates = COUNTY_MILLAGE[county];
+    if (!rates) return 0;
+    const pct = homestead ? rates.h : rates.nh;
+    return Math.round(purchasePrice * pct);
+  }
+
+  app.post("/api/property-tax/county", async (req, res) => {
+    try {
+      const schema = z.object({
+        address: z.string().min(5),
+        county: z.string().min(3),
+        purchasePrice: z.number().positive(),
+        isPrimaryResidence: z.boolean().default(true),
+      });
+      const p = schema.parse(req.body);
+      const county = p.county.toLowerCase().trim();
+
+      const adValorem = calcAdValoremForCounty(
+        p.purchasePrice,
+        p.isPrimaryResidence,
+        county
+      );
+      if (!adValorem) {
+        return res.json({ useFallback: true, county });
+      }
+
+      const respond = (extra: {
+        nonAdValoremTax: number;
+        nonAdValoremLines: Array<{ authority: string; amount: number }>;
+        nonAdValoremPending: boolean;
+        source: string;
+      }) => {
+        const annualTax = adValorem + extra.nonAdValoremTax;
+        return res.json({
+          annualTax,
+          monthlyTax: Math.round((annualTax / 12) * 100) / 100,
+          adValoremTax: adValorem,
+          nonAdValoremTax: extra.nonAdValoremTax,
+          nonAdValoremLines: extra.nonAdValoremLines,
+          nonAdValoremPending: extra.nonAdValoremPending,
+          county,
+          millageRate: 0,
+          taxDistrict: county,
+          homestead: p.isPrimaryResidence,
+          source: extra.source,
+        });
+      };
+
+      // ── Manatee: ArcGIS returns NAV directly ──
+      if (county === "manatee") {
+        const parcel = await lookupManateeParcel(p.address);
+        if (!parcel) {
+          console.log("[county-tax] manatee parcel not found:", p.address);
+          return respond({
+            nonAdValoremTax: 0,
+            nonAdValoremLines: [],
+            nonAdValoremPending: false,
+            source: "formula-fallback",
+          });
+        }
+        console.log(
+          `[county-tax] manatee adVal=$${adValorem}` +
+          ` nonAdVal=$${parcel.totalNonAdValorem}` +
+          ` cdd=${parcel.navCddName ?? "none"}`
+        );
+        return respond({
+          nonAdValoremTax: parcel.totalNonAdValorem,
+          nonAdValoremLines: parcel.navLines,
+          nonAdValoremPending: false,
+          source: "manatee-arcgis",
+        });
+      }
+
+      // ── Pinellas / Pasco: parcel lookup + TaxSys bill scrape ──
+      if (county === "pinellas" || county === "pasco") {
+        const parcelId =
+          county === "pinellas"
+            ? await lookupPinellasParcel(p.address)
+            : await lookupPascoParcel(p.address);
+
+        if (!parcelId) {
+          console.log(
+            `[county-tax] ${county} parcel not found:`, p.address
+          );
+          return respond({
+            nonAdValoremTax: 0,
+            nonAdValoremLines: [],
+            nonAdValoremPending: false,
+            source: "formula-fallback",
+          });
+        }
+
+        let nonAdValoremTax = 0;
+        let nonAdValoremLines:
+          Array<{ authority: string; amount: number }> = [];
+        let nonAdValoremPending = false;
+        const nav = await getNonAdValoremForFolio(parcelId, county);
+        if (nav.state === "ready") {
+          nonAdValoremTax = Math.round(nav.data.total);
+          nonAdValoremLines = nav.data.lines;
+        } else if (nav.state === "pending") {
+          nonAdValoremPending = true;
+        }
+        console.log(
+          `[county-tax] ${county} parcel=${parcelId}` +
+          ` adVal=$${adValorem} nonAdVal=$${nonAdValoremTax}` +
+          ` pending=${nonAdValoremPending}`
+        );
+        return respond({
+          nonAdValoremTax,
+          nonAdValoremLines,
+          nonAdValoremPending,
+          source: `${county}-api`,
+        });
+      }
+
+      // ── All other counties: formula only ──
+      return respond({
+        nonAdValoremTax: 0,
+        nonAdValoremLines: [],
+        nonAdValoremPending: false,
+        source: "formula-only",
+      });
+    } catch (err: any) {
+      console.error("[county-tax] error:", err);
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+      res.json({ useFallback: true });
+    }
+  });
 
   // ── QuoteRUSH shared, address-keyed quote cache ──────────────────
   // Quotes are shared by property address (not per user): the first

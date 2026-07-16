@@ -2389,11 +2389,26 @@ export default function Estimate() {
       !hcpaTax.navPending
     ) return;
 
-    // Only attempt for Hillsborough addresses
+    // Hillsborough addresses use the dedicated HCPA route
     const isHillsborough =
       /\btampa\b|\bbrandon\b|\briverview\b|\bapollo beach\b|\btemple terrace\b|\bplant city\b|\blithia\b|\bodessa\b|\bwestchase\b|\bcarrollwood\b|\blutz\b|\bruskin\b|\bvalrico\b|\bsun city center\b|\bwimauma\b|\bgibsonton\b|\bbalm\b|\bthonotosassa\b|\bfishhawk\b|\bboyette\b|\bsydney\b|\bcitrus park\b|\bnorthdale\b|\btown n country\b|\bseffner\b|\bdover\b|\bmango\b/i.test(activeAddr);
 
-    if (!isHillsborough) {
+    // Other supported FL counties → /api/property-tax/county.
+    // Pinellas & Manatee have live parcel lookups (Manatee returns
+    // CDD amounts instantly; Pinellas scrapes the bill in the
+    // background like Hillsborough); the rest get a formula estimate.
+    const otherCounty: string | null =
+      /\bbradenton\b|\blakewood ranch\b|\bpalmetto\b|\bparrish\b|\bmyakka city\b|\banna maria\b|\bholmes beach\b|\bellenton\b|\blongboat key\b/i.test(activeAddr) ? "manatee" :
+      /\bclearwater\b|\bst\.?\s*pete(?:rsburg)?\b|\btarpon springs\b|\bdunedin\b|\blargo\b|\bseminole\b|\boldsmar\b|\bsafety harbor\b|\bbelleair\b|\bgulfport\b|\bpinellas park\b|\bpalm harbor\b|\btreasure island\b|\bmadeira beach\b|\bindian rocks beach\b|\bkenneth city\b/i.test(activeAddr) ? "pinellas" :
+      /\bnew port richey\b|\bland o'? ?lakes\b|\bzephyrhills\b|\bdade city\b|\bholiday\b|\bhudson\b|\bwesley chapel\b|\bport richey\b|\btrinity\b|\bsan antonio\b|\bshady hills\b/i.test(activeAddr) ? "pasco" :
+      /\bsarasota\b|\bvenice\b|\bnokomis\b|\bosprey\b|\bnorth port\b|\bsiesta key\b/i.test(activeAddr) ? "sarasota" :
+      /\bspring hill\b|\bbrooksville\b|\bweeki wachee\b|\bhernando beach\b/i.test(activeAddr) ? "hernando" :
+      /\bfort myers\b|\bcape coral\b|\bbonita springs\b|\bestero\b|\bsanibel\b|\blehigh acres\b|\bnorth fort myers\b|\bcaptiva\b/i.test(activeAddr) ? "lee" :
+      /\bnaples\b|\bmarco island\b|\bimmokalee\b|\bgolden gate\b|\bave maria\b/i.test(activeAddr) ? "collier" :
+      /\blakeland\b|\bbartow\b|\bwinter haven\b|\bhaines city\b|\bauburndale\b|\blake wales\b|\bmulberry\b|\bdavenport\b/i.test(activeAddr) ? "polk" :
+      null;
+
+    if (!isHillsborough && !otherCounty) {
       if (hcpaTax) setHcpaTax(null);
       return;
     }
@@ -2407,16 +2422,21 @@ export default function Estimate() {
     // nonAdValoremPending we show the ad valorem figure now and
     // re-poll until the full bill total is available.
     const fetchTax = (attempt: number) => {
-      fetch("/api/property-tax/hillsborough", {
+      const url = isHillsborough
+        ? "/api/property-tax/hillsborough"
+        : "/api/property-tax/county";
+      const body: Record<string, unknown> = {
+        address: activeAddr,
+        purchasePrice: price,
+        isPrimaryResidence: isPrimary,
+      };
+      if (!isHillsborough) body.county = otherCounty;
+      fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          address: activeAddr,
-          purchasePrice: price,
-          isPrimaryResidence: isPrimary,
-        }),
+        body: JSON.stringify(body),
       })
         .then(r => r.json())
         .then(data => {

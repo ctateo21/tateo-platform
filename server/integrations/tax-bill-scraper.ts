@@ -42,6 +42,9 @@ interface ParsedBill {
   isAnnual: boolean;
   lines: Array<{ authority: string; amount: number }>;
   total: number;
+  /** Bill explicitly states there are no non-ad valorem
+   *  assessments — a valid $0 result, not a parse failure. */
+  noAssessments?: boolean;
 }
 
 /** Parse the "Non-Ad Valorem Assessments" markdown table from a
@@ -74,7 +77,20 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
       lines.push({ authority, amount });
     }
   }
-  if (!lines.length) return null;
+  if (!lines.length) {
+    // Some bills (e.g. Pinellas) explicitly say "No Non-Ad Valorem
+    // assessments." — that's a trustworthy $0, not a failed parse.
+    if (/No Non-Ad Valorem assessments/i.test(section)) {
+      return {
+        year: yearMatch ? parseInt(yearMatch[1], 10) : null,
+        isAnnual,
+        lines: [],
+        total: 0,
+        noAssessments: true,
+      };
+    }
+    return null;
+  }
   if (!total) {
     total =
       Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
@@ -84,17 +100,26 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
 
 /** Start a Website Content Crawler run, poll until it finishes, and
  *  return the parsed bills found in its dataset. */
-async function runWccScrape(account: string): Promise<ParsedBill[]> {
+async function runWccScrape(
+  account: string,
+  county: string
+): Promise<ParsedBill[]> {
   const token = process.env.APIFY_TOKEN;
   if (!token) {
     console.log("[nav-scrape] APIFY_TOKEN not set — skipping");
     return [];
   }
 
+  // Pinellas's TaxSys instance 404s on direct /parcels/<account>
+  // URLs; its search endpoint redirects to the account summary, and
+  // the bill links (on county-taxes.net) only load within the same
+  // crawl session. Other counties serve the parcel page directly.
+  const startUrl =
+    county === "pinellas"
+      ? `https://pinellas.county-taxes.com/public/search/property_tax?search_query=${account}`
+      : `https://${county}.county-taxes.com/public/real_estate/parcels/${account}`;
   const input = {
-    startUrls: [{
-      url: `https://hillsborough.county-taxes.com/public/real_estate/parcels/${account}`,
-    }],
+    startUrls: [{ url: startUrl }],
     includeUrlGlobs: [{ glob: "**/bills/*" }],
     maxCrawlPages: 5,
     maxCrawlDepth: 1,
@@ -161,10 +186,21 @@ async function runWccScrape(account: string): Promise<ParsedBill[]> {
   return parsed;
 }
 
-/** Background scrape + cache write for one folio. */
-async function scrapeAndCache(cleanFolio: string): Promise<void> {
-  const account = `A${cleanFolio}`;
-  console.log(`[nav-scrape] scraping bill for account ${account}…`);
+/** Background scrape + cache write for one folio.
+ *  Works for any Tyler TaxSys county (<county>.county-taxes.com);
+ *  Hillsborough account numbers carry an "A" prefix, other counties
+ *  use the parcel identifier as-is. */
+async function scrapeAndCache(
+  cleanFolio: string,
+  county: string = "hillsborough",
+  accountOverride?: string
+): Promise<void> {
+  const account =
+    accountOverride ??
+    (county === "hillsborough" ? `A${cleanFolio}` : cleanFolio);
+  console.log(
+    `[nav-scrape] scraping ${county} bill for account ${account}…`
+  );
   let bills: ParsedBill[] = [];
   // The Tax Collector SPA renders slowly and inconsistently; a run can
   // finish before the bill links appear. Retry once on an empty parse.
@@ -173,14 +209,17 @@ async function scrapeAndCache(cleanFolio: string): Promise<void> {
       console.log(`[nav-scrape] ${account} — empty parse, retrying…`);
     }
     try {
-      bills = await runWccScrape(account);
+      bills = await runWccScrape(account, county);
     } catch (e: any) {
       console.error("[nav-scrape] scrape error:", e?.message);
     }
   }
 
-  // Fail closed: only trust parses with lines and a positive total.
-  const valid = bills.filter(b => b.total > 0 && b.lines.length > 0);
+  // Fail closed: only trust parses with lines and a positive total,
+  // or bills that explicitly state there are no assessments.
+  const valid = bills.filter(
+    b => (b.total > 0 && b.lines.length > 0) || b.noAssessments
+  );
   const annuals = valid
     .filter(b => b.isAnnual && b.year)
     .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
@@ -230,9 +269,20 @@ export type NonAdValoremLookup =
  * - Recent failure cached → "unavailable" (retry after short TTL).
  */
 export async function getNonAdValoremForFolio(
-  folio: string
+  folio: string,
+  county: string = "hillsborough",
+  accountOverride?: string
 ): Promise<NonAdValoremLookup> {
-  const cleanFolio = folio.startsWith("A") ? folio.slice(1) : folio;
+  // Only Hillsborough uses the A-prefixed account format.
+  const bareFolio =
+    county === "hillsborough" && folio.startsWith("A")
+      ? folio.slice(1)
+      : folio;
+  // Namespace non-Hillsborough cache keys by county so identical
+  // parcel strings in different counties can never collide.
+  // (Hillsborough stays un-prefixed for existing cache rows.)
+  const cleanFolio =
+    county === "hillsborough" ? bareFolio : `${county}:${bareFolio}`;
 
   try {
     const rows = await db
@@ -267,7 +317,14 @@ export async function getNonAdValoremForFolio(
   if (inFlight.has(cleanFolio)) return { state: "pending" };
 
   inFlight.add(cleanFolio);
-  scrapeAndCache(cleanFolio)
+  // cleanFolio may carry a "county:" cache prefix — the actual tax
+  // site account must always be the bare parcel identifier.
+  scrapeAndCache(
+    cleanFolio,
+    county,
+    accountOverride ??
+      (county === "hillsborough" ? undefined : bareFolio)
+  )
     .catch(e =>
       console.error("[nav-scrape] background scrape failed:", e?.message)
     )

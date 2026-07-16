@@ -1,0 +1,1068 @@
+I now have a complete research picture. Let me read how county routing currently works before writing the final prompt.I now have everything I need. Here's the complete picture before writing the prompt:
+
+---
+
+## Research Summary — All 8 Counties
+
+**Manatee** ⭐ Best: ArcGIS API at `gis.manateepao.com` returns `NAV_CDD_TAX`, `NAV_FIRE_TAX`, `NAV_STORM_TAX` and all other non-ad valorem amounts **directly in the parcel record** — no scraping needed at all.
+
+**Pinellas**: `egis.pinellas.gov/pcpagis/rest/services/Pcpao_gov/PropertySearch_A/MapServer/0` — confirmed JSON API, returns `INTERNAL_STRAP` (18-digit account number) → `pinellas.county-taxes.com` for scraping.
+
+**Pasco**: `search.pascopa.com` — HTML form, returns 19-digit parcel ID in HTML → `pasco.county-taxes.com`.
+
+**Sarasota**: `sc-pa.com/propertysearch/api/srch/ListAddresses` — returns address suggestions, result page needs session → `sarasota.county-taxes.com`.
+
+**Hernando, Lee, Collier, Polk**: PA APIs require ViewState/session/Blazor — too complex for reliable server-side lookup right now. Will use formula fallback for ad valorem + note CDD check pending. Tyler TaxSys URLs confirmed available but can't get parcel IDs reliably yet.
+
+---
+
+```
+Add property tax estimation for 8 new
+Florida counties: Pinellas, Pasco, Polk,
+Hernando, Manatee, Sarasota, Lee, Collier.
+
+The pattern mirrors the existing Hillsborough
+integration: look up the parcel from the
+county property appraiser API to get an
+account identifier, calculate ad valorem
+taxes using existing hardcoded millage rates,
+then kick off an Apify scrape of the Tax
+Collector bill for non-ad valorem (CDD) data.
+
+Manatee is a special case: its ArcGIS API
+returns all non-ad valorem amounts directly
+in the parcel record — no Apify scrape needed.
+
+Read every section before editing any file.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BACKGROUND — APIs CONFIRMED BY TESTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+MANATEE ARCGIS (fully tested):
+  Base: https://gis.manateepao.com/arcgis/
+        rest/services/Website/
+        WebLayers/MapServer/0
+  Query: where=SITUS_ADDRESS LIKE
+         '{streetNumberAndName}%'
+  Fields: PARID, SITUS_ADDRESS,
+          SITUS_POSTAL_CITY,
+          NAV_CDD_TAX, NAV_CDD_NAME,
+          NAV_CITY_TAX, NAV_FIRE_TAX,
+          NAV_STORM_TAX, NAV_DREDGE_TAX,
+          NAV_LIGHT_TAX, NAV_OTHER_TAX,
+          NAV_PARK_TAX, NAV_PAVE_TAX,
+          NAV_SEWER_TAX, NAV_PACE_TAX,
+          NAV_STEWARD_TAX, CAD_JUST_VALUE
+  Note: SITUS_ADDRESS is street only
+  (no city/state). Use first 3 tokens of
+  the street portion (number + dir + name)
+  to avoid suffix mismatches.
+  NAV fields are annual dollar amounts.
+  Sum ALL non-null NAV fields for the
+  total non-ad valorem.
+
+PINELLAS ARCGIS (fully tested):
+  Base: https://egis.pinellas.gov/pcpagis/
+        rest/services/Pcpao_gov/
+        PropertySearch_A/MapServer/0
+  Query: where=SITE_ADDRESS LIKE
+         '{streetNumberAndName}%'
+  Fields: INTERNAL_STRAP, DISPLAY_STRAP,
+          SITE_ADDRESS, SITE_CITYZIP
+  INTERNAL_STRAP format: 18-digit numeric
+  e.g. "162903333720160000"
+  Tax Collector:
+    https://pinellas.county-taxes.com/
+    public/real_estate/parcels/
+    {INTERNAL_STRAP}
+  Cloudflare-protected → Apify scraper
+
+PASCO (tested):
+  PA search: https://search.pascopa.com/
+    default.aspx?criteria=addr
+    &address={streetAndNum}&city={city}&zip=
+  Returns HTML with 19-digit numeric parcel
+  IDs in the page (e.g. "1724090000005000000")
+  Parse with regex: /\b\d{15,20}\b/
+  and take the first distinct match.
+  Tax Collector:
+    https://pasco.county-taxes.com/
+    public/real_estate/parcels/{parcelId}
+  Cloudflare-protected → Apify scraper
+
+SARASOTA (partially tested):
+  Address autocomplete:
+    GET https://www.sc-pa.com/propertysearch/
+        api/srch/ListAddresses?term={streetPart}
+  Returns JSON: [{Value, Category}]
+  Only returns address strings, not parcel IDs.
+  The result search page requires session state.
+  → For now, return useFallback:true for
+    Sarasota (formula estimate used instead).
+  Mark as pending implementation.
+
+HERNANDO, LEE, COLLIER, POLK (researched):
+  Property appraiser sites require form
+  ViewState, Blazor sessions, or other
+  complex authentication that cannot be
+  reliably accessed server-side.
+  → For all four, return useFallback:true
+    (formula estimate used instead).
+  Mark as pending implementation.
+  Tyler TaxSys URLs confirmed:
+    hernando.county-taxes.com
+    lee.county-taxes.com
+    collier.county-taxes.com
+  Polk uses polktaxes.com (non-Tyler).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — Extend tax-bill-scraper.ts
+         to support multiple counties
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: server/integrations/tax-bill-scraper.ts
+
+The existing scraper is Hillsborough-specific.
+Generalize it to support any Tyler TaxSys
+county by accepting a countySubdomain.
+
+── 1A. Update scrapeAndCache ─────────────
+
+The current function signature is:
+  async function scrapeAndCache(
+    cleanFolio: string
+  ): Promise<void>
+
+It hardcodes the Hillsborough URL:
+  const account = `A${cleanFolio}`;
+  url: `https://hillsborough.county-taxes.com/
+        public/real_estate/parcels/${account}`
+
+Refactor it to accept a county parameter:
+
+  async function scrapeAndCache(
+    cleanFolio: string,
+    county: string = "hillsborough",
+    accountOverride?: string
+  ): Promise<void>
+
+Inside the function, change the URL
+construction:
+  // For Hillsborough, use the A-prefix format
+  // For all others, use the account as-is
+  const account = accountOverride ??
+    (county === "hillsborough"
+      ? `A${cleanFolio}`
+      : cleanFolio);
+  const url =
+    `https://${county}.county-taxes.com/` +
+    `public/real_estate/parcels/${account}`;
+
+Do NOT change anything else in the scrape
+logic or the Apify actor configuration.
+
+── 1B. Update getNonAdValoremForFolio ────
+
+The existing exported function signature is:
+  export async function
+  getNonAdValoremForFolio(
+    folio: string
+  ): Promise<NonAdValoremLookup>
+
+Add county and accountOverride parameters:
+
+  export async function
+  getNonAdValoremForFolio(
+    folio: string,
+    county: string = "hillsborough",
+    accountOverride?: string
+  ): Promise<NonAdValoremLookup>
+
+Inside the function, pass the county through
+to scrapeAndCache:
+  scrapeAndCache(cleanFolio, county, accountOverride)
+    .catch(...)
+    .finally(...)
+
+All cache logic stays the same — the
+nonAdValoremCache table is keyed by folio
+which is unique per parcel regardless of
+county.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — Create county parcel lookup module
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create new file:
+server/integrations/county-parcel-lookup.ts
+
+/**
+ * County property appraiser parcel lookups.
+ * Returns the parcel identifier needed to
+ * look up the Tax Collector bill on
+ * county-taxes.com.
+ */
+
+const TIMEOUT_MS = 8_000;
+
+function streetForQuery(
+  fullAddress: string
+): string {
+  const street = fullAddress
+    .split(",")[0]
+    .trim();
+  return street
+    .split(/\s+/)
+    .slice(0, 3)
+    .join(" ");
+}
+
+function cityFromAddress(
+  fullAddress: string
+): string {
+  const parts = fullAddress.split(",");
+  return (parts[1] ?? "").trim().toUpperCase();
+}
+
+// ── Pinellas ────────────────────────────
+
+/**
+ * Pinellas County PA — PropertySearch_A
+ * ArcGIS layer (confirmed working).
+ * Returns the INTERNAL_STRAP (18-digit)
+ * used as the Tyler TaxSys account number.
+ */
+export async function lookupPinellasParcel(
+  address: string
+): Promise<string | null> {
+  try {
+    const street = encodeURIComponent(
+      `${streetForQuery(address)}%`
+    );
+    const url =
+      "https://egis.pinellas.gov/pcpagis/" +
+      "rest/services/Pcpao_gov/" +
+      "PropertySearch_A/MapServer/0/query" +
+      `?where=SITE_ADDRESS+LIKE+%27${street}%27` +
+      "&outFields=INTERNAL_STRAP," +
+      "SITE_ADDRESS,SITE_CITYZIP" +
+      "&resultRecordCount=5&f=json";
+
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const features = data?.features ?? [];
+    if (!features.length) return null;
+
+    const inputCity = cityFromAddress(address);
+    const best =
+      features.find(
+        (f: any) =>
+          (f.attributes?.SITE_CITYZIP ?? "")
+            .toUpperCase()
+            .includes(inputCity)
+      ) ?? features[0];
+
+    return best?.attributes?.INTERNAL_STRAP
+      ?? null;
+  } catch (err) {
+    console.error("[pinellas-lookup]", err);
+    return null;
+  }
+}
+
+// ── Manatee ─────────────────────────────
+
+export interface ManateeParcelData {
+  parid: string;
+  situsAddress: string;
+  situsCity: string;
+  justValue: number;
+  navCddTax: number;
+  navCddName: string | null;
+  navCityTax: number;
+  navFireTax: number;
+  navStormTax: number;
+  navDredgeTax: number;
+  navLightTax: number;
+  navOtherTax: number;
+  navParkTax: number;
+  navPaveTax: number;
+  navSewerTax: number;
+  navPaceTax: number;
+  navStewardTax: number;
+  totalNonAdValorem: number;
+}
+
+/**
+ * Manatee County PA — WebLayers ArcGIS.
+ * Returns parcel data including ALL
+ * non-ad valorem amounts directly.
+ * No scraping needed for Manatee.
+ */
+export async function lookupManateeParcel(
+  address: string
+): Promise<ManateeParcelData | null> {
+  try {
+    const street = encodeURIComponent(
+      `${streetForQuery(address)}%`
+    );
+    const fields = [
+      "PARID", "SITUS_ADDRESS",
+      "SITUS_POSTAL_CITY", "CAD_JUST_VALUE",
+      "NAV_CDD_TAX", "NAV_CDD_NAME",
+      "NAV_CITY_TAX", "NAV_FIRE_TAX",
+      "NAV_STORM_TAX", "NAV_DREDGE_TAX",
+      "NAV_LIGHT_TAX", "NAV_OTHER_TAX",
+      "NAV_PARK_TAX", "NAV_PAVE_TAX",
+      "NAV_SEWER_TAX", "NAV_PACE_TAX",
+      "NAV_STEWARD_TAX",
+    ].join(",");
+
+    const url =
+      "https://gis.manateepao.com/arcgis/" +
+      "rest/services/Website/WebLayers/" +
+      "MapServer/0/query" +
+      `?where=SITUS_ADDRESS+LIKE+%27${street}%27` +
+      `&outFields=${fields}` +
+      "&resultRecordCount=5&f=json";
+
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const features = data?.features ?? [];
+    if (!features.length) return null;
+
+    const inputCity = cityFromAddress(address);
+    const best =
+      features.find(
+        (f: any) =>
+          (f.attributes?.SITUS_POSTAL_CITY ?? "")
+            .toUpperCase()
+            .includes(inputCity)
+      ) ?? features[0];
+
+    if (!best?.attributes) return null;
+    const a = best.attributes;
+
+    const nav = (v: any) =>
+      typeof v === "number" && v > 0 ? v : 0;
+
+    const totalNonAdValorem =
+      nav(a.NAV_CDD_TAX) +
+      nav(a.NAV_CITY_TAX) +
+      nav(a.NAV_FIRE_TAX) +
+      nav(a.NAV_STORM_TAX) +
+      nav(a.NAV_DREDGE_TAX) +
+      nav(a.NAV_LIGHT_TAX) +
+      nav(a.NAV_OTHER_TAX) +
+      nav(a.NAV_PARK_TAX) +
+      nav(a.NAV_PAVE_TAX) +
+      nav(a.NAV_SEWER_TAX) +
+      nav(a.NAV_PACE_TAX) +
+      nav(a.NAV_STEWARD_TAX);
+
+    return {
+      parid: String(a.PARID ?? ""),
+      situsAddress: a.SITUS_ADDRESS ?? "",
+      situsCity:
+        a.SITUS_POSTAL_CITY ?? "",
+      justValue: a.CAD_JUST_VALUE ?? 0,
+      navCddTax: nav(a.NAV_CDD_TAX),
+      navCddName: a.NAV_CDD_NAME ?? null,
+      navCityTax: nav(a.NAV_CITY_TAX),
+      navFireTax: nav(a.NAV_FIRE_TAX),
+      navStormTax: nav(a.NAV_STORM_TAX),
+      navDredgeTax: nav(a.NAV_DREDGE_TAX),
+      navLightTax: nav(a.NAV_LIGHT_TAX),
+      navOtherTax: nav(a.NAV_OTHER_TAX),
+      navParkTax: nav(a.NAV_PARK_TAX),
+      navPaveTax: nav(a.NAV_PAVE_TAX),
+      navSewerTax: nav(a.NAV_SEWER_TAX),
+      navPaceTax: nav(a.NAV_PACE_TAX),
+      navStewardTax: nav(a.NAV_STEWARD_TAX),
+      totalNonAdValorem:
+        Math.round(totalNonAdValorem),
+    };
+  } catch (err) {
+    console.error("[manatee-lookup]", err);
+    return null;
+  }
+}
+
+// ── Pasco ───────────────────────────────
+
+/**
+ * Pasco County PA — search.pascopa.com
+ * HTML-based search. Returns 19-digit
+ * numeric parcel ID.
+ */
+export async function lookupPascoParcel(
+  address: string
+): Promise<string | null> {
+  try {
+    const parts = address.split(",");
+    const streetPart = (parts[0] ?? "")
+      .trim();
+    const cityPart = (parts[1] ?? "")
+      .trim();
+
+    const url =
+      "https://search.pascopa.com/" +
+      "default.aspx?criteria=addr" +
+      `&address=${encodeURIComponent(streetPart)}` +
+      `&city=${encodeURIComponent(cityPart)}` +
+      "&zip=";
+
+    const resp = await fetch(url, {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (compatible; Havo/1.0)",
+      },
+    });
+    if (!resp.ok) return null;
+    const html = await resp.text();
+
+    // Pasco parcel IDs are 15-20 digit numbers
+    // that appear in the page (e.g. "1724090000005000000")
+    const matches = [
+      ...html.matchAll(/\b(\d{15,20})\b/g),
+    ].map(m => m[1]);
+
+    // Deduplicate and return first unique
+    const unique = [...new Set(matches)];
+    return unique[0] ?? null;
+  } catch (err) {
+    console.error("[pasco-lookup]", err);
+    return null;
+  }
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — Add county tax route in routes.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: server/routes.ts
+
+── 3A. Add imports ───────────────────────
+
+Add to the imports at the top:
+
+  import {
+    lookupPinellasParcel,
+    lookupManateeParcel,
+    lookupPascoParcel,
+  } from "./integrations/county-parcel-lookup";
+
+── 3B. Add 2025 county millage rates ────
+
+Add this constant near the top of
+registerRoutes, alongside normalizeAddr:
+
+  // 2025 Florida county millage rates.
+  // Used for ad valorem calculation when
+  // the county PA doesn't return a live rate.
+  // Format: { homesteadPct, nonHomesteadPct }
+  // (decimal, e.g. 0.01517 = 1.517%)
+  const COUNTY_MILLAGE: Record<string,
+    { h: number; nh: number }> = {
+    pinellas:   { h: 0.01517, nh: 0.0185 },
+    pasco:      { h: 0.01410, nh: 0.0172 },
+    manatee:    { h: 0.01197, nh: 0.0146 },
+    sarasota:   { h: 0.01050, nh: 0.0128 },
+    hernando:   { h: 0.01197, nh: 0.0146 },
+    lee:        { h: 0.01148, nh: 0.0140 },
+    collier:    { h: 0.00804, nh: 0.0098 },
+    polk:       { h: 0.01263, nh: 0.0154 },
+  };
+
+  function calcAdValoremForCounty(
+    purchasePrice: number,
+    homestead: boolean,
+    county: string
+  ): number {
+    const rates = COUNTY_MILLAGE[county];
+    if (!rates) return 0;
+    const pct = homestead ? rates.h : rates.nh;
+    return Math.round(purchasePrice * pct);
+  }
+
+── 3C. Add the county tax route ──────────
+
+Add this new route after the Hillsborough
+route (after the closing }); of
+/api/property-tax/hillsborough):
+
+  // Property tax for other FL counties.
+  // Pinellas and Manatee have live PA APIs.
+  // Pasco has HTML-based PA search.
+  // Sarasota, Hernando, Lee, Collier, Polk
+  // fall back to formula (pending full API).
+  app.post(
+    "/api/property-tax/county",
+    async (req, res) => {
+      try {
+        const schema = z.object({
+          address: z.string().min(5),
+          county: z.string().min(3),
+          purchasePrice: z.number().positive(),
+          isPrimaryResidence: z.boolean()
+            .default(true),
+        });
+        const p = schema.parse(req.body);
+        const county =
+          p.county.toLowerCase().trim();
+
+        // ── Manatee: ArcGIS returns NAV ──
+        if (county === "manatee") {
+          const parcel =
+            await lookupManateeParcel(
+              p.address
+            );
+
+          if (!parcel) {
+            return res.json({
+              useFallback: true,
+              county: "manatee",
+            });
+          }
+
+          const adValorem =
+            calcAdValoremForCounty(
+              p.purchasePrice,
+              p.isPrimaryResidence,
+              "manatee"
+            );
+
+          const nonAdValorem =
+            parcel.totalNonAdValorem;
+
+          // Build disclosure lines from
+          // non-zero NAV fields
+          const navLines: Array<{
+            authority: string;
+            amount: number;
+          }> = [];
+          if (parcel.navCddTax > 0)
+            navLines.push({
+              authority:
+                parcel.navCddName ??
+                "CDD Assessment",
+              amount: parcel.navCddTax,
+            });
+          if (parcel.navFireTax > 0)
+            navLines.push({
+              authority: "Fire Assessment",
+              amount: parcel.navFireTax,
+            });
+          if (parcel.navStormTax > 0)
+            navLines.push({
+              authority: "Stormwater",
+              amount: parcel.navStormTax,
+            });
+          if (parcel.navSewerTax > 0)
+            navLines.push({
+              authority: "Sewer/Water",
+              amount: parcel.navSewerTax,
+            });
+          if (parcel.navCityTax > 0)
+            navLines.push({
+              authority: "Municipal",
+              amount: parcel.navCityTax,
+            });
+
+          const annualTax =
+            adValorem + nonAdValorem;
+
+          console.log(
+            `[county-tax] manatee` +
+            ` adVal=$${adValorem}` +
+            ` nonAdVal=$${nonAdValorem}` +
+            ` cdd=${parcel.navCddName ?? "none"}`
+          );
+
+          return res.json({
+            annualTax,
+            monthlyTax:
+              Math.round(
+                (annualTax / 12) * 100
+              ) / 100,
+            adValoremTax: adValorem,
+            nonAdValoremTax: nonAdValorem,
+            nonAdValoremLines: navLines,
+            nonAdValoremPending: false,
+            county: "manatee",
+            source: "manatee-arcgis",
+          });
+        }
+
+        // ── Pinellas: ArcGIS + TaxSys ───
+        if (county === "pinellas") {
+          const strap =
+            await lookupPinellasParcel(
+              p.address
+            );
+
+          const adValorem =
+            calcAdValoremForCounty(
+              p.purchasePrice,
+              p.isPrimaryResidence,
+              "pinellas"
+            );
+
+          if (!strap) {
+            return res.json({
+              annualTax: adValorem,
+              monthlyTax: Math.round(
+                (adValorem / 12) * 100
+              ) / 100,
+              adValoremTax: adValorem,
+              nonAdValoremTax: 0,
+              nonAdValoremLines: [],
+              nonAdValoremPending: false,
+              county: "pinellas",
+              source: "formula-fallback",
+            });
+          }
+
+          // Kick off non-ad valorem scrape
+          let nonAdValoremTax = 0;
+          let nonAdValoremLines: Array<{
+            authority: string;
+            amount: number;
+          }> = [];
+          let nonAdValoremPending = false;
+
+          const nav =
+            await getNonAdValoremForFolio(
+              strap,
+              "pinellas"
+            );
+          if (nav.state === "ready") {
+            nonAdValoremTax = Math.round(
+              nav.data.total
+            );
+            nonAdValoremLines =
+              nav.data.lines;
+          } else if (
+            nav.state === "pending"
+          ) {
+            nonAdValoremPending = true;
+          }
+
+          const annualTax =
+            adValorem + nonAdValoremTax;
+
+          console.log(
+            `[county-tax] pinellas` +
+            ` strap=${strap}` +
+            ` adVal=$${adValorem}` +
+            ` nonAdVal=$${nonAdValoremTax}` +
+            ` pending=${nonAdValoremPending}`
+          );
+
+          return res.json({
+            annualTax,
+            monthlyTax: Math.round(
+              (annualTax / 12) * 100
+            ) / 100,
+            adValoremTax: adValorem,
+            nonAdValoremTax,
+            nonAdValoremLines,
+            nonAdValoremPending,
+            county: "pinellas",
+            source: "pinellas-api",
+          });
+        }
+
+        // ── Pasco: HTML search + TaxSys ──
+        if (county === "pasco") {
+          const parcelId =
+            await lookupPascoParcel(
+              p.address
+            );
+
+          const adValorem =
+            calcAdValoremForCounty(
+              p.purchasePrice,
+              p.isPrimaryResidence,
+              "pasco"
+            );
+
+          if (!parcelId) {
+            return res.json({
+              annualTax: adValorem,
+              monthlyTax: Math.round(
+                (adValorem / 12) * 100
+              ) / 100,
+              adValoremTax: adValorem,
+              nonAdValoremTax: 0,
+              nonAdValoremLines: [],
+              nonAdValoremPending: false,
+              county: "pasco",
+              source: "formula-fallback",
+            });
+          }
+
+          let nonAdValoremTax = 0;
+          let nonAdValoremLines: Array<{
+            authority: string;
+            amount: number;
+          }> = [];
+          let nonAdValoremPending = false;
+
+          const nav =
+            await getNonAdValoremForFolio(
+              parcelId,
+              "pasco"
+            );
+          if (nav.state === "ready") {
+            nonAdValoremTax = Math.round(
+              nav.data.total
+            );
+            nonAdValoremLines =
+              nav.data.lines;
+          } else if (
+            nav.state === "pending"
+          ) {
+            nonAdValoremPending = true;
+          }
+
+          const annualTax =
+            adValorem + nonAdValoremTax;
+
+          return res.json({
+            annualTax,
+            monthlyTax: Math.round(
+              (annualTax / 12) * 100
+            ) / 100,
+            adValoremTax: adValorem,
+            nonAdValoremTax,
+            nonAdValoremLines,
+            nonAdValoremPending,
+            county: "pasco",
+            source: "pasco-api",
+          });
+        }
+
+        // ── All other counties: formula ──
+        // Sarasota, Hernando, Lee, Collier,
+        // Polk PA APIs need further work.
+        // Return formula-based estimate.
+        const adValorem =
+          calcAdValoremForCounty(
+            p.purchasePrice,
+            p.isPrimaryResidence,
+            county
+          );
+
+        if (!adValorem) {
+          return res.json({
+            useFallback: true,
+            county,
+          });
+        }
+
+        return res.json({
+          annualTax: adValorem,
+          monthlyTax: Math.round(
+            (adValorem / 12) * 100
+          ) / 100,
+          adValoremTax: adValorem,
+          nonAdValoremTax: 0,
+          nonAdValoremLines: [],
+          nonAdValoremPending: false,
+          county,
+          source: "formula-only",
+          note: `${county} CDD lookup` +
+                " pending full API integration",
+        });
+
+      } catch (err: any) {
+        console.error(
+          "[county-tax] error:", err
+        );
+        if (err instanceof z.ZodError) {
+          return res.status(400).json({
+            error: "Invalid parameters"
+          });
+        }
+        res.json({ useFallback: true });
+      }
+    }
+  );
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 4 — Wire the new route into estimate.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/estimate.tsx
+
+The existing code calls
+/api/property-tax/hillsborough for
+Hillsborough addresses. Extend the HCPA
+tax useEffect to also call the new
+/api/property-tax/county route for the
+other 8 counties.
+
+── 4A. Update the hcpaTax state type ─────
+
+Find the existing hcpaTax state type and
+add county to it:
+
+  const [hcpaTax, setHcpaTax] =
+    useState<{
+      annualTax: number;
+      adValoremTax: number;
+      nonAdValoremTax: number;
+      adValoremPct: number;
+      taxDistrict: string;
+      millageRate: number;
+      county?: string;
+    } | null>(null);
+
+── 4B. Add county detection ──────────────
+
+Find the HCPA tax useEffect. It currently
+has this block:
+
+    const isHillsborough =
+      /\btampa\b|\bbrandon\b|... etc/i
+        .test(activeAddr);
+
+Extend it to also detect the 8 new counties.
+After the isHillsborough check, add:
+
+    const isManatee =
+      /\bbradenton\b|\blakewood ranch\b|
+       \bpalmettofl\b|\bparrish\b|
+       \bbellaire\b|\bmyakka city\b|
+       \banna maria\b|\bbraden river\b/i
+        .test(activeAddr);
+
+    const isPinellas =
+      /\bclearwater\b|\bst\.\s*pete\b|
+       \bst pete\b|\bst\.\s*petersburg\b|
+       \btarpon springs\b|\bdunedin\b|
+       \blargo\b|\bseminole\b|\boldsmar\b|
+       \bsafety harbor\b|\bbelleair\b|
+       \bgulfport\b|\bpinellas park\b|
+       \bpalm harbor\b|\btreasure island\b/i
+        .test(activeAddr);
+
+    const isPasco =
+      /\bnew port richey\b|\bland o lakes\b|
+       \bzephyrhills\b|\bdade city\b|
+       \bholiday\b|\bhudson\b|
+       \bwesley chapel\b|\bport richey\b/i
+        .test(activeAddr);
+
+    const isSarasota =
+      /\bsarasota\b|\bvenice\b|
+       \bnokomis\b|\bosprey\b|
+       \benglewoodfl\b|\bnorth port\b/i
+        .test(activeAddr);
+
+    const isHernando =
+      /\bspring hill\b|\bbrooksville\b|
+       \bweeki wachee\b|\bhernando\b/i
+        .test(activeAddr);
+
+    const isLee =
+      /\bfort myers\b|\bcape coral\b|
+       \bbonita springs\b|\bestero\b|
+       \bsanibel\b|\blehigh acres\b|
+       \bmarco island\b/i
+        .test(activeAddr);
+
+    const isCollier =
+      /\bnaples\b|\bmarco island\b|
+       \bimmokalee\b|\bgolden gate\b|
+       \bave maria\b|\bbonitafl\b/i
+        .test(activeAddr);
+
+    const isPolk =
+      /\blakeland\b|\bbartow\b|
+       \bwinter haven\b|\baventura park\b|
+       \bhaines city\b|\bplant city\b/i
+        .test(activeAddr);
+
+── 4C. Update the fetch call ─────────────
+
+The existing useEffect calls:
+  fetch("/api/property-tax/hillsborough", ...)
+  only when isHillsborough is true.
+
+Add a second branch for the new counties:
+
+    if (!isHillsborough) {
+      // Determine which non-Hillsborough
+      // county this address belongs to
+      const otherCounty =
+        isManatee   ? "manatee"   :
+        isPinellas  ? "pinellas"  :
+        isPasco     ? "pasco"     :
+        isSarasota  ? "sarasota"  :
+        isHernando  ? "hernando"  :
+        isLee       ? "lee"       :
+        isCollier   ? "collier"   :
+        isPolk      ? "polk"      :
+        null;
+
+      if (!otherCounty) return;
+
+      fetch("/api/property-tax/county", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          address: activeAddr,
+          county: otherCounty,
+          purchasePrice: price,
+          isPrimaryResidence: isPrimary,
+        }),
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (
+            data.useFallback ||
+            !data.annualTax
+          ) return;
+          setHcpaTax({
+            annualTax: data.annualTax,
+            adValoremTax:
+              data.adValoremTax ??
+              data.annualTax,
+            nonAdValoremTax:
+              data.nonAdValoremTax ?? 0,
+            adValoremPct: data.adValoremPct ??
+              0,
+            taxDistrict:
+              data.county ?? otherCounty,
+            millageRate:
+              data.millageRate ?? 0,
+            county: otherCounty,
+          });
+          setHcpaTaxAddress(activeAddr);
+        })
+        .catch(() => {
+          // Fallback to formula on error
+        });
+    }
+
+Place this block after the existing
+Hillsborough fetch call, inside the
+same doLoad function.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 5 — Update computePropertyTax
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: client/src/pages/estimate.tsx
+
+The existing computePropertyTax function
+checks hcpaTaxAddress === address to use
+the live tax. The same check works for
+both Hillsborough and other counties since
+hcpaTaxAddress stores whichever county's
+address was last fetched.
+
+No changes needed here — the existing logic
+already handles this correctly.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   Fix type errors. The most likely issues:
+   - getNonAdValoremForFolio now takes extra
+     params — check all call sites
+   - hcpaTax state type changed — check
+     any field accesses
+
+2. Run: npx vite build
+   Confirm clean build.
+
+3. Test in browser console:
+
+   Manatee (Heritage Harbour CDD):
+   fetch("/api/property-tax/county", {
+     method:"POST",
+     headers:{"Content-Type":"application/json"},
+     body: JSON.stringify({
+       address:
+         "6519 Grand Estuary Trl," +
+         " Bradenton, FL 34212",
+       county: "manatee",
+       purchasePrice: 350000,
+       isPrimaryResidence: true,
+     })
+   }).then(r=>r.json()).then(d=>{
+     console.log("source:", d.source)
+     console.log("adValorem:", d.adValoremTax)
+     console.log("nonAdValorem:", d.nonAdValoremTax)
+     console.log("lines:", d.nonAdValoremLines)
+   })
+   Expected: source "manatee-arcgis",
+   nonAdValoremTax around 1095 (Heritage
+   Harbour North CDD confirmed from research)
+
+   Pinellas (St Pete):
+   fetch("/api/property-tax/county", {
+     method:"POST",
+     headers:{"Content-Type":"application/json"},
+     body: JSON.stringify({
+       address:
+         "1 Beach Dr SE, St. Petersburg," +
+         " FL 33701",
+       county: "pinellas",
+       purchasePrice: 800000,
+       isPrimaryResidence: true,
+     })
+   }).then(r=>r.json()).then(console.log)
+   Expected: source "pinellas-api",
+   adValoremTax around 13,136,
+   nonAdValoremPending true initially
+   (Apify scrape kicks off)
+
+   Pasco (Epperson CDD):
+   fetch("/api/property-tax/county", {
+     method:"POST",
+     headers:{"Content-Type":"application/json"},
+     body: JSON.stringify({
+       address:
+         "1000 Epperson Blvd," +
+         " Wesley Chapel, FL 33545",
+       county: "pasco",
+       purchasePrice: 400000,
+       isPrimaryResidence: true,
+     })
+   }).then(r=>r.json()).then(console.log)
+   Expected: source "pasco-api" or
+   "formula-fallback" depending on whether
+   Pasco parcel lookup succeeds. If pending,
+   nonAdValoremPending: true.
+
+4. Confirm the Hillsborough route still
+   works exactly as before — the new route
+   does NOT touch /api/property-tax/hillsborough.
+
+5. Confirm the existing call to
+   getNonAdValoremForFolio in the
+   Hillsborough route still compiles (it
+   now accepts optional params but the
+   original single-arg call should still
+   work since county defaults to
+   "hillsborough").
+
+6. Report files created/modified, any
+   TypeScript errors found, and build status.
+```
