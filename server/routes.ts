@@ -1842,7 +1842,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let data: any;
         try { data = JSON.parse(text); } catch { return { label, status: r.status, error: "non-JSON", raw: text.slice(0, 200) }; }
         if (!r.ok) return { label, status: r.status, error: data };
-        // Find the first array key and return count + first 2 items
         const arrayKey = Object.keys(data).find(k => k !== "_metadata" && Array.isArray(data[k]));
         const items: any[] = arrayKey ? data[arrayKey] : [];
         return {
@@ -1850,65 +1849,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: r.status,
           arrayKey,
           total: data._metadata?.total ?? items.length,
-          sample: items.slice(0, 2),
-          allKeys: Object.keys(data),
+          allTopLevelKeys: Object.keys(data),
+          sampleItemKeys: items[0] ? Object.keys(items[0]) : [],
+          sample: items.slice(0, 3),
         };
       } catch (err: any) {
         return { label, error: err.message };
       }
     }
 
-    // Get a real person ID to test person-specific endpoints
-    const peopleR = await fetch("https://api.followupboss.com/v1/people?limit=1", { headers: fubHeaders(apiKey) });
-    const peopleD = await peopleR.json();
-    const samplePersonId: number | null = peopleD?.people?.[0]?.id ?? null;
+    // Get a closed person ID to test deal-specific endpoints
+    const closedR = await fetch("https://api.followupboss.com/v1/people?stage=Closed&limit=1", { headers: fubHeaders(apiKey) });
+    const closedD = await closedR.json();
+    const closedPersonId: number | null = closedD?.people?.[0]?.id ?? null;
+    const closedPersonSample = closedD?.people?.[0] ?? null;
 
     const results = await Promise.all([
-      // The endpoints we already know about
-      tryFetch("notes (recent 5)",          "https://api.followupboss.com/v1/notes?limit=5"),
-      tryFetch("notes (all — paginated)",   "https://api.followupboss.com/v1/notes?limit=5&offset=0"),
+      // ── Deal-specific endpoints ──
+      tryFetch("deals",                       "https://api.followupboss.com/v1/deals?limit=5"),
+      tryFetch("deal",                        "https://api.followupboss.com/v1/deal?limit=5"),
+      tryFetch("transactions",                "https://api.followupboss.com/v1/transactions?limit=5"),
+      tryFetch("closings",                    "https://api.followupboss.com/v1/closings?limit=5"),
+      tryFetch("opportunities",               "https://api.followupboss.com/v1/opportunities?limit=5"),
+      tryFetch("properties",                  "https://api.followupboss.com/v1/properties?limit=5"),
+      tryFetch("listings",                    "https://api.followupboss.com/v1/listings?limit=5"),
+      tryFetch("contracts",                   "https://api.followupboss.com/v1/contracts?limit=5"),
+      tryFetch("sales",                       "https://api.followupboss.com/v1/sales?limit=5"),
+      tryFetch("commissions",                 "https://api.followupboss.com/v1/commissions?limit=5"),
+      tryFetch("financial",                   "https://api.followupboss.com/v1/financial?limit=5"),
+      tryFetch("pipeline",                    "https://api.followupboss.com/v1/pipeline?limit=5"),
 
-      // Dedicated call/text/email endpoints FUB may expose
-      tryFetch("calls",                     "https://api.followupboss.com/v1/calls?limit=5"),
-      tryFetch("textMessages",              "https://api.followupboss.com/v1/textMessages?limit=5"),
-      tryFetch("texts",                     "https://api.followupboss.com/v1/texts?limit=5"),
-      tryFetch("sms",                       "https://api.followupboss.com/v1/sms?limit=5"),
-      tryFetch("emails",                    "https://api.followupboss.com/v1/emails?limit=5"),
-      tryFetch("activities",                "https://api.followupboss.com/v1/activities?limit=5"),
-      tryFetch("appointments",              "https://api.followupboss.com/v1/appointments?limit=5"),
-      tryFetch("tasks",                     "https://api.followupboss.com/v1/tasks?limit=5"),
+      // ── Closed people — full field list to see what deal data lives on the person ──
+      tryFetch("people stage=Closed (full fields)", "https://api.followupboss.com/v1/people?stage=Closed&limit=3"),
 
-      // Events with no type filter — see ALL event types
-      tryFetch("events (no filter)",        "https://api.followupboss.com/v1/events?limit=10"),
-
-      // Notes filtered by specific subjects
-      tryFetch("notes subject=Call",        "https://api.followupboss.com/v1/notes?subject=Call&limit=5"),
-      tryFetch("notes subject=Text",        "https://api.followupboss.com/v1/notes?subject=Text&limit=5"),
-      tryFetch("notes subject=Email",       "https://api.followupboss.com/v1/notes?subject=Email&limit=5"),
-
-      // Events filtered by type — try every plausible string
-      tryFetch("events type=Call",          "https://api.followupboss.com/v1/events?type=Call&limit=5"),
-      tryFetch("events type=call",          "https://api.followupboss.com/v1/events?type=call&limit=5"),
-      tryFetch("events type=Text",          "https://api.followupboss.com/v1/events?type=Text&limit=5"),
-      tryFetch("events type=Text Message",  "https://api.followupboss.com/v1/events?type=Text%20Message&limit=5"),
-      tryFetch("events type=SMS",           "https://api.followupboss.com/v1/events?type=SMS&limit=5"),
-      tryFetch("events type=Email",         "https://api.followupboss.com/v1/events?type=Email&limit=5"),
-      tryFetch("events type=Note",          "https://api.followupboss.com/v1/events?type=Note&limit=5"),
-
-      // Person-specific activity — check one real person's full history
-      ...(samplePersonId ? [
-        tryFetch(`person ${samplePersonId} notes`,  `https://api.followupboss.com/v1/notes?personId=${samplePersonId}&limit=10`),
-        tryFetch(`person ${samplePersonId} events`, `https://api.followupboss.com/v1/events?personId=${samplePersonId}&limit=10`),
-        tryFetch(`person ${samplePersonId} calls`,  `https://api.followupboss.com/v1/calls?personId=${samplePersonId}&limit=10`),
+      // ── If a closed person exists, check their notes and custom fields ──
+      ...(closedPersonId ? [
+        tryFetch(`closed person ${closedPersonId} notes`,        `https://api.followupboss.com/v1/notes?personId=${closedPersonId}&limit=10`),
+        tryFetch(`closed person ${closedPersonId} events`,       `https://api.followupboss.com/v1/events?personId=${closedPersonId}&limit=10`),
+        tryFetch(`closed person ${closedPersonId} deals`,        `https://api.followupboss.com/v1/deals?personId=${closedPersonId}&limit=10`),
+        tryFetch(`closed person ${closedPersonId} transactions`, `https://api.followupboss.com/v1/transactions?personId=${closedPersonId}&limit=10`),
       ] : []),
+
+      // ── Custom fields — deal value may be stored here ──
+      tryFetch("customFields",                "https://api.followupboss.com/v1/customFields?limit=20"),
+      tryFetch("fieldDefinitions",            "https://api.followupboss.com/v1/fieldDefinitions?limit=20"),
+      tryFetch("fields",                      "https://api.followupboss.com/v1/fields?limit=20"),
     ]);
 
-    // Summarise which endpoints returned data
-    const withData    = results.filter((r: any) => r.total > 0).map((r: any) => `${r.label} (${r.total})`);
-    const withErrors  = results.filter((r: any) => r.status !== 200 && !r.total).map((r: any) => `${r.label} → ${r.status ?? r.error}`);
+    const withData   = results.filter((r: any) => (r.total ?? 0) > 0).map((r: any) => `${r.label} (${r.total})`);
+    const withErrors = results.filter((r: any) => r.status !== 200 && !r.total).map((r: any) => `${r.label} → ${r.status ?? r.error}`);
 
     res.json({
-      samplePersonId,
+      closedPersonId,
+      closedPersonSample,
       endpointsWithData: withData,
       endpointsWithErrors: withErrors,
       fullResults: results,
