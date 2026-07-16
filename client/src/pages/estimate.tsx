@@ -2352,6 +2352,9 @@ export default function Estimate() {
       address: string;
       purchasePrice: number;
       isPrimary: boolean;
+      /** Server is still scraping the parcel's CDD/assessment lines
+       *  from the Tax Collector bill — keep polling. */
+      navPending: boolean;
     } | null>(null);
 
   // Live HCPA property tax lookup
@@ -2371,11 +2374,16 @@ export default function Estimate() {
 
     // Skip only when this exact request tuple is already resolved —
     // a price or occupancy change on the same address must refetch.
+    // While the bill scrape is still pending, never skip: effect
+    // re-runs (e.g. scenario auto-saves) cancel the poll timer, so
+    // this refetch is what keeps polling alive until the CDD /
+    // assessment lines arrive.
     if (
       hcpaTax &&
       hcpaTax.address === activeAddr &&
       hcpaTax.purchasePrice === price &&
-      hcpaTax.isPrimary === isPrimary
+      hcpaTax.isPrimary === isPrimary &&
+      !hcpaTax.navPending
     ) return;
 
     // Only attempt for Hillsborough addresses
@@ -2418,6 +2426,7 @@ export default function Estimate() {
               address: activeAddr,
               purchasePrice: price,
               isPrimary,
+              navPending: !!data.nonAdValoremPending,
             });
             if (data.nonAdValoremPending && attempt < 14) {
               retryTimer = setTimeout(
@@ -5467,6 +5476,19 @@ export default function Estimate() {
                     sub={`${fmt(inputs.annualTaxes)}/yr`}
                     link={address && address !== "Unknown Address" ? getCountyTaxLink(address) ?? undefined : undefined}
                   />
+                  {/* First lookup for a parcel: the county bill scrape
+                      runs in the background for a few minutes, so tell
+                      the user the figure will still grow to include
+                      CDD / assessments. */}
+                  {hcpaTax?.navPending && (
+                    <p
+                      className="flex items-center gap-1.5 text-[11px] text-slate-500 -mt-1 mb-1 px-1"
+                      data-testid="note-nav-pending"
+                    >
+                      <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                      Checking the county tax bill for CDD &amp; special assessments — this figure may update in a few minutes…
+                    </p>
+                  )}
                   {/* Homestead-exemption disclosure. Only shown when the
                       $0 estimate is actually being applied (100% VA
                       disability + primary residence). Final eligibility is
