@@ -2341,15 +2341,18 @@ export default function Estimate() {
 
   const [inputs, setInputs] = useState<Inputs>(() => inputsForAddress(address));
 
-  // HCPA live tax estimate (Hillsborough only)
+  // HCPA live tax estimate (Hillsborough only). The result carries the
+  // exact inputs it was resolved for (address / price / homestead) so the
+  // override can never be applied to stale inputs.
   const [hcpaTax, setHcpaTax] =
     useState<{
       annualTax: number;
       municipality: string;
       millageRate: number;
+      address: string;
+      purchasePrice: number;
+      isPrimary: boolean;
     } | null>(null);
-  const [hcpaTaxAddress, setHcpaTaxAddress] =
-    useState<string>("");
 
   // Live HCPA property tax lookup
   // (Hillsborough County addresses only)
@@ -2358,12 +2361,21 @@ export default function Estimate() {
       s => s.id === activeScenarioId
     )?.address || address;
     const price = inputs.purchasePrice;
+    const isPrimary = inputs.occupancy === "primary";
 
     if (
       !activeAddr ||
       activeAddr === "Unknown Address" ||
-      activeAddr === hcpaTaxAddress ||
       price <= 0
+    ) return;
+
+    // Skip only when this exact request tuple is already resolved —
+    // a price or occupancy change on the same address must refetch.
+    if (
+      hcpaTax &&
+      hcpaTax.address === activeAddr &&
+      hcpaTax.purchasePrice === price &&
+      hcpaTax.isPrimary === isPrimary
     ) return;
 
     // Only attempt for Hillsborough addresses
@@ -2375,9 +2387,7 @@ export default function Estimate() {
       return;
     }
 
-    const isPrimary =
-      inputs.occupancy === "primary";
-
+    let cancelled = false;
     fetch("/api/property-tax/hillsborough", {
       method: "POST",
       headers: {
@@ -2391,26 +2401,31 @@ export default function Estimate() {
     })
       .then(r => r.json())
       .then(data => {
+        if (cancelled) return;
         if (data.annualTax > 0) {
           setHcpaTax({
             annualTax: data.annualTax,
             municipality: data.municipality,
             millageRate: data.millageRate,
+            address: activeAddr,
+            purchasePrice: price,
+            isPrimary,
           });
-          setHcpaTaxAddress(activeAddr);
         } else {
           // useFallback — keep existing formula
           setHcpaTax(null);
         }
       })
       .catch(() => {
-        setHcpaTax(null);
+        if (!cancelled) setHcpaTax(null);
       });
-  // Re-run when address, price, or occupancy
-  // changes
+    return () => { cancelled = true; };
+  // Re-run when address, price, occupancy, or
+  // the scenario list (address edits) change
   // eslint-disable-next-line
   }, [
     activeScenarioId,
+    scenarios,
     inputs.purchasePrice,
     inputs.occupancy,
     address,
@@ -2437,11 +2452,12 @@ export default function Estimate() {
     vaDisabilityRating100: boolean | null,
   ): number {
     if (vaDisabilityRating100 === true && occupancy === "primary") return 0;
-    // Use live HCPA figure when available
+    // Use live HCPA figure only when it was resolved for these exact inputs
     if (
       hcpaTax &&
-      hcpaTaxAddress === address &&
-      purchasePrice === inputs.purchasePrice
+      hcpaTax.address === address &&
+      hcpaTax.purchasePrice === purchasePrice &&
+      hcpaTax.isPrimary === (occupancy === "primary")
     ) {
       return hcpaTax.annualTax;
     }
