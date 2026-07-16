@@ -272,9 +272,8 @@ type DealCategory =
   | null;
 
 function classifyDeal(deal: any): { category: DealCategory; isActive: boolean } {
-  const pipeline   = (deal.pipelineName             ?? "").toLowerCase();
-  const stage      = (deal.stageName                ?? "").toLowerCase();
-  const reTxn      = (deal.customRealEstateTransaction ?? "").toLowerCase();
+  const pipeline = (deal.pipelineName ?? "").toLowerCase();
+  const stage    = (deal.stageName    ?? "").toLowerCase();
 
   const isMortgage   = pipeline.includes("mortgage");
   const isRealEstate = pipeline.includes("real estate");
@@ -282,17 +281,20 @@ function classifyDeal(deal: any): { category: DealCategory; isActive: boolean } 
   if (isMortgage) {
     if (stage === "under contract") return { category: "mortgageUnderContract", isActive: true  };
     if (stage === "2026")           return { category: "mortgage2026",          isActive: false };
+    if (stage === "2025")           return { category: "mortgage2026",          isActive: false };
   }
 
   if (isRealEstate) {
-    if (stage === "active listing")  return { category: "reActiveListing",     isActive: true  };
-    if (stage === "under contract") {
-      const cat = reTxn === "sell" ? "reUnderContractSell" : "reUnderContractBuy";
-      return { category: cat, isActive: true };
-    }
-    if (stage === "2026") {
-      const cat = reTxn === "sell" ? "re2026Sell" : "re2026Buy";
-      return { category: cat, isActive: false };
+    if (stage === "active listing")        return { category: "reActiveListing",     isActive: true  };
+    if (stage === "under contract - buy")  return { category: "reUnderContractBuy",  isActive: true  };
+    if (stage === "under contract - sell") return { category: "reUnderContractSell", isActive: true  };
+    if (stage === "2026 - buy")            return { category: "re2026Buy",           isActive: false };
+    if (stage === "2026 - sell")           return { category: "re2026Sell",          isActive: false };
+    if (stage === "2025") {
+      const reTxn = (deal.customRealEstateTransaction ?? "").toLowerCase();
+      return reTxn === "seller"
+        ? { category: "re2026Sell", isActive: false }
+        : { category: "re2026Buy",  isActive: false };
     }
   }
 
