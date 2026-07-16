@@ -2431,6 +2431,35 @@ export default function Estimate() {
     address,
   ]);
 
+  // Address strings can differ between the URL param and the saved
+  // scenario row (Google appends ", USA"); compare them loosely so the
+  // HCPA override isn't dropped over a formatting difference.
+  function sameHcpaAddr(a: string, b: string): boolean {
+    const norm = (s: string) =>
+      s.toLowerCase().replace(/,\s*usa\s*$/, "").trim();
+    return norm(a) === norm(b);
+  }
+
+  // When the async HCPA figure arrives, write it into inputs.annualTaxes.
+  // The displayed tax comes from stored state that is only recomputed on
+  // user actions (price/occupancy edits), so without this sync the live
+  // figure would never replace the formula value already baked in.
+  useEffect(() => {
+    if (!hcpaTax) return;
+    const activeAddr = scenarios.find(
+      s => s.id === activeScenarioId
+    )?.address || address;
+    if (!sameHcpaAddr(hcpaTax.address, activeAddr)) return;
+    if (hcpaTax.purchasePrice !== inputs.purchasePrice) return;
+    if (hcpaTax.isPrimary !== (inputs.occupancy === "primary")) return;
+    // VA 100% disability + primary residence stays $0 (homestead exemption)
+    if (inputs.vaDisabilityRating100 === true && inputs.occupancy === "primary") return;
+    if (inputs.annualTaxes !== hcpaTax.annualTax) {
+      set("annualTaxes", hcpaTax.annualTax);
+    }
+  // eslint-disable-next-line
+  }, [hcpaTax, inputs.purchasePrice, inputs.occupancy, inputs.vaDisabilityRating100]);
+
   /**
    * Single source of truth for annual property tax estimation. Returns $0
    * when the user has confirmed 100% VA disability AND the property will be
@@ -2455,7 +2484,7 @@ export default function Estimate() {
     // Use live HCPA figure only when it was resolved for these exact inputs
     if (
       hcpaTax &&
-      hcpaTax.address === address &&
+      sameHcpaAddr(hcpaTax.address, address) &&
       hcpaTax.purchasePrice === purchasePrice &&
       hcpaTax.isPrimary === (occupancy === "primary")
     ) {
