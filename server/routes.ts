@@ -1835,77 +1835,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
     if (!apiKey) return res.status(500).json({ error: "FOLLOWUPBOSS_API_KEY not set" });
 
-    async function tryFetch(label: string, url: string) {
-      try {
-        const r = await fetch(url, { headers: fubHeaders(apiKey!) });
-        const text = await r.text();
-        let data: any;
-        try { data = JSON.parse(text); } catch { return { label, status: r.status, error: "non-JSON", raw: text.slice(0, 200) }; }
-        if (!r.ok) return { label, status: r.status, error: data };
-        const arrayKey = Object.keys(data).find(k => k !== "_metadata" && Array.isArray(data[k]));
-        const items: any[] = arrayKey ? data[arrayKey] : [];
-        return {
-          label,
-          status: r.status,
-          arrayKey,
-          total: data._metadata?.total ?? items.length,
-          allTopLevelKeys: Object.keys(data),
-          sampleItemKeys: items[0] ? Object.keys(items[0]) : [],
-          sample: items.slice(0, 3),
-        };
-      } catch (err: any) {
-        return { label, error: err.message };
+    try {
+      // Fetch all deals
+      let allDeals: any[] = [];
+      let offset = 0;
+      while (true) {
+        const r = await fetch(
+          `https://api.followupboss.com/v1/deals?limit=200&offset=${offset}`,
+          { headers: fubHeaders(apiKey) }
+        );
+        const d = await r.json();
+        const items: any[] = d.deals ?? [];
+        allDeals.push(...items);
+        const total: number = d._metadata?.total ?? items.length;
+        offset += 200;
+        if (offset >= total || items.length === 0) break;
       }
+
+      // All distinct pipeline names and stage names
+      const pipelines = [...new Set(allDeals.map((d: any) => d.pipelineName))];
+      const stages    = [...new Set(allDeals.map((d: any) => d.stageName))];
+
+      // Christian's deals (userId=1 in users array)
+      const christianDeals = allDeals
+        .filter((d: any) => (d.users ?? []).some((u: any) => Number(u.id) === 1))
+        .map((d: any) => ({
+          id:                          d.id,
+          name:                        d.name,
+          pipelineId:                  d.pipelineId,
+          pipelineName:                d.pipelineName,
+          stageId:                     d.stageId,
+          stageName:                   d.stageName,
+          price:                       d.price,
+          projectedCloseDate:          d.projectedCloseDate,
+          agentCommission:             d.agentCommission,
+          commissionValue:             d.commissionValue,
+          customRealEstateTransaction: d.customRealEstateTransaction,
+          customMortgageTransaction:   d.customMortgageTransaction,
+          status:                      d.status,
+          users:                       (d.users ?? []).map((u: any) => ({ id: u.id, name: u.name })),
+        }));
+
+      // Group counts by pipeline + stage
+      const breakdown: Record<string, number> = {};
+      for (const deal of allDeals) {
+        const key = `${deal.pipelineName} → ${deal.stageName}`;
+        breakdown[key] = (breakdown[key] ?? 0) + 1;
+      }
+
+      res.json({
+        totalDeals:    allDeals.length,
+        pipelines,
+        stages,
+        breakdown,
+        christianDealCount: christianDeals.length,
+        christianDeals,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
-
-    // Get a closed person ID to test deal-specific endpoints
-    const closedR = await fetch("https://api.followupboss.com/v1/people?stage=Closed&limit=1", { headers: fubHeaders(apiKey) });
-    const closedD = await closedR.json();
-    const closedPersonId: number | null = closedD?.people?.[0]?.id ?? null;
-    const closedPersonSample = closedD?.people?.[0] ?? null;
-
-    const results = await Promise.all([
-      // ── Deal-specific endpoints ──
-      tryFetch("deals",                       "https://api.followupboss.com/v1/deals?limit=5"),
-      tryFetch("deal",                        "https://api.followupboss.com/v1/deal?limit=5"),
-      tryFetch("transactions",                "https://api.followupboss.com/v1/transactions?limit=5"),
-      tryFetch("closings",                    "https://api.followupboss.com/v1/closings?limit=5"),
-      tryFetch("opportunities",               "https://api.followupboss.com/v1/opportunities?limit=5"),
-      tryFetch("properties",                  "https://api.followupboss.com/v1/properties?limit=5"),
-      tryFetch("listings",                    "https://api.followupboss.com/v1/listings?limit=5"),
-      tryFetch("contracts",                   "https://api.followupboss.com/v1/contracts?limit=5"),
-      tryFetch("sales",                       "https://api.followupboss.com/v1/sales?limit=5"),
-      tryFetch("commissions",                 "https://api.followupboss.com/v1/commissions?limit=5"),
-      tryFetch("financial",                   "https://api.followupboss.com/v1/financial?limit=5"),
-      tryFetch("pipeline",                    "https://api.followupboss.com/v1/pipeline?limit=5"),
-
-      // ── Closed people — full field list to see what deal data lives on the person ──
-      tryFetch("people stage=Closed (full fields)", "https://api.followupboss.com/v1/people?stage=Closed&limit=3"),
-
-      // ── If a closed person exists, check their notes and custom fields ──
-      ...(closedPersonId ? [
-        tryFetch(`closed person ${closedPersonId} notes`,        `https://api.followupboss.com/v1/notes?personId=${closedPersonId}&limit=10`),
-        tryFetch(`closed person ${closedPersonId} events`,       `https://api.followupboss.com/v1/events?personId=${closedPersonId}&limit=10`),
-        tryFetch(`closed person ${closedPersonId} deals`,        `https://api.followupboss.com/v1/deals?personId=${closedPersonId}&limit=10`),
-        tryFetch(`closed person ${closedPersonId} transactions`, `https://api.followupboss.com/v1/transactions?personId=${closedPersonId}&limit=10`),
-      ] : []),
-
-      // ── Custom fields — deal value may be stored here ──
-      tryFetch("customFields",                "https://api.followupboss.com/v1/customFields?limit=20"),
-      tryFetch("fieldDefinitions",            "https://api.followupboss.com/v1/fieldDefinitions?limit=20"),
-      tryFetch("fields",                      "https://api.followupboss.com/v1/fields?limit=20"),
-    ]);
-
-    const withData   = results.filter((r: any) => (r.total ?? 0) > 0).map((r: any) => `${r.label} (${r.total})`);
-    const withErrors = results.filter((r: any) => r.status !== 200 && !r.total).map((r: any) => `${r.label} → ${r.status ?? r.error}`);
-
-    res.json({
-      closedPersonId,
-      closedPersonSample,
-      endpointsWithData: withData,
-      endpointsWithErrors: withErrors,
-      fullResults: results,
-    });
   });
 
   // POST /api/fub/showing-request
