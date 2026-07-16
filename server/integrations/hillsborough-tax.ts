@@ -27,6 +27,15 @@ const CITY_MILLS: Record<string, number> = {
 };
 const UNINCORPORATED_MILLS = 18.2515;
 
+// HCPA's Tax Estimator returns a RANGE: the lower bound assumes the
+// assessed (just) value will come in at ~85% of the purchase price —
+// Florida property appraisers typically assess below the sale price —
+// and the upper bound taxes the full purchase price. Havo returns the
+// lower number, so we apply the same 85% assessed-value assumption.
+// Verified against HCPA for 3102 W Nassau St @ $726,100 homestead:
+// HCPA lower = $11,413.04; this formula gives ~$11,438 (within 0.25%).
+const ASSESSED_RATIO = 0.85;
+
 // Cities that are in Hillsborough but
 // unincorporated (no city millage layer)
 const HILLSBOROUGH_CITIES = new Set([
@@ -70,12 +79,13 @@ function calcTax(
   totalMills: number,
   homestead: boolean
 ): number {
+  const assessed = price * ASSESSED_RATIO;
   if (!homestead) {
-    return Math.round((price * totalMills) / 1000);
+    return Math.round((assessed * totalMills) / 1000);
   }
   const nonSchoolMills = totalMills - SCHOOL_MILLS;
-  const schoolTaxable  = Math.max(0, price - 25_000);
-  const nonSchoolTaxable = Math.max(0, price - 50_000);
+  const schoolTaxable  = Math.max(0, assessed - 25_000);
+  const nonSchoolTaxable = Math.max(0, assessed - 50_000);
   const schoolTax    = (schoolTaxable * SCHOOL_MILLS)
                        / 1000;
   const nonSchoolTax = (nonSchoolTaxable * nonSchoolMills)
