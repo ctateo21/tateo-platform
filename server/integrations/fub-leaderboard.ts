@@ -1,11 +1,10 @@
 /**
- * fub-leaderboard.ts — v9
- * Added: Deal Pipeline section using /v1/deals endpoint.
- * Fields confirmed from debug: pipelineName, stageName, customRealEstateTransaction,
- * price (volume), agentCommission, projectedCloseDate, users[] (team attribution).
- *
- * Active stages (Active Listing, Under Contract) = always shown, no period filter.
- * Closed stages (2026) = filtered by projectedCloseDate within selected period.
+ * fub-leaderboard.ts — v10
+ * Changes from v9:
+ *   1. Deal Pipeline always uses full year view (Jan 1 to now) regardless
+ *      of the activity period tab selected by the user.
+ *   2. Activity period (calls/texts/emails/showings/newLeads/closedDeals)
+ *      continues to use the selected period tab.
  */
 
 const FUB_BASE = "https://api.followupboss.com/v1";
@@ -47,11 +46,10 @@ export const PIPELINE_STAGES = [
 
 export type PipelineStage = typeof PIPELINE_STAGES[number];
 
-// ── Deal types ────────────────────────────────────────────────────────────────
 export interface DealBucket {
   count: number;
-  volume: number;      // sum of deal.price
-  commission: number;  // sum of deal.agentCommission
+  volume: number;
+  commission: number;
 }
 
 function emptyBucket(): DealBucket {
@@ -65,16 +63,13 @@ function addToBucket(bucket: DealBucket, deal: any): void {
 }
 
 export interface AgentDeals {
-  // Real Estate
-  reActiveListing:    DealBucket;
-  reUnderContractBuy: DealBucket;
-  reUnderContractSell:DealBucket;
-  re2026Buy:          DealBucket;
-  re2026Sell:         DealBucket;
-  // Mortgage
+  reActiveListing:       DealBucket;
+  reUnderContractBuy:    DealBucket;
+  reUnderContractSell:   DealBucket;
+  re2026Buy:             DealBucket;
+  re2026Sell:            DealBucket;
   mortgageUnderContract: DealBucket;
   mortgage2026:          DealBucket;
-  // Totals across all deal types
   totalVolume:     number;
   totalCommission: number;
   totalCount:      number;
@@ -95,7 +90,6 @@ function emptyAgentDeals(): AgentDeals {
   };
 }
 
-// ── Agent row ─────────────────────────────────────────────────────────────────
 export interface AgentRow {
   email: string;
   name: string;
@@ -138,7 +132,6 @@ export interface LeaderboardPayload {
 
 export type Period = "today" | "yesterday" | "week" | "month" | "quarter" | "year";
 
-// ── HTTP helpers ──────────────────────────────────────────────────────────────
 export function fubHeaders(apiKey: string): Record<string, string> {
   return {
     "Content-Type": "application/json",
@@ -192,7 +185,6 @@ async function runBatched<T>(tasks: (() => Promise<T>)[], concurrency = 10): Pro
   return results;
 }
 
-// ── Date helpers ──────────────────────────────────────────────────────────────
 function getPeriodDates(period: Period): { startMs: number; startIso: string; endMs: number } {
   const now = new Date();
   let start: Date;
@@ -204,7 +196,7 @@ function getPeriodDates(period: Period): { startMs: number; startIso: string; en
       break;
     case "yesterday":
       start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-      end   = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // midnight tonight
+      end   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       break;
     case "week": {
       start = new Date(now);
@@ -264,7 +256,6 @@ function resolveEmail(
   return undefined;
 }
 
-// ── Deal classification ───────────────────────────────────────────────────────
 type DealCategory =
   | "reActiveListing" | "reUnderContractBuy" | "reUnderContractSell"
   | "re2026Buy"       | "re2026Sell"
@@ -301,7 +292,6 @@ function classifyDeal(deal: any): { category: DealCategory; isActive: boolean } 
   return { category: null, isActive: false };
 }
 
-// ── Main fetch ────────────────────────────────────────────────────────────────
 export async function getLeaderboardData(apiKey: string, period: Period): Promise<LeaderboardPayload> {
   const cached = _cache.get(period);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
@@ -311,6 +301,10 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
 
   console.log(`[fub-lb] fetching: period=${period}`);
   const { startMs, startIso, endMs } = getPeriodDates(period);
+
+  // Deal Pipeline always uses full calendar year — independent of activity period tab
+  const dealYearStart = new Date(new Date().getFullYear(), 0, 1).getTime();
+  const dealYearEnd   = Date.now();
 
   const idMap = new Map<number, TeamEmail>(
     Object.entries(FUB_ID_TO_TEAM_EMAIL).map(([id, e]) => [Number(id), e as TeamEmail]),
@@ -433,9 +427,9 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     }
   }
 
-  // ── DEALS from /v1/deals ─────────────────────────────────────────────────
-  // Active stages (Active Listing, Under Contract) = always shown, no period filter.
-  // Closed stages (2026) = filtered by projectedCloseDate within the period.
+  // ── DEALS — always full year, independent of activity period ─────────────
+  // Active stages (Active Listing, Under Contract) = always shown.
+  // Closed stages (2026/2025) = filtered by projectedCloseDate within current year.
   const agentDeals: Record<string, AgentDeals> = {};
   for (const m of LEADERBOARD_TEAM) agentDeals[m.email] = emptyAgentDeals();
 
@@ -447,13 +441,12 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       const { category, isActive } = classifyDeal(deal);
       if (!category) continue;
 
-      // Period filter for closed deals — use projectedCloseDate
+      // Closed deals: filter by projectedCloseDate within current calendar year
       if (!isActive) {
         const closeMs = deal.projectedCloseDate ? new Date(deal.projectedCloseDate).getTime() : 0;
-        if (!closeMs || closeMs < startMs || closeMs > endMs) continue;
+        if (!closeMs || closeMs < dealYearStart || closeMs > dealYearEnd) continue;
       }
 
-      // Attribute to every team member in deal.users[]
       const dealUsers: Array<{ id: number; name: string }> = deal.users ?? [];
       for (const u of dealUsers) {
         const email =
@@ -465,7 +458,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       }
     }
 
-    console.log(`[fub-lb] deals: ${allDeals.length} total, ${matched} agent-deal attributions`);
+    console.log(`[fub-lb] deals: ${allDeals.length} total, ${matched} attributions (full year view)`);
   } catch (err: any) { console.error("[fub-lb] /deals error:", err.message); }
 
   // Compute deal totals per agent
@@ -537,7 +530,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
   };
 
   _cache.set(period, { data: payload, ts: Date.now() });
-  console.log(`[fub-lb] done — calls:${teamTotals.calls} texts:${teamTotals.texts} emails:${teamTotals.emails} deals:${teamTotals.dealCount} vol:$${teamTotals.dealVolume.toLocaleString()}`);
+  console.log(`[fub-lb] done — calls:${teamTotals.calls} texts:${teamTotals.texts} deals:${teamTotals.dealCount} vol:$${teamTotals.dealVolume.toLocaleString()}`);
   return payload;
 }
 

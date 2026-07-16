@@ -1,7 +1,11 @@
 /**
- * leaderboard.tsx — v9
- * Added: Deal Pipeline section — Real Estate (Active Listing, Under Contract Buy/Sell,
- * 2026 Buy/Sell) and Mortgage (Under Contract, 2026 Closed) per agent.
+ * leaderboard.tsx — v10
+ * Changes from v9:
+ *   1. RE table: added "RE Commission" column alongside RE Total Vol.
+ *   2. MTG table: "Closed Commission" now shows only mortgage2026 commission
+ *      (closed deals only, not Under Contract).
+ *   3. Deal Pipeline section: always shows Full Year badge, no period label.
+ *   4. Activity period tabs clearly labelled as affecting Activity only.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -91,8 +95,8 @@ const HIGHLIGHT_STAGES = [
 ];
 
 const AUTO_REFRESH_MS = 5 * 60 * 1000;
+const CURRENT_YEAR = new Date().getFullYear();
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt$(n: number): string {
   if (n === 0) return "—";
   if (n >= 1_000_000) return "$" + (n / 1_000_000).toFixed(1) + "M";
@@ -139,7 +143,6 @@ function PipelineBar({ pipeline }: { pipeline: Record<string, number> }) {
   );
 }
 
-// ── Deal bucket cell ──────────────────────────────────────────────────────────
 function BucketCell({ bucket, dimCommission }: { bucket: DealBucket; dimCommission?: boolean }) {
   if (bucket.count === 0) return <span className="text-gray-600 text-sm">—</span>;
   return (
@@ -155,7 +158,6 @@ function BucketCell({ bucket, dimCommission }: { bucket: DealBucket; dimCommissi
   );
 }
 
-// ── Agent card (mobile) ───────────────────────────────────────────────────────
 function AgentCard({ agent, rank }: { agent: AgentRow; rank: number }) {
   return (
     <div className="bg-gray-800 rounded-xl p-4 border border-gray-700 space-y-3">
@@ -192,8 +194,10 @@ function AgentCard({ agent, rank }: { agent: AgentRow; rank: number }) {
       </div>
       {agent.deals.totalCount > 0 && (
         <div className="border-t border-gray-700 pt-2 text-xs space-y-1">
-          <p className="text-gray-500 uppercase tracking-wide font-medium">Deal Pipeline</p>
-          <p className="text-white font-semibold">{agent.deals.totalCount} deals · {fmt$(agent.deals.totalVolume)} volume · {fmt$(agent.deals.totalCommission)} comm</p>
+          <p className="text-gray-500 uppercase tracking-wide font-medium">Deal Pipeline {CURRENT_YEAR}</p>
+          <p className="text-white font-semibold">
+            {agent.deals.totalCount} deals · {fmt$(agent.deals.totalVolume)} vol · {fmt$(agent.deals.totalCommission)} comm
+          </p>
         </div>
       )}
       <div className="border-t border-gray-700 pt-2">
@@ -204,7 +208,6 @@ function AgentCard({ agent, rank }: { agent: AgentRow; rank: number }) {
   );
 }
 
-// ── Agent table row ───────────────────────────────────────────────────────────
 function AgentTableRow({ agent, rank }: { agent: AgentRow; rank: number }) {
   return (
     <tr className="border-b border-gray-700 hover:bg-gray-800/60 transition-colors">
@@ -239,8 +242,7 @@ function AgentTableRow({ agent, rank }: { agent: AgentRow; rank: number }) {
   );
 }
 
-// ── Deal pipeline section ─────────────────────────────────────────────────────
-function DealPipelineSection({ agents, periodLabel }: { agents: AgentRow[]; periodLabel: string }) {
+function DealPipelineSection({ agents }: { agents: AgentRow[] }) {
   const hasAnyRE  = agents.some(a =>
     a.deals.reActiveListing.count + a.deals.reUnderContractBuy.count +
     a.deals.reUnderContractSell.count + a.deals.re2026Buy.count + a.deals.re2026Sell.count > 0
@@ -252,8 +254,8 @@ function DealPipelineSection({ agents, periodLabel }: { agents: AgentRow[]; peri
   if (!hasAnyRE && !hasAnyMtg) {
     return (
       <div className="bg-gray-800 rounded-xl border border-gray-700 p-6 text-center">
-        <p className="text-gray-500 text-sm">No deals found for {periodLabel}.</p>
-        <p className="text-gray-600 text-xs mt-1">Active pipeline always shows. Closed deals (2026) are filtered by projected close date.</p>
+        <p className="text-gray-500 text-sm">No deals found for {CURRENT_YEAR}.</p>
+        <p className="text-gray-600 text-xs mt-1">Active pipeline always shows. Closed deals are filtered by projected close date within the current year.</p>
       </div>
     );
   }
@@ -265,7 +267,7 @@ function DealPipelineSection({ agents, periodLabel }: { agents: AgentRow[]; peri
         <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
           <div className="bg-gray-900/60 px-4 py-3 border-b border-gray-700 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-teal-400 uppercase tracking-wide">🏠 Real Estate</h3>
-            <span className="text-xs text-gray-500">Active Listing + Under Contract = all current · 2026 = filtered by close date</span>
+            <span className="text-xs text-gray-500">Active + Under Contract = current pipeline · 2026 = closed this year</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -278,13 +280,16 @@ function DealPipelineSection({ agents, periodLabel }: { agents: AgentRow[]; peri
                   <th className="px-4 py-3 text-center">2026 – Buy</th>
                   <th className="px-4 py-3 text-center">2026 – Sell</th>
                   <th className="px-4 py-3 text-center text-white">RE Total Vol</th>
+                  <th className="px-4 py-3 text-center text-green-400">RE Commission</th>
                 </tr>
               </thead>
               <tbody>
                 {agents.map((agent) => {
                   const d = agent.deals;
-                  const reVol = d.reActiveListing.volume + d.reUnderContractBuy.volume +
-                    d.reUnderContractSell.volume + d.re2026Buy.volume + d.re2026Sell.volume;
+                  const reVol  = d.reActiveListing.volume     + d.reUnderContractBuy.volume  +
+                                 d.reUnderContractSell.volume + d.re2026Buy.volume            + d.re2026Sell.volume;
+                  const reComm = d.reActiveListing.commission + d.reUnderContractBuy.commission +
+                                 d.reUnderContractSell.commission + d.re2026Buy.commission    + d.re2026Sell.commission;
                   return (
                     <tr key={agent.email} className="border-b border-gray-700/50 hover:bg-gray-700/30">
                       <td className="px-4 py-3">
@@ -303,6 +308,9 @@ function DealPipelineSection({ agents, periodLabel }: { agents: AgentRow[]; peri
                       <td className="px-4 py-3 text-center">
                         <span className="font-bold text-white">{fmt$(reVol)}</span>
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="font-bold text-green-400">{fmt$(reComm)}</span>
+                      </td>
                     </tr>
                   );
                 })}
@@ -317,7 +325,7 @@ function DealPipelineSection({ agents, periodLabel }: { agents: AgentRow[]; peri
         <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
           <div className="bg-gray-900/60 px-4 py-3 border-b border-gray-700 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-blue-400 uppercase tracking-wide">💰 Mortgage</h3>
-            <span className="text-xs text-gray-500">Under Contract = all current · 2026 = filtered by close date</span>
+            <span className="text-xs text-gray-500">Under Contract = current pipeline · 2026 = closed this year · Commission = closed only</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -327,14 +335,14 @@ function DealPipelineSection({ agents, periodLabel }: { agents: AgentRow[]; peri
                   <th className="px-4 py-3 text-center">Under Contract</th>
                   <th className="px-4 py-3 text-center">2026 (Closed)</th>
                   <th className="px-4 py-3 text-center text-white">Mtg Total Vol</th>
-                  <th className="px-4 py-3 text-center text-green-400">Total Commission</th>
+                  <th className="px-4 py-3 text-center text-green-400">Closed Commission</th>
                 </tr>
               </thead>
               <tbody>
                 {agents.map((agent) => {
-                  const d = agent.deals;
+                  const d       = agent.deals;
                   const mtgVol  = d.mortgageUnderContract.volume + d.mortgage2026.volume;
-                  const mtgComm = d.mortgageUnderContract.commission + d.mortgage2026.commission;
+                  const mtgComm = d.mortgage2026.commission; // closed deals only
                   return (
                     <tr key={agent.email} className="border-b border-gray-700/50 hover:bg-gray-700/30">
                       <td className="px-4 py-3">
@@ -365,7 +373,6 @@ function DealPipelineSection({ agents, periodLabel }: { agents: AgentRow[]; peri
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
 export default function Leaderboard() {
   const { user, isLoading: authLoading } = useAuth();
   const [, setLocation] = useLocation();
@@ -392,7 +399,6 @@ export default function Leaderboard() {
         throw new Error(body.error || `Server error ${res.status}`);
       }
       const json: LeaderboardData = await res.json();
-      // Guard: older cached payloads may lack the deals field
       const emptyBucket = { count: 0, volume: 0, commission: 0 };
       const emptyDeals: AgentDeals = {
         reActiveListing: emptyBucket, reUnderContractBuy: emptyBucket, reUnderContractSell: emptyBucket,
@@ -403,9 +409,9 @@ export default function Leaderboard() {
       json.agents = (json.agents ?? []).map((a) => ({ ...a, deals: a.deals ?? emptyDeals }));
       json.teamTotals = {
         ...json.teamTotals,
-        dealVolume: json.teamTotals?.dealVolume ?? 0,
+        dealVolume:     json.teamTotals?.dealVolume     ?? 0,
         dealCommission: json.teamTotals?.dealCommission ?? 0,
-        dealCount: json.teamTotals?.dealCount ?? 0,
+        dealCount:      json.teamTotals?.dealCount      ?? 0,
       };
       setData(json);
       setLastRefresh(new Date());
@@ -468,37 +474,41 @@ export default function Leaderboard() {
               Refresh
             </button>
           </div>
-          <div className="flex gap-1 mt-5 overflow-x-auto">
-            {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPeriod(p)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
-                  period === p
-                    ? "bg-[#0D9488] text-white"
-                    : "bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700"
-                }`}
-              >
-                {PERIOD_LABELS[p]}
-              </button>
-            ))}
+          {/* Period tabs — affects Activity section only */}
+          <div className="mt-5">
+            <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">Activity Period</p>
+            <div className="flex gap-1 overflow-x-auto">
+              {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                    period === p
+                      ? "bg-[#0D9488] text-white"
+                      : "bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700"
+                  }`}
+                >
+                  {PERIOD_LABELS[p]}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6 space-y-8">
-        {/* Team totals strip */}
+        {/* Activity totals strip */}
         {totals && (
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
             {[
-              { label: "📞 Calls",      value: totals.calls,         color: "text-blue-400" },
-              { label: "💬 Texts",      value: totals.texts,         color: "text-purple-400" },
-              { label: "📧 Emails",     value: totals.emails,        color: "text-orange-400" },
-              { label: "🏠 Showings",   value: totals.showings,      color: "text-teal-400" },
-              { label: "🔑 Contract",   value: totals.underContract, color: "text-yellow-400" },
-              { label: "🏆 Closed",     value: totals.closedDeals,   color: "text-green-400" },
-              { label: "⚡ Total",       value: totals.totalActivity, color: "text-white" },
-              { label: "🌱 New Leads",  value: totals.newLeads,      color: "text-emerald-400" },
+              { label: "📞 Calls",     value: totals.calls,         color: "text-blue-400" },
+              { label: "💬 Texts",     value: totals.texts,         color: "text-purple-400" },
+              { label: "📧 Emails",    value: totals.emails,        color: "text-orange-400" },
+              { label: "🏠 Showings",  value: totals.showings,      color: "text-teal-400" },
+              { label: "🔑 Contract",  value: totals.underContract, color: "text-yellow-400" },
+              { label: "🏆 Closed",    value: totals.closedDeals,   color: "text-green-400" },
+              { label: "⚡ Total",      value: totals.totalActivity, color: "text-white" },
+              { label: "🌱 New Leads", value: totals.newLeads,      color: "text-emerald-400" },
             ].map(({ label, value, color }) => (
               <div key={label} className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
                 <p className={`text-2xl font-bold ${color}`}>{value}</p>
@@ -508,13 +518,13 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Deal volume strip */}
+        {/* Deal totals strip */}
         {totals && totals.dealCount > 0 && (
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: "📋 Total Deals",   value: totals.dealCount.toString(),               color: "text-white" },
-              { label: "💵 Deal Volume",   value: fmt$(totals.dealVolume),                   color: "text-teal-400" },
-              { label: "💰 Commission",    value: fmt$(totals.dealCommission),               color: "text-green-400" },
+              { label: `📋 ${CURRENT_YEAR} Deals`,      value: totals.dealCount.toString(),  color: "text-white" },
+              { label: `💵 ${CURRENT_YEAR} Volume`,     value: fmt$(totals.dealVolume),      color: "text-teal-400" },
+              { label: `💰 ${CURRENT_YEAR} Commission`, value: fmt$(totals.dealCommission),  color: "text-green-400" },
             ].map(({ label, value, color }) => (
               <div key={label} className="bg-gray-800 rounded-xl p-3 text-center border border-gray-700">
                 <p className={`text-2xl font-bold ${color}`}>{value}</p>
@@ -524,14 +534,12 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Error */}
         {error && (
           <div className="bg-red-900/30 border border-red-700 rounded-xl p-4 text-red-300 text-sm">
             <strong>Error loading leaderboard:</strong> {error}
           </div>
         )}
 
-        {/* Loading skeleton */}
         {loading && !data && (
           <div className="space-y-3">
             {[1,2,3,4].map((i) => (
@@ -540,10 +548,15 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Desktop activity table */}
+        {/* Activity section */}
         {data && (
           <div>
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Activity</h2>
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+              Activity
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-700 text-gray-300 normal-case">
+                {PERIOD_LABELS[period]}
+              </span>
+            </h2>
             <div className="hidden md:block">
               <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
                 <table className="w-full">
@@ -570,7 +583,6 @@ export default function Leaderboard() {
                 </table>
               </div>
             </div>
-            {/* Mobile activity cards */}
             <div className="md:hidden space-y-3">
               {data.agents.map((agent, i) => (
                 <AgentCard key={agent.email} agent={agent} rank={i + 1} />
@@ -579,25 +591,24 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Deal Pipeline section */}
+        {/* Deal Pipeline — always full year, independent of activity period */}
         {data && (
           <div>
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-2">
               Deal Pipeline
-              <span className="ml-2 text-gray-600 normal-case font-normal">
-                · {PERIOD_LABELS[period as Period]}
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-teal-900/50 text-teal-300 normal-case">
+                Full Year {CURRENT_YEAR}
               </span>
             </h2>
-            <DealPipelineSection agents={data.agents} periodLabel={PERIOD_LABELS[period as Period]} />
+            <DealPipelineSection agents={data.agents} />
           </div>
         )}
 
-        {/* Footer */}
         {data && (
           <p className="text-center text-xs text-gray-600">
-            Period: <strong className="text-gray-500">{PERIOD_LABELS[period as Period]}</strong>
-            {" · "}Deals: active stages always shown, 2026 filtered by projected close date
-            {" · "}Data generated {new Date(data.generatedAt).toLocaleString()}
+            Activity: <strong className="text-gray-500">{PERIOD_LABELS[period]}</strong>
+            {" · "}Deal Pipeline: full year {CURRENT_YEAR} · active stages always shown · closed filtered by projected close date
+            {" · "}Generated {new Date(data.generatedAt).toLocaleString()}
           </p>
         )}
       </div>
