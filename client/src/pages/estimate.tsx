@@ -2380,7 +2380,7 @@ export default function Estimate() {
 
     // Only attempt for Hillsborough addresses
     const isHillsborough =
-      /\btampa\b|\bbrandon\b|\briverview\b|\bapollo beach\b|\btemple terrace\b|\bplant city\b|\blithia\b|\bodessa\b|\bwestchase\b|\bcarrollwood\b|\blutz\b|\bruskin\b|\bvalrico\b|\bsun city center\b/i.test(activeAddr);
+      /\btampa\b|\bbrandon\b|\briverview\b|\bapollo beach\b|\btemple terrace\b|\bplant city\b|\blithia\b|\bodessa\b|\bwestchase\b|\bcarrollwood\b|\blutz\b|\bruskin\b|\bvalrico\b|\bsun city center\b|\bwimauma\b|\bgibsonton\b|\bbalm\b|\bthonotosassa\b|\bfishhawk\b|\bboyette\b|\bsydney\b|\bcitrus park\b|\bnorthdale\b|\btown n country\b|\bseffner\b|\bdover\b|\bmango\b/i.test(activeAddr);
 
     if (!isHillsborough) {
       if (hcpaTax) setHcpaTax(null);

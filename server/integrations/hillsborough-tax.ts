@@ -47,6 +47,7 @@ const HILLSBOROUGH_CITIES = new Set([
   "CITRUS PARK", "NORTHDALE", "WIMAUMA",
   "LITHIA", "FISHHAWK", "BOYETTE",
   "BALM", "SYDNEY", "THONOTOSASSA",
+  "SEFFNER", "DOVER", "MANGO",
 ]);
 
 interface HCPAParcel {
