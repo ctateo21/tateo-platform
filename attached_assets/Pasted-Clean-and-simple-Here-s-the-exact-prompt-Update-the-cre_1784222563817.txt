@@ -1,0 +1,174 @@
+Clean and simple. Here's the exact prompt:
+
+```
+Update the credit score adjustment tables in
+two files. Change ONLY the return values
+listed. Do not modify any other logic,
+function signatures, variable names, or
+surrounding code.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILE 1 — client/src/pages/estimate.tsx
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Find the function creditAdjustment(score).
+It currently reads:
+
+  function creditAdjustment(score: number): number {
+    if (score >= 780) return -0.20;
+    if (score >= 760) return -0.05;
+    if (score >= 740) return  0;
+    if (score >= 720) return  0.125;
+    if (score >= 700) return  0.25;
+    if (score >= 680) return  0.50;
+    if (score >= 660) return  0.75;
+    if (score >= 640) return  1.00;
+    return 1.50;
+  }
+
+Replace it with:
+
+  function creditAdjustment(score: number): number {
+    if (score >= 780) return -0.10;
+    if (score >= 760) return  0;
+    if (score >= 740) return  0.05;
+    if (score >= 720) return  0.20;
+    if (score >= 700) return  0.30;
+    if (score >= 680) return  0.55;
+    if (score >= 660) return  0.75;
+    if (score >= 640) return  1.00;
+    return 1.50;
+  }
+
+Find the function fhaCreditAdjustment(score).
+It currently reads:
+
+  function fhaCreditAdjustment(score: number): number {
+    if (score >= 740) return -0.500;
+    if (score >= 720) return -0.250;
+    if (score >= 700) return -0.100;
+    if (score >= 680) return  0.000;
+    if (score >= 660) return  0.450;
+    if (score >= 640) return  0.900;
+    return 1.250;
+  }
+
+Replace it with:
+
+  function fhaCreditAdjustment(score: number): number {
+    if (score >= 740) return -0.350;
+    if (score >= 720) return -0.150;
+    if (score >= 700) return  0;
+    if (score >= 680) return  0.05;
+    if (score >= 660) return  0.50;
+    if (score >= 640) return  0.900;
+    return 1.250;
+  }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FILE 2 — client/src/lib/mortgage-pricing.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This file is used by the refinance calculator
+and currently uses a simple formula that adds
+0.1% per tier below 780. Replace the entire
+creditScoreAdjustmentPct function with
+explicit tables that match estimate.tsx.
+
+Find this function:
+
+  export function creditScoreAdjustmentPct(
+    score?: number | null
+  ): number {
+    if (!score || score <= 0) return 0;
+    const tierIndex = CREDIT_SCORE_TIERS
+      .findIndex(s => s <= score);
+    if (tierIndex <= 0) return 0;
+    return tierIndex * 0.1;
+  }
+
+Replace it with:
+
+  /** Credit score adjustment for
+   *  Conventional, DSCR, Bank Statement. */
+  function convCreditAdj(
+    score: number
+  ): number {
+    if (score >= 780) return -0.10;
+    if (score >= 760) return  0;
+    if (score >= 740) return  0.05;
+    if (score >= 720) return  0.20;
+    if (score >= 700) return  0.30;
+    if (score >= 680) return  0.55;
+    if (score >= 660) return  0.75;
+    if (score >= 640) return  1.00;
+    return 1.50;
+  }
+
+  /** Credit score adjustment for
+   *  FHA, VA, USDA. */
+  function govtCreditAdj(
+    score: number
+  ): number {
+    if (score >= 740) return -0.350;
+    if (score >= 720) return -0.150;
+    if (score >= 700) return  0;
+    if (score >= 680) return  0.05;
+    if (score >= 660) return  0.50;
+    if (score >= 640) return  0.900;
+    return 1.250;
+  }
+
+  export function creditScoreAdjustmentPct(
+    score?: number | null,
+    loanType?: string | null,
+  ): number {
+    if (!score || score <= 0) return 0;
+    if (
+      loanType === "fha" ||
+      loanType === "va"
+    ) {
+      return govtCreditAdj(score);
+    }
+    return convCreditAdj(score);
+  }
+
+Then find every call to
+creditScoreAdjustmentPct() inside
+mortgage-pricing.ts and confirm it passes
+loanType as the second argument. The only
+call should be inside priceLoan():
+
+  const creditAdj = creditScoreAdjustmentPct(
+    creditScore, loanType
+  );
+
+If loanType is not currently being passed,
+add it now.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   Fix any type errors.
+
+2. Run: npx vite build
+   Confirm clean build.
+
+3. Confirm no other files call
+   creditAdjustment() or
+   fhaCreditAdjustment() directly —
+   those are private to estimate.tsx.
+
+4. Confirm creditScoreAdjustmentPct()
+   now accepts an optional second
+   loanType argument and routes to the
+   correct table.
+
+5. Do not change any other pricing logic,
+   LLPAs, buydown tables, fallback rates,
+   or occupancy adjustments.
+
+6. Report which lines changed in each file.
+```

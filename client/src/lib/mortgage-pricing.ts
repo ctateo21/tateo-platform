@@ -50,13 +50,48 @@ const LOAN_TYPE_RATE_LOOKUP: Record<LoanType, { names: string[]; types: string[]
 
 const NON_QM_ADDON_OVER_CONV_PCT = 0.85;
 
-/** Returns the credit-score rate adjustment in **percentage points**
- *  (e.g. 0.4 = +0.40%). 0 for top tier (780+) or unknown score. */
-export function creditScoreAdjustmentPct(score?: number | null): number {
+/** Credit score adjustment for
+ *  Conventional, DSCR, Bank Statement. */
+function convCreditAdj(
+  score: number
+): number {
+  if (score >= 780) return -0.10;
+  if (score >= 760) return  0;
+  if (score >= 740) return  0.05;
+  if (score >= 720) return  0.20;
+  if (score >= 700) return  0.30;
+  if (score >= 680) return  0.55;
+  if (score >= 660) return  0.75;
+  if (score >= 640) return  1.00;
+  return 1.50;
+}
+
+/** Credit score adjustment for
+ *  FHA, VA, USDA. */
+function govtCreditAdj(
+  score: number
+): number {
+  if (score >= 740) return -0.350;
+  if (score >= 720) return -0.150;
+  if (score >= 700) return  0;
+  if (score >= 680) return  0.05;
+  if (score >= 660) return  0.50;
+  if (score >= 640) return  0.900;
+  return 1.250;
+}
+
+export function creditScoreAdjustmentPct(
+  score?: number | null,
+  loanType?: string | null,
+): number {
   if (!score || score <= 0) return 0;
-  const tierIndex = CREDIT_SCORE_TIERS.findIndex(s => s <= score);
-  if (tierIndex <= 0) return 0;
-  return tierIndex * 0.1;
+  if (
+    loanType === "fha" ||
+    loanType === "va"
+  ) {
+    return govtCreditAdj(score);
+  }
+  return convCreditAdj(score);
 }
 
 /** Resolves the base rate (%) for a loan type from the live-rate
@@ -114,7 +149,7 @@ export function formatRate(rate: number): string {
 export function priceLoan(inputs: PricingInputs): PricingResult {
   const { loanType, creditScore, propertyType, liveRates } = inputs;
   const baseRate    = getBaseRatePctForLoanType(liveRates, loanType);
-  const creditAdj   = creditScoreAdjustmentPct(creditScore);
+  const creditAdj   = creditScoreAdjustmentPct(creditScore, loanType);
   const occupancyAdj = PROPERTY_TYPE_LLPA_PCT[propertyType];
   // Conventional-only pricing concession: drop the final Conventional
   // rate by 10 bps (0.100%). Applied once here in the shared engine
