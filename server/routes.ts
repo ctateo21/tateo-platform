@@ -1797,7 +1797,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     const raw = (req.query.period as string) ?? "today";
-    const validPeriods: Period[] = ["today", "week", "month", "quarter", "year"];
+    const validPeriods: Period[] = ["today", "yesterday", "week", "month", "quarter", "year"];
     const period: Period = (validPeriods.includes(raw as Period) ? raw : "today") as Period;
 
     try {

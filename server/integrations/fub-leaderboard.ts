@@ -76,7 +76,7 @@ export interface LeaderboardPayload {
   };
 }
 
-export type Period = "today" | "week" | "month" | "quarter" | "year";
+export type Period = "today" | "yesterday" | "week" | "month" | "quarter" | "year";
 
 export function fubHeaders(apiKey: string): Record<string, string> {
   return {
@@ -131,11 +131,17 @@ async function runBatched<T>(tasks: (() => Promise<T>)[], concurrency = 10): Pro
   return results;
 }
 
-function getPeriodDates(period: Period): { startMs: number; startIso: string } {
+function getPeriodDates(period: Period): { startMs: number; endMs: number; startIso: string } {
   const now = new Date();
   let start: Date;
+  let end: Date | null = null;
   switch (period) {
     case "today":   start = new Date(now.getFullYear(), now.getMonth(), now.getDate()); break;
+    case "yesterday": {
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      end   = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    }
     case "week": {
       start = new Date(now);
       start.setDate(now.getDate() - 7);
@@ -156,7 +162,7 @@ function getPeriodDates(period: Period): { startMs: number; startIso: string } {
     case "year":    start = new Date(now.getFullYear(), 0, 1); break;
     default:        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   }
-  return { startMs: start.getTime(), startIso: start.toISOString() };
+  return { startMs: start.getTime(), endMs: end ? end.getTime() : Date.now() + 60_000, startIso: start.toISOString() };
 }
 
 function getCreatedMs(record: any): number {
@@ -194,7 +200,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
   }
 
   console.log(`[fub-lb] fetching: period=${period}`);
-  const { startMs, startIso } = getPeriodDates(period);
+  const { startMs, endMs, startIso } = getPeriodDates(period);
 
   const idMap = new Map<number, TeamEmail>(
     Object.entries(FUB_ID_TO_TEAM_EMAIL).map(([id, e]) => [Number(id), e as TeamEmail]),
@@ -214,7 +220,8 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     const calls = await fetchAllPages(apiKey, "/calls", { since: startIso });
     let matched = 0;
     for (const call of calls) {
-      if (getCreatedMs(call) < startMs) continue;
+      const callMs = getCreatedMs(call);
+      if (callMs < startMs || callMs >= endMs) continue;
       const email = resolveEmail(call, idMap, nameMap);
       if (email && counts[email]) { counts[email].calls++; matched++; }
     }
@@ -228,7 +235,8 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     const appts = await fetchAllPages(apiKey, "/appointments", { since: startIso });
     let matched = 0;
     for (const appt of appts) {
-      if (getCreatedMs(appt) < startMs) continue;
+      const apptMs = getCreatedMs(appt);
+      if (apptMs < startMs || apptMs >= endMs) continue;
       const email = resolveEmail(appt, idMap, nameMap);
       if (email && counts[email]) { counts[email].showings++; matched++; }
     }
@@ -268,7 +276,8 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
           pipelineMatched++;
         }
         // New leads — created within the period window
-        if (getCreatedMs(person) >= startMs && newLeadCounts[email] !== undefined) {
+        const personCreatedMs = getCreatedMs(person);
+        if (personCreatedMs >= startMs && personCreatedMs < endMs && newLeadCounts[email] !== undefined) {
           newLeadCounts[email]++;
           newLeadsTotal++;
         }
@@ -292,7 +301,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     const tasks = activePeople.map(({ id }) => async () => {
       try {
         const texts = await fetchAllPages(apiKey, "/textMessages", { personId: String(id) });
-        return texts.filter((t) => getCreatedMs(t) >= startMs).length;
+        return texts.filter((t) => { const ms = getCreatedMs(t); return ms >= startMs && ms < endMs; }).length;
       } catch { return 0; }
     });
     try {
@@ -312,7 +321,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     const tasks = activePeople.map(({ id }) => async () => {
       try {
         const emails = await fetchAllPages(apiKey, "/emails", { personId: String(id) });
-        return emails.filter((e) => getCreatedMs(e) >= startMs).length;
+        return emails.filter((e) => { const ms = getCreatedMs(e); return ms >= startMs && ms < endMs; }).length;
       } catch { return 0; }
     });
     try {
@@ -336,7 +345,8 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       const email = resolveEmail(person, idMap, nameMap);
       if (!email) continue;
       if (closedAllTime[email] !== undefined) closedAllTime[email]++;
-      if (getUpdatedMs(person) >= startMs && closedThisPeriod[email] !== undefined) {
+      const closedUpdatedMs = getUpdatedMs(person);
+      if (closedUpdatedMs >= startMs && closedUpdatedMs < endMs && closedThisPeriod[email] !== undefined) {
         closedThisPeriod[email]++;
       }
     }

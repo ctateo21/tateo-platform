@@ -8,7 +8,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/context/auth-context";
 import { authedFetch } from "@/lib/authed-fetch";
 
-type Period = "today" | "week" | "month" | "quarter" | "year";
+type Period = "today" | "yesterday" | "week" | "month" | "quarter" | "year";
 
 interface AgentRow {
   email: string;
@@ -52,7 +52,8 @@ const TEAM_EMAILS = new Set([
 ]);
 
 const PERIOD_LABELS: Record<Period, string> = {
-  today:   "Today",
+  today:     "Today",
+  yesterday: "Yesterday",
   week:    "Last 7 Days",
   month:   "Last 30 Days",
   quarter: "This Quarter",
