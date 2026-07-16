@@ -1836,7 +1836,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!apiKey) return res.status(500).json({ error: "FOLLOWUPBOSS_API_KEY not set" });
 
     try {
-      // Fetch all deals
       let allDeals: any[] = [];
       let offset = 0;
       while (true) {
@@ -1852,44 +1851,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (offset >= total || items.length === 0) break;
       }
 
-      // All distinct pipeline names and stage names
-      const pipelines = [...new Set(allDeals.map((d: any) => d.pipelineName))];
-      const stages    = [...new Set(allDeals.map((d: any) => d.stageName))];
+      // Show every commission-related field on every deal
+      const commissionBreakdown = allDeals.map((d: any) => ({
+        id:                d.id,
+        name:              d.name,
+        pipelineName:      d.pipelineName,
+        stageName:         d.stageName,
+        price:             d.price,
+        // All commission fields — we need to see which one holds the right value
+        commissionValue:   d.commissionValue,
+        agentCommission:   d.agentCommission,
+        teamCommission:    d.teamCommission,
+        users:             (d.users ?? []).map((u: any) => ({ id: u.id, name: u.name })),
+      }));
 
-      // Christian's deals (userId=1 in users array)
-      const christianDeals = allDeals
-        .filter((d: any) => (d.users ?? []).some((u: any) => Number(u.id) === 1))
-        .map((d: any) => ({
-          id:                          d.id,
-          name:                        d.name,
-          pipelineId:                  d.pipelineId,
-          pipelineName:                d.pipelineName,
-          stageId:                     d.stageId,
-          stageName:                   d.stageName,
-          price:                       d.price,
-          projectedCloseDate:          d.projectedCloseDate,
-          agentCommission:             d.agentCommission,
-          commissionValue:             d.commissionValue,
-          customRealEstateTransaction: d.customRealEstateTransaction,
-          customMortgageTransaction:   d.customMortgageTransaction,
-          status:                      d.status,
-          users:                       (d.users ?? []).map((u: any) => ({ id: u.id, name: u.name })),
-        }));
+      // Flag any deals where commissionValue !== agentCommission + teamCommission
+      const mismatches = commissionBreakdown.filter((d: any) => {
+        const sum = (d.agentCommission ?? 0) + (d.teamCommission ?? 0);
+        return Math.abs(sum - (d.commissionValue ?? 0)) > 1;
+      });
 
-      // Group counts by pipeline + stage
-      const breakdown: Record<string, number> = {};
-      for (const deal of allDeals) {
-        const key = `${deal.pipelineName} → ${deal.stageName}`;
-        breakdown[key] = (breakdown[key] ?? 0) + 1;
-      }
+      // Summary: which field has non-zero values
+      const agentCommissionNonZero = commissionBreakdown.filter((d: any) => (d.agentCommission ?? 0) > 0).length;
+      const commissionValueNonZero = commissionBreakdown.filter((d: any) => (d.commissionValue ?? 0) > 0).length;
+      const teamCommissionNonZero  = commissionBreakdown.filter((d: any) => (d.teamCommission  ?? 0) > 0).length;
 
       res.json({
-        totalDeals:    allDeals.length,
-        pipelines,
-        stages,
-        breakdown,
-        christianDealCount: christianDeals.length,
-        christianDeals,
+        totalDeals: allDeals.length,
+        fieldSummary: {
+          dealsWithAgentCommission: agentCommissionNonZero,
+          dealsWithCommissionValue: commissionValueNonZero,
+          dealsWithTeamCommission:  teamCommissionNonZero,
+        },
+        mismatchCount: mismatches.length,
+        mismatches,
+        allDeals: commissionBreakdown,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
