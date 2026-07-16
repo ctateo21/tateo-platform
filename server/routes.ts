@@ -583,11 +583,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           let nonAdValoremTax = result.nonAdValoremTax;
           let nonAdValoremLines:
             Array<{ authority: string; amount: number }> = [];
+          let nonAdValoremPending = false;
           if (result.folio) {
             const nav = await getNonAdValoremForFolio(result.folio);
-            if (nav) {
-              nonAdValoremTax = Math.round(nav.total);
-              nonAdValoremLines = nav.lines;
+            if (nav.state === "ready") {
+              nonAdValoremTax = Math.round(nav.data.total);
+              nonAdValoremLines = nav.data.lines;
+            } else if (nav.state === "pending") {
+              // Background scrape running (~2-4 min); client re-polls.
+              nonAdValoremPending = true;
             }
           }
           const annualTax =
@@ -599,6 +603,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             adValoremTax: result.adValoremTax,
             nonAdValoremTax,
             nonAdValoremLines,
+            nonAdValoremPending,
             taxDistrict: result.taxDistrict,
             millageRate: result.totalMillageRate,
             homestead: result.homestead,

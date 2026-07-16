@@ -2388,38 +2388,57 @@ export default function Estimate() {
     }
 
     let cancelled = false;
-    fetch("/api/property-tax/hillsborough", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        address: activeAddr,
-        purchasePrice: price,
-        isPrimaryResidence: isPrimary,
-      }),
-    })
-      .then(r => r.json())
-      .then(data => {
-        if (cancelled) return;
-        if (data.annualTax > 0) {
-          setHcpaTax({
-            annualTax: data.annualTax,
-            municipality: data.taxDistrict ?? "",
-            millageRate: data.millageRate,
-            address: activeAddr,
-            purchasePrice: price,
-            isPrimary,
-          });
-        } else {
-          // useFallback — keep existing formula
-          setHcpaTax(null);
-        }
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // The server may still be fetching the parcel's CDD/assessment
+    // lines from the Tax Collector bill (a background scrape that
+    // takes a few minutes on first lookup). When it reports
+    // nonAdValoremPending we show the ad valorem figure now and
+    // re-poll until the full bill total is available.
+    const fetchTax = (attempt: number) => {
+      fetch("/api/property-tax/hillsborough", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          address: activeAddr,
+          purchasePrice: price,
+          isPrimaryResidence: isPrimary,
+        }),
       })
-      .catch(() => {
-        if (!cancelled) setHcpaTax(null);
-      });
-    return () => { cancelled = true; };
+        .then(r => r.json())
+        .then(data => {
+          if (cancelled) return;
+          if (data.annualTax > 0) {
+            setHcpaTax({
+              annualTax: data.annualTax,
+              municipality: data.taxDistrict ?? "",
+              millageRate: data.millageRate,
+              address: activeAddr,
+              purchasePrice: price,
+              isPrimary,
+            });
+            if (data.nonAdValoremPending && attempt < 14) {
+              retryTimer = setTimeout(
+                () => fetchTax(attempt + 1),
+                45000
+              );
+            }
+          } else {
+            // useFallback — keep existing formula
+            setHcpaTax(null);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setHcpaTax(null);
+        });
+    };
+    fetchTax(0);
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
   // Re-run when address, price, occupancy, or
   // the scenario list (address edits) change
   // eslint-disable-next-line
