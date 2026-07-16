@@ -7,6 +7,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
@@ -4024,13 +4029,73 @@ export default function Estimate() {
                       </div>
                     )}
                   </div>
-                  <SliderInput
-                    label="Available Reserves / Savings"
-                    value={inputs.reserves}
-                    onChange={(v) => set("reserves", v)}
-                    min={0} max={500000} step={1000}
-                    prefix="$"
-                  />
+                  {/* Reserves field with inline
+                      asset eligibility guide */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-muted-foreground">
+                        Available Reserves / Savings
+                      </span>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label="What counts as reserves"
+                            className="text-muted-foreground hover:text-foreground transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-full"
+                          >
+                            <Info className="h-3.5 w-3.5" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                          className="w-72 p-4 text-xs"
+                          side="top"
+                          align="start"
+                        >
+                          <p className="font-semibold text-foreground mb-2">
+                            What to include
+                          </p>
+                          <ul className="space-y-1 text-muted-foreground mb-3">
+                            <li className="flex items-start gap-1.5">
+                              <span className="text-green-600 mt-0.5">✓</span>
+                              Checking &amp; savings accounts
+                            </li>
+                            <li className="flex items-start gap-1.5">
+                              <span className="text-green-600 mt-0.5">✓</span>
+                              Investment / brokerage accounts
+                            </li>
+                            <li className="flex items-start gap-1.5">
+                              <span className="text-green-600 mt-0.5">✓</span>
+                              60% of 401(k) or IRA balance
+                            </li>
+                            <li className="flex items-start gap-1.5">
+                              <span className="text-green-600 mt-0.5">✓</span>
+                              Gift funds from a family member (with gift letter)
+                            </li>
+                          </ul>
+                          <p className="font-semibold text-foreground mb-2">
+                            Do not include
+                          </p>
+                          <ul className="space-y-1 text-muted-foreground">
+                            <li className="flex items-start gap-1.5">
+                              <span className="text-red-500 mt-0.5">✗</span>
+                              Cash not in a bank account
+                            </li>
+                            <li className="flex items-start gap-1.5">
+                              <span className="text-red-500 mt-0.5">✗</span>
+                              Life insurance policy cash value
+                            </li>
+                          </ul>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <SliderInput
+                      label=""
+                      value={inputs.reserves}
+                      onChange={(v) => set("reserves", v)}
+                      min={0} max={500000} step={1000}
+                      prefix="$"
+                    />
+                  </div>
                   <SliderInput
                     label="Credit Score"
                     value={inputs.creditScore}

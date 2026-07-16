@@ -1,0 +1,171 @@
+Good — `Info` is already imported from lucide-react, and both `Popover` and `Tooltip` components exist. `Popover` is better here since it works on mobile (tap to open, tap away to close). Here's the precise prompt:
+
+```
+Add an info icon with a popover to the
+"Available Reserves / Savings" field on the
+purchase calculator. When the user clicks
+the icon, a small panel opens explaining
+what counts and what doesn't.
+
+Make changes in ONE file only:
+client/src/pages/estimate.tsx
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — Add Popover imports
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Find the existing shadcn/ui import block.
+It starts with something like:
+  import {
+    Card,
+    CardContent,
+    ...
+  } from "@/components/ui/card";
+
+Add these two new imports anywhere in
+that import section:
+
+  import {
+    Popover,
+    PopoverTrigger,
+    PopoverContent,
+  } from "@/components/ui/popover";
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — Replace the reserves SliderInput
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Find this exact block:
+
+  <SliderInput
+    label="Available Reserves / Savings"
+    value={inputs.reserves}
+    onChange={(v) => set("reserves", v)}
+    min={0} max={500000} step={1000}
+    prefix="$"
+  />
+
+Replace it with:
+
+  {/* Reserves field with inline
+      asset eligibility guide */}
+  <div className="space-y-1.5">
+    <div className="flex items-center
+      gap-1.5">
+      <span className="text-xs
+        text-muted-foreground">
+        Available Reserves / Savings
+      </span>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label="What counts as
+              reserves"
+            className="text-muted-foreground
+              hover:text-foreground
+              transition-colors
+              focus:outline-none
+              focus-visible:ring-2
+              focus-visible:ring-ring
+              rounded-full"
+          >
+            <Info className="h-3.5 w-3.5" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-72 p-4 text-xs"
+          side="top"
+          align="start"
+        >
+          <p className="font-semibold
+            text-foreground mb-2">
+            What to include
+          </p>
+          <ul className="space-y-1
+            text-muted-foreground mb-3">
+            <li className="flex
+              items-start gap-1.5">
+              <span className="text-green-600
+                mt-0.5">✓</span>
+              Checking &amp; savings
+              accounts
+            </li>
+            <li className="flex
+              items-start gap-1.5">
+              <span className="text-green-600
+                mt-0.5">✓</span>
+              Investment / brokerage
+              accounts
+            </li>
+            <li className="flex
+              items-start gap-1.5">
+              <span className="text-green-600
+                mt-0.5">✓</span>
+              60% of 401(k) or IRA balance
+            </li>
+            <li className="flex
+              items-start gap-1.5">
+              <span className="text-green-600
+                mt-0.5">✓</span>
+              Gift funds from a family
+              member (with gift letter)
+            </li>
+          </ul>
+          <p className="font-semibold
+            text-foreground mb-2">
+            Do not include
+          </p>
+          <ul className="space-y-1
+            text-muted-foreground">
+            <li className="flex
+              items-start gap-1.5">
+              <span className="text-red-500
+                mt-0.5">✗</span>
+              Cash not in a bank account
+            </li>
+            <li className="flex
+              items-start gap-1.5">
+              <span className="text-red-500
+                mt-0.5">✗</span>
+              Life insurance policy cash
+              value
+            </li>
+          </ul>
+        </PopoverContent>
+      </Popover>
+    </div>
+    <SliderInput
+      label=""
+      value={inputs.reserves}
+      onChange={(v) => set("reserves", v)}
+      min={0} max={500000} step={1000}
+      prefix="$"
+    />
+  </div>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VERIFICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Run: npx tsc --noEmit
+   Fix any type errors.
+
+2. Run: npx vite build
+   Confirm clean build.
+
+3. Confirm the ⓘ icon appears next to
+   the "Available Reserves / Savings"
+   label and opens a popover on click.
+
+4. Confirm the SliderInput still works
+   identically — slider and editable
+   number pill behave the same.
+
+5. Confirm no other SliderInput labels
+   were changed.
+
+6. Report build status.
+```
+
+The `label=""` on the SliderInput is the key detail — SliderInput already handles empty labels by suppressing the label row entirely (per its own code: `{label ? <Label>...</Label> : null}`), so the custom label row we build above it takes over cleanly without any layout shift or duplication.
