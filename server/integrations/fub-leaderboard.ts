@@ -18,6 +18,9 @@ export const LEADERBOARD_TEAM = [
 
 export type TeamEmail = typeof LEADERBOARD_TEAM[number]["email"];
 
+// Emails allowed to VIEW the leaderboard without appearing as an agent row
+export const LEADERBOARD_VIEWERS = ["courtney@tateoco.com"] as const;
+
 const FUB_ID_TO_TEAM_EMAIL: Record<number, TeamEmail> = {
   1: "christian@tateoco.com",
   2: "omar@tateoco.com",

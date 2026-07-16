@@ -23,6 +23,7 @@ const TEAM_EMAILS = new Set([
   "omar@tateoco.com",
   "kyle@tateoco.com",
   "alex@tateoco.com",
+  "courtney@tateoco.com",
 ]);
 
 export default function Header() {

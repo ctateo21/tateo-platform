@@ -50,6 +50,7 @@ import {
   bustLeaderboardCache,
   fubHeaders,
   LEADERBOARD_TEAM,
+  LEADERBOARD_VIEWERS,
   type Period,
 } from "./integrations/fub-leaderboard";
 
@@ -1785,7 +1786,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
       if (error || !user) return res.status(401).json({ error: "Invalid session" });
       const email = user.email?.toLowerCase() ?? "";
-      const allowed = LEADERBOARD_TEAM.some((m) => m.email === email);
+      const allowed = LEADERBOARD_TEAM.some((m) => m.email === email) ||
+        (LEADERBOARD_VIEWERS as readonly string[]).includes(email);
       if (!allowed) return res.status(403).json({ error: "Access denied" });
     } catch {
       return res.status(401).json({ error: "Auth check failed" });
