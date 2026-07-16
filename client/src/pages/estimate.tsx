@@ -2352,6 +2352,9 @@ export default function Estimate() {
       address: string;
       purchasePrice: number;
       isPrimary: boolean;
+      /** Scraped CDD / special-assessment dollars included in
+       *  annualTax (0 until the bill scrape resolves). */
+      nonAdValoremTax: number;
       /** Server is still scraping the parcel's CDD/assessment lines
        *  from the Tax Collector bill — keep polling. */
       navPending: boolean;
@@ -2426,6 +2429,7 @@ export default function Estimate() {
               address: activeAddr,
               purchasePrice: price,
               isPrimary,
+              nonAdValoremTax: data.nonAdValoremTax ?? 0,
               navPending: !!data.nonAdValoremPending,
             });
             if (data.nonAdValoremPending && attempt < 14) {
@@ -5476,6 +5480,17 @@ export default function Estimate() {
                     sub={`${fmt(inputs.annualTaxes)}/yr`}
                     link={address && address !== "Unknown Address" ? getCountyTaxLink(address) ?? undefined : undefined}
                   />
+                  {/* CDD / non-ad valorem disclosure: when the scraped
+                      bill shows special assessments, tell the user
+                      they're already inside the tax figure above. */}
+                  {hcpaTax && hcpaTax.nonAdValoremTax > 0 && (
+                    <p
+                      className="text-[10px] text-muted-foreground -mt-1 mb-1 px-1"
+                      data-testid="note-nav-included"
+                    >
+                      Incl. {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(hcpaTax.nonAdValoremTax)}/yr CDD &amp; non-ad valorem assessments
+                    </p>
+                  )}
                   {/* First lookup for a parcel: the county bill scrape
                       runs in the background for a few minutes, so tell
                       the user the figure will still grow to include
