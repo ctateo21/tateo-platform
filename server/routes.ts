@@ -576,17 +576,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
 
         if (result) {
-          console.log(
-            `[hcpa-tax] ${result.municipality}` +
-            ` ${result.millageRate}mills` +
-            ` homestead=${result.homestead}` +
-            ` → $${result.annualTax}/yr`
-          );
           return res.json({
             annualTax: result.annualTax,
             monthlyTax: result.monthlyTax,
-            municipality: result.municipality,
-            millageRate: result.millageRate,
+            adValoremTax: result.adValoremTax,
+            nonAdValoremTax: result.nonAdValoremTax,
+            taxDistrict: result.taxDistrict,
+            millageRate: result.totalMillageRate,
             homestead: result.homestead,
             source: result.source,
           });

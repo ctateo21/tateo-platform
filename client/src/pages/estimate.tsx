@@ -2405,7 +2405,7 @@ export default function Estimate() {
         if (data.annualTax > 0) {
           setHcpaTax({
             annualTax: data.annualTax,
-            municipality: data.municipality,
+            municipality: data.taxDistrict ?? "",
             millageRate: data.millageRate,
             address: activeAddr,
             purchasePrice: price,
