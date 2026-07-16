@@ -328,7 +328,8 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     const calls = await fetchAllPages(apiKey, "/calls", { since: startIso });
     let matched = 0;
     for (const call of calls) {
-      if (getCreatedMs(call) < startMs) continue;
+      const callMs = getCreatedMs(call);
+      if (callMs < startMs || callMs >= endMs) continue;
       const email = resolveEmail(call, idMap, nameMap);
       if (email && counts[email]) { counts[email].calls++; matched++; }
     }
@@ -340,7 +341,8 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     const appts = await fetchAllPages(apiKey, "/appointments", { since: startIso });
     let matched = 0;
     for (const appt of appts) {
-      if (getCreatedMs(appt) < startMs) continue;
+      const apptMs = getCreatedMs(appt);
+      if (apptMs < startMs || apptMs >= endMs) continue;
       const email = resolveEmail(appt, idMap, nameMap);
       if (email && counts[email]) { counts[email].showings++; matched++; }
     }
@@ -367,7 +369,8 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       const email = resolveEmail(person, idMap, nameMap);
       if (email) {
         if (stage && pipeline[email] && pipeline[email][stage] !== undefined) pipeline[email][stage]++;
-        if (getCreatedMs(person) >= startMs && newLeadCounts[email] !== undefined) {
+        const createdMs = getCreatedMs(person);
+        if (createdMs >= startMs && createdMs < endMs && newLeadCounts[email] !== undefined) {
           newLeadCounts[email]++; newLeadsTotal++;
         }
         if (getUpdatedMs(person) >= startMs) activePeopleByEmail[email].push({ id: person.id });
@@ -383,7 +386,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     const tasks = ap.map(({ id }) => async () => {
       try {
         const t = await fetchAllPages(apiKey, "/textMessages", { personId: String(id) });
-        return t.filter((x) => getCreatedMs(x) >= startMs).length;
+        return t.filter((x) => { const ms = getCreatedMs(x); return ms >= startMs && ms < endMs; }).length;
       } catch { return 0; }
     });
     try {
@@ -399,7 +402,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     const tasks = ap.map(({ id }) => async () => {
       try {
         const e = await fetchAllPages(apiKey, "/emails", { personId: String(id) });
-        return e.filter((x) => getCreatedMs(x) >= startMs).length;
+        return e.filter((x) => { const ms = getCreatedMs(x); return ms >= startMs && ms < endMs; }).length;
       } catch { return 0; }
     });
     try {
@@ -418,7 +421,8 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       const email = resolveEmail(person, idMap, nameMap);
       if (!email) continue;
       if (closedAllTime[email] !== undefined) closedAllTime[email]++;
-      if (getUpdatedMs(person) >= startMs && closedThisPeriod[email] !== undefined) closedThisPeriod[email]++;
+      const updMs = getUpdatedMs(person);
+      if (updMs >= startMs && updMs < endMs && closedThisPeriod[email] !== undefined) closedThisPeriod[email]++;
     }
   } catch (err: any) {
     for (const m of LEADERBOARD_TEAM) {
