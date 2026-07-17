@@ -35,6 +35,8 @@ export interface NonAdValoremResult {
   /** Total ad valorem millage from the bill (e.g. 19.9197), when
    *  the bill's millage row parsed. */
   totalMillage: number | null;
+  /** Per-authority millage rates from the bill's Ad Valorem table. */
+  adValoremMills: Array<{ authority: string; mills: number }> | null;
 }
 
 /** Folios with a scrape currently running (dedupe concurrent misses). */
@@ -51,6 +53,9 @@ interface ParsedBill {
   /** Total ad valorem millage from the bill's
    *  "Total Ad Valorem Taxes" row (e.g. 19.9197). */
   totalMillage?: number | null;
+  /** Per-authority millage rates from the bill's Ad Valorem table
+   *  ("| NAME | 4.5423 | $assessed | $exempt | $taxable | $tax |"). */
+  adValoremMills?: Array<{ authority: string; mills: number }> | null;
 }
 
 /** Parse the "Non-Ad Valorem Assessments" markdown table from a
@@ -72,6 +77,28 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
     /\|\s*Total Ad Valorem Taxes\s*\|\s*([\d.]+)\s*\|/i
   );
   const totalMillage = millMatch ? parseFloat(millMatch[1]) : null;
+
+  // Per-authority millage from the Ad Valorem table:
+  // "| ST PETERSBURG | 6.4525 | $402,007.00 | … |"
+  const adValoremMills: Array<{ authority: string; mills: number }> =
+    [];
+  const avSection = md.split(/###?\s*Ad Valorem Taxes/i)[1];
+  if (avSection) {
+    const avPart =
+      avSection.split(/Non-Ad Valorem Assessments/i)[0];
+    for (const row of avPart.split("\n")) {
+      const m = row.match(
+        /^\|\s*([A-Za-z][^|]*?)\s*\|\s*([\d.]+)\s*\|\s*\$[\d,]/
+      );
+      if (!m) continue;
+      const authority = m[1].trim();
+      if (/^Total Ad Valorem/i.test(authority)) continue;
+      adValoremMills.push({
+        authority,
+        mills: parseFloat(m[2]),
+      });
+    }
+  }
 
   const lines: Array<{ authority: string; amount: number }> = [];
   let total = 0;
@@ -100,6 +127,9 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
         total: 0,
         noAssessments: true,
         totalMillage,
+        adValoremMills: adValoremMills.length
+          ? adValoremMills
+          : null,
       };
     }
     return null;
@@ -114,6 +144,7 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
     lines,
     total,
     totalMillage,
+    adValoremMills: adValoremMills.length ? adValoremMills : null,
   };
 }
 
@@ -122,11 +153,17 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
 async function runWccScrape(
   account: string,
   county: string
-): Promise<ParsedBill[]> {
+): Promise<{
+  bills: ParsedBill[];
+  /** Newest "NNNN Annual bill" year listed on the account summary
+   *  page — used to detect when the crawl only rendered old bills. */
+  newestListedYear: number | null;
+}> {
+  const empty = { bills: [], newestListedYear: null };
   const token = process.env.APIFY_TOKEN;
   if (!token) {
     console.log("[nav-scrape] APIFY_TOKEN not set — skipping");
-    return [];
+    return empty;
   }
 
   // Pinellas's TaxSys instance 404s on direct /parcels/<account>
@@ -140,15 +177,19 @@ async function runWccScrape(
   const input = {
     startUrls: [{ url: startUrl }],
     includeUrlGlobs: [{ glob: "**/bills/*" }],
-    maxCrawlPages: 5,
+    maxCrawlPages: 8,
     maxCrawlDepth: 1,
-    maxResults: 5,
+    maxResults: 8,
     crawlerType: "playwright:firefox",
     proxyConfiguration: {
       useApifyProxy: true,
       apifyProxyGroups: ["RESIDENTIAL"],
     },
-    dynamicContentWaitSecs: 60,
+    dynamicContentWaitSecs: 90,
+    // NOTE: don't use waitForSelector here — the TaxSys content is
+    // inside an iframe, so main-document selectors never match and
+    // every page gets dropped. Rendering is flaky per page; we rely
+    // on merging bills across multiple runs instead (see caller).
     expandIframes: true,
     saveMarkdown: true,
   };
@@ -170,7 +211,7 @@ async function runWccScrape(
       "[nav-scrape] Apify run start failed:",
       JSON.stringify(startData).slice(0, 300)
     );
-    return [];
+    return empty;
   }
   console.log(`[nav-scrape] Apify run ${runId} started for ${account}`);
 
@@ -194,15 +235,23 @@ async function runWccScrape(
   const items = await fetch(
     `https://api.apify.com/v2/datasets/${datasetId}/items?token=${token}&clean=true`
   ).then(r => r.json()).catch(() => []);
-  if (!Array.isArray(items)) return [];
+  if (!Array.isArray(items)) return empty;
 
   const parsed: ParsedBill[] = [];
+  let newestListedYear: number | null = null;
   for (const item of items) {
     const md = item?.markdown || item?.text || "";
     const bill = parseBillMarkdown(md);
     if (bill) parsed.push(bill);
+    // Account summary pages list "[2025 Annual bill](…)" links.
+    for (const m of md.matchAll(/\[(\d{4}) Annual bill\]/g)) {
+      const y = parseInt(m[1], 10);
+      if (!newestListedYear || y > newestListedYear) {
+        newestListedYear = y;
+      }
+    }
   }
-  return parsed;
+  return { bills: parsed, newestListedYear };
 }
 
 /** Background scrape + cache write for one folio.
@@ -221,16 +270,37 @@ async function scrapeAndCache(
     `[nav-scrape] scraping ${county} bill for account ${account}…`
   );
   let bills: ParsedBill[] = [];
-  // The Tax Collector SPA renders slowly and inconsistently; a run can
-  // finish before the bill links appear. Retry once on an empty parse.
-  for (let attempt = 0; attempt < 2 && !bills.length; attempt++) {
+  let newestListedYear: number | null = null;
+  // The Tax Collector SPA renders slowly and inconsistently; a run
+  // can capture pages while they still say "Loading..." — including
+  // the NEWEST bill, while older bills render fine (stale millage!).
+  // Retry until the newest listed annual bill actually parsed.
+  for (let attempt = 0; attempt < 4; attempt++) {
     if (attempt > 0) {
-      console.log(`[nav-scrape] ${account} — empty parse, retrying…`);
+      console.log(
+        `[nav-scrape] ${account} — incomplete parse` +
+        ` (have ${bills.length} bills, newest listed ` +
+        `${newestListedYear ?? "?"}), retrying…`
+      );
     }
     try {
-      bills = await runWccScrape(account, county);
+      const run = await runWccScrape(account, county);
+      // Merge results across attempts; keep the max listed year seen.
+      bills = bills.concat(run.bills);
+      if (
+        run.newestListedYear &&
+        (!newestListedYear || run.newestListedYear > newestListedYear)
+      ) {
+        newestListedYear = run.newestListedYear;
+      }
     } catch (e: any) {
       console.error("[nav-scrape] scrape error:", e?.message);
+    }
+    const haveNewest =
+      newestListedYear !== null &&
+      bills.some(b => b.isAnnual && b.year === newestListedYear);
+    if (haveNewest || (bills.length && newestListedYear === null)) {
+      break;
     }
   }
 
@@ -239,13 +309,40 @@ async function scrapeAndCache(
   const valid = bills.filter(
     b => (b.total > 0 && b.lines.length > 0) || b.noAssessments
   );
+  // Rank merged bills: newest year first; among same-year duplicates
+  // (bills merged across retry runs) prefer richer parses — ones that
+  // carry per-authority mills, then ones with more assessment lines.
   const annuals = valid
     .filter(b => b.isAnnual && b.year)
-    .sort((a, b) => (b.year ?? 0) - (a.year ?? 0));
+    .sort(
+      (a, b) =>
+        (b.year ?? 0) - (a.year ?? 0) ||
+        (b.adValoremMills ? 1 : 0) - (a.adValoremMills ? 1 : 0) ||
+        b.lines.length - a.lines.length
+    );
   const best = annuals[0] ?? valid[0] ?? null;
 
+  // Freshness: if the account summary listed a newer annual bill than
+  // the one we parsed (its page failed to render), or — when the
+  // summary never rendered — the parsed bill is older than last year,
+  // treat the data as stale. Serve it, but only cache it short-term
+  // so a later request re-scrapes instead of locking in old millage
+  // for 180 days.
+  const isFresh =
+    best?.year != null &&
+    (newestListedYear !== null
+      ? best.year >= newestListedYear
+      : best.year >= new Date().getFullYear() - 1);
+  if (best && !isFresh) {
+    console.warn(
+      `[nav-scrape] ${account} — best parsed bill year ${best.year} ` +
+      `is stale (newest listed: ${newestListedYear ?? "unknown"}); ` +
+      `caching short-term only`
+    );
+  }
+
   const expiresAt = new Date();
-  if (best) {
+  if (best && isFresh) {
     expiresAt.setDate(expiresAt.getDate() + CACHE_DAYS);
   } else {
     expiresAt.setMinutes(
@@ -266,6 +363,7 @@ async function scrapeAndCache(
       totalMillage: best?.totalMillage
         ? Math.round(best.totalMillage * 10000)
         : null,
+      adValoremMills: best?.adValoremMills ?? null,
       expiresAt,
     });
   } catch (e: any) {
@@ -326,6 +424,7 @@ export async function getNonAdValoremForFolio(
             totalMillage: row.totalMillage
               ? row.totalMillage / 10000
               : null,
+            adValoremMills: row.adValoremMills ?? null,
           },
         };
       }

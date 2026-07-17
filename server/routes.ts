@@ -768,33 +768,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
           Array<{ authority: string; amount: number }> = [];
         let nonAdValoremPending = false;
         let billMillage: number | null = null;
+        let billMills:
+          Array<{ authority: string; mills: number }> | null = null;
         const nav = await getNonAdValoremForFolio(parcelId, county);
         if (nav.state === "ready") {
           nonAdValoremTax = Math.round(nav.data.total);
           nonAdValoremLines = nav.data.lines;
           billMillage = nav.data.totalMillage;
+          billMills = nav.data.adValoremMills;
         } else if (nav.state === "pending") {
           nonAdValoremPending = true;
         }
 
-        // Pinellas: replicate the county's own Tax Estimator.
-        // Just/market value = max(89% of purchase price, current JV);
-        // homestead exemptions: $25,000 off school taxable value,
-        // $51,411 (25k + indexed second homestead) off the rest.
-        // School millage is countywide (6.293 for 2025); the parcel's
-        // total millage comes from the scraped Tax Collector bill.
+        // Pinellas: replicate the county's own Tax Estimator
+        // (pcpao.gov). Estimated just/market value = max(85% of
+        // purchase price, current JV) — verified against the
+        // estimator's own printouts (its disclaimer says 89% but its
+        // math uses 85%). Homestead exemptions: $25,000 off school
+        // taxable value, $51,411 (25k + indexed second homestead)
+        // off everything else. Millage comes from the parcel's
+        // scraped Tax Collector bill — per-authority when available
+        // (rounding each line to whole dollars, like the estimator),
+        // otherwise the bill's total split at 6.293 school mills.
         let pinellasAdValorem: number | null = null;
         if (county === "pinellas" && billMillage) {
           const SCHOOL_MILLS = 6.293;
           const SCHOOL_EXEMPTION = 25000;
           const NON_SCHOOL_EXEMPTION = 51411;
           const jv = Math.max(
-            0.89 * p.purchasePrice,
+            0.85 * p.purchasePrice,
             pinellasJustValue ?? 0
-          );
-          const nonSchoolMills = Math.max(
-            billMillage - SCHOOL_MILLS,
-            0
           );
           const schoolTaxable = p.isPrimaryResidence
             ? Math.max(jv - SCHOOL_EXEMPTION, 0)
@@ -802,11 +805,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const nonSchoolTaxable = p.isPrimaryResidence
             ? Math.max(jv - NON_SCHOOL_EXEMPTION, 0)
             : jv;
-          pinellasAdValorem = Math.round(
-            (schoolTaxable * SCHOOL_MILLS +
-              nonSchoolTaxable * nonSchoolMills) /
-              1000
-          );
+          if (billMills && billMills.length) {
+            pinellasAdValorem = billMills.reduce((sum, l) => {
+              const taxable = /SCHOOL/i.test(l.authority)
+                ? schoolTaxable
+                : nonSchoolTaxable;
+              return sum + Math.round((taxable * l.mills) / 1000);
+            }, 0);
+          } else {
+            const nonSchoolMills = Math.max(
+              billMillage - SCHOOL_MILLS,
+              0
+            );
+            pinellasAdValorem = Math.round(
+              (schoolTaxable * SCHOOL_MILLS +
+                nonSchoolTaxable * nonSchoolMills) /
+                1000
+            );
+          }
         }
 
         console.log(

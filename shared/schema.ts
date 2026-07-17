@@ -510,6 +510,10 @@ export const nonAdValoremCache = pgTable(
     // Total ad valorem millage parsed from the bill, in mills × 10000
     // (e.g. 19.9197 mills → 199197). Null when the bill didn't parse.
     totalMillage: integer("total_millage"),
+    // Per-authority millage rates parsed from the bill's Ad Valorem
+    // table (e.g. [{authority:"ST PETERSBURG", mills:6.4525}, …]).
+    adValoremMills: jsonb("ad_valorem_mills")
+      .$type<Array<{ authority: string; mills: number }>>(),
     fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
     expiresAt: timestamp("expires_at").notNull(),
   }
