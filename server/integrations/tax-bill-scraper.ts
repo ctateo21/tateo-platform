@@ -32,6 +32,9 @@ export interface NonAdValoremResult {
   lines: Array<{ authority: string; amount: number }>;
   total: number;
   fromCache: boolean;
+  /** Total ad valorem millage from the bill (e.g. 19.9197), when
+   *  the bill's millage row parsed. */
+  totalMillage: number | null;
 }
 
 /** Folios with a scrape currently running (dedupe concurrent misses). */
@@ -45,6 +48,9 @@ interface ParsedBill {
   /** Bill explicitly states there are no non-ad valorem
    *  assessments — a valid $0 result, not a parse failure. */
   noAssessments?: boolean;
+  /** Total ad valorem millage from the bill's
+   *  "Total Ad Valorem Taxes" row (e.g. 19.9197). */
+  totalMillage?: number | null;
 }
 
 /** Parse the "Non-Ad Valorem Assessments" markdown table from a
@@ -60,6 +66,12 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
     .split(/###\s*Non-Ad Valorem Assessments/i)[1];
   if (!seg) return null;
   const section = seg.split(/\n##[^#]/)[0];
+
+  // "| Total Ad Valorem Taxes | 19.9197 | ... | $2,288.68 |"
+  const millMatch = md.match(
+    /\|\s*Total Ad Valorem Taxes\s*\|\s*([\d.]+)\s*\|/i
+  );
+  const totalMillage = millMatch ? parseFloat(millMatch[1]) : null;
 
   const lines: Array<{ authority: string; amount: number }> = [];
   let total = 0;
@@ -87,6 +99,7 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
         lines: [],
         total: 0,
         noAssessments: true,
+        totalMillage,
       };
     }
     return null;
@@ -95,7 +108,13 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
     total =
       Math.round(lines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
   }
-  return { year: yearMatch ? parseInt(yearMatch[1], 10) : null, isAnnual, lines, total };
+  return {
+    year: yearMatch ? parseInt(yearMatch[1], 10) : null,
+    isAnnual,
+    lines,
+    total,
+    totalMillage,
+  };
 }
 
 /** Start a Website Content Crawler run, poll until it finishes, and
@@ -244,6 +263,9 @@ async function scrapeAndCache(
       status: best ? "success" : "error",
       lines: best?.lines ?? [],
       totalNonAdValorem: Math.round((best?.total ?? 0) * 100),
+      totalMillage: best?.totalMillage
+        ? Math.round(best.totalMillage * 10000)
+        : null,
       expiresAt,
     });
   } catch (e: any) {
@@ -301,6 +323,9 @@ export async function getNonAdValoremForFolio(
             lines: row.lines ?? [],
             total: (row.totalNonAdValorem ?? 0) / 100,
             fromCache: true,
+            totalMillage: row.totalMillage
+              ? row.totalMillage / 10000
+              : null,
           },
         };
       }

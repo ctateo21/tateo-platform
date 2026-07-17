@@ -507,6 +507,9 @@ export const nonAdValoremCache = pgTable(
       .$type<Array<{ authority: string; amount: number }>>()
       .default([]),
     totalNonAdValorem: integer("total_non_ad_valorem").default(0),
+    // Total ad valorem millage parsed from the bill, in mills × 10000
+    // (e.g. 19.9197 mills → 199197). Null when the bill didn't parse.
+    totalMillage: integer("total_millage"),
     fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
     expiresAt: timestamp("expires_at").notNull(),
   }

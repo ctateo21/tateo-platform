@@ -694,17 +694,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         nonAdValoremLines: Array<{ authority: string; amount: number }>;
         nonAdValoremPending: boolean;
         source: string;
+        adValoremOverride?: number;
+        millageRateOverride?: number;
       }) => {
-        const annualTax = adValorem + extra.nonAdValoremTax;
+        const adVal = extra.adValoremOverride ?? adValorem;
+        const annualTax = adVal + extra.nonAdValoremTax;
         return res.json({
           annualTax,
           monthlyTax: Math.round((annualTax / 12) * 100) / 100,
-          adValoremTax: adValorem,
+          adValoremTax: adVal,
           nonAdValoremTax: extra.nonAdValoremTax,
           nonAdValoremLines: extra.nonAdValoremLines,
           nonAdValoremPending: extra.nonAdValoremPending,
           county,
-          millageRate: 0,
+          millageRate: extra.millageRateOverride ?? 0,
           taxDistrict: county,
           homestead: p.isPrimaryResidence,
           source: extra.source,
@@ -738,10 +741,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // ── Pinellas / Pasco: parcel lookup + TaxSys bill scrape ──
       if (county === "pinellas" || county === "pasco") {
-        const parcelId =
-          county === "pinellas"
-            ? await lookupPinellasParcel(p.address)
-            : await lookupPascoParcel(p.address);
+        let parcelId: string | null = null;
+        let pinellasJustValue: number | null = null;
+        if (county === "pinellas") {
+          const parcel = await lookupPinellasParcel(p.address);
+          parcelId = parcel?.account ?? null;
+          pinellasJustValue = parcel?.justValue ?? null;
+        } else {
+          parcelId = await lookupPascoParcel(p.address);
+        }
 
         if (!parcelId) {
           console.log(
@@ -759,16 +767,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
         let nonAdValoremLines:
           Array<{ authority: string; amount: number }> = [];
         let nonAdValoremPending = false;
+        let billMillage: number | null = null;
         const nav = await getNonAdValoremForFolio(parcelId, county);
         if (nav.state === "ready") {
           nonAdValoremTax = Math.round(nav.data.total);
           nonAdValoremLines = nav.data.lines;
+          billMillage = nav.data.totalMillage;
         } else if (nav.state === "pending") {
           nonAdValoremPending = true;
         }
+
+        // Pinellas: replicate the county's own Tax Estimator.
+        // Just/market value = max(89% of purchase price, current JV);
+        // homestead exemptions: $25,000 off school taxable value,
+        // $51,411 (25k + indexed second homestead) off the rest.
+        // School millage is countywide (6.293 for 2025); the parcel's
+        // total millage comes from the scraped Tax Collector bill.
+        let pinellasAdValorem: number | null = null;
+        if (county === "pinellas" && billMillage) {
+          const SCHOOL_MILLS = 6.293;
+          const SCHOOL_EXEMPTION = 25000;
+          const NON_SCHOOL_EXEMPTION = 51411;
+          const jv = Math.max(
+            0.89 * p.purchasePrice,
+            pinellasJustValue ?? 0
+          );
+          const nonSchoolMills = Math.max(
+            billMillage - SCHOOL_MILLS,
+            0
+          );
+          const schoolTaxable = p.isPrimaryResidence
+            ? Math.max(jv - SCHOOL_EXEMPTION, 0)
+            : jv;
+          const nonSchoolTaxable = p.isPrimaryResidence
+            ? Math.max(jv - NON_SCHOOL_EXEMPTION, 0)
+            : jv;
+          pinellasAdValorem = Math.round(
+            (schoolTaxable * SCHOOL_MILLS +
+              nonSchoolTaxable * nonSchoolMills) /
+              1000
+          );
+        }
+
         console.log(
           `[county-tax] ${county} parcel=${parcelId}` +
-          ` adVal=$${adValorem} nonAdVal=$${nonAdValoremTax}` +
+          ` adVal=$${pinellasAdValorem ?? adValorem}` +
+          (pinellasAdValorem !== null
+            ? ` (bill millage ${billMillage})`
+            : "") +
+          ` nonAdVal=$${nonAdValoremTax}` +
           ` pending=${nonAdValoremPending}`
         );
         return respond({
@@ -776,6 +823,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           nonAdValoremLines,
           nonAdValoremPending,
           source: `${county}-api`,
+          adValoremOverride: pinellasAdValorem ?? undefined,
+          millageRateOverride: billMillage ?? undefined,
         });
       }
 

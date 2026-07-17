@@ -29,9 +29,17 @@ function cityFromAddress(fullAddress: string): string {
  * display order) — the only strap order pinellas.county-taxes.com's
  * search recognizes (INTERNAL_STRAP returns "no bills matched").
  */
+export interface PinellasParcelData {
+  /** DISPLAY_STRAP_NOHYPHEN — the tax-site search key. */
+  account: string;
+  /** Current just/market value from the PropertyPopup layer, or
+   *  null when the popup lookup failed. */
+  justValue: number | null;
+}
+
 export async function lookupPinellasParcel(
   address: string
-): Promise<string | null> {
+): Promise<PinellasParcelData | null> {
   try {
     const street = encodeURIComponent(
       `${streetForQuery(address).toUpperCase()}%`
@@ -40,7 +48,7 @@ export async function lookupPinellasParcel(
       "https://egis.pinellas.gov/pcpagis/rest/services/Pcpao_gov/" +
       "PropertySearch_A/MapServer/0/query" +
       `?where=SITE_ADDRESS+LIKE+%27${street}%27` +
-      "&outFields=DISPLAY_STRAP_NOHYPHEN,SITE_ADDRESS,SITE_CITYZIP" +
+      "&outFields=INTERNAL_STRAP,DISPLAY_STRAP_NOHYPHEN,SITE_ADDRESS,SITE_CITYZIP" +
       "&resultRecordCount=5&returnGeometry=false&f=json";
 
     const resp = await fetch(url, {
@@ -59,7 +67,35 @@ export async function lookupPinellasParcel(
           .includes(inputCity)
       ) ?? features[0];
 
-    return best?.attributes?.DISPLAY_STRAP_NOHYPHEN ?? null;
+    const account = best?.attributes?.DISPLAY_STRAP_NOHYPHEN;
+    if (!account) return null;
+
+    // Second query: current just/market value (PropertyPopup layer).
+    let justValue: number | null = null;
+    const internal = best?.attributes?.INTERNAL_STRAP;
+    if (internal) {
+      try {
+        const popupUrl =
+          "https://egis.pinellas.gov/pcpagis/rest/services/Pcpao_gov/" +
+          "PropertyPopup_A/MapServer/0/query" +
+          `?where=INTERNAL_STRAP=%27${internal}%27` +
+          "&outFields=TOTAL_JST_VALUE" +
+          "&returnGeometry=false&f=json";
+        const popupResp = await fetch(popupUrl, {
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+        if (popupResp.ok) {
+          const popup = await popupResp.json();
+          const jv =
+            popup?.features?.[0]?.attributes?.TOTAL_JST_VALUE;
+          if (typeof jv === "number" && jv > 0) justValue = jv;
+        }
+      } catch {
+        // just value is a best-effort enhancement
+      }
+    }
+
+    return { account, justValue };
   } catch (err: any) {
     console.error("[pinellas-lookup]", err?.message);
     return null;
