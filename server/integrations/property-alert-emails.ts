@@ -17,6 +17,7 @@
 
 import { Resend } from "resend";
 import { supabaseAdmin } from "../supabase";
+import { isUnsubscribed, unsubscribeUrlFor } from "./onboarding-emails";
 
 type SendStatus = "sent" | "failed" | "skipped";
 
@@ -227,6 +228,7 @@ async function sendOne(args: {
   subject: string;
   html: string;
   text: string;
+  headers?: Record<string, string>;
 }): Promise<{ status: SendStatus; error: string | null; to: string; from: string }> {
   const from = process.env.ALERT_FROM_EMAIL || DEFAULT_FROM;
   const resend = getResend();
@@ -236,12 +238,35 @@ async function sendOne(args: {
       from, to: args.to, subject: args.subject, html: args.html, text: args.text,
     };
     if (args.replyTo) payload.reply_to = args.replyTo;
+    if (args.headers) payload.headers = args.headers;
     const { error } = await resend.emails.send(payload as any);
     if (error) return { status: "failed", error: error.message || String(error), to: args.to, from };
     return { status: "sent", error: null, to: args.to, from };
   } catch (e: any) {
     return { status: "failed", error: e?.message ?? String(e), to: args.to, from };
   }
+}
+
+// ── Unsubscribe footer (marketing-style emails only) ────────────────────────
+// FUB / internal-team emails are operational and never carry this.
+
+function unsubFooterHtml(unsubUrl: string): string {
+  return (
+    `<p style="font-size:12px;color:#888;margin:16px 0 0">` +
+    `Havo · Every Step Home · Tateo Insurance Corp · License #L132640<br/>` +
+    `Tampa Bay, Florida · <a href="${esc(unsubUrl)}" style="color:#888">Unsubscribe</a></p>`
+  );
+}
+
+function unsubFooterText(unsubUrl: string): string {
+  return `\n\nHavo · Every Step Home\nUnsubscribe: ${unsubUrl}`;
+}
+
+function listUnsubHeaders(unsubUrl: string): Record<string, string> {
+  return {
+    "List-Unsubscribe": `<${unsubUrl}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
 }
 
 /** Send user + FUB alert emails and update the event row with the outcome.
@@ -259,11 +284,26 @@ export async function sendPropertyAlertEmails(
   let userResult: { status: SendStatus; error: string | null } =
     { status: "skipped", error: "no user email on file" };
   if (user.email) {
-    const u = buildUserEmail(event, subscription, user);
-    userResult = await sendOne({
-      to: user.email,
-      subject: u.subject, html: u.html, text: u.text,
-    });
+    // Suppression check: skip users who unsubscribed via /api/email/unsubscribe.
+    // A failed check (null) is treated as "can't verify" → do NOT send.
+    const unsub = await isUnsubscribed(subscription.user_id);
+    if (unsub !== false) {
+      userResult = {
+        status: "skipped",
+        error: unsub === true ? "user unsubscribed" : "unsubscribe check failed",
+      };
+      console.log(`[alert-emails] ${user.email}: ${userResult.error} — skipping user email`);
+    } else {
+      const unsubUrl = unsubscribeUrlFor(subscription.user_id);
+      const u = buildUserEmail(event, subscription, user);
+      userResult = await sendOne({
+        to: user.email,
+        subject: u.subject,
+        html: u.html + unsubFooterHtml(unsubUrl),
+        text: u.text + unsubFooterText(unsubUrl),
+        headers: listUnsubHeaders(unsubUrl),
+      });
+    }
   }
 
   // --- FUB email ------------------------------------------------------------
@@ -318,12 +358,55 @@ export async function sendPropertyAlertEmails(
 
 const HAVO_NAVY = "#13294b";
 
-/** Sent when a new account is created. Best-effort — never throws. */
+/** Best-effort lookup of the Supabase user id for an email address (profiles
+ *  first, then auth.users). Returns null when unknown / no account yet. */
+async function resolveUserIdByEmail(email: string): Promise<string | null> {
+  if (!supabaseAdmin) return null;
+  try {
+    const { data: prof } = await supabaseAdmin
+      .from("profiles")
+      .select("id")
+      .ilike("email", email)
+      .limit(1)
+      .maybeSingle();
+    if (prof?.id) return prof.id as string;
+  } catch { /* fall through */ }
+  try {
+    const { data } = await (supabaseAdmin.auth.admin as any).listUsers({ page: 1, perPage: 200 });
+    const match = data?.users?.find(
+      (u: any) => (u.email || "").toLowerCase() === email.toLowerCase(),
+    );
+    return match?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Sent when a new account is created. Best-effort — never throws.
+ *  Marketing-style: checks the unsubscribe suppression list and carries an
+ *  unsubscribe footer + List-Unsubscribe header when we know the user id. */
 export async function sendWelcomeEmail(args: {
   to: string;
   firstName?: string;
+  userId?: string;
 }): Promise<{ status: SendStatus; error: string | null }> {
   if (!args.to) return { status: "skipped", error: "no recipient" };
+
+  // Resolve the account (if any) so we can honor unsubscribes and link the
+  // unsubscribe endpoint. No account found → send without the unsub block.
+  const userId = args.userId ?? (await resolveUserIdByEmail(args.to));
+  if (userId) {
+    const unsub = await isUnsubscribed(userId);
+    if (unsub === true) {
+      console.log(`[welcome-email] ${args.to} unsubscribed — skipping`);
+      return { status: "skipped", error: "user unsubscribed" };
+    }
+    if (unsub === null) {
+      console.log(`[welcome-email] ${args.to} unsubscribe check failed — skipping`);
+      return { status: "skipped", error: "unsubscribe check failed" };
+    }
+  }
+  const unsubUrl = userId ? unsubscribeUrlFor(userId) : null;
 
   const dashboardUrl = `${process.env.APP_URL ?? ""}/dashboard`;
   const name = args.firstName?.trim();
@@ -334,7 +417,8 @@ export async function sendWelcomeEmail(args: {
     `${heading}\n\n` +
     `Your account is ready. Any scenario you saved is waiting in your dashboard.\n\n` +
     `Go to My Dashboard: ${dashboardUrl}\n\n` +
-    `Havo · Every Step Home · Tateo Insurance Corp · License #L132640`;
+    `Havo · Every Step Home · Tateo Insurance Corp · License #L132640` +
+    (unsubUrl ? `\nUnsubscribe: ${unsubUrl}` : "");
 
   const html =
     `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto">` +
@@ -347,10 +431,15 @@ export async function sendWelcomeEmail(args: {
     `color:#ffffff;text-decoration:none;font-size:15px;font-weight:bold;` +
     `padding:12px 24px;border-radius:6px">Go to My Dashboard</a></p>` +
     `<p style="font-size:12px;color:#888;margin:0">Havo · Every Step Home · ` +
-    `Tateo Insurance Corp · License #L132640</p>` +
+    `Tateo Insurance Corp · License #L132640` +
+    (unsubUrl ? ` · <a href="${esc(unsubUrl)}" style="color:#888">Unsubscribe</a>` : "") +
+    `</p>` +
     `</div>`;
 
-  return sendOne({ to: args.to, subject, html, text });
+  return sendOne({
+    to: args.to, subject, html, text,
+    headers: unsubUrl ? listUnsubHeaders(unsubUrl) : undefined,
+  });
 }
 
 /** Sent to the internal team whenever any scenario is saved. Best-effort.

@@ -40,6 +40,7 @@ import {
   isActiveStatus,
 } from "./stripe";
 import { sendWelcomeEmail, sendInternalAlert } from "./integrations/property-alert-emails";
+import { startOnboardingCampaign, resumeOnboardingCampaigns, unsubscribeFromCampaign } from "./integrations/onboarding-emails";
 import { getOrGenerateMarketAnalysis, type ListingInput } from "./integrations/listing-market-analysis";
 import { enrichListingFromPropertyCache } from "./integrations/listing-enrichment";
 import {
@@ -2433,6 +2434,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .then(() => console.log(`[fub] ${event} success`))
         .catch((err) => console.error(`[fub] ${event} error:`, err.message));
 
+      // Onboarding drip campaign (steps 2–5; step 1 is the welcome email).
+      // Fires only once per user — account_created is a one-time event.
+      if (event === "account_created") {
+        startOnboardingCampaign({
+          userId: user.id,
+          email,
+          firstName: parts[0] || undefined,
+        }).catch(err =>
+          console.error("[onboarding] campaign start failed:", err?.message)
+        );
+      }
+
       res.status(202).json({ ok: true });
     } catch (err: any) {
       console.error("account-event error:", err);
@@ -3212,6 +3225,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(500).json({ error: e?.message ?? "Unknown error" });
     }
   });
+
+  // GET /api/email/unsubscribe?uid=<userId>&cid=onboarding_v1
+  // One-click unsubscribe target for the drip campaign (linked in every
+  // email footer + List-Unsubscribe header). Also accepts POST for
+  // RFC 8058 one-click unsubscribes from mail clients.
+  const handleUnsubscribe = async (req: any, res: any) => {
+    const uid = String(req.query.uid || "").trim();
+    const cid = String(req.query.cid || "").trim() || undefined;
+    if (!uid) return res.status(400).send("Missing uid");
+    const ok = await unsubscribeFromCampaign(uid, cid);
+    res.status(ok ? 200 : 500).send(
+      `<!doctype html><html><body style="font-family:Arial,sans-serif;max-width:480px;margin:60px auto;text-align:center">
+        <h2 style="color:#13294b">${ok ? "You're unsubscribed" : "Something went wrong"}</h2>
+        <p style="color:#333">${ok
+          ? "You won't receive any more emails from this series."
+          : "Please try the link again, or reply to any of our emails and we'll remove you manually."}</p>
+      </body></html>`
+    );
+  };
+  app.get("/api/email/unsubscribe", handleUnsubscribe);
+  app.post("/api/email/unsubscribe", handleUnsubscribe);
+
+  // Re-schedule pending onboarding drip emails for recent signups —
+  // setTimeout schedules are lost on restart; this catch-up pass (plus the
+  // email_campaign_log dedupe) makes the campaign restart-safe.
+  resumeOnboardingCampaigns().catch(err =>
+    console.error("[onboarding] resume failed:", err?.message)
+  );
 
   const httpServer = createServer(app);
   return httpServer;

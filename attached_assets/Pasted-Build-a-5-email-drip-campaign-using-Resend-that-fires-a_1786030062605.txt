@@ -1,0 +1,530 @@
+Build a 5-email drip campaign using Resend
+that fires automatically after a user creates
+an account on Havo. The infrastructure is
+already in place: Resend is installed,
+RESEND_API_KEY is available, and the
+sendWelcomeEmail function in
+server/integrations/property-alert-emails.ts
+shows the exact pattern to follow.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — Add a Supabase table to track
+which emails have been sent per user
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add to shared/schema.ts:
+
+export const emailCampaignLog = pgTable(
+  "email_campaign_log",
+  {
+    id: serial("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    email: text("email").notNull(),
+    campaignId: text("campaign_id")
+      .notNull()
+      .default("onboarding_v1"),
+    stepNumber: integer("step_number")
+      .notNull(),
+    sentAt: timestamp("sent_at")
+      .defaultNow()
+      .notNull(),
+    status: text("status")
+      .notNull()
+      .default("sent"),
+  }
+);
+
+Create this SQL in Supabase (note: add it
+to supabase/migrations/ as a new .sql file
+AND run it in the Supabase SQL editor):
+
+  create table if not exists
+  public.email_campaign_log (
+    id            serial primary key,
+    user_id       text not null,
+    email         text not null,
+    campaign_id   text not null
+                  default 'onboarding_v1',
+    step_number   integer not null,
+    sent_at       timestamptz not null
+                  default now(),
+    status        text not null
+                  default 'sent'
+  );
+
+  create index if not exists
+  email_campaign_log_user_idx
+  on public.email_campaign_log
+  (user_id, campaign_id, step_number);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — Create the email campaign module
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create new file:
+server/integrations/onboarding-emails.ts
+
+This file defines all 5 campaign emails
+and a scheduler that sends each one at
+the right delay after signup.
+
+Use the same pattern as property-alert-emails.ts:
+  - import { Resend } from "resend"
+  - getResend() helper (lazy singleton)
+  - All functions are best-effort (never throw)
+  - FROM address: use process.env.ALERT_FROM_EMAIL
+  - Reply-to: christian@havo.com (hardcoded)
+
+const HAVO_NAVY = "#13294b";
+const APP_URL = process.env.APP_URL
+  ?? "https://havofl.com";
+
+const CAMPAIGN_ID = "onboarding_v1";
+
+// The 5 emails in the sequence
+interface CampaignStep {
+  stepNumber: number;
+  delayMs: number;       // delay after signup
+  subject: (name: string) => string;
+  html: (name: string) => string;
+  text: (name: string) => string;
+}
+
+const STEPS: CampaignStep[] = [
+  // Step 1 — Immediate (sent at signup
+  // by sendWelcomeEmail; this scheduler
+  // handles steps 2-5 only)
+
+  // Step 2 — Day 3
+  {
+    stepNumber: 2,
+    delayMs: 3 * 24 * 60 * 60 * 1000,
+    subject: (n) =>
+      `${n ? n + ", see" : "See"} what your real monthly payment looks like`,
+    html: (n) => `
+      <div style="font-family:Arial,sans-serif;
+        max-width:520px;margin:0 auto">
+        <p style="font-size:22px;font-weight:bold;
+          color:${HAVO_NAVY};margin:0 0 16px">
+          Havo
+        </p>
+        <h1 style="font-size:20px;
+          color:${HAVO_NAVY};margin:0 0 12px">
+          ${n ? `${n}, beyond` : "Beyond"} the
+          listing price
+        </h1>
+        <p style="font-size:15px;color:#333;
+          line-height:1.6;margin:0 0 16px">
+          Most buyers focus on the sale price.
+          But the number that actually matters
+          is your real monthly payment —
+          principal, interest, property taxes,
+          insurance, HOA, and CDD fees all
+          rolled together.
+        </p>
+        <p style="font-size:15px;color:#333;
+          line-height:1.6;margin:0 0 24px">
+          Havo calculates all of it for any
+          Florida home, in seconds, with
+          no login required.
+        </p>
+        <p style="margin:0 0 28px">
+          <a href="${APP_URL}/estimate"
+            style="display:inline-block;
+            background:${HAVO_NAVY};
+            color:#fff;text-decoration:none;
+            font-size:15px;font-weight:bold;
+            padding:12px 24px;
+            border-radius:6px">
+            Run a home estimate →
+          </a>
+        </p>
+        <p style="font-size:12px;
+          color:#888;margin:0">
+          Havo · Every Step Home ·
+          Tateo Insurance Corp ·
+          License #L132640
+        </p>
+      </div>`,
+    text: (n) =>
+      `${n ? n + ", beyond" : "Beyond"} the listing price\n\n` +
+      `Most buyers focus on the sale price. But the number ` +
+      `that actually matters is your real monthly payment — ` +
+      `principal, interest, taxes, insurance, HOA, and CDD ` +
+      `fees combined.\n\n` +
+      `Run a home estimate: ${APP_URL}/estimate\n\n` +
+      `Havo · Every Step Home`,
+  },
+
+  // Step 3 — Day 7
+  {
+    stepNumber: 3,
+    delayMs: 7 * 24 * 60 * 60 * 1000,
+    subject: (n) =>
+      `Buying vs. renting in Tampa Bay right now`,
+    html: (n) => `
+      <div style="font-family:Arial,sans-serif;
+        max-width:520px;margin:0 auto">
+        <p style="font-size:22px;font-weight:bold;
+          color:${HAVO_NAVY};margin:0 0 16px">
+          Havo
+        </p>
+        <h1 style="font-size:20px;
+          color:${HAVO_NAVY};margin:0 0 12px">
+          Is buying smarter than renting
+          right now?
+        </h1>
+        <p style="font-size:15px;color:#333;
+          line-height:1.6;margin:0 0 16px">
+          In Tampa Bay, rents have climbed
+          steadily while mortgage rates have
+          started to settle. For many buyers,
+          ownership now costs the same — or
+          less — than renting a comparable home.
+        </p>
+        <p style="font-size:15px;color:#333;
+          line-height:1.6;margin:0 0 16px">
+          The real question isn't whether to buy.
+          It's whether you know your actual
+          number — and whether that number
+          works for your life.
+        </p>
+        <p style="font-size:15px;color:#333;
+          line-height:1.6;margin:0 0 24px">
+          Havo shows you both scenarios
+          side by side, for any home,
+          in any Florida market.
+        </p>
+        <p style="margin:0 0 28px">
+          <a href="${APP_URL}/estimate"
+            style="display:inline-block;
+            background:${HAVO_NAVY};
+            color:#fff;text-decoration:none;
+            font-size:15px;font-weight:bold;
+            padding:12px 24px;
+            border-radius:6px">
+            See your number →
+          </a>
+        </p>
+        <p style="font-size:12px;
+          color:#888;margin:0">
+          Havo · Every Step Home ·
+          Tateo Insurance Corp ·
+          License #L132640
+        </p>
+      </div>`,
+    text: (n) =>
+      `Is buying smarter than renting right now?\n\n` +
+      `In Tampa Bay, rents have climbed while mortgage rates ` +
+      `have started to settle. For many buyers, ownership now ` +
+      `costs the same or less than renting a comparable home.\n\n` +
+      `See your number: ${APP_URL}/estimate\n\n` +
+      `Havo · Every Step Home`,
+  },
+
+  // Step 4 — Day 14
+  {
+    stepNumber: 4,
+    delayMs: 14 * 24 * 60 * 60 * 1000,
+    subject: (n) =>
+      `Found a home you like? Schedule a showing through Havo`,
+    html: (n) => `
+      <div style="font-family:Arial,sans-serif;
+        max-width:520px;margin:0 auto">
+        <p style="font-size:22px;font-weight:bold;
+          color:${HAVO_NAVY};margin:0 0 16px">
+          Havo
+        </p>
+        <h1 style="font-size:20px;
+          color:${HAVO_NAVY};margin:0 0 12px">
+          Ready to see it in person?
+        </h1>
+        <p style="font-size:15px;color:#333;
+          line-height:1.6;margin:0 0 16px">
+          When you find a home worth a closer
+          look, you shouldn't have to chase
+          down an agent or navigate another
+          app. Havo connects you directly
+          to a Tateo &amp; Co. agent who knows
+          Tampa Bay, St. Pete, and Sarasota —
+          and can get you in the door fast.
+        </p>
+        <p style="font-size:15px;color:#333;
+          line-height:1.6;margin:0 0 24px">
+          One conversation. Every home solution.
+        </p>
+        <p style="margin:0 0 28px">
+          <a href="${APP_URL}/estimate"
+            style="display:inline-block;
+            background:${HAVO_NAVY};
+            color:#fff;text-decoration:none;
+            font-size:15px;font-weight:bold;
+            padding:12px 24px;
+            border-radius:6px">
+            Schedule a showing →
+          </a>
+        </p>
+        <p style="font-size:12px;
+          color:#888;margin:0">
+          Havo · Every Step Home ·
+          Tateo Insurance Corp ·
+          License #L132640
+        </p>
+      </div>`,
+    text: (n) =>
+      `Ready to see it in person?\n\n` +
+      `Havo connects you directly to a Tateo & Co. agent ` +
+      `who knows Tampa Bay, St. Pete, and Sarasota.\n\n` +
+      `Schedule a showing: ${APP_URL}/estimate\n\n` +
+      `Havo · Every Step Home`,
+  },
+
+  // Step 5 — Day 30
+  {
+    stepNumber: 5,
+    delayMs: 30 * 24 * 60 * 60 * 1000,
+    subject: (n) =>
+      `${n ? n + " — a" : "A"} quick Tampa Bay market snapshot`,
+    html: (n) => `
+      <div style="font-family:Arial,sans-serif;
+        max-width:520px;margin:0 auto">
+        <p style="font-size:22px;font-weight:bold;
+          color:${HAVO_NAVY};margin:0 0 16px">
+          Havo
+        </p>
+        <h1 style="font-size:20px;
+          color:${HAVO_NAVY};margin:0 0 12px">
+          Where things stand in Tampa Bay
+        </h1>
+        <p style="font-size:15px;color:#333;
+          line-height:1.6;margin:0 0 16px">
+          The Tampa Bay market keeps moving.
+          Inventory is shifting, insurance
+          costs are changing, and rate locks
+          matter more than ever. If you're
+          still looking, now might be the
+          right time to have a real conversation.
+        </p>
+        <p style="font-size:15px;color:#333;
+          line-height:1.6;margin:0 0 16px">
+          Christian Tateo at Tateo &amp; Co.
+          is your single point of contact
+          for real estate, mortgage, and
+          insurance — no referral runaround,
+          no handoffs.
+        </p>
+        <p style="margin:0 0 28px">
+          <a href="${APP_URL}/estimate"
+            style="display:inline-block;
+            background:${HAVO_NAVY};
+            color:#fff;text-decoration:none;
+            font-size:15px;font-weight:bold;
+            padding:12px 24px;
+            border-radius:6px">
+            Talk to an agent →
+          </a>
+        </p>
+        <p style="font-size:12px;
+          color:#888;margin:0">
+          Havo · Every Step Home ·
+          Tateo Insurance Corp ·
+          License #L132640
+        </p>
+      </div>`,
+    text: (n) =>
+      `Where things stand in Tampa Bay\n\n` +
+      `Inventory is shifting, insurance costs are changing, ` +
+      `and rate locks matter more than ever. If you're still ` +
+      `looking, let's talk.\n\n` +
+      `Christian Tateo · Tateo & Co.\n` +
+      `Real estate, mortgage, and insurance —\n` +
+      `one conversation, every home solution.\n\n` +
+      `${APP_URL}/estimate\n\n` +
+      `Havo · Every Step Home`,
+  },
+];
+
+// ── Exported functions ─────────────────
+
+/**
+ * Called once at account_created time.
+ * Schedules all 5 drip emails using
+ * setTimeout. This works on Replit's
+ * always-on server. If the server restarts,
+ * the email_campaign_log table prevents
+ * re-sending already-sent steps.
+ */
+export async function startOnboardingCampaign(args: {
+  userId: string;
+  email: string;
+  firstName?: string;
+}): Promise<void> {
+  for (const step of STEPS) {
+    setTimeout(async () => {
+      await sendCampaignStep({
+        step,
+        userId: args.userId,
+        email: args.email,
+        firstName: args.firstName,
+      });
+    }, step.delayMs);
+  }
+  console.log(
+    `[onboarding] campaign scheduled` +
+    ` for ${args.email}`
+  );
+}
+
+async function sendCampaignStep(args: {
+  step: CampaignStep;
+  userId: string;
+  email: string;
+  firstName?: string;
+}): Promise<void> {
+  const { step, userId, email, firstName } = args;
+  const name = firstName?.trim() ?? "";
+
+  // Check if already sent (server restart
+  // protection via Supabase log)
+  try {
+    const { supabaseAdmin } = await import(
+      "../supabase"
+    );
+    if (!supabaseAdmin) return;
+
+    const { data: existing } =
+      await supabaseAdmin
+        .from("email_campaign_log")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("campaign_id", CAMPAIGN_ID)
+        .eq("step_number", step.stepNumber)
+        .maybeSingle();
+
+    if (existing) {
+      console.log(
+        `[onboarding] step ${step.stepNumber}` +
+        ` already sent to ${email} — skip`
+      );
+      return;
+    }
+
+    // Send the email
+    const resend = getResend();
+    if (!resend) {
+      console.warn(
+        "[onboarding] RESEND_API_KEY not set"
+      );
+      return;
+    }
+
+    const from =
+      process.env.ALERT_FROM_EMAIL ||
+      "Havo <updates@havofl.com>";
+
+    const { error } = await resend.emails.send({
+      from,
+      to: email,
+      subject: step.subject(name),
+      html: step.html(name),
+      text: step.text(name),
+      reply_to: "christian@havo.com",
+    } as any);
+
+    if (error) {
+      console.error(
+        `[onboarding] step ${step.stepNumber}` +
+        ` send error:`, error
+      );
+      return;
+    }
+
+    // Log the send
+    await supabaseAdmin
+      .from("email_campaign_log")
+      .insert({
+        user_id: userId,
+        email,
+        campaign_id: CAMPAIGN_ID,
+        step_number: step.stepNumber,
+        status: "sent",
+      });
+
+    console.log(
+      `[onboarding] step ${step.stepNumber}` +
+      ` sent to ${email}`
+    );
+  } catch (err: any) {
+    console.error(
+      `[onboarding] step ${step.stepNumber}` +
+      ` error:`, err?.message
+    );
+  }
+}
+
+function getResend() {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return null;
+  const { Resend } = require("resend");
+  return new Resend(key);
+}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — Wire it into routes.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+File: server/routes.ts
+
+Add to imports at top:
+  import { startOnboardingCampaign }
+    from "./integrations/onboarding-emails";
+
+Find the account-event route handler —
+the block that handles event === "account_created".
+After the createFollowUpBossContact call,
+add:
+
+  if (event === "account_created") {
+    startOnboardingCampaign({
+      userId: user.id,
+      email,
+      firstName,
+    }).catch(err =>
+      console.error(
+        "[onboarding] campaign start failed:",
+        err?.message
+      )
+    );
+  }
+
+This fires only once per user since the
+account-event dedupe prevents duplicate
+account_created notifications.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 4 — Verification
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Confirm the email_campaign_log table
+   was created in Supabase (run the SQL
+   manually in the SQL editor if not done).
+
+2. Run: npx tsc --noEmit
+   Fix any type errors.
+
+3. Create a test account in the app and
+   check the server logs for:
+   "[onboarding] campaign scheduled for X"
+
+4. To test an individual email without
+   waiting 3/7/14/30 days, temporarily
+   change one step's delayMs to 5000
+   (5 seconds), create an account, watch
+   the log, then restore the original delay.
+
+5. Confirm the email arrives and check
+   the email_campaign_log table in Supabase
+   shows a row with step_number=2 and
+   status="sent".
+
+6. Report build status and any errors.

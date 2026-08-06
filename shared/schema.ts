@@ -521,3 +521,24 @@ export const nonAdValoremCache = pgTable(
 
 export type NonAdValoremCache =
   typeof nonAdValoremCache.$inferSelect;
+
+// Onboarding drip-campaign send log. Lives in the user's Supabase (see
+// supabase/migrations/2026_08_06_email_campaign_log.sql); one row per
+// user × campaign × step actually sent. Its presence is what prevents
+// double-sends across server restarts.
+export const emailCampaignLog = pgTable(
+  "email_campaign_log",
+  {
+    id: serial("id").primaryKey(),
+    userId: text("user_id").notNull(),
+    email: text("email").notNull(),
+    campaignId: text("campaign_id")
+      .notNull()
+      .default("onboarding_v1"),
+    stepNumber: integer("step_number").notNull(),
+    sentAt: timestamp("sent_at").defaultNow().notNull(),
+    status: text("status").notNull().default("sent"),
+  }
+);
+
+export type EmailCampaignLog = typeof emailCampaignLog.$inferSelect;

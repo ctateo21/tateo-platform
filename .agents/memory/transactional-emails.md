@@ -34,3 +34,9 @@ pass `scenarioType` for it to be meaningful (server defaults to `"Scenario"`).
 **Why:** future requests like "email/track on every scenario save" will look for
 server save handlers that don't exist; route them through notify-new-scenario and
 ensure each scenario page sends the call with a concrete `scenarioType`.
+
+## Onboarding drip campaign (onboarding_v1)
+- Steps 2–5 (day 3/7/14/30) in server/integrations/onboarding-emails.ts; step 1 = existing sendWelcomeEmail. Fired from the account_created event; @tateoco.com accounts always skipped.
+- Restart-safe scheduling: setTimeout at signup + boot-time resume (Supabase auth listUsers, last 31 days). Dedupe is an ATOMIC insert claim against email_campaign_log's UNIQUE index (user_id, campaign_id, step_number) — never check-then-insert; any DB error means don't send.
+- Unsubscribe: step_number 0 / status 'unsubscribed' row is the suppression marker; /api/email/unsubscribe (GET+POST, List-Unsubscribe one-click) writes it. Marketing emails must carry the unsubscribe footer link.
+- Table lives in the user's Supabase — migration SQL must be run manually in their SQL editor before any drip email can go out (sends fail safe until then).
