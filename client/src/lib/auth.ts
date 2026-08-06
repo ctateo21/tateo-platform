@@ -109,6 +109,10 @@ export interface AuthUser {
   agent?: string;
   invitedUser?: InvitedUser;
   createdAt: string;
+  /** Borrower-level DTI figures (monthly, dollars) — persisted on the
+   *  profile so the refi DTI check prefills across sessions. */
+  monthlyIncome?: number;
+  monthlyDebts?: number;
 }
 
 export interface PurchaseScenario {
@@ -608,6 +612,22 @@ export interface TrackedLoan {
   /** Refinance Home-Equity tab: the user-chosen borrow amount on the
    *  slider. Stored on `tracked_loans.home_equity_borrow_amount`. */
   homeEquityBorrowAmount?: number;
+  /** How this loan was entered. Older rows have none and read as
+   *  "statement". Stored on `tracked_loans.entry_method`. */
+  entryMethod?: "statement" | "closing_disclosure" | "manual" | "free_and_clear";
+  /** Origination details (Closing Disclosure + manual flows). */
+  purchaseDate?: string;            // ISO date, tracked_loans.purchase_date
+  originalPurchasePrice?: number;   // tracked_loans.original_purchase_price
+  originalLoanAmount?: number;      // tracked_loans.original_loan_amount
+  originalRate?: number;            // note rate %, tracked_loans.original_rate
+  originalTermMonths?: number;      // tracked_loans.original_term_months
+  /** Amortization verification (manual flow): what the schedule says
+   *  today's balance should be, and whether the user confirmed. */
+  amortizedBalanceCheck?: number;   // tracked_loans.amortized_balance_check
+  balanceConfirmed?: boolean;       // tracked_loans.balance_confirmed
+  /** Property owned outright — models a 1st-lien cash-out refinance.
+   *  Stored on `tracked_loans.free_and_clear`. */
+  freeAndClear?: boolean;
 }
 
 export type TrackedLoanType = "va" | "fha" | "conventional" | "dscr" | "bank_statement";
@@ -661,6 +681,14 @@ function rowToProfile(row: any): AuthUser {
     agent: row.agent ?? undefined,
     invitedUser: row.invited_user ?? undefined,
     createdAt: row.created_at,
+    monthlyIncome:
+      typeof row.monthly_income === "number" || typeof row.monthly_income === "string"
+        ? Number(row.monthly_income) || undefined
+        : undefined,
+    monthlyDebts:
+      row.monthly_debts != null && Number.isFinite(Number(row.monthly_debts))
+        ? Number(row.monthly_debts)
+        : undefined,
   };
 }
 
@@ -1323,6 +1351,25 @@ function rowToTrackedLoan(row: any): TrackedLoan {
       const n = Number(v);
       return Number.isFinite(n) && n >= 0 ? n : undefined;
     })(),
+    entryMethod:
+      row.entry_method === "statement" ||
+      row.entry_method === "closing_disclosure" ||
+      row.entry_method === "manual" ||
+      row.entry_method === "free_and_clear"
+        ? row.entry_method
+        : undefined,
+    purchaseDate: typeof row.purchase_date === "string" && row.purchase_date
+      ? row.purchase_date : undefined,
+    originalPurchasePrice: numOrUndef(row.original_purchase_price),
+    originalLoanAmount: numOrUndef(row.original_loan_amount),
+    originalRate: numOrUndef(row.original_rate),
+    originalTermMonths: ((): number | undefined => {
+      const n = numOrUndef(row.original_term_months);
+      return n !== undefined ? Math.round(n) : undefined;
+    })(),
+    amortizedBalanceCheck: numOrUndef(row.amortized_balance_check),
+    balanceConfirmed: typeof row.balance_confirmed === "boolean" ? row.balance_confirmed : undefined,
+    freeAndClear: typeof row.free_and_clear === "boolean" ? row.free_and_clear : undefined,
   };
 }
 function trackedLoanToRow(l: TrackedLoan, userId: string) {
@@ -1358,6 +1405,20 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     ...(typeof l.homeEquityBorrowAmount === "number" && l.homeEquityBorrowAmount >= 0
       ? { home_equity_borrow_amount: l.homeEquityBorrowAmount }
       : {}),
+    ...(l.entryMethod ? { entry_method: l.entryMethod } : {}),
+    ...(l.purchaseDate ? { purchase_date: l.purchaseDate } : {}),
+    ...(typeof l.originalPurchasePrice === "number" && l.originalPurchasePrice > 0
+      ? { original_purchase_price: l.originalPurchasePrice } : {}),
+    ...(typeof l.originalLoanAmount === "number" && l.originalLoanAmount > 0
+      ? { original_loan_amount: l.originalLoanAmount } : {}),
+    ...(typeof l.originalRate === "number" && l.originalRate > 0
+      ? { original_rate: l.originalRate } : {}),
+    ...(typeof l.originalTermMonths === "number" && l.originalTermMonths > 0
+      ? { original_term_months: Math.round(l.originalTermMonths) } : {}),
+    ...(typeof l.amortizedBalanceCheck === "number" && l.amortizedBalanceCheck > 0
+      ? { amortized_balance_check: l.amortizedBalanceCheck } : {}),
+    ...(typeof l.balanceConfirmed === "boolean" ? { balance_confirmed: l.balanceConfirmed } : {}),
+    ...(typeof l.freeAndClear === "boolean" ? { free_and_clear: l.freeAndClear } : {}),
   };
   return row;
 }
@@ -1627,6 +1688,38 @@ async function notifyAccountEvent(
  * into the Supabase auth metadata, and updates the in-memory session so the
  * rest of the app (and the showing notification) sees it immediately.
  */
+/**
+ * Persist the borrower's DTI figures (gross monthly income + monthly
+ * non-mortgage debts) on the user's profile so the refi DTI check
+ * prefills across sessions. Best-effort: if the profiles table hasn't
+ * had the columns added yet (pre-migration), we warn and keep going —
+ * the in-session cache still works.
+ */
+export async function saveBorrowerFinances(
+  monthlyIncome: number,
+  monthlyDebts: number,
+): Promise<void> {
+  if (!supabaseReady || !_session) return;
+  if (!Number.isFinite(monthlyIncome) || monthlyIncome <= 0) return;
+  const debts = Number.isFinite(monthlyDebts) && monthlyDebts >= 0 ? monthlyDebts : 0;
+  const id = _session.id;
+  // Update the in-memory session immediately so other cards prefill.
+  _session = { ..._session, monthlyIncome, monthlyDebts: debts };
+  notify();
+  try {
+    const { error } = await supabase
+      .from("profiles")
+      .update({ monthly_income: monthlyIncome, monthly_debts: debts })
+      .eq("id", id);
+    if (error) {
+      // Most likely the columns don't exist yet (migration not applied).
+      console.warn("[profile-save] borrower finances not persisted:", error.message);
+    }
+  } catch (e: any) {
+    console.warn("[profile-save] borrower finances not persisted:", e?.message || e);
+  }
+}
+
 export async function updateProfileContact(
   opts: { phone?: string; name?: string; email?: string },
 ): Promise<{ ok: boolean; error?: string }> {
@@ -1692,7 +1785,8 @@ export async function register(
       },
     },
   });
-  if (error) return { ok: false, error: error.message };
+  if (error) { console.log("[auth-signup] error"); return { ok: false, error: error.message }; }
+  console.log("[auth-signup] account created via Supabase Auth");
   // Some Supabase projects require email confirmation — in that case there's no session yet.
   if (!data.session) {
     return { ok: false, error: "Check your email to confirm your account, then sign in." };
@@ -1709,7 +1803,8 @@ export async function login(email: string, password: string): Promise<{ ok: bool
     email: cleanEmail,
     password,
   });
-  if (error) return { ok: false, error: error.message };
+  if (error) { console.log("[auth-login] error"); return { ok: false, error: error.message }; }
+  console.log("[auth-login] signed in via Supabase Auth");
   await hydrateFromSupabase();
   void notifyAccountEvent("account_signed_in");
   console.log("[auth-login] fub sign-in notification sent");
@@ -1809,6 +1904,8 @@ export async function requestPasswordReset(
     // Swallow — never reveal whether the address exists.
     console.log("[auth-forgot-password] error");
   }
+  console.log("[auth-forgot-password] reset email requested (generic response shown)");
+  console.log("[auth-schema] sql needed no");
   return { ok: true };
 }
 
@@ -1824,8 +1921,10 @@ export async function completePasswordReset(
   }
   const { error } = await supabase.auth.updateUser({ password: newPassword });
   if (error) {
+    console.log("[auth-reset-password] error");
     return { ok: false, error: error.message };
   }
+  console.log("[auth-reset-password] password updated via Supabase Auth");
   return { ok: true };
 }
 
@@ -2507,6 +2606,9 @@ const TRACKED_LOAN_OPTIONAL_COLUMNS = [
   "occupancy_type", "physical_property_type",
   "refi_goal", "finance_fees", "include_escrows",
   "cash_out_new_loan_amount", "home_equity_product", "home_equity_borrow_amount",
+  "entry_method", "purchase_date", "original_purchase_price", "original_loan_amount",
+  "original_rate", "original_term_months", "amortized_balance_check",
+  "balance_confirmed", "free_and_clear",
 ] as const;
 
 export function extractMissingColumn(message: string): string | null {

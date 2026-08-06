@@ -94,10 +94,11 @@ export default function HeroSection() {
 
       <div className="relative z-10 w-full max-w-2xl mx-auto px-4 text-center">
         <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 leading-tight">
-          What is the full cost of this home?
+          <span className="block">100% Free</span>
+          See the real cost of any Florida home — before you sign anything
         </h1>
         <p className="text-lg md:text-xl text-white/80 mb-10">
-          Enter any Florida property address and instantly see the real cost — mortgage, taxes, insurance, and flood — before you sign anything.
+          Type any Florida address and get the true monthly cost in seconds — mortgage, property taxes, insurance, and flood. Free, instant, and no sign-up or personal info needed to see your first home.
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 max-w-xl mx-auto">
@@ -118,10 +119,6 @@ export default function HeroSection() {
             Get Estimate
           </Button>
         </form>
-
-        <p className="text-white/50 text-sm mt-5">
-          No login required · Instant results · Free to use
-        </p>
 
         <div className="mt-8 border-t border-white/20 pt-6">
           <p className="text-white/60 text-sm mb-3">Already have an account?</p>

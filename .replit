@@ -47,3 +47,7 @@ ALERT_FROM_EMAIL = "Havo Showing Alerts <alerts@updates.tateoco.com>"
 
 [userenv.production]
 VITE_PUBLIC_SITE_URL = "https://havofl.com"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 180000

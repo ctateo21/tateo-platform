@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { calculateRefinance, calculateMonthlyPayment, formatCurrency, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
 import { priceLoan } from "@/lib/mortgage-pricing";
 import { PHYSICAL_PROPERTY_TYPE_OPTIONS } from "@/lib/property-type-options";
+import { DtiCheck } from "@/components/refi/dti-check";
 
 export interface MortgageAnalysis {
   loanBalance: number;
@@ -75,6 +76,18 @@ export interface TrackedLoan {
   cashOutNewLoanAmount?: number;
   homeEquityProduct?: HeProduct;
   homeEquityBorrowAmount?: number;
+  /** How this loan was entered (statement upload is the legacy default). */
+  entryMethod?: "statement" | "closing_disclosure" | "manual" | "free_and_clear";
+  /** Origination details (Closing Disclosure / manual entry flows). */
+  purchaseDate?: string;
+  originalPurchasePrice?: number;
+  originalLoanAmount?: number;
+  originalRate?: number;
+  originalTermMonths?: number;
+  amortizedBalanceCheck?: number;
+  balanceConfirmed?: boolean;
+  /** Owned outright — only the 1st-lien cash-out analysis applies. */
+  freeAndClear?: boolean;
 }
 
 export interface LiveRate {
@@ -206,7 +219,42 @@ function FeeToggles({ idPrefix, financeFees, setFinanceFees, includeEscrows, set
   );
 }
 
-function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeValue, financeFees, includeEscrows, monthlyEscrow, onPersistNewLoanAmount }: { loan: TrackedLoan; newRate: LiveRate; displayRate: number; homeValue: number; onChangeHomeValue: (v: number) => void; financeFees: boolean; includeEscrows: boolean; monthlyEscrow: number; onPersistNewLoanAmount: (v: number) => void }) {
+/** Small per-loan credit score input; commits on blur / Enter. */
+function PerLoanCreditScore({ loan, onUpdate }: { loan: TrackedLoan; onUpdate: (u: Partial<TrackedLoan>) => void }) {
+  const [value, setValue] = useState<string>(loan.creditScore && loan.creditScore > 0 ? String(loan.creditScore) : "");
+  // Keep in sync if the dashboard-wide input fans out a new score.
+  useEffect(() => {
+    setValue(loan.creditScore && loan.creditScore > 0 ? String(loan.creditScore) : "");
+  }, [loan.creditScore]);
+  function commit() {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n) || n <= 0) return;
+    const clamped = Math.min(850, Math.max(300, n));
+    setValue(String(clamped));
+    if (clamped !== loan.creditScore) onUpdate({ creditScore: clamped });
+  }
+  return (
+    <div className="flex items-center gap-3 flex-wrap" data-testid={`per-loan-credit-score-${loan.id}`}>
+      <span className="text-sm font-medium text-muted-foreground">Credit Score (this loan):</span>
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={300}
+        max={850}
+        step={1}
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        className="w-24 h-8"
+        data-testid={`input-per-loan-credit-score-${loan.id}`}
+        aria-label="Credit score used for this loan's rate estimates"
+      />
+    </div>
+  );
+}
+
+function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeValue, financeFees, includeEscrows, monthlyEscrow, onPersistNewLoanAmount, showDtiCheck }: { loan: TrackedLoan; newRate: LiveRate; displayRate: number; homeValue: number; onChangeHomeValue: (v: number) => void; financeFees: boolean; includeEscrows: boolean; monthlyEscrow: number; onPersistNewLoanAmount: (v: number) => void; showDtiCheck?: boolean }) {
   const [editing, setEditing] = useState(false);
   const [editInput, setEditInput] = useState(String(Math.round(homeValue)));
 
@@ -323,13 +371,25 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
           )}
         </div>
       </div>
+
+      {showDtiCheck && (
+        <DtiCheck
+          housingPayment={newMonthlyPI + monthlyEscrow}
+          paymentLabel="new mortgage payment incl. escrow"
+        />
+      )}
     </div>
   );
 }
 
-function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; liveRates: LiveRate[]; onRemove: () => void; onUpdate: (u: Partial<TrackedLoan>) => void }) {
+function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore, showDtiCheck }: { loan: TrackedLoan; liveRates: LiveRate[]; onRemove: () => void; onUpdate: (u: Partial<TrackedLoan>) => void; allowPerLoanCreditScore?: boolean; showDtiCheck?: boolean }) {
   const [expanded, setExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState<"rate_term" | "cash_out" | "home_equity">(loan.refiGoal ?? "rate_term");
+  // Free & clear properties have no lien — the only analysis that
+  // applies is a 1st-lien cash-out, so that's the only tab we render.
+  const isFreeClear = !!loan.freeAndClear;
+  const [activeTab, setActiveTab] = useState<"rate_term" | "cash_out" | "home_equity">(
+    isFreeClear ? "cash_out" : (loan.refiGoal ?? "rate_term"),
+  );
   const [homeValue, setHomeValue] = useState(loan.estimatedHomeValue);
   // Persist user-edited estimated home value back to the TrackedLoan
   // (and downstream: tracked_loans table + matching seller scenario).
@@ -375,10 +435,10 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   // genuinely differs. Keyed on the prop so syncing the same value is a
   // no-op and never clobbers a fresh user edit.
   useEffect(() => {
-    const incoming = loan.refiGoal ?? "rate_term";
+    const incoming = isFreeClear ? "cash_out" : (loan.refiGoal ?? "rate_term");
     if (incoming !== activeTab) setActiveTab(incoming);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loan.refiGoal]);
+  }, [loan.refiGoal, isFreeClear]);
   useEffect(() => {
     const incoming = loan.financeFees ?? true;
     if (incoming !== financeFees) setFinanceFees(incoming);
@@ -454,13 +514,26 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
     liveRates,
     // Spec: pass the new refinance loan amount. `clampedLoan` lives in
     // CashOutSection's scope, so use the persisted cash-out amount when
-    // on the cash-out tab, otherwise the current balance (rate & term).
-    loanAmount:
-      activeTab === "cash_out" &&
-      typeof loan.cashOutNewLoanAmount === "number" &&
-      loan.cashOutNewLoanAmount > 0
-        ? loan.cashOutNewLoanAmount
-        : loan.loanBalance,
+    // on the cash-out tab; otherwise mirror CashOutSection's default
+    // slider position (max LTV loan). This matters for free & clear
+    // rows whose balance is 0 — pricing from 0 would skip the small-
+    // loan adjustment and misprice the quote.
+    loanAmount: ((): number => {
+      if (activeTab !== "cash_out") return loan.loanBalance;
+      if (typeof loan.cashOutNewLoanAmount === "number" && loan.cashOutNewLoanAmount > 0) {
+        return loan.cashOutNewLoanAmount;
+      }
+      // Default slider position in CashOutSection (see maxNewLoan there).
+      const escrow = includeEscrows
+        ? Math.max(0, loan.monthlyPayment - loan.currentPI) * ESCROW_RESERVE_MONTHS
+        : 0;
+      const ltvCap = homeValue * CASH_OUT_MAX_LTV;
+      const maxNewLoan = financeFees
+        ? Math.floor((ltvCap - CLOSING_COST_FIXED - escrow) / (1 + CLOSING_COST_PERCENT / 100))
+        : Math.floor(ltvCap);
+      const ltvTooHigh = homeValue > 0 ? loan.loanBalance / homeValue >= CASH_OUT_MAX_LTV : true;
+      return ltvTooHigh ? loan.loanBalance : Math.max(maxNewLoan, loan.loanBalance);
+    })(),
   });
   const adjustedRate = pricing.rate;
   const rateAdj = pricing.occupancyAdj;
@@ -518,14 +591,18 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
               <p className="font-semibold text-base truncate flex items-center gap-1.5"><MapPin className="h-4 w-4 text-primary shrink-0" />{loan.propertyAddress}</p>
               <Badge variant="outline" className={`text-xs shrink-0 ${PROPERTY_TYPE_COLORS[propertyType]}`}>{PROPERTY_TYPE_LABELS[propertyType]}</Badge>
             </div>
-            <p className="text-sm text-muted-foreground">{loan.lender} · Added {new Date(loan.addedAt).toLocaleDateString()}</p>
-            <p className="text-xs text-muted-foreground" data-testid="text-loan-number">
-              Loan Number: <span className="font-mono">{loan.loanNumber?.trim() || "—"}</span>
-            </p>
-            <RateCompare current={loan.currentRate} today={adjustedRate} />
+            <p className="text-sm text-muted-foreground">{isFreeClear ? "Owned free & clear" : loan.lender} · Added {new Date(loan.addedAt).toLocaleDateString()}</p>
+            {!isFreeClear && (
+              <p className="text-xs text-muted-foreground" data-testid="text-loan-number">
+                Loan Number: <span className="font-mono">{loan.loanNumber?.trim() || "—"}</span>
+              </p>
+            )}
+            {!isFreeClear && <RateCompare current={loan.currentRate} today={adjustedRate} />}
           </div>
           <div className="flex items-center gap-3 shrink-0">
-            <div className={`px-3 py-1.5 rounded-md border text-xs font-semibold ${delta.bg} ${delta.color}`}>{delta.label}</div>
+            {isFreeClear
+              ? <div className="px-3 py-1.5 rounded-md border text-xs font-semibold bg-green-50 border-green-200 text-green-700">Free &amp; Clear</div>
+              : <div className={`px-3 py-1.5 rounded-md border text-xs font-semibold ${delta.bg} ${delta.color}`}>{delta.label}</div>}
             <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-600" onClick={e => { e.stopPropagation(); onRemove(); }}>
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -533,12 +610,21 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
           </div>
         </div>
 
+        {isFreeClear ? (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t">
+            <div><p className="text-xs text-muted-foreground">Home Value</p><p className="font-bold">{formatCurrency(homeValue)}</p></div>
+            <div><p className="text-xs text-muted-foreground">Liens</p><p className="font-bold">None</p></div>
+            <div><p className="text-xs text-muted-foreground">Max Cash-Out ({Math.round(CASH_OUT_MAX_LTV * 100)}% LTV)</p><p className="font-bold text-green-600">{formatCurrency(Math.max(0, homeValue * CASH_OUT_MAX_LTV))}</p></div>
+            <div><p className="text-xs text-muted-foreground">Today's Rate (est.)</p><p className="font-bold">{adjustedRate.toFixed(3)}%</p></div>
+          </div>
+        ) : (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t">
           <div><p className="text-xs text-muted-foreground">Balance</p><p className="font-bold">{formatCurrency(currentBalance)}</p>{liveMonths > 0 && <p className="text-xs text-muted-foreground">amortized {liveMonths}mo</p>}</div>
           <div><p className="text-xs text-muted-foreground">Current P&I</p><p className="font-bold">{formatCurrency(loan.currentPI)}/mo</p></div>
           <div><p className="text-xs text-muted-foreground">New P&I (est.)</p><p className={`font-bold ${rateTerm.monthlySavings > 0 ? "text-green-600" : "text-muted-foreground"}`}>{formatCurrency(rateTerm.monthlyPaymentNew)}/mo</p></div>
           <div><p className="text-xs text-muted-foreground">Monthly Savings</p><p className={`font-bold ${rateTerm.monthlySavings > 0 ? "text-green-600" : "text-red-500"}`}>{rateTerm.monthlySavings > 0 ? "+" : ""}{formatCurrency(rateTerm.monthlySavings)}</p></div>
         </div>
+        )}
       </div>
 
       {expanded && (
@@ -558,6 +644,14 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
             ))}
             {rateAdj > 0 && <span className="text-xs text-amber-600">+{rateAdj.toFixed(3)}% LLPA for {PROPERTY_TYPE_LABELS[propertyType].toLowerCase()}</span>}
           </div>
+
+          {/* Per-loan credit score override — internal (@tateoco.com)
+              users track completed loans for different borrowers, so
+              each scenario needs its own score. Regular users keep the
+              single dashboard-wide score input. */}
+          {allowPerLoanCreditScore && (
+            <PerLoanCreditScore loan={loan} onUpdate={onUpdate} />
+          )}
 
           {/* Phase 2: Physical Property Type — separate from Property Use
               (occupancy) above. Drives Condo / Townhouse → HO6 in the
@@ -636,6 +730,20 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
           </div>
 
           {/* Best option banner */}
+          {isFreeClear ? (
+            <div className="rounded-lg border p-4 bg-green-50 border-green-200">
+              <div className="flex items-start gap-3">
+                <Banknote className="h-5 w-5 mt-0.5 shrink-0" />
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <p className="font-semibold text-sm">Recommended:</p>
+                    <Badge variant="outline" className="text-xs bg-green-100 text-green-800 border-green-300">1st-Lien Cash-Out Refinance</Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">You own this property outright — a cash-out refinance puts a new 1st lien on it and turns equity into cash.</p>
+                </div>
+              </div>
+            </div>
+          ) : (
           <div className={`rounded-lg border p-4 ${bestOption.cardBg}`}>
             <div className="flex items-start gap-3">
               <bestOption.Icon className="h-5 w-5 mt-0.5 shrink-0" />
@@ -648,8 +756,10 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
               </div>
             </div>
           </div>
+          )}
 
-          {/* Tab buttons */}
+          {/* Tab buttons — free & clear has no lien, so only Cash-Out applies */}
+          {!isFreeClear && (
           <div className="flex rounded-md border overflow-hidden text-sm font-medium">
             {([["rate_term", "Rate & Term", ArrowLeftRight], ["cash_out", "Cash-Out Refi", Banknote], ["home_equity", "2nd Lien / Home Equity", Wallet]] as const).map(([tab, label, Icon]) => (
               <button key={tab} onClick={() => handleTabChange(tab as any)} className={`flex-1 py-2 px-3 flex items-center justify-center gap-1.5 transition-colors text-xs ${activeTab === tab ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}>
@@ -657,9 +767,10 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
               </button>
             ))}
           </div>
+          )}
 
           {/* Rate & Term */}
-          {activeTab === "rate_term" && (
+          {!isFreeClear && activeTab === "rate_term" && (
             <div className="space-y-4">
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
@@ -705,7 +816,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
           {/* Cash-Out */}
           {activeTab === "cash_out" && (
             <div className="space-y-4">
-              <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} displayRate={adjustedRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} onPersistNewLoanAmount={v => onUpdate({ cashOutNewLoanAmount: v })} />
+              <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} displayRate={adjustedRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} onPersistNewLoanAmount={v => onUpdate({ cashOutNewLoanAmount: v })} showDtiCheck={showDtiCheck} />
               <FeeToggles
                 idPrefix={`co-${loan.id}`}
                 financeFees={financeFees}
@@ -719,9 +830,9 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
           )}
 
           {/* Home Equity */}
-          {activeTab === "home_equity" && (
+          {!isFreeClear && activeTab === "home_equity" && (
             <div className="space-y-4">
-              <HomeEquitySection loan={{ ...loan, loanBalance: currentBalance }} heRate={heRate} rateAdjustment={rateAdj} propertyType={propertyType} homeValue={homeValue} onChangeHomeValue={setHomeValue} onPersistProduct={p => onUpdate({ homeEquityProduct: p })} onPersistBorrowAmount={v => onUpdate({ homeEquityBorrowAmount: v })} />
+              <HomeEquitySection loan={{ ...loan, loanBalance: currentBalance }} heRate={heRate} rateAdjustment={rateAdj} propertyType={propertyType} homeValue={homeValue} onChangeHomeValue={setHomeValue} onPersistProduct={p => onUpdate({ homeEquityProduct: p })} onPersistBorrowAmount={v => onUpdate({ homeEquityBorrowAmount: v })} showDtiCheck={showDtiCheck} />
             </div>
           )}
         </div>
@@ -730,7 +841,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate }: { loan: TrackedLoan; 
   );
 }
 
-function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeValue, onChangeHomeValue, onPersistProduct, onPersistBorrowAmount }: { loan: TrackedLoan; heRate: number; rateAdjustment: number; propertyType: PropertyType; homeValue: number; onChangeHomeValue: (v: number) => void; onPersistProduct: (p: HeProduct) => void; onPersistBorrowAmount: (v: number) => void }) {
+function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeValue, onChangeHomeValue, onPersistProduct, onPersistBorrowAmount, showDtiCheck }: { loan: TrackedLoan; heRate: number; rateAdjustment: number; propertyType: PropertyType; homeValue: number; onChangeHomeValue: (v: number) => void; onPersistProduct: (p: HeProduct) => void; onPersistBorrowAmount: (v: number) => void; showDtiCheck?: boolean }) {
   const [product, setProduct] = useState<HeProduct>(loan.homeEquityProduct ?? "heloc");
   const [borrowAmount, setBorrowAmount] = useState(
     typeof loan.homeEquityBorrowAmount === "number" && loan.homeEquityBorrowAmount >= 0
@@ -879,6 +990,15 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
           </div>
         </div>
       )}
+
+      {showDtiCheck && clampedBorrow > 0 && (
+        <DtiCheck
+          // Lenders qualify HELOCs at the fully-amortizing repayment
+          // payment, not the interest-only draw payment.
+          housingPayment={loan.monthlyPayment + (product === "heloc" ? helocRepayment : heLoanMonthly)}
+          paymentLabel="current payment + 2nd lien"
+        />
+      )}
     </div>
   );
 }
@@ -899,11 +1019,20 @@ interface LoanTrackerProps {
    *  button — the page scrolls the existing analyzer card into view
    *  (or opens it). Kept as a callback so analyzer logic is unchanged. */
   onAnalyzeAnotherClick?: () => void;
+  /** Internal (@tateoco.com) users get a per-loan credit score input on
+   *  each card — they use the dashboard to track completed loans for
+   *  different borrowers. */
+  allowPerLoanCreditScore?: boolean;
+  /** DTI qualification check on cash-out / 2nd-lien tabs. Hidden for
+   *  internal (@tateoco.com) users — they track completed loans, so
+   *  qualification questions don't apply. */
+  showDtiCheck?: boolean;
 }
 
 export function LoanTracker({
   loans, liveRates, onRemove, onUpdate, maxLoans = 10,
   creditScore, onCreditScoreChange, onCreditScoreBlur, onAnalyzeAnotherClick,
+  allowPerLoanCreditScore, showDtiCheck,
 }: LoanTrackerProps) {
   if (loans.length === 0) return null;
 
@@ -951,7 +1080,7 @@ export function LoanTracker({
       </div>
       <div className="space-y-3">
         {loans.map(loan => (
-          <LoanCard key={loan.id} loan={loan} liveRates={liveRates} onRemove={() => onRemove(loan.id)} onUpdate={u => onUpdate(loan.id, u)} />
+          <LoanCard key={loan.id} loan={loan} liveRates={liveRates} onRemove={() => onRemove(loan.id)} onUpdate={u => onUpdate(loan.id, u)} allowPerLoanCreditScore={allowPerLoanCreditScore} showDtiCheck={showDtiCheck} />
         ))}
       </div>
     </div>

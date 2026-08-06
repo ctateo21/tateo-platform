@@ -36,8 +36,8 @@ export default function Footer() {
               real estate journey. With Havo,
               you benefit from a team that
               knows every aspect of the real
-              estate, mortgage, insurance,
-              &amp; solar industry.
+              estate, mortgage, &amp;
+              insurance industry.
             </p>
             <div className="flex space-x-2
               mb-6">

@@ -1,0 +1,281 @@
+// ─── Regression tests for the Initial Fees Worksheet + APR model ───
+//
+// Run with: npm test  (tsx --test)
+//
+// The primary fixture is a real lender "Initial Fees Worksheet"
+// (attached_assets/IFW16391610_1786020456742.pdf, Barrett Financial,
+// quote #16391610): $330,000 purchase, $320,100 conventional loan,
+// 6.624% note rate, lender-disclosed APR 6.927%. Our model computes
+// 6.938% APR (0.011 pt above the lender — fee-schedule differences)
+// and matches the total monthly payment exactly ($2,867.12).
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  buildFeeWorksheet,
+  solveAPR,
+  type FeeWorksheetInputs,
+  type FeeWorksheet,
+} from "./fee-worksheet";
+
+// ── helpers ─────────────────────────────────────────────────────────
+
+const baseInputs: FeeWorksheetInputs = {
+  purchasePrice: 330_000,
+  baseLoanAmount: 320_100,
+  loanAmount: 320_100,
+  ratePct: 6.624,
+  loanType: "conventional",
+  monthlyPI: 2049.42,
+  monthlyTax: 490.5,
+  monthlyHOIns: 247.18,
+  monthlyFlood: 0,
+  monthlyMI: 80.02,
+  hoaMonthly: 0,
+  monthlyCDD: 0,
+  downPaymentAmt: 9_900,
+  discountPointsCost: 0,
+  discountPointsPct: 0,
+  dscrOriginationAmount: 0,
+  dpaExtraPointsCost: 0,
+  sellerCredits: 9_900,
+  dpaDownPaymentCredit: 0,
+  dpaClosingCostCredit: 0,
+};
+
+function inputs(overrides: Partial<FeeWorksheetInputs> = {}): FeeWorksheetInputs {
+  return { ...baseInputs, ...overrides };
+}
+
+function allLines(ws: FeeWorksheet) {
+  const sections = [ws.lenderFees, ws.thirdPartyFees, ws.govFees, ws.prepaids, ws.monthlyHousing];
+  return sections.flatMap(s => [...s.lines, ...(s.groups ?? []).flatMap(g => g.lines)]);
+}
+
+function findLine(ws: FeeWorksheet, labelPart: string) {
+  return allLines(ws).find(l => l.label.includes(labelPart));
+}
+
+function assertFiniteWorksheet(ws: FeeWorksheet) {
+  for (const l of allLines(ws)) {
+    assert.ok(Number.isFinite(l.amount), `non-finite amount on "${l.label}"`);
+  }
+  for (const n of [
+    ws.totalMonthly, ws.totalClosingCosts, ws.aprPct, ws.prepaidFinanceCharges,
+    ws.fundsToClose.fundsFromBorrower, ws.fundsToClose.totalCredits, ws.fundsToClose.estimatedCash,
+  ]) {
+    assert.ok(Number.isFinite(n), `non-finite worksheet total (${n})`);
+  }
+}
+
+// ── 1. Lender-worksheet fixture (quote #16391610) ───────────────────
+
+test("lender fixture: total monthly payment matches the worksheet exactly", () => {
+  const ws = buildFeeWorksheet(inputs());
+  assert.equal(ws.totalMonthly, 2867.12); // PDF: TOTAL APPROXIMATED MONTHLY PAYMENT
+});
+
+test("lender fixture: computed APR stays pinned at 6.938% (lender disclosed 6.927%)", () => {
+  const ws = buildFeeWorksheet(inputs());
+  assert.equal(ws.aprPct, 6.938);
+  // Guardrail against solver/fee-schedule drift: stay within 0.05 pt
+  // of the lender's disclosed APR and never below the note rate.
+  assert.ok(Math.abs(ws.aprPct - 6.927) < 0.05, `APR ${ws.aprPct} drifted from lender's 6.927`);
+  assert.ok(ws.aprPct >= 6.624, "APR must never be below the note rate");
+});
+
+test("lender fixture: section subtotals and closing-cost totals are pinned", () => {
+  const ws = buildFeeWorksheet(inputs());
+  assert.equal(ws.lenderFees.subtotal, 1250); // underwriting only (matches PDF)
+  assert.equal(ws.thirdPartyFees.subtotal, 4179.78);
+  assert.equal(ws.govFees.subtotal, 2061.05);
+  assert.equal(ws.prepaids.subtotal, 7522.05);
+  assert.equal(ws.totalClosingCosts, 15012.88);
+  assert.equal(ws.prepaidFinanceCharges, 2231.3);
+  // Internal consistency: sections must sum to the total.
+  assert.equal(
+    ws.totalClosingCosts,
+    Math.round((ws.lenderFees.subtotal + ws.thirdPartyFees.subtotal + ws.govFees.subtotal + ws.prepaids.subtotal) * 100) / 100,
+  );
+});
+
+test("lender fixture: Florida statutory taxes (doc stamps + intangible)", () => {
+  const ws = buildFeeWorksheet(inputs());
+  // Doc stamps: $0.35 per $100 (rounded up per $100) on $320,100 = $1,120.35
+  assert.equal(findLine(ws, "Doc Stamps")?.amount, 1120.35);
+  // Intangible tax: 0.2% of $320,100 = $640.20
+  assert.equal(findLine(ws, "Intangible Tax")?.amount, 640.2);
+});
+
+test("lender fixture: funds to close A − B arithmetic holds", () => {
+  const ws = buildFeeWorksheet(inputs());
+  const f = ws.fundsToClose;
+  assert.equal(f.fundsFromBorrower, 24912.88); // down payment 9,900 + closing costs 15,012.88
+  assert.equal(f.totalCredits, 9900); // seller credits, uncapped here (below eligible costs)
+  assert.equal(f.estimatedCash, 15012.88);
+  assert.equal(f.estimatedCash, Math.round((f.fundsFromBorrower - f.totalCredits) * 100) / 100);
+});
+
+// ── 2. Zero purchase price ──────────────────────────────────────────
+
+test("zero purchase price: no NaN/Infinity anywhere, APR falls back to note rate", () => {
+  const ws = buildFeeWorksheet(inputs({
+    purchasePrice: 0, baseLoanAmount: 0, loanAmount: 0,
+    monthlyPI: 0, monthlyMI: 0, monthlyTax: 0, monthlyHOIns: 0,
+    downPaymentAmt: 0, sellerCredits: 0,
+  }));
+  assertFiniteWorksheet(ws);
+  assert.equal(ws.aprPct, 6.624); // solver bails to note rate
+  assert.equal(ws.totalMonthly, 0);
+  assert.equal(ws.fundsToClose.estimatedCash, ws.totalClosingCosts); // fixed fees remain
+});
+
+test("zero price but nonzero MI does not divide by zero in FHA LTV branch", () => {
+  const ws = buildFeeWorksheet(inputs({
+    purchasePrice: 0, baseLoanAmount: 0, loanAmount: 0,
+    monthlyPI: 0, monthlyMI: 50, loanType: "fha",
+    downPaymentAmt: 0, sellerCredits: 0,
+  }));
+  assertFiniteWorksheet(ws);
+});
+
+// ── 3. FHA with DPA ─────────────────────────────────────────────────
+
+// FHA 96.5% LTV + UFMIP financed: $400k price, base $386k, +1.75% UFMIP.
+const fhaBase = {
+  purchasePrice: 400_000,
+  baseLoanAmount: 386_000,
+  loanAmount: 392_755, // base + 1.75% UFMIP
+  ratePct: 6.75,
+  loanType: "fha" as const,
+  monthlyPI: 2547.5,
+  monthlyMI: 180.1, // 0.55% annual MIP
+  downPaymentAmt: 14_000,
+  sellerCredits: 0,
+};
+
+test("FHA DPA amortizing 2nd: 'Other Financing P&I' appears and is in the monthly total", () => {
+  const ws = buildFeeWorksheet(inputs({
+    ...fhaBase,
+    dpaSecondMonthly: 142.33,
+    dpaDownPaymentCredit: 14_000,
+    dpaClosingCostCredit: 6_000,
+  }));
+  const second = ws.monthlyHousing.lines.find(l => l.label === "Other Financing P&I (DPA 2nd)");
+  assert.ok(second, "amortizing DPA 2nd must show as its own monthly line");
+  assert.equal(second!.amount, 142.33);
+  // total = P&I + 2nd + HOI + tax + MIP
+  assert.equal(ws.totalMonthly, Math.round((2547.5 + 142.33 + 247.18 + 490.5 + 180.1) * 100) / 100);
+  // DPA credits show up in funds-to-close credits
+  assert.equal(findCredit(ws, "DPA Down Payment Assistance"), 14_000);
+  assert.equal(findCredit(ws, "DPA Closing Cost Credit"), 6_000);
+});
+
+test("FHA DPA silent 2nd: 2-point charge is its own lender-fee line and raises the subtotal", () => {
+  const extra = Math.round(386_000 * 0.02 * 100) / 100; // 7,720
+  const ws = buildFeeWorksheet(inputs({ ...fhaBase, dpaExtraPointsCost: extra }));
+  const line = ws.lenderFees.lines.find(l => l.label.includes("DPA Program Points"));
+  assert.ok(line, "silent-2nd DPA points must be a separate lender-fee line");
+  assert.equal(line!.amount, extra);
+  assert.equal(ws.lenderFees.subtotal, 1250 + extra);
+  // No amortizing 2nd → no extra monthly line
+  assert.equal(ws.monthlyHousing.lines.some(l => l.label.includes("DPA 2nd")), false);
+});
+
+test("FHA <10% down: life-of-loan MIP makes APR higher than an identical loan with MI ending early", () => {
+  const fha = buildFeeWorksheet(inputs({ ...fhaBase })); // LTV 96.5% → MI for full term
+  const conv = buildFeeWorksheet(inputs({ ...fhaBase, loanType: "conventional" })); // PMI drops at 78% LTV
+  assert.ok(fha.aprPct > conv.aprPct,
+    `life-of-loan FHA MIP (${fha.aprPct}) should exceed drop-off PMI APR (${conv.aprPct})`);
+});
+
+// ── 4. VA financed funding fee ──────────────────────────────────────
+
+test("VA financed funding fee: statutory taxes computed on the TOTAL financed amount", () => {
+  const base = 400_000;
+  const funded = 408_600; // + 2.15% funding fee
+  const ws = buildFeeWorksheet(inputs({
+    purchasePrice: 400_000, baseLoanAmount: base, loanAmount: funded,
+    loanType: "va", ratePct: 6.25, monthlyPI: 2515.87, monthlyMI: 0,
+    downPaymentAmt: 0, sellerCredits: 0,
+  }));
+  // Doc stamps and intangible tax must use the financed amount, not the base.
+  assert.equal(findLine(ws, "Doc Stamps")?.amount, Math.ceil(funded / 100) * 0.35);
+  assert.equal(findLine(ws, "Intangible Tax")?.amount, Math.round(funded * 0.002 * 100) / 100);
+  // No MI → no Mortgage Insurance monthly line, APR still above note rate (fees only)
+  assert.equal(ws.monthlyHousing.lines.some(l => l.label === "Mortgage Insurance"), false);
+  assert.ok(ws.aprPct > 6.25);
+});
+
+// ── 5. DSCR origination ─────────────────────────────────────────────
+
+test("DSCR 1% origination: in lender fees AND in prepaid finance charges (raises APR)", () => {
+  const orig = 3_201; // 1% of loan
+  const withOrig = buildFeeWorksheet(inputs({
+    loanType: "dscr", monthlyMI: 0, dscrOriginationAmount: orig,
+  }));
+  const without = buildFeeWorksheet(inputs({ loanType: "dscr", monthlyMI: 0 }));
+  assert.equal(withOrig.lenderFees.lines.find(l => l.label === "Origination Charge")?.amount, orig);
+  assert.equal(withOrig.lenderFees.subtotal, without.lenderFees.subtotal + orig);
+  assert.equal(withOrig.prepaidFinanceCharges, Math.round((without.prepaidFinanceCharges + orig) * 100) / 100);
+  assert.ok(withOrig.aprPct > without.aprPct, "origination must increase APR");
+});
+
+// ── 6. Seller-credit capping ────────────────────────────────────────
+
+test("seller credits are capped at the worksheet's eligible closing costs", () => {
+  const ws = buildFeeWorksheet(inputs({ sellerCredits: 1_000_000 }));
+  const eligible = Math.round(
+    (ws.lenderFees.subtotal + ws.thirdPartyFees.subtotal + ws.govFees.subtotal + ws.prepaids.subtotal) * 100,
+  ) / 100;
+  const applied = ws.fundsToClose.credits.find(c => c.label === "Seller Credits")!.amount;
+  assert.equal(applied, eligible); // capped, never the raw 1,000,000
+  // Estimated cash can never go negative: down payment remains due.
+  assert.equal(ws.fundsToClose.estimatedCash, baseInputs.downPaymentAmt);
+});
+
+test("seller credits below the cap pass through unchanged", () => {
+  const ws = buildFeeWorksheet(inputs({ sellerCredits: 5_000 }));
+  assert.equal(ws.fundsToClose.credits.find(c => c.label === "Seller Credits")!.amount, 5_000);
+});
+
+test("estimated cash is floored at zero when credits exceed borrower funds", () => {
+  const ws = buildFeeWorksheet(inputs({
+    downPaymentAmt: 0, sellerCredits: 1_000_000,
+    dpaDownPaymentCredit: 50_000, dpaClosingCostCredit: 50_000,
+  }));
+  assert.equal(ws.fundsToClose.estimatedCash, 0);
+});
+
+// ── 7. solveAPR unit behavior ───────────────────────────────────────
+
+test("solveAPR: zero prepaid charges and no MI returns ~the note rate", () => {
+  // P&I computed exactly at the note rate → APR should round back to it.
+  const loan = 320_100, rate = 6.624, i = rate / 100 / 12, n = 360;
+  const pi = (loan * i) / (1 - Math.pow(1 + i, -n));
+  const apr = solveAPR({
+    loanAmount: loan, prepaidFinanceCharges: 0, monthlyPI: pi,
+    monthlyMI: 0, miMonths: 0, termMonths: n, notePct: rate,
+  });
+  assert.ok(Math.abs(apr - rate) < 0.002, `APR ${apr} should equal note rate ${rate}`);
+});
+
+test("solveAPR: degenerate inputs fall back to the note rate", () => {
+  assert.equal(solveAPR({ loanAmount: 0, prepaidFinanceCharges: 0, monthlyPI: 0, monthlyMI: 0, miMonths: 0, termMonths: 360, notePct: 7 }), 7);
+  assert.equal(solveAPR({ loanAmount: 1000, prepaidFinanceCharges: 2000, monthlyPI: 10, monthlyMI: 0, miMonths: 0, termMonths: 360, notePct: 7 }), 7);
+});
+
+test("solveAPR: more prepaid charges → strictly higher APR", () => {
+  const opts = {
+    loanAmount: 320_100, monthlyPI: 2049.42, monthlyMI: 0, miMonths: 0,
+    termMonths: 360, notePct: 6.624,
+  };
+  const a = solveAPR({ ...opts, prepaidFinanceCharges: 2_000 });
+  const b = solveAPR({ ...opts, prepaidFinanceCharges: 6_000 });
+  assert.ok(b > a, `APR must rise with prepaid charges (${a} vs ${b})`);
+});
+
+// helper for credit lookups
+function findCredit(ws: FeeWorksheet, label: string): number | undefined {
+  return ws.fundsToClose.credits.find(c => c.label === label)?.amount;
+}

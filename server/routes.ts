@@ -6,7 +6,7 @@ const _require = createRequire(import.meta.url);
 const pdfParse: (buf: Buffer) => Promise<{ text: string }> = _require("pdf-parse");
 import { storage } from "./storage";
 import { getLiveRates } from "./refi-rates";
-import { analyzeMortgageStatement } from "./anthropic-analyze";
+import { analyzeMortgageStatement, analyzeClosingDisclosure } from "./anthropic-analyze";
 import { z } from "zod";
 import { 
   contactFormSchema, 
@@ -419,6 +419,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Full live rates in LiveRatesResponse format (for refinance calculator)
   const _upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
+  // Simple in-memory per-IP rate limiter for the document-analysis
+  // endpoints — each call invokes Anthropic, so unthrottled anonymous
+  // access would expose costly API consumption to abuse.
+  const _analyzeHits = new Map<string, number[]>();
+  const ANALYZE_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+  const ANALYZE_MAX_PER_WINDOW = 10;
+  function analyzeRateLimit(req: any, res: any, next: any) {
+    const ip = (req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim()) || req.ip || "unknown";
+    const now = Date.now();
+    const hits = (_analyzeHits.get(ip) ?? []).filter(t => now - t < ANALYZE_WINDOW_MS);
+    if (hits.length >= ANALYZE_MAX_PER_WINDOW) {
+      res.status(429).json({ success: false, error: "Too many document analyses — please wait a few minutes and try again." });
+      return;
+    }
+    hits.push(now);
+    _analyzeHits.set(ip, hits);
+    // Opportunistic cleanup so the map doesn't grow unbounded.
+    if (_analyzeHits.size > 5000) {
+      for (const [k, v] of _analyzeHits) {
+        if (v.every(t => now - t >= ANALYZE_WINDOW_MS)) _analyzeHits.delete(k);
+      }
+    }
+    next();
+  }
+
   app.get("/api/rates", async (req, res) => {
     try {
       const rates = await getLiveRates();
@@ -429,7 +454,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/analyze-statement", _upload.single("file"), async (req, res) => {
+  app.post("/api/analyze-statement", analyzeRateLimit, _upload.single("file"), async (req, res) => {
     try {
       let documentText = "";
       if (req.file) {
@@ -457,6 +482,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error analyzing statement:", error);
       res.status(500).json({ success: false, error: error instanceof Error ? error.message : "Failed to analyze statement" });
+    }
+  });
+
+  // Final Closing Disclosure analysis — mirrors /api/analyze-statement.
+  app.post("/api/analyze-closing-disclosure", analyzeRateLimit, _upload.single("file"), async (req, res) => {
+    try {
+      // Send PDFs to the model as native documents (not extracted text)
+      // so it can SEE which Loan Type checkbox is marked — text
+      // extraction drops checkbox glyphs entirely.
+      let input: { pdfBuffer: Buffer } | { documentText: string };
+      if (req.file) {
+        if (req.file.mimetype === "application/pdf") {
+          input = { pdfBuffer: req.file.buffer };
+        } else if (req.file.mimetype.startsWith("text/")) {
+          input = { documentText: req.file.buffer.toString("utf-8") };
+        } else {
+          res.status(400).json({ success: false, error: "Unsupported file type. Please upload a PDF or text file." });
+          return;
+        }
+      } else if (req.body.documentText) {
+        input = { documentText: req.body.documentText };
+      } else {
+        res.status(400).json({ success: false, error: "Please upload a file or provide document text." });
+        return;
+      }
+      if (!process.env.ANTHROPIC_API_KEY) {
+        res.status(500).json({ success: false, error: "Anthropic API key not configured." });
+        return;
+      }
+      const analysis = await analyzeClosingDisclosure(input);
+      res.json({ success: true, analysis });
+    } catch (error) {
+      console.error("Error analyzing closing disclosure:", error);
+      res.status(500).json({ success: false, error: error instanceof Error ? error.message : "Failed to analyze closing disclosure" });
     }
   });
 

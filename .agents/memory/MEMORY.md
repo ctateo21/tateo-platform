@@ -12,4 +12,6 @@
 - [QuoteRUSH live quoting](quoterush-integration.md) — secret names *_WEBID_PASSWORD/*_AGENCY_ID; shared DB address-cache (first pays, 30d TTL); cache updates keyed by leadId not caller address; auto-trigger + lost-race pollCacheForLead; poll-until-stable(3).
 - [Tax Collector bill scrape](tax-collector-bill-scrape.md) — HCPA nonAdValorem field is dead; CDD lines come from Apify browser scrape (needs one-time actor approval), cached per folio.
 - [FUB leaderboard data sources](fub-leaderboard-data-sources.md) — calls in /v1/calls (userId), showings in /v1/appointments (createdById, -1=system); texts/emails not listable globally.
+- [Loan limits & Jumbo](loan-limits-jumbo.md) — 2026 limit auto-flip FHA→Conv→Jumbo on BASE loan; Jumbo mirrors Conventional except AMI discount; sub-620 warns without switching.
+- [Refinance entry methods](refinance-entry-methods.md) — 4 add-loan flows share commitNewLoan; CD extraction strictly validated; free&clear prices from max-LTV default, never the 0 balance.
 - [Hillsborough property tax estimate](hillsborough-tax-estimate.md) — HCPA estimator range = assessed-value range (85%–100% of price); Havo matches the LOWER bound via 85% assessed ratio.

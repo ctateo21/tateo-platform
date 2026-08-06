@@ -8,6 +8,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { LiveRatesCard } from "@/components/refi/live-rates-card";
 import { StatementAnalyzer } from "@/components/refi/statement-analyzer";
+import { ClosingDisclosureAnalyzer } from "@/components/refi/closing-disclosure-analyzer";
+import { ManualLoanEntry } from "@/components/refi/manual-loan-entry";
+import { FreeClearEntry } from "@/components/refi/free-clear-entry";
 import { LoanTracker, type MortgageAnalysis, type LiveRate, type PropertyType } from "@/components/refi/loan-tracker";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -26,10 +29,20 @@ import { posthog } from "@/lib/posthog";
 const MAX_TRACKED_LOANS = 10;
 const DEFAULT_CREDIT_SCORE = 740;
 
+type EntryMethod = "statement" | "closing_disclosure" | "manual" | "free_and_clear";
+
+const ENTRY_METHOD_OPTIONS: { value: EntryMethod; label: string; description: string }[] = [
+  { value: "statement", label: "Mortgage Statement", description: "Upload your latest statement" },
+  { value: "closing_disclosure", label: "Closing Disclosure", description: "Upload your final CD from closing" },
+  { value: "manual", label: "Enter Manually", description: "Type in your loan details" },
+  { value: "free_and_clear", label: "Free & Clear", description: "No mortgage on the property" },
+];
+
 function analysisToTrackedLoan(
   analysis: MortgageAnalysis,
   propertyType: PropertyType,
   creditScore: number,
+  extras?: Partial<TrackedLoan>,
 ): TrackedLoan {
   const now = new Date().toISOString();
   const loanNumber = typeof analysis.loanNumber === "string" && analysis.loanNumber.trim()
@@ -56,6 +69,16 @@ function analysisToTrackedLoan(
     loanType: "conventional",
     loanNumber,
     creditScore,
+    // Entry-method provenance + origination details (CD / manual flows).
+    entryMethod: "statement",
+    ...extras,
+    // VA/FHA require primary occupancy — if the manual flow picked one
+    // of those but the user then chose secondary/investment in the
+    // occupancy dialog, fall back to conventional (same rule the loan
+    // card enforces on occupancy changes).
+    ...(extras?.loanType && (extras.loanType === "va" || extras.loanType === "fha") && propertyType !== "primary"
+      ? { loanType: "conventional" as const }
+      : {}),
   };
 }
 
@@ -182,7 +205,12 @@ export default function Refinance() {
   }
   // Property type dialog state
   const [pendingAnalysis, setPendingAnalysis] = useState<MortgageAnalysis | null>(null);
+  // Extra tracked-loan fields carried alongside the pending analysis
+  // (entry method, origination details from the CD / manual flows).
+  const [pendingExtras, setPendingExtras] = useState<Partial<TrackedLoan> | null>(null);
   const [showPropertyTypeDialog, setShowPropertyTypeDialog] = useState(false);
+  // Which of the 4 entry options is showing in the analyzer slot.
+  const [entryMethod, setEntryMethod] = useState<EntryMethod>("statement");
 
   // Single Refinance-wide credit score input. Seeded from the first
   // tracked loan that already has one (so refresh/logout/login restores
@@ -252,7 +280,7 @@ export default function Refinance() {
     }
   };
 
-  const handleAnalyzed = (analysis: MortgageAnalysis) => {
+  const handleAnalyzed = async (analysis: MortgageAnalysis, extras?: Partial<TrackedLoan>) => {
     if (trackedLoans.length >= MAX_TRACKED_LOANS) return;
     const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
     const incoming = normalize(analysis.propertyAddress || "");
@@ -286,14 +314,38 @@ export default function Refinance() {
       syncSellerFromRefinance(refreshed);
       return;
     }
+    // Government-backed loans (VA/FHA — and USDA if ever added) can only
+    // be on a primary residence, so skip the occupancy question and
+    // commit directly as primary. Everything else asks primary /
+    // secondary / investment.
+    if (extras?.loanType === "va" || extras?.loanType === "fha") {
+      const newLoan = analysisToTrackedLoan(
+        analysis, "primary", creditScore || DEFAULT_CREDIT_SCORE, extras,
+      );
+      await commitNewLoan(newLoan);
+      return;
+    }
     // Show property type dialog before adding to tracker
     setPendingAnalysis(analysis);
+    setPendingExtras(extras ?? null);
     setShowPropertyTypeDialog(true);
   };
 
   const handlePropertyTypeSelect = async (propertyType: PropertyType) => {
     if (!pendingAnalysis) return;
-    const newLoan = analysisToTrackedLoan(pendingAnalysis, propertyType, creditScore || DEFAULT_CREDIT_SCORE);
+    const newLoan = analysisToTrackedLoan(
+      pendingAnalysis, propertyType, creditScore || DEFAULT_CREDIT_SCORE,
+      pendingExtras ?? undefined,
+    );
+    await commitNewLoan(newLoan);
+  };
+
+  // Shared add-loan pipeline: local state → Supabase save (awaited, with
+  // toast) → seller mirror → auto Zillow. Used by the occupancy dialog
+  // (statement / CD / manual flows) and directly by Free & Clear (which
+  // collects occupancy in its own form).
+  const commitNewLoan = async (newLoan: TrackedLoan) => {
+    if (trackedLoans.length >= MAX_TRACKED_LOANS) return;
     const next = [newLoan, ...trackedLoans];
     // Update local state immediately so the loan card renders without
     // waiting for Supabase. We don't go through updateLoans() here
@@ -301,6 +353,7 @@ export default function Refinance() {
     // toast — updateLoans is fire-and-forget.
     setTrackedLoansState(next);
     setPendingAnalysis(null);
+    setPendingExtras(null);
     setShowPropertyTypeDialog(false);
     // Persist to tracked_loans FIRST. The schema-safe upsert in auth.ts
     // strips any missing optional columns automatically. We only mirror
@@ -537,7 +590,26 @@ export default function Refinance() {
       <main className="container mx-auto px-4 py-6 max-w-7xl">
         <div className="mb-6">
           <h2 className="text-2xl font-bold mb-2">Calculate Your Mortgage Refinance</h2>
-          <p className="text-muted-foreground">Upload your mortgage statement to analyze your loan and track refinance opportunities.</p>
+          <p className="text-muted-foreground">Add your loan one of four ways to analyze it and track refinance opportunities.</p>
+        </div>
+
+        {/* Entry-method chooser — 4 ways to add a loan */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4" data-testid="selector-entry-method">
+          {ENTRY_METHOD_OPTIONS.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setEntryMethod(opt.value)}
+              data-testid={`btn-entry-${opt.value}`}
+              className={`rounded-lg border p-3 text-left transition-colors ${
+                entryMethod === opt.value
+                  ? "border-primary bg-primary/5 ring-1 ring-primary"
+                  : "border-border hover:border-primary/50 hover:bg-accent/30"
+              }`}
+            >
+              <p className="font-semibold text-sm">{opt.label}</p>
+              <p className="text-xs text-muted-foreground">{opt.description}</p>
+            </button>
+          ))}
         </div>
 
         {/* Top row: Analyzer + Rates. The analyzer card is scrolled
@@ -545,12 +617,51 @@ export default function Refinance() {
             in the Loan Dashboard header below. */}
         <div ref={analyzerRef} className="grid lg:grid-cols-3 gap-6 items-stretch mb-6">
           <div className="lg:col-span-2">
-            <StatementAnalyzer
-              onAnalysisComplete={handleAnalysisComplete}
-              onAnalyzed={handleAnalyzed}
-              trackedLoanCount={trackedLoans.length}
-              maxLoans={MAX_TRACKED_LOANS}
-            />
+            {entryMethod === "statement" && (
+              <StatementAnalyzer
+                onAnalysisComplete={handleAnalysisComplete}
+                onAnalyzed={handleAnalyzed}
+                trackedLoanCount={trackedLoans.length}
+                maxLoans={MAX_TRACKED_LOANS}
+              />
+            )}
+            {entryMethod === "closing_disclosure" && (
+              <ClosingDisclosureAnalyzer
+                onAnalyzed={(analysis, extras) => {
+                  handleAnalysisComplete(analysis);
+                  handleAnalyzed(analysis, extras);
+                }}
+              />
+            )}
+            {entryMethod === "manual" && (
+              <ManualLoanEntry
+                onAnalyzed={(analysis, extras) => {
+                  handleAnalysisComplete(analysis);
+                  handleAnalyzed(analysis, extras);
+                }}
+              />
+            )}
+            {entryMethod === "free_and_clear" && (
+              <FreeClearEntry
+                creditScore={creditScore || DEFAULT_CREDIT_SCORE}
+                onCreateLoan={loan => {
+                  // Dedup by address like handleAnalyzed does.
+                  const normalize = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+                  const duplicate = trackedLoans.find(
+                    l => normalize(l.propertyAddress) === normalize(loan.propertyAddress),
+                  );
+                  if (duplicate) {
+                    toast({
+                      title: "Property already tracked",
+                      description: `${duplicate.propertyAddress} is already on your refinance dashboard.`,
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  commitNewLoan(loan);
+                }}
+              />
+            )}
           </div>
           <LiveRatesCard
             onSelectRate={() => {}}
@@ -568,6 +679,8 @@ export default function Refinance() {
           creditScore={creditScore}
           onCreditScoreChange={handleCreditScoreChange}
           onCreditScoreBlur={handleCreditScoreBlur}
+          allowPerLoanCreditScore={(user?.email || "").trim().toLowerCase().endsWith("@tateoco.com")}
+          showDtiCheck={!(user?.email || "").trim().toLowerCase().endsWith("@tateoco.com")}
           onAnalyzeAnotherClick={() => {
             analyzerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
           }}
@@ -605,7 +718,7 @@ export default function Refinance() {
       </footer>
 
       {/* Property type dialog */}
-      <Dialog open={showPropertyTypeDialog} onOpenChange={open => { if (!open) { setShowPropertyTypeDialog(false); setPendingAnalysis(null); } }}>
+      <Dialog open={showPropertyTypeDialog} onOpenChange={open => { if (!open) { setShowPropertyTypeDialog(false); setPendingAnalysis(null); setPendingExtras(null); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>What type of property is this?</DialogTitle>

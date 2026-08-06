@@ -17,6 +17,12 @@ create table if not exists public.profiles (
   created_at   timestamptz not null default now()
 );
 
+-- Borrower-level DTI figures (monthly, dollars) — prefill the refinance
+-- DTI check across sessions. Additive + idempotent.
+alter table public.profiles
+  add column if not exists monthly_income numeric,
+  add column if not exists monthly_debts  numeric;
+
 alter table public.profiles enable row level security;
 
 drop policy if exists "profiles_select_own"  on public.profiles;
@@ -85,6 +91,22 @@ alter table public.tracked_loans
   add column if not exists loan_number  text,
   add column if not exists loan_type    text default 'conventional',
   add column if not exists credit_score integer;
+
+-- Additive: refinance entry methods (statement | closing_disclosure |
+-- manual | free_and_clear) plus the origination details captured by the
+-- Closing Disclosure / manual flows and the amortization-verification
+-- state. free_and_clear rows write 0 for the NOT NULL loan columns.
+-- (Mirrors supabase/migrations/2026_08_06_refinance_entry_methods.sql.)
+alter table public.tracked_loans
+  add column if not exists entry_method            text default 'statement',
+  add column if not exists purchase_date           date,
+  add column if not exists original_purchase_price numeric,
+  add column if not exists original_loan_amount    numeric,
+  add column if not exists original_rate           numeric,
+  add column if not exists original_term_months    integer,
+  add column if not exists amortized_balance_check numeric,
+  add column if not exists balance_confirmed       boolean,
+  add column if not exists free_and_clear          boolean default false;
 
 alter table public.tracked_loans enable row level security;
 drop policy if exists "tracked_loans_owner" on public.tracked_loans;

@@ -3,6 +3,9 @@ import ScenarioActions from "@/components/scenario-actions";
 import { buildScenarioFileName } from "@/lib/scenario-pdf";
 import { estimateAnnualTax, getCountyTaxLink, getCountyName } from "@/lib/county-tax-estimator";
 import { getConventionalAmiRateDiscount } from "@/lib/ami-discount";
+import { buildFeeWorksheet, money as feeMoney, type FeeSection } from "@/lib/fee-worksheet";
+import { checkLoanLimit, canDowngradeFromJumbo, CONFORMING_LOAN_LIMIT_2026, FHA_FLOOR_LIMIT_2026 } from "@/lib/loan-limits";
+import { FeeWorksheetDialog } from "@/components/fee-worksheet-dialog";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
 import { Helmet } from "react-helmet";
@@ -83,6 +86,7 @@ import PropertyLookupDialog, { type LookedUpProperty } from "@/components/proper
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -147,7 +151,7 @@ function calcVAFundingFeeAmt(baseLoan: number, vaDisability: boolean | null, vaL
 }
 
 function getMaxSellerConcessions(
-  loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement",
+  loanType: "conventional" | "jumbo" | "fha" | "va" | "usda" | "dscr" | "bank_statement",
   occupancy: "primary" | "secondary" | "investment",
   downPaymentPct: number,
   purchasePrice: number,
@@ -168,7 +172,7 @@ function getMaxSellerConcessions(
   return purchasePrice * 0.09;
 }
 
-function getDTILimits(loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement"): { housingMax: number; totalMax: number } {
+function getDTILimits(loanType: "conventional" | "jumbo" | "fha" | "va" | "usda" | "dscr" | "bank_statement"): { housingMax: number; totalMax: number } {
   switch (loanType) {
     case "fha":           return { housingMax: 0.47, totalMax: 0.57 };
     case "usda":          return { housingMax: 0.36, totalMax: 0.43 };
@@ -184,7 +188,7 @@ function getDTILimits(loanType: "conventional" | "fha" | "va" | "usda" | "dscr" 
 // values; otherwise the estimate flags "Needs Review" (red). These are the
 // underwriting-guideline targets used purely to color the qualification
 // status (distinct from the hard lender maxes in getDTILimits).
-function getQualThresholds(loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement"): { housingGreen: number; totalGreen: number } {
+function getQualThresholds(loanType: "conventional" | "jumbo" | "fha" | "va" | "usda" | "dscr" | "bank_statement"): { housingGreen: number; totalGreen: number } {
   switch (loanType) {
     case "fha":            return { housingGreen: 0.45, totalGreen: 0.53 };
     case "va":             return { housingGreen: 0.40, totalGreen: 0.50 };
@@ -292,7 +296,7 @@ interface Inputs {
    *  so this flag only affects how the Page 3 slider is rendered and
    *  edited. Defaults to "percent" for new scenarios. */
   sellerConcessionsMode?: "percent" | "amount";
-  loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement";
+  loanType: "conventional" | "jumbo" | "fha" | "va" | "usda" | "dscr" | "bank_statement";
   creditScore: number;
   interestRate: number;
   annualTaxes: number;
@@ -415,12 +419,13 @@ function snapDiscountPoints(raw: number): number {
  *  applies). See `DISCOUNT_BUYDOWN_CONVENTIONAL` / `_FHA` above. */
 function getDiscountPointsRateReduction(
   pct: number,
-  loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement",
+  loanType: "conventional" | "jumbo" | "fha" | "va" | "usda" | "dscr" | "bank_statement",
 ): number {
   const snapped = snapDiscountPoints(pct);
   const key = String(snapped);
   switch (loanType) {
     case "conventional":
+    case "jumbo": // Jumbo prices like Conventional for now
     case "dscr":
       return DISCOUNT_BUYDOWN_CONVENTIONAL[key] ?? 0;
     case "fha":
@@ -441,10 +446,11 @@ function getDiscountPointsRateReduction(
  *  balance per month; FHA/VA/USDA assume 0.5%. DSCR is income-less so
  *  the add-on is skipped entirely. */
 function deferredStudentLoanFactor(
-  loanType: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement",
+  loanType: "conventional" | "jumbo" | "fha" | "va" | "usda" | "dscr" | "bank_statement",
 ): number {
   switch (loanType) {
     case "conventional":
+    case "jumbo":
     case "bank_statement":
       return 0.01;
     case "fha":
@@ -492,7 +498,7 @@ function zillowToDropdownPropertyType(raw: unknown): string | null {
   return null;
 }
 
-const FALLBACK_RATES = { conventional: 6.82, fha: 6.17, va: 6.25, usda: 6.38, dscr: 6.82, bank_statement: 6.82 };
+const FALLBACK_RATES = { conventional: 6.82, jumbo: 6.82, fha: 6.17, va: 6.25, usda: 6.38, dscr: 6.82, bank_statement: 6.82 };
 
 interface PlaceMeta {
   placeId?: string;
@@ -646,7 +652,8 @@ function fullRate(
   // rate engine used by Purchase Page 3, Page 4, and every effect
   // that recalculates `inputs.interestRate`, so it can never be
   // double-applied.
-  if (loanType === "conventional" || loanType === "dscr") rate -= 0.1;
+  // Jumbo prices identically to Conventional for now (per spec).
+  if (loanType === "conventional" || loanType === "jumbo" || loanType === "dscr") rate -= 0.1;
   // AMI-based Conventional rate discount (Primary + Conventional
   // only). Applied AFTER the -0.100% concession per spec. The
   // helper itself gates on loanType / occupancy / AMI presence, so
@@ -668,7 +675,7 @@ function fullRate(
   // discount-points buydown (which runs downstream on the stored
   // `inputs.interestRate`). Gated strictly on Conventional, so FHA /
   // VA / USDA / DSCR / Bank Statement never receive it.
-  if (loanType === "conventional" && isCondoRateAdjPropertyType(propertyType)) {
+  if ((loanType === "conventional" || loanType === "jumbo") && isCondoRateAdjPropertyType(propertyType)) {
     rate += 0.3;
   }
   if (loanType === "dscr") {
@@ -1747,6 +1754,7 @@ export default function Estimate() {
       ["Loan Type", inputs.loanType.toUpperCase()],
       ["Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(calc.effectiveDownPaymentPct).toFixed(1)}%)`],
       ["Interest Rate", `${calc.finalRate.toFixed(3)}%`],
+      ...(aprPct !== null ? [["Est. APR", `${aprPct.toFixed(3)}%`] as [string, string]] : []),
       ["Occupancy", inputs.occupancy.charAt(0).toUpperCase() + inputs.occupancy.slice(1)],
       ["Credit Score", String(inputs.creditScore)],
     ];
@@ -1833,6 +1841,95 @@ export default function Estimate() {
         : undefined,
     );
 
+    // ── Initial Fees Worksheet + APR ─────────────────────────────────────
+    // Rendered from the SAME shared feeWorksheet model as the on-screen
+    // popup so the PDF can never drift from what the buyer sees.
+    if (feeWorksheet) {
+      const feeRow = (label: string, amount: number, note?: string) =>
+        row(label, feeMoney(amount), note);
+      const subtotalRow = (label: string, amount: number) => {
+        checkPage(24);
+        doc.setFontSize(9.5);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(30, 30, 30);
+        doc.text(label, margin + 4, y + 12);
+        doc.text(feeMoney(amount), W - margin - 4, y + 12, { align: "right" });
+        y += 22;
+        doc.setDrawColor(210, 210, 210);
+        doc.line(margin, y, W - margin, y);
+      };
+      const groupHeading = (heading: string) => {
+        checkPage(22);
+        doc.setFontSize(8.5);
+        doc.setFont("helvetica", "bolditalic");
+        doc.setTextColor(100, 100, 100);
+        doc.text(heading, margin + 4, y + 12);
+        y += 18;
+      };
+      const renderFeeSection = (section: FeeSection) => {
+        sectionHeader(section.title);
+        (section.groups ?? []).forEach((g) => {
+          groupHeading(g.heading);
+          g.lines.forEach((l) => feeRow(l.label, l.amount, l.note));
+        });
+        section.lines.forEach((l) => feeRow(l.label, l.amount, l.note));
+        subtotalRow(`Total ${section.title}`, section.subtotal);
+        y += 8;
+      };
+
+      addPage();
+      doc.setFontSize(13);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(23, 55, 94);
+      doc.text("Initial Fees Worksheet", margin, y + 6);
+      y += 14;
+      doc.setFontSize(8.5);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(110, 110, 110);
+      const aprDisclosure =
+        `Estimated APR: ${feeWorksheet.aprPct.toFixed(3)}% — includes applicable fees ` +
+        `(origination, underwriting, etc.) plus the interest rate itself (${calc.finalRate.toFixed(3)}% note rate).`;
+      doc.splitTextToSize(aprDisclosure, W - margin * 2).forEach((line: string) => {
+        checkPage(14);
+        doc.text(line, margin, y + 10);
+        y += 12;
+      });
+      y += 10;
+
+      renderFeeSection(feeWorksheet.lenderFees);
+      renderFeeSection(feeWorksheet.thirdPartyFees);
+      renderFeeSection(feeWorksheet.govFees);
+      renderFeeSection(feeWorksheet.prepaids);
+      subtotalRow("Total Estimated Closing Costs", feeWorksheet.totalClosingCosts);
+      y += 8;
+      renderFeeSection(feeWorksheet.monthlyHousing);
+
+      // Funds to close (A − B)
+      sectionHeader("Estimated Funds to Close");
+      feeWorksheet.fundsToClose.lines.forEach((l) => feeRow(l.label, l.amount, l.note));
+      subtotalRow("Total Funds from Borrower (A)", feeWorksheet.fundsToClose.fundsFromBorrower);
+      if (feeWorksheet.fundsToClose.credits.length > 0) {
+        groupHeading("Credits");
+        feeWorksheet.fundsToClose.credits.forEach((l) => feeRow(l.label, l.amount, l.note));
+        subtotalRow("Total Credits (B)", feeWorksheet.fundsToClose.totalCredits);
+      }
+      subtotalRow("Estimated Cash to Close (A − B)", feeWorksheet.fundsToClose.estimatedCash);
+      y += 10;
+
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "italic");
+      doc.setTextColor(120, 120, 120);
+      const wsDisclaimer =
+        "All fees and the APR shown are estimates for illustration only and are not a Loan Estimate or a commitment to lend. " +
+        "Actual fees, rates, and APR vary by lender, property, and closing date — request an official Loan Estimate from your lender.";
+      doc.splitTextToSize(wsDisclaimer, W - margin * 2).forEach((line: string) => {
+        checkPage(12);
+        doc.text(line, margin, y + 10);
+        y += 11;
+      });
+      doc.setTextColor(30, 30, 30);
+    }
+
     // ── Footer ─────────────────────────────────────────────────────────────
     const totalPages = (doc as any).internal.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
@@ -1858,13 +1955,14 @@ export default function Estimate() {
     const { purchasePrice, loanType } = inputs;
     const c = calc;
     const money = (n: number) => "$" + Math.round(n).toLocaleString();
-    const loanLabel = loanType === "conventional" ? "Conventional" : loanType === "fha" ? "FHA" : loanType === "va" ? "VA" : loanType === "usda" ? "USDA" : loanType === "dscr" ? "DSCR" : loanType === "bank_statement" ? "Bank Statement" : (loanType as string).toUpperCase();
+    const loanLabel = loanType === "conventional" ? "Conventional" : loanType === "jumbo" ? "Jumbo" : loanType === "fha" ? "FHA" : loanType === "va" ? "VA" : loanType === "usda" ? "USDA" : loanType === "dscr" ? "DSCR" : loanType === "bank_statement" ? "Bank Statement" : (loanType as string).toUpperCase();
     return [
       `Purchase Price: ${money(purchasePrice)}`,
       `Down Payment: ${money(c.downPaymentAmt)} (${Number(c.effectiveDownPaymentPct).toFixed(1)}%)`,
       `Loan Amount: ${money(c.loanAmount)}`,
       `Loan Type: ${loanLabel}`,
       `Interest Rate: ${c.finalRate.toFixed(3)}%`,
+      ...(aprPct !== null ? [`Est. APR: ${aprPct.toFixed(3)}%`] : []),
       ...(c.dpaActive
         ? [`DPA: ${c.dpaPct}% (${money(c.dpaAmount)}) · ${c.dpaSecondType === "amortizing" ? `10-yr 2nd @ ${c.dpaSecondRate.toFixed(3)}% (${money(c.dpaSecondMonthly)}/mo)` : "silent 2nd (no payments)"}`]
         : []),
@@ -2002,7 +2100,10 @@ export default function Estimate() {
       });
     }
   }, [amiData]);
-  const rates = liveRates ?? FALLBACK_RATES;
+  // Jumbo prices like Conventional for now, so live rates (which have
+  // no jumbo key) get it mirrored explicitly — every `(rates as any)
+  // [loanType]` lookup then resolves correctly for jumbo too.
+  const rates = { ...(liveRates ?? FALLBACK_RATES), jumbo: (liveRates ?? FALLBACK_RATES).conventional };
 
   // Builds the starting Inputs for an address, restoring any tunable fields
   // the user previously saved on the dashboard so we don't overwrite their
@@ -2040,7 +2141,7 @@ export default function Estimate() {
       }
       console.debug("[purchase-new-scenario] user has existing purchase scenarios", true);
       console.debug("[purchase-new-scenario] source scenario id", source.id);
-      const validLoanTypesC2 = ["conventional", "fha", "va", "usda", "dscr", "bank_statement"] as const;
+      const validLoanTypesC2 = ["conventional", "jumbo", "fha", "va", "usda", "dscr", "bank_statement"] as const;
       const carriedLoanType = validLoanTypesC2.includes(source.loanType as any)
         ? (source.loanType as Inputs["loanType"])
         : base.loanType;
@@ -2133,7 +2234,7 @@ export default function Estimate() {
       };
     }
     const price = saved.price ?? base.purchasePrice;
-    const validLoanTypes = ["conventional", "fha", "va", "usda", "dscr", "bank_statement"] as const;
+    const validLoanTypes = ["conventional", "jumbo", "fha", "va", "usda", "dscr", "bank_statement"] as const;
     const loanType = validLoanTypes.includes(saved.loanType as any)
       ? (saved.loanType as Inputs["loanType"])
       : base.loanType;
@@ -2688,7 +2789,7 @@ export default function Estimate() {
   useEffect(() => {
     if (liveRates && !ratesLoadedRef.current) {
       ratesLoadedRef.current = true;
-      setInputs((p) => ({ ...p, interestRate: fullRate((liveRates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (p.downPaymentPct ?? 0) / 100)) }));
+      setInputs((p) => ({ ...p, interestRate: fullRate((rates as any)[p.loanType] ?? liveRates.fha, p.creditScore, p.occupancy, p.downPaymentPct, p.loanType, p.monthlyIncome, amiData?.annualAMI, p.propertyType, p.purchasePrice * (1 - (p.downPaymentPct ?? 0) / 100)) }));
     }
   }, [liveRates]);
 
@@ -2737,7 +2838,7 @@ export default function Estimate() {
     }
   }, [address]);
 
-  function getMinDown(lt: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement", hasMortgage: boolean | null, occupancy?: "primary" | "secondary" | "investment"): number {
+  function getMinDown(lt: "conventional" | "jumbo" | "fha" | "va" | "usda" | "dscr" | "bank_statement", hasMortgage: boolean | null, occupancy?: "primary" | "secondary" | "investment"): number {
     if (occupancy === "investment") return 20;
     if (occupancy === "secondary") return 10;
     if (lt === "va" || lt === "usda") return 0;
@@ -2769,7 +2870,7 @@ export default function Estimate() {
     return null;
   }
 
-  function setLoanType(lt: "conventional" | "fha" | "va" | "usda" | "dscr" | "bank_statement") {
+  function setLoanType(lt: "conventional" | "jumbo" | "fha" | "va" | "usda" | "dscr" | "bank_statement") {
     setInputs((p) => {
       const newMin = getMinDown(lt, p.hasMortgage, p.occupancy);
       const newDown = clampDownPaymentPct(p.downPaymentPct, newMin);
@@ -3354,7 +3455,7 @@ export default function Estimate() {
     const monthlyFlood = annualFloodIns / 12;
     const monthlyCDD = cddAnnual / 12;
 
-    const pmi = loanType === "conventional" ? calcConventionalPMI(baseLoanAmount, purchasePrice, creditScore) : 0;
+    const pmi = (loanType === "conventional" || loanType === "jumbo") ? calcConventionalPMI(baseLoanAmount, purchasePrice, creditScore) : 0;
     const mip = loanType === "fha" ? calcFHAMIP(loanAmount) : 0;
     const mortgageInsurance = pmi + mip;
 
@@ -3488,6 +3589,95 @@ export default function Estimate() {
       totalMonthlyDebts: effectiveMonthlyDebts,
     };
   }, [inputs]);
+
+  // ── Initial Fees Worksheet + APR ─────────────────────────────────
+  // Built from the SAME `calc` memo outputs the payment card shows, so
+  // the popup worksheet and the APR disclosure can never drift from
+  // the numbers on screen. APR = note rate + prepaid finance charges
+  // (origination/points, underwriting, processing-type fees, prepaid
+  // interest) + the monthly MI stream, solved on the actual payment.
+  const feeWorksheet = useMemo(() => {
+    if (inputs.purchasePrice <= 0 || calc.loanAmount <= 0 || calc.pi <= 0) return null;
+    return buildFeeWorksheet({
+      purchasePrice: inputs.purchasePrice,
+      baseLoanAmount: calc.baseLoanAmount,
+      loanAmount: calc.loanAmount,
+      ratePct: calc.finalRate,
+      loanType: inputs.loanType,
+      monthlyPI: calc.pi,
+      monthlyTax: calc.monthlyTax,
+      monthlyHOIns: calc.monthlyHOIns,
+      monthlyFlood: calc.monthlyFlood,
+      monthlyMI: calc.mortgageInsurance,
+      hoaMonthly: inputs.hoaMonthly,
+      monthlyCDD: calc.monthlyCDD,
+      downPaymentAmt: calc.downPaymentAmt,
+      discountPointsCost: calc.discountPointsCost,
+      discountPointsPct: calc.discountPointsPct,
+      dscrOriginationAmount: calc.dscrOriginationAmount,
+      dpaExtraPointsCost: calc.dpaExtraPointsCost,
+      dpaSecondMonthly: calc.dpaSecondMonthly,
+      // Uncapped — the worksheet caps against its own itemized
+      // eligible costs so A−B stays internally consistent.
+      sellerCredits: inputs.sellerConcessions ?? 0,
+      dpaDownPaymentCredit: calc.dpaDownPaymentCredit,
+      dpaClosingCostCredit: calc.dpaClosingCostCredit,
+    });
+  }, [inputs, calc]);
+  const aprPct = feeWorksheet?.aprPct ?? null;
+  const [feeWorksheetOpen, setFeeWorksheetOpen] = useState(false);
+
+  // ── Loan-limit enforcement (2026 limits) ─────────────────────────
+  // Watches the BASE loan amount (before financed UFMIP / funding fee,
+  // which is how the programs measure limits) and auto-flips:
+  //   FHA over the FHA floor        → Conventional (popup)
+  //   Conventional over conforming  → Jumbo        (popup)
+  //   Jumbo back under conforming   → Conventional (silent)
+  // The popup explains why the loan type changed. `setLoanType` re-
+  // prices the rate through `fullRate`, so the switch is fully wired
+  // into every downstream calc. A ref guards against the effect
+  // re-firing for the state it just wrote.
+  const [loanLimitNotice, setLoanLimitNotice] = useState<{
+    fromLabel: string;
+    toLabel: string;
+    limit: number;
+    limitLabel: string;
+    /** false when we could NOT auto-switch (e.g. sub-620 FICO can't
+     *  hold Conventional/Jumbo) — the popup copy adapts. */
+    switched: boolean;
+  } | null>(null);
+  useEffect(() => {
+    const result = checkLoanLimit(inputs.loanType, calc.baseLoanAmount);
+    if (result.exceeded) {
+      const labels: Record<string, string> = { fha: "FHA", conventional: "Conventional", jumbo: "Jumbo" };
+      // If the target ALSO exceeds its own limit (FHA → Conventional
+      // when the loan is already above conforming), jump straight to
+      // the final eligible program.
+      const finalTo =
+        result.to === "conventional" && calc.baseLoanAmount > CONFORMING_LOAN_LIMIT_2026
+          ? "jumbo"
+          : result.to;
+      // Conventional and Jumbo both require 620+ FICO. If the borrower
+      // is below that, there is no eligible program at this loan
+      // amount — warn without switching (the selectors already gate
+      // Conventional/Jumbo, so force-switching would strand the UI on
+      // a product the user can't even select).
+      const eligibleToSwitch = inputs.creditScore >= CONVENTIONAL_MIN_FICO;
+      setLoanLimitNotice({
+        fromLabel: labels[result.from] ?? result.from,
+        toLabel: labels[finalTo] ?? finalTo,
+        limit: result.limit,
+        limitLabel: result.limitLabel,
+        switched: eligibleToSwitch,
+      });
+      if (eligibleToSwitch) setLoanType(finalTo);
+    } else if (canDowngradeFromJumbo(inputs.loanType, calc.baseLoanAmount)) {
+      // Loan shrank back under the conforming limit — return to
+      // Conventional silently and drop any now-stale limit popup.
+      setLoanLimitNotice(null);
+      setLoanType("conventional");
+    }
+  }, [inputs.loanType, calc.baseLoanAmount, inputs.creditScore]);
 
   // Auto-save / update this estimate on the user's dashboard when they're logged in.
   // Debounced so rapid input changes don't thrash storage. Status is written
@@ -4624,7 +4814,7 @@ export default function Estimate() {
                         </p>
                         {(inputs.deferredStudentLoanBalance ?? 0) > 0 && (
                           <p className="text-[11px] text-emerald-700 font-medium">
-                            +{fmt(Math.round((inputs.deferredStudentLoanBalance ?? 0) * deferredStudentLoanFactor(inputs.loanType)))}/mo added to DTI ({inputs.loanType === "conventional" || inputs.loanType === "bank_statement" ? "1.0%" : inputs.loanType === "dscr" ? "0%" : "0.5%"} of balance for {inputs.loanType.toUpperCase()})
+                            +{fmt(Math.round((inputs.deferredStudentLoanBalance ?? 0) * deferredStudentLoanFactor(inputs.loanType)))}/mo added to DTI ({inputs.loanType === "conventional" || inputs.loanType === "jumbo" || inputs.loanType === "bank_statement" ? "1.0%" : inputs.loanType === "dscr" ? "0%" : "0.5%"} of balance for {inputs.loanType.toUpperCase()})
                           </p>
                         )}
                       </div>
@@ -4754,6 +4944,11 @@ export default function Estimate() {
                             secondary, which has no other option). */}
                         <SelectItem value="conventional" disabled={inputs.creditScore < CONVENTIONAL_MIN_FICO}>
                           Conventional{inputs.creditScore < CONVENTIONAL_MIN_FICO ? " (requires 620+ FICO)" : ""}
+                        </SelectItem>
+                        {/* Jumbo — for loans above the conforming limit.
+                            Same FICO gating + pricing as Conventional. */}
+                        <SelectItem value="jumbo" disabled={inputs.creditScore < CONVENTIONAL_MIN_FICO}>
+                          Jumbo{inputs.creditScore < CONVENTIONAL_MIN_FICO ? " (requires 620+ FICO)" : ""}
                         </SelectItem>
                         {inputs.occupancy === "primary" && <SelectItem value="fha">FHA</SelectItem>}
                         {inputs.occupancy === "primary" && <SelectItem value="va">VA</SelectItem>}
@@ -5037,6 +5232,13 @@ export default function Estimate() {
                       suffix="%"
                       decimals={3}
                     />
+                    {/* APR disclosure (italics per spec) — rate plus
+                        applicable fees, from the fee-worksheet model. */}
+                    {aprPct !== null && (
+                      <p className="text-[11px] italic text-muted-foreground" data-testid="text-apr-page3">
+                        APR: <span className="font-semibold">{aprPct.toFixed(3)}%</span> — includes applicable fees (origination, underwriting, etc.) plus the interest rate itself
+                      </p>
+                    )}
                     {calc.dpaActive && (
                       <p className="text-[11px] text-amber-700 font-medium pt-1" data-testid="note-dpa-rate-bump">
                         DPA rate adjustment: +{calc.dpaRateBump.toFixed(2)}% → final rate {calc.finalRate.toFixed(3)}%
@@ -5181,6 +5383,7 @@ export default function Estimate() {
                       : "Investment Property";
                     const loanTypeLabel: Record<typeof inputs.loanType, string> = {
                       conventional: "Conventional",
+                      jumbo: "Jumbo",
                       fha: "FHA",
                       va: "VA",
                       usda: "USDA",
@@ -5407,6 +5610,21 @@ export default function Estimate() {
                     <CardTitle className="text-base flex items-center gap-2 text-primary">
                       <Building2 className="h-4 w-4" />
                       Mortgage
+                      {/* Pop-up: full Initial Fees Worksheet / loan
+                          estimate, itemized like a lender IFW. */}
+                      {feeWorksheet && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-6 px-2 text-[11px] font-medium gap-1"
+                          onClick={() => setFeeWorksheetOpen(true)}
+                          data-testid="button-fee-worksheet"
+                        >
+                          <FileDown className="h-3 w-3" />
+                          Fee Worksheet
+                        </Button>
+                      )}
                     </CardTitle>
                     <div className="flex items-center gap-2">
                       <Label className="text-xs text-muted-foreground whitespace-nowrap">Loan Type</Label>
@@ -5426,6 +5644,14 @@ export default function Estimate() {
                             disabled={inputs.creditScore < CONVENTIONAL_MIN_FICO}
                           >
                             Conventional{inputs.creditScore < CONVENTIONAL_MIN_FICO ? " (620+ FICO)" : ""}
+                          </SelectItem>
+                          {/* Jumbo — above-conforming loans; prices like
+                              Conventional, same FICO gate. */}
+                          <SelectItem
+                            value="jumbo"
+                            disabled={inputs.creditScore < CONVENTIONAL_MIN_FICO}
+                          >
+                            Jumbo{inputs.creditScore < CONVENTIONAL_MIN_FICO ? " (620+ FICO)" : ""}
                           </SelectItem>
                           {/* FHA: primary only. */}
                           {inputs.occupancy === "primary" && (
@@ -5488,6 +5714,20 @@ export default function Estimate() {
                       ].filter(Boolean).join(" · ") || undefined
                     }
                   />
+                  {/* APR disclosure (italics per spec). APR is derived
+                      in the fee-worksheet model from the note rate plus
+                      prepaid finance charges (origination, underwriting,
+                      processing-type fees, prepaid interest) and the
+                      monthly MI stream — so it always tracks the exact
+                      loan the card shows. */}
+                  {aprPct !== null && (
+                    <p
+                      className="text-[11px] italic text-muted-foreground -mt-1 mb-1 px-1"
+                      data-testid="text-apr"
+                    >
+                      APR: <span className="font-semibold">{aprPct.toFixed(3)}%</span> — includes applicable fees (origination, underwriting, etc.) plus the interest rate itself
+                    </p>
+                  )}
                   {/* Per spec the explicit "Base Rate Before Points"
                       and "Discount Point Buydown" rows are hidden
                       from the user-facing UI. The buydown
@@ -5988,6 +6228,78 @@ export default function Estimate() {
       </div>
 
       {/* Share dialog */}
+      {/* Loan-limit popup — shown when the loan amount crossed a 2026
+          program limit and the loan type was auto-switched. */}
+      <Dialog open={loanLimitNotice !== null} onOpenChange={(v) => { if (!v) setLoanLimitNotice(null); }}>
+        <DialogContent className="max-w-md" data-testid="dialog-loan-limit">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-primary">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Above the {loanLimitNotice?.fromLabel} Loan Limit
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 pt-1 text-sm text-muted-foreground">
+                <p>
+                  Your loan amount is above the {loanLimitNotice?.limitLabel} of{" "}
+                  <span className="font-semibold text-foreground">
+                    {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(loanLimitNotice?.limit ?? 0)}
+                  </span>
+                  , so a {loanLimitNotice?.fromLabel} loan isn't available at this amount.
+                </p>
+                {loanLimitNotice?.switched ? (
+                  <p>
+                    We've automatically switched your estimate to a{" "}
+                    <span className="font-semibold text-foreground">{loanLimitNotice?.toLabel}</span> loan
+                    and re-priced your rate and payment. You can lower the purchase price or increase
+                    your down payment to bring the loan back under the limit.
+                  </p>
+                ) : (
+                  <p>
+                    A <span className="font-semibold text-foreground">{loanLimitNotice?.toLabel}</span> loan
+                    would normally apply here, but it requires a 620+ credit score. Lower the purchase
+                    price or increase your down payment to bring the loan back under the limit.
+                  </p>
+                )}
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <Button onClick={() => setLoanLimitNotice(null)} data-testid="button-loan-limit-ok">
+            Got It
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Initial Fees Worksheet popup — opened from the Mortgage card. */}
+      <FeeWorksheetDialog
+        open={feeWorksheetOpen}
+        onOpenChange={setFeeWorksheetOpen}
+        worksheet={feeWorksheet}
+        meta={
+          feeWorksheet
+            ? {
+                address: address && address !== "Unknown Address" ? address : undefined,
+                purchasePrice: inputs.purchasePrice,
+                loanAmount: calc.loanAmount,
+                loanTypeLabel:
+                  inputs.loanType === "conventional" ? "Conventional"
+                  : inputs.loanType === "jumbo" ? "Jumbo"
+                  : inputs.loanType === "fha" ? "FHA"
+                  : inputs.loanType === "va" ? "VA"
+                  : inputs.loanType === "usda" ? "USDA"
+                  : inputs.loanType === "dscr" ? "DSCR"
+                  : inputs.loanType.toUpperCase(),
+                ratePct: calc.finalRate,
+                aprPct: feeWorksheet.aprPct,
+                occupancyLabel:
+                  inputs.occupancy === "primary" ? "Primary Residence"
+                  : inputs.occupancy === "secondary" ? "Second Home"
+                  : inputs.occupancy === "investment" ? "Investment"
+                  : undefined,
+              }
+            : null
+        }
+      />
+
       <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -6007,6 +6319,7 @@ export default function Estimate() {
                 const body = encodeURIComponent(
                   `Hi,\n\nHere is your Home Cost & Qualification Estimate from Havo for:\n${address}\n\n` +
                   `Monthly Payment: ${fmt(calc.totalHousing)}\n` +
+                  `Interest Rate: ${calc.finalRate.toFixed(3)}%${aprPct !== null ? ` (Est. APR ${aprPct.toFixed(3)}%)` : ""}\n` +
                   `Cash to Close: ${fmt(calc.cashToClose)}\n` +
                   `Total DTI: ${fmtPct(calc.dti)}\n` +
                   `Qualification: ${calc.qualifies ? "Likely Qualifies" : "Needs Review"}\n\n` +
