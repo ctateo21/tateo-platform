@@ -10,7 +10,21 @@
 const FUB_BASE = "https://api.followupboss.com/v1";
 
 const _cache = new Map<string, { data: LeaderboardPayload; ts: number }>();
+const _refreshes = new Map<Period, Promise<LeaderboardPayload>>();
+const _refreshFailures = new Map<Period, { warnings: string[]; retryAt: number }>();
+let _collectionTail: Promise<void> = Promise.resolve();
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const PARTIAL_CACHE_TTL_MS = 30 * 1000;
+const FUB_REQUEST_INTERVAL_MS = 300;
+const MAX_RATE_LIMIT_RETRIES = 2;
+const MAX_INLINE_RETRY_DELAY_MS = 5_000;
+const MAX_RATE_LIMIT_COOLDOWN_MS = 5 * 60 * 1000;
+const FUB_RESPONSE_CACHE_TTL_MS = 5 * 60 * 1000;
+const _fubResponses = new Map<string, { promise: Promise<any>; ts: number }>();
+let fubRequestQueue = Promise.resolve();
+let fubNextRequestAt = 0;
+let fubCooldownUntil = 0;
+let fubCircuitOpenUntil = 0;
 
 export const LEADERBOARD_TEAM = [
   { email: "christian@tateoco.com", name: "Christian Tateo", initials: "CT", isAdmin: true  },
@@ -113,6 +127,7 @@ export interface AgentRow {
 export interface LeaderboardPayload {
   period: string;
   generatedAt: string;
+  collectionWarnings?: string[];
   agents: AgentRow[];
   teamTotals: {
     calls: number;
@@ -130,6 +145,14 @@ export interface LeaderboardPayload {
   };
 }
 
+export type LeaderboardRefreshState = "fresh" | "cached" | "partial";
+
+export interface LeaderboardResult {
+  data: LeaderboardPayload;
+  refreshState: LeaderboardRefreshState;
+  retryAfterSeconds?: number;
+}
+
 export type Period = "today" | "yesterday" | "week" | "month" | "quarter" | "year";
 
 export function fubHeaders(apiKey: string): Record<string, string> {
@@ -140,15 +163,72 @@ export function fubHeaders(apiKey: string): Record<string, string> {
   };
 }
 
-async function fubGet(apiKey: string, path: string, params: Record<string, string> = {}): Promise<any> {
-  const url = new URL(`${FUB_BASE}${path}`);
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  for (let attempt = 0; ; attempt++) {
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Starts FUB requests at a measured pace and shares a 429 cooldown across all
+ * leaderboard work. This prevents per-person text/email calls from retrying
+ * independently and extending a rate-limit window.
+ */
+async function acquireFubRequestSlot(failFastOnCircuit: boolean): Promise<void> {
+  let releaseQueue!: () => void;
+  const previous = fubRequestQueue;
+  fubRequestQueue = new Promise<void>((resolve) => { releaseQueue = resolve; });
+  await previous;
+  try {
+    // Re-check after every wait because another in-flight request can extend
+    // the shared cooldown while this request is queued.
+    while (Math.max(fubNextRequestAt, fubCooldownUntil) > Date.now()) {
+      if (failFastOnCircuit && fubCircuitOpenUntil > Date.now()) {
+        throw new Error(`FUB rate limit cooldown active for ${Math.ceil((fubCircuitOpenUntil - Date.now()) / 1000)}s`);
+      }
+      await wait(Math.max(fubNextRequestAt, fubCooldownUntil) - Date.now());
+    }
+    fubNextRequestAt = Date.now() + FUB_REQUEST_INTERVAL_MS;
+  } finally {
+    releaseQueue();
+  }
+}
+
+function retryDelayMs(retryAfter: string | null): number {
+  const raw = retryAfter?.trim() ?? "";
+  const seconds = Number(raw);
+  // Bound server-provided values so a bad header cannot wedge the worker.
+  if (raw && Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(Math.max(seconds * 1000, 1), MAX_RATE_LIMIT_COOLDOWN_MS);
+  }
+  const retryDate = raw ? Date.parse(raw) : Number.NaN;
+  if (Number.isFinite(retryDate)) {
+    return Math.min(Math.max(retryDate - Date.now(), 1), MAX_RATE_LIMIT_COOLDOWN_MS);
+  }
+  return 5_000;
+}
+
+async function requestFubUrl(apiKey: string, path: string, url: URL): Promise<any> {
+  for (let attempt = 0; attempt <= MAX_RATE_LIMIT_RETRIES; attempt++) {
+    // Once one request exhausts its retries (or receives a long cooldown),
+    // other queued metric requests fail fast instead of repeating the burst.
+    if (attempt === 0 && fubCircuitOpenUntil > Date.now()) {
+      throw new Error(`FUB rate limit cooldown active for ${Math.ceil((fubCircuitOpenUntil - Date.now()) / 1000)}s`);
+    }
+    await acquireFubRequestSlot(attempt === 0);
+    if (attempt === 0 && fubCircuitOpenUntil > Date.now()) {
+      throw new Error(`FUB rate limit cooldown active for ${Math.ceil((fubCircuitOpenUntil - Date.now()) / 1000)}s`);
+    }
     const res = await fetch(url.toString(), { headers: fubHeaders(apiKey) });
-    if (res.status === 429 && attempt < 3) {
-      const retryAfter = Number(res.headers.get("retry-after")) || 5;
-      console.warn(`[fub-lb] 429 on ${path}, retrying in ${retryAfter}s`);
-      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+    if (res.status === 429) {
+      const delay = retryDelayMs(res.headers.get("retry-after"));
+      fubCooldownUntil = Math.max(fubCooldownUntil, Date.now() + delay);
+      fubCircuitOpenUntil = Math.max(fubCircuitOpenUntil, Date.now() + delay);
+      if (delay > MAX_INLINE_RETRY_DELAY_MS) {
+        throw new Error(`FUB ${path} rate limited; retry available in ${Math.ceil(delay / 1000)}s`);
+      }
+      if (attempt === MAX_RATE_LIMIT_RETRIES) {
+        throw new Error(`FUB ${path} remained rate limited after ${attempt + 1} attempts`);
+      }
+      console.warn(`[fub-lb] 429 on ${path}; shared cooldown ${Math.ceil(delay / 1000)}s (retry ${attempt + 1}/${MAX_RATE_LIMIT_RETRIES})`);
       continue;
     }
     if (!res.ok) {
@@ -156,6 +236,26 @@ async function fubGet(apiKey: string, path: string, params: Record<string, strin
       throw new Error(`FUB ${path} → ${res.status}: ${body.slice(0, 200)}`);
     }
     return res.json();
+  }
+  throw new Error(`FUB ${path} request retries exhausted`);
+}
+
+async function fubGet(apiKey: string, path: string, params: Record<string, string> = {}): Promise<any> {
+  const url = new URL(`${FUB_BASE}${path}`);
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const cacheKey = url.toString();
+  const cached = _fubResponses.get(cacheKey);
+  if (cached && Date.now() - cached.ts < FUB_RESPONSE_CACHE_TTL_MS) {
+    return cached.promise;
+  }
+
+  const promise = requestFubUrl(apiKey, path, url);
+  _fubResponses.set(cacheKey, { promise, ts: Date.now() });
+  try {
+    return await promise;
+  } catch (err) {
+    if (_fubResponses.get(cacheKey)?.promise === promise) _fubResponses.delete(cacheKey);
+    throw err;
   }
 }
 
@@ -175,7 +275,7 @@ async function fetchAllPages(apiKey: string, path: string, params: Record<string
   return all;
 }
 
-async function runBatched<T>(tasks: (() => Promise<T>)[], concurrency = 10): Promise<T[]> {
+async function runBatched<T>(tasks: (() => Promise<T>)[], concurrency = 2): Promise<T[]> {
   const results: T[] = [];
   for (let i = 0; i < tasks.length; i += concurrency) {
     const batch = tasks.slice(i, i + concurrency);
@@ -292,14 +392,14 @@ function classifyDeal(deal: any): { category: DealCategory; isActive: boolean } 
   return { category: null, isActive: false };
 }
 
-export async function getLeaderboardData(apiKey: string, period: Period): Promise<LeaderboardPayload> {
-  const cached = _cache.get(period);
-  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
-    console.log(`[fub-lb] cache hit: ${period}`);
-    return cached.data;
-  }
-
+async function collectLeaderboardData(apiKey: string, period: Period): Promise<LeaderboardPayload> {
   console.log(`[fub-lb] fetching: period=${period}`);
+  const collectionWarnings = new Set<string>();
+  const noteCollectionFailure = (source: string, err: unknown): void => {
+    collectionWarnings.add(source);
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[fub-lb] partial ${source}: ${message}`);
+  };
   const { startMs, startIso, endMs } = getPeriodDates(period);
 
   // Deal Pipeline always uses full calendar year — independent of activity period tab
@@ -330,7 +430,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       if (email && counts[email]) { counts[email].calls++; matched++; }
     }
     console.log(`[fub-lb] calls: ${calls.length} fetched, ${matched} matched`);
-  } catch (err: any) { console.error("[fub-lb] /calls error:", err.message); }
+  } catch (err) { noteCollectionFailure("calls", err); }
 
   // ── SHOWINGS ─────────────────────────────────────────────────────────────
   try {
@@ -343,7 +443,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       if (email && counts[email]) { counts[email].showings++; matched++; }
     }
     console.log(`[fub-lb] appointments: ${appts.length} fetched, ${matched} matched`);
-  } catch (err: any) { console.error("[fub-lb] /appointments error:", err.message); }
+  } catch (err) { noteCollectionFailure("showings", err); }
 
   // ── PIPELINE + NEW LEADS ─────────────────────────────────────────────────
   const pipeline: Record<string, Record<string, number>> = {};
@@ -373,7 +473,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       }
     }
     console.log(`[fub-lb] people: ${people.length} total, ${newLeadsTotal} new leads in period`);
-  } catch (err: any) { console.error("[fub-lb] /people error:", err.message); }
+  } catch (err) { noteCollectionFailure("people and new leads", err); }
 
   // ── TEXTS (per-person) ───────────────────────────────────────────────────
   for (const m of LEADERBOARD_TEAM) {
@@ -383,12 +483,15 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       try {
         const t = await fetchAllPages(apiKey, "/textMessages", { personId: String(id) });
         return t.filter((x) => { const ms = getCreatedMs(x); return ms >= startMs && ms < endMs; }).length;
-      } catch { return 0; }
+      } catch (err) {
+        noteCollectionFailure("text messages", err);
+        return 0;
+      }
     });
     try {
-      const results = await runBatched(tasks, 10);
+      const results = await runBatched(tasks);
       counts[m.email].texts = results.reduce((s, n) => s + n, 0);
-    } catch (err: any) { console.warn(`[fub-lb] texts error ${m.name}:`, err.message); }
+    } catch (err) { noteCollectionFailure(`text messages for ${m.name}`, err); }
   }
 
   // ── EMAILS (per-person) ──────────────────────────────────────────────────
@@ -399,12 +502,15 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       try {
         const e = await fetchAllPages(apiKey, "/emails", { personId: String(id) });
         return e.filter((x) => { const ms = getCreatedMs(x); return ms >= startMs && ms < endMs; }).length;
-      } catch { return 0; }
+      } catch (err) {
+        noteCollectionFailure("emails", err);
+        return 0;
+      }
     });
     try {
-      const results = await runBatched(tasks, 10);
+      const results = await runBatched(tasks);
       counts[m.email].emails = results.reduce((s, n) => s + n, 0);
-    } catch (err: any) { console.warn(`[fub-lb] emails error ${m.name}:`, err.message); }
+    } catch (err) { noteCollectionFailure(`emails for ${m.name}`, err); }
   }
 
   // ── CLOSED DEALS ─────────────────────────────────────────────────────────
@@ -421,6 +527,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
       if (updMs >= startMs && updMs < endMs && closedThisPeriod[email] !== undefined) closedThisPeriod[email]++;
     }
   } catch (err: any) {
+    noteCollectionFailure("closed deals", err);
     for (const m of LEADERBOARD_TEAM) {
       closedAllTime[m.email]    = pipeline[m.email]?.["Closed"] ?? 0;
       closedThisPeriod[m.email] = closedAllTime[m.email];
@@ -459,7 +566,7 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
     }
 
     console.log(`[fub-lb] deals: ${allDeals.length} total, ${matched} attributions (full year view)`);
-  } catch (err: any) { console.error("[fub-lb] /deals error:", err.message); }
+  } catch (err) { noteCollectionFailure("deal pipeline", err); }
 
   // Compute deal totals per agent
   for (const m of LEADERBOARD_TEAM) {
@@ -525,16 +632,113 @@ export async function getLeaderboardData(apiKey: string, period: Period): Promis
   const payload: LeaderboardPayload = {
     period,
     generatedAt: new Date().toISOString(),
+    ...(collectionWarnings.size > 0 ? { collectionWarnings: [...collectionWarnings] } : {}),
     agents,
     teamTotals,
   };
 
-  _cache.set(period, { data: payload, ts: Date.now() });
   console.log(`[fub-lb] done — calls:${teamTotals.calls} texts:${teamTotals.texts} deals:${teamTotals.dealCount} vol:$${teamTotals.dealVolume.toLocaleString()}`);
   return payload;
 }
 
+function refreshStateFor(data: LeaderboardPayload): LeaderboardRefreshState {
+  return data.collectionWarnings?.length ? "partial" : "fresh";
+}
+
+function startLeaderboardRefresh(apiKey: string, period: Period): Promise<LeaderboardPayload> {
+  const existing = _refreshes.get(period);
+  if (existing) return existing;
+
+  // Serialize whole collections, not just individual HTTP request starts.
+  // Different period tabs share most expensive FUB sources, so allowing their
+  // collections to overlap would still create duplicate traffic.
+  const collection = _collectionTail.then(() => collectLeaderboardData(apiKey, period));
+  _collectionTail = collection.then(() => undefined, () => undefined);
+
+  const refresh = collection
+    .then((data) => {
+      const warnings = data.collectionWarnings ?? [];
+      const cached = _cache.get(period);
+
+      if (warnings.length > 0) {
+        _refreshFailures.set(period, {
+          warnings,
+          retryAt: Math.max(fubCircuitOpenUntil, Date.now() + PARTIAL_CACHE_TTL_MS),
+        });
+
+        // A degraded refresh must never replace a known-good snapshot. If
+        // there is no complete snapshot yet, partial data is still useful.
+        if (cached && !cached.data.collectionWarnings?.length) return cached.data;
+        _cache.set(period, { data, ts: Date.now() });
+        return data;
+      }
+
+      _refreshFailures.delete(period);
+      _cache.set(period, { data, ts: Date.now() });
+      return data;
+    })
+    .finally(() => {
+      if (_refreshes.get(period) === refresh) _refreshes.delete(period);
+    });
+  _refreshes.set(period, refresh);
+  return refresh;
+}
+
+export async function getLeaderboardData(apiKey: string, period: Period): Promise<LeaderboardResult> {
+  const cached = _cache.get(period);
+  const failedRefresh = _refreshFailures.get(period);
+  if (failedRefresh && failedRefresh.retryAt <= Date.now()) {
+    _refreshFailures.delete(period);
+  } else if (cached && failedRefresh) {
+    const retryAfterSeconds = Math.max(1, Math.ceil((failedRefresh.retryAt - Date.now()) / 1000));
+    return {
+      data: cached.data,
+      refreshState: cached.data.collectionWarnings?.length ? "partial" : "cached",
+      retryAfterSeconds,
+    };
+  }
+
+  const cacheTtl = cached?.data.collectionWarnings?.length ? PARTIAL_CACHE_TTL_MS : CACHE_TTL_MS;
+  if (cached && Date.now() - cached.ts < cacheTtl) {
+    console.log(`[fub-lb] cache hit: ${period}`);
+    return { data: cached.data, refreshState: refreshStateFor(cached.data) };
+  }
+
+  const refresh = startLeaderboardRefresh(apiKey, period);
+  if (cached) {
+    // Keep this request fast and preserve the last complete/partial snapshot.
+    // The shared promise means polling clients cannot start duplicate refreshes.
+    void refresh.catch((err) => {
+      console.error(`[fub-lb] background refresh failed (${period}):`, err);
+    });
+    const retryAfterSeconds = fubCooldownUntil > Date.now()
+      ? Math.ceil((fubCooldownUntil - Date.now()) / 1000)
+      : undefined;
+    return {
+      data: cached.data,
+      refreshState: "cached",
+      ...(retryAfterSeconds ? { retryAfterSeconds } : {}),
+    };
+  }
+
+  const data = await refresh;
+  const failure = _refreshFailures.get(period);
+  if (failure) {
+    return {
+      data,
+      refreshState: data.collectionWarnings?.length ? "partial" : "cached",
+      retryAfterSeconds: Math.max(1, Math.ceil((failure.retryAt - Date.now()) / 1000)),
+    };
+  }
+  return { data, refreshState: refreshStateFor(data) };
+}
+
 export function bustLeaderboardCache(period?: Period): void {
-  if (period) _cache.delete(period);
-  else _cache.clear();
+  _fubResponses.clear();
+  if (period) {
+    const cached = _cache.get(period);
+    if (cached) cached.ts = 0;
+    return;
+  }
+  for (const cached of _cache.values()) cached.ts = 0;
 }

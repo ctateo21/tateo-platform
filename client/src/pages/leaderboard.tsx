@@ -55,6 +55,9 @@ interface AgentRow {
 interface LeaderboardData {
   period: string;
   generatedAt: string;
+  refreshState?: "fresh" | "cached" | "partial";
+  retryAfterSeconds?: number;
+  collectionWarnings?: string[];
   agents: AgentRow[];
   teamTotals: {
     calls: number;
@@ -414,7 +417,7 @@ export default function Leaderboard() {
         dealCount:      json.teamTotals?.dealCount      ?? 0,
       };
       setData(json);
-      setLastRefresh(new Date());
+      setLastRefresh(new Date(json.generatedAt));
     } catch (err: any) {
       setError(err.message ?? "Failed to load leaderboard data");
     } finally {
@@ -474,6 +477,18 @@ export default function Leaderboard() {
               Refresh
             </button>
           </div>
+          {data?.refreshState === "cached" && (
+            <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+              Showing the last cached leaderboard while Follow Up Boss refreshes
+              {data.retryAfterSeconds ? ` after a ${data.retryAfterSeconds}-second rate-limit pause` : ""}.
+            </div>
+          )}
+          {data?.refreshState === "partial" && (
+            <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+              Some Follow Up Boss activity could not be refreshed. Available leaderboard data is shown
+              {data.retryAfterSeconds ? `; retrying in about ${data.retryAfterSeconds} seconds` : ""}.
+            </div>
+          )}
           {/* Period tabs — affects Activity section only */}
           <div className="mt-5">
             <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">Activity Period</p>

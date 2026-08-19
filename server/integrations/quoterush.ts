@@ -12,6 +12,8 @@
 // The console.log statements are intentional — they surface the raw
 // API response shapes during the first live tests.
 
+import type { QuoteRushPropertyDefaults } from "@shared/quoterush-property-defaults";
+
 export interface QuoteRushParams {
   streetAddress: string;
   city: string;
@@ -33,10 +35,16 @@ export interface QuoteRushParams {
   windMitForm: boolean;
   openingProtection: string;
   secondaryWaterResistance: string;
+  roofShape: string;
   usageType: string;
+  rentalTerm: QuoteRushPropertyDefaults["rentalTerm"];
+  monthsOccupied: QuoteRushPropertyDefaults["monthsOccupied"];
   newPurchase: string;
+  purchaseDate: string;
+  purchasePrice: number;
   firstName: string;
   lastName: string;
+  dateOfBirth: string;
   email: string;
   phone: string;
 }
@@ -86,7 +94,13 @@ function parseLeadId(text: string): number | null {
   return m ? parseInt(m[0], 10) : null;
 }
 
-function buildImporterPayload(
+function formatDateOfBirth(dateOfBirth: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOfBirth);
+  return match
+    ? `${match[2]}/${match[3]}/${match[1]}`
+    : dateOfBirth;
+}
+export function buildImporterPayload(
   p: QuoteRushParams,
   assignedEmail: string
 ): Record<string, any> {
@@ -107,8 +121,16 @@ function buildImporterPayload(
     Client: {
       NameFirst: p.firstName || "Havo",
       NameLast: p.lastName || "Lead",
+      DOB: formatDateOfBirth(p.dateOfBirth),
+      Phone: p.phone || "",
       PhoneCell: p.phone || "",
+      PhoneOther: "",
       EmailAddress: p.email || "",
+      EntityType: "Individual",
+      Gender: "Male",
+      MaritalStatus: "Single",
+      Industry: "Business/Sales/Office",
+      Occupation: "Account Executive",
       EPolicy: true,
       Address: p.streetAddress,
       City: p.city,
@@ -133,7 +155,11 @@ function buildImporterPayload(
       Zip: p.zip,
       County: p.county || "",
       NewPurchase: p.newPurchase || "No",
+      PurchaseDate: p.purchaseDate,
+      PurchasePrice: String(Math.round(p.purchasePrice)),
       UsageType: p.usageType || "Primary",
+      MonthsOccupied: p.monthsOccupied,
+      ...(p.rentalTerm ? { RentalTerm: p.rentalTerm } : {}),
       YearBuilt: String(p.yearBuilt || 1995),
       PolicyEffectiveDate: (() => {
         const d = new Date();
@@ -151,15 +177,19 @@ function buildImporterPayload(
       ConstructionType: p.constructionType ||
         "Masonry",
       Construction:
-        p.masonryConstruction ||
-        p.frameConstruction ||
-        p.constructionType ||
-        "Concrete Block",
+        p.constructionType === "Mixed"
+          ? [p.masonryConstruction, p.frameConstruction]
+              .filter(Boolean)
+              .join(" / ") || "Mixed"
+          : p.masonryConstruction ||
+            p.frameConstruction ||
+            p.constructionType ||
+            "Concrete Block",
       FrameConstruction: p.frameConstruction || "",
       MasonryConstruction:
         p.masonryConstruction || "",
       FoundationType: "Slab",
-      RoofShape: "Gable",
+      RoofShape: p.roofShape || "Gable",
       RoofMaterial: "Composite Shingle",
       UpdateRoofYear: String(p.roofYear),
       UpdateRoofType: "Full",
@@ -345,16 +375,9 @@ export async function importAndSubmit(
     );
     if (propData.sqFt > 0)
       params.sqFt = propData.sqFt;
-    if (
-      propData.yearBuilt > 1900 &&
-      params.yearBuilt === 1995
-    ) params.yearBuilt = propData.yearBuilt;
-    if (propData.constructionType) {
-      params.constructionType =
-        propData.constructionType;
-      params.masonryConstruction =
-        propData.masonryConstruction;
-    }
+    // Preserve the user's explicit building year and construction answer.
+    // Enrichment remains useful for square footage when it was not supplied,
+    // but must not replace the property details used to price this quote.
   }
 
   // Step B: Import lead
@@ -377,9 +400,7 @@ export async function importAndSubmit(
     }
   );
   const importText = await importRes.text();
-  console.log(
-    "[quoterush] import response:", importText
-  );
+    console.log("[quoterush] import completed:", importRes.status);
 
   if (!importRes.ok) {
     return {
@@ -411,13 +432,11 @@ export async function importAndSubmit(
       );
       const newLeadsText =
         await newLeadsRes.text();
-      console.log(
-        "[quoterush] GetNewLeads:", newLeadsText
-      );
       const arr = JSON.parse(newLeadsText);
       const leads = Array.isArray(arr)
         ? arr
         : (arr.Leads ?? arr.leads ?? []);
+      console.log("[quoterush] GetNewLeads count:", leads.length);
       if (leads.length > 0) {
         const first = leads[0];
         leadId = parseInt(

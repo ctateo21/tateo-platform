@@ -3,6 +3,7 @@ import { useLocation, useSearch } from "wouter";
 import {
   Home, RefreshCw, Shield, Search, LogOut, Trash2, ExternalLink,
   MapPin, Calendar, Plus, X, Pencil, Check, Tag, Banknote,
+  ArrowRight,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -2078,10 +2079,11 @@ function CashBuyTab() {
   );
 }
 
-// ── Top-level Tabs wrapper — keeps the active tab in the URL (?tab=) ──
+// ── Dashboard overview + top-level tabs ───────────────────────────────
 // Lets sibling pages (e.g. the new seller detail page) deep-link back to
-// the dashboard on a specific tab via /dashboard?tab=sellers without
-// breaking the existing default-of-Purchase behavior for /dashboard.
+// the dashboard on a specific tab via /dashboard?tab=sellers. The clean
+// `/dashboard` route is the high-level overview, while `?tab=` enters a
+// specific workspace.
 //
 // Stable tab IDs are the source of truth for routing and content. The
 // visual order is a per-user preference (drag-and-drop reorder, persisted
@@ -2102,12 +2104,42 @@ type DashboardTabValue = typeof VALID_TABS[number];
 // `/select-service` so users see the same names end-to-end.
 // `short` is the phone-width label so two tabs fit per row without
 // clipping; the full `label` shows from the `sm` breakpoint up.
-const TAB_META: Record<DashboardTabValue, { label: string; short: string; icon: typeof Home }> = {
-  purchase:  { label: "Purchase with Loan", short: "Loan",      icon: Home },
-  refinance: { label: "Refinance",          short: "Refi",      icon: RefreshCw },
-  insurance: { label: "Insurance",          short: "Insurance", icon: Shield },
-  sellers:   { label: "Sell Your Home",     short: "Sell",      icon: Tag },
-  cash_buy:  { label: "Purchase with Cash", short: "Cash",      icon: Banknote },
+const TAB_META: Record<DashboardTabValue, {
+  label: string;
+  short: string;
+  description: string;
+  icon: typeof Home;
+}> = {
+  purchase: {
+    label: "Purchase with Loan",
+    short: "Loan",
+    description: "Explore financing options, payments, and a purchase plan for your next home.",
+    icon: Home,
+  },
+  refinance: {
+    label: "Refinance",
+    short: "Refi",
+    description: "Review your current loan and compare refinance opportunities.",
+    icon: RefreshCw,
+  },
+  insurance: {
+    label: "Insurance",
+    short: "Insurance",
+    description: "Build a homeowners insurance estimate and request live carrier quotes.",
+    icon: Shield,
+  },
+  sellers: {
+    label: "Sell Your Home",
+    short: "Sell",
+    description: "Estimate your selling costs, payoff, and potential net proceeds.",
+    icon: Tag,
+  },
+  cash_buy: {
+    label: "Purchase with Cash",
+    short: "Cash",
+    description: "Evaluate a cash purchase and keep your buying scenario organized.",
+    icon: Banknote,
+  },
 };
 
 const TAB_CONTENT: Record<DashboardTabValue, () => JSX.Element> = {
@@ -2122,6 +2154,46 @@ function readTabFromSearch(search: string): DashboardTabValue {
   const params = new URLSearchParams(search);
   const t = params.get("tab");
   return (VALID_TABS as readonly string[]).includes(t ?? "") ? (t as DashboardTabValue) : "purchase";
+}
+
+function hasSelectedDashboardTab(search: string): boolean {
+  const requestedTab = new URLSearchParams(search).get("tab");
+  return (VALID_TABS as readonly string[]).includes(requestedTab ?? "");
+}
+
+function DashboardOverview({
+  tabOrder,
+  onSelect,
+}: {
+  tabOrder: DashboardTabValue[];
+  onSelect: (tab: DashboardTabValue) => void;
+}) {
+  return (
+    <section className="mx-auto max-w-4xl">
+      <div className="space-y-3" aria-label="Havo services">
+        {tabOrder.map((id) => {
+          const { label, description, icon: Icon } = TAB_META[id];
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onSelect(id)}
+              className="group flex w-full items-center gap-4 rounded-xl border bg-card p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 sm:gap-5 sm:p-6"
+            >
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary sm:h-14 sm:w-14">
+                <Icon className="h-6 w-6 sm:h-7 sm:w-7" aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-lg font-semibold text-foreground sm:text-xl">{label}</span>
+                <span className="mt-1 block text-sm leading-6 text-muted-foreground sm:text-base">{description}</span>
+              </span>
+              <ArrowRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" aria-hidden="true" />
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
 }
 
 /** Per-user persisted dashboard tab order. We key by user id so each
@@ -2160,6 +2232,7 @@ function DashboardTabs() {
   const [tabOrder, setTabOrder] = useState<DashboardTabValue[]>(() => readSavedTabOrder(userId));
   const [dragId, setDragId] = useState<DashboardTabValue | null>(null);
   const [overId, setOverId] = useState<DashboardTabValue | null>(null);
+  const isOverview = !hasSelectedDashboardTab(search);
 
   // Re-hydrate order when the signed-in user changes (initial state
   // captured the user from first render, which may have been null).
@@ -2179,10 +2252,9 @@ function DashboardTabs() {
       ? (value as DashboardTabValue)
       : "purchase";
     setTab(next);
-    // Only mirror non-default selections into the URL so /dashboard stays
-    // a clean default route. Use replaceState so back-button works.
-    const qs = next === "purchase" ? "" : `?tab=${next}`;
-    setLocation(`/dashboard${qs}`, { replace: true });
+    // A selected workspace must always keep its tab in the URL. The bare
+    // `/dashboard` route is reserved for the all-services overview.
+    setLocation(`/dashboard?tab=${next}`, { replace: true });
   }
 
   function persistOrder(next: DashboardTabValue[]) {
@@ -2230,6 +2302,10 @@ function DashboardTabs() {
     setOverId(null);
   }
 
+  if (isOverview) {
+    return <DashboardOverview tabOrder={tabOrder} onSelect={handleChange} />;
+  }
+
   return (
     <Tabs value={tab} onValueChange={handleChange}>
       {/* Mobile: 2-column grid (tabs wrap 2 / 2 / 1) so nothing overflows
@@ -2263,11 +2339,14 @@ function DashboardTabs() {
 
       {/* Content is always rendered against the stable tab ID — visual
           order has no effect on which scenario list shows. */}
-      {(VALID_TABS as readonly DashboardTabValue[]).map((id) => (
-        <TabsContent key={id} value={id}>
-          {TAB_CONTENT[id]()}
-        </TabsContent>
-      ))}
+      {(VALID_TABS as readonly DashboardTabValue[]).map((id) => {
+        const TabContent = TAB_CONTENT[id];
+        return (
+          <TabsContent key={id} value={id}>
+            <TabContent />
+          </TabsContent>
+        );
+      })}
     </Tabs>);
 }
 

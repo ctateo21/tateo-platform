@@ -68,6 +68,15 @@ export const userSubscriptions = pgTable("user_subscriptions", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Sensitive account attributes that are needed by server integrations but
+// must never be sent to the browser as part of an auth session.
+export const privateUserProfiles = pgTable("private_user_profiles", {
+  userId: text("user_id").primaryKey(),
+  dateOfBirth: date("date_of_birth").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Schema for user input validation
 export const insertUserSchema = createInsertSchema(users)
   .omit({

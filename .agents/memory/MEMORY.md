@@ -9,9 +9,10 @@
 - [Auth & password reset](auth-password-reset.md) — Supabase-only passwords (never in public tables); email-only login; reset link needs origin on Supabase Auth redirect allowlist.
 - [Full-project tsc time limit](tsc-env-limit.md) — `npx tsc --noEmit` won't finish in the sandbox; verify small edits via Vite HMR "hot updated" / no transform errors instead.
 - [GitHub sync method & checkpoint gotcha](github-sync.md) — push via connectors-sdk proxy (no raw tokens); diff vs REMOTE tree, never `git diff HEAD` (checkpoints auto-commit).
-- [QuoteRUSH live quoting](quoterush-integration.md) — secret names *_WEBID_PASSWORD/*_AGENCY_ID; shared DB address-cache (first pays, 30d TTL); cache updates keyed by leadId not caller address; auto-trigger + lost-race pollCacheForLead; poll-until-stable(3).
+- [QuoteRUSH live quoting](quoterush-integration.md) — explicit answers beat enrichment/defaults; manual quotes use a shared 30-day cache with lead-bound updates and race-safe polling.
 - [Tax Collector bill scrape](tax-collector-bill-scrape.md) — HCPA nonAdValorem field is dead; CDD lines come from Apify browser scrape (needs one-time actor approval), cached per folio.
 - [FUB leaderboard data sources](fub-leaderboard-data-sources.md) — calls in /v1/calls (userId), showings in /v1/appointments (createdById, -1=system); texts/emails not listable globally.
 - [Loan limits & Jumbo](loan-limits-jumbo.md) — 2026 limit auto-flip FHA→Conv→Jumbo on BASE loan; Jumbo mirrors Conventional except AMI discount; sub-620 warns without switching.
 - [Refinance entry methods](refinance-entry-methods.md) — 4 add-loan flows share commitNewLoan; CD extraction strictly validated; free&clear prices from max-LTV default, never the 0 balance.
 - [Hillsborough property tax estimate](hillsborough-tax-estimate.md) — HCPA estimator range = assessed-value range (85%–100% of price); Havo matches the LOWER bound via 85% assessed ratio.
+- [Private applicant DOB](private-applicant-dob.md) — DOB stays server-only in Neon; browser gets only a boolean status, and QuoteRUSH resolves DOB at the server boundary.

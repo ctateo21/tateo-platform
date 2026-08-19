@@ -8,7 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { login, register, requestPasswordReset } from "@/lib/auth";
+import {
+  login,
+  normalizeDateOfBirth,
+  register,
+  requestPasswordReset,
+} from "@/lib/auth";
 import { posthog } from "@/lib/posthog";
 import { useAuth } from "@/context/auth-context";
 
@@ -45,6 +50,7 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
   const [regName, setRegName] = useState("");
   const [regEmail, setRegEmail] = useState("");
   const [regPhone, setRegPhone] = useState("");
+  const [regDateOfBirth, setRegDateOfBirth] = useState("");
   const [regPassword, setRegPassword] = useState("");
   const [regConfirm, setRegConfirm] = useState("");
   const [regError, setRegError] = useState("");
@@ -100,19 +106,27 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     }
     const phoneDigits = regPhone.replace(/\D/g, "");
     if (phoneDigits.length < 10) { setRegError("Please enter a valid 10-digit cell number."); return; }
+    if (!normalizeDateOfBirth(regDateOfBirth)) {
+      setRegError("Please enter a valid date of birth.");
+      return;
+    }
     if (regPassword.length < 6) { setRegError("Password must be at least 6 characters."); return; }
     if (regPassword !== regConfirm) { setRegError("Passwords do not match."); return; }
     // Agent picker hidden for now — all new accounts default to the
     // FUB-routed "Team" assignment. See DEFAULT_AGENT_NAME above.
     setRegLoading(true);
-    const result = await register(regName, regEmail, regPassword, { phone: phoneDigits, agent: DEFAULT_AGENT_NAME });
+    const result = await register(regName, regEmail, regPassword, {
+      phone: phoneDigits,
+      dateOfBirth: regDateOfBirth,
+      agent: DEFAULT_AGENT_NAME,
+    });
     setRegLoading(false);
     if (!result.ok) { setRegError(result.error || "Registration failed."); return; }
     posthog.capture("account_created");
     refresh();
     handleOpenChange(false);
     // reset
-    setRegName(""); setRegEmail(""); setRegPhone(""); setRegPassword(""); setRegConfirm("");
+    setRegName(""); setRegEmail(""); setRegPhone(""); setRegDateOfBirth(""); setRegPassword(""); setRegConfirm("");
     // Free access — no payment step. Drop the new user straight into their
     // dashboard so they can start running quotes right away.
     setLocation("/dashboard");
@@ -300,6 +314,23 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
                     required
                     autoComplete="tel"
                   />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="reg-date-of-birth">Date of Birth</Label>
+                  <Input
+                    id="reg-date-of-birth"
+                    name="bday"
+                    type="date"
+                    min="1900-01-01"
+                    max={new Date().toISOString().slice(0, 10)}
+                    value={regDateOfBirth}
+                    onChange={e => setRegDateOfBirth(e.target.value)}
+                    required
+                    autoComplete="bday"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Required by insurance carriers when you request live quotes.
+                  </p>
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="reg-password">Password</Label>

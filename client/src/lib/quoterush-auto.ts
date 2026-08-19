@@ -7,6 +7,31 @@
 
 const LS_PREFIX = "qr_auto_";
 const LS_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const pendingStarts = new Map<string, Promise<void>>();
+type AccessTokenProvider = () => Promise<string | undefined>;
+let testAccessTokenProvider: AccessTokenProvider | null = null;
+
+export function setAutoQuoteAccessTokenProviderForTests(
+  provider: AccessTokenProvider | null,
+): void {
+  testAccessTokenProvider = provider;
+}
+
+async function authenticatedStartFetch(
+  path: string,
+  init: RequestInit,
+): Promise<Response> {
+  const token = testAccessTokenProvider
+    ? await testAccessTokenProvider()
+    : await (async () => {
+        const { supabase } = await import("./supabase");
+        const { data } = await supabase.auth.getSession();
+        return data.session?.access_token;
+      })();
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(path, { ...init, headers });
+}
 
 export interface QRQuote {
   siteName: string;
@@ -142,14 +167,27 @@ export async function checkServerCache(
  * confirmed. Safe to call multiple times — it deduplicates against both
  * the localStorage and shared server caches before spending a quote.
  */
-export async function triggerAutoQuote(opts: {
+export interface AutoQuoteOptions {
   address: string;
   price?: number; // full property value
   coverageA?: number; // or Coverage A directly
   policyType?: string;
   floodZone?: string;
   isAuthenticated: boolean;
-}): Promise<void> {
+  yearBuilt: number;
+  roofYear: number;
+  openingProtection: boolean;
+  roofShape: "Hip" | "Flat" | "Gable";
+  secondaryWaterResistance: "Yes" | "No" | "Unknown";
+  constIdx: 0 | 1 | 2;
+  hurrIdx: 0 | 1 | 2;
+  aopDeductible: 500 | 1000 | 2500 | 5000 | 10000;
+  claimsIdx?: 0 | 1 | 2 | 3;
+  sqFt?: number;
+  newPurchase?: boolean;
+}
+
+async function startAutoQuote(opts: AutoQuoteOptions): Promise<void> {
   const { address, isAuthenticated } = opts;
 
   if (!isAuthenticated) return;
@@ -160,6 +198,29 @@ export async function triggerAutoQuote(opts: {
     Math.round((opts.price ?? 0) * 0.85);
 
   if (coverageA <= 0) return;
+
+  const hasExactPropertyAnswers =
+    Number.isInteger(opts.yearBuilt) &&
+    Number.isInteger(opts.roofYear) &&
+    typeof opts.openingProtection === "boolean" &&
+    ["Hip", "Flat", "Gable"].includes(opts.roofShape) &&
+    ["Yes", "No", "Unknown"].includes(opts.secondaryWaterResistance);
+  if (!hasExactPropertyAnswers) {
+    throw new Error(
+      "Exact property answers are required before starting a live QuoteRUSH quote."
+    );
+  }
+
+  const windIdx =
+    opts.openingProtection &&
+    opts.roofShape === "Hip" &&
+    opts.secondaryWaterResistance === "Yes"
+      ? 2
+      : !opts.openingProtection &&
+          opts.roofShape === "Gable" &&
+          opts.secondaryWaterResistance === "No"
+        ? 0
+        : 1;
 
   // Fast local check.
   const cached = getQRCache(address);
@@ -197,26 +258,43 @@ export async function triggerAutoQuote(opts: {
   );
 
   try {
-    const res = await fetch("/api/insurance/qr-start", {
+    const res = await authenticatedStartFetch("/api/insurance/qr-start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         address,
         coverageA,
         policyType: opts.policyType || "HO3",
-        yearIdx: 1,
-        roofIdx: 1,
-        constIdx: 0,
-        windIdx: 1,
-        hurrIdx: 0,
-        claimsIdx: 0,
-        aopDeductible: 2500,
+        yearBuilt: opts.yearBuilt,
+        roofYear: opts.roofYear,
+        openingProtection: opts.openingProtection,
+        roofShape: opts.roofShape,
+        secondaryWaterResistance: opts.secondaryWaterResistance,
+        constIdx: opts.constIdx,
+        windIdx,
+        hurrIdx: opts.hurrIdx,
+        claimsIdx: opts.claimsIdx ?? 0,
+        aopDeductible: opts.aopDeductible,
         floodZone: opts.floodZone || "X",
-        sqFt: 0,
-        newPurchase: false,
+        sqFt: opts.sqFt ?? 0,
+        newPurchase: opts.newPurchase ?? false,
       }),
     });
     const data = await res.json();
+
+    if (!res.ok) {
+      if (
+        res.status === 428 &&
+        data.code === "DOB_REQUIRED"
+      ) {
+        // DOB must be collected through the authenticated manual preflight.
+        // Remove the speculative pending entry so that flow is not blocked.
+        clearQRCache(address);
+        return;
+      }
+      setQRCache(address, { status: "error" });
+      return;
+    }
 
     if (data.leadId) {
       setQRCache(address, {
@@ -242,4 +320,16 @@ export async function triggerAutoQuote(opts: {
     console.error("[qr-auto] error:", e);
     setQRCache(address, { status: "error" });
   }
+}
+
+export function triggerAutoQuote(opts: AutoQuoteOptions): Promise<void> {
+  const key = lsKey(opts.address);
+  const existing = pendingStarts.get(key);
+  if (existing) return existing;
+
+  const start = startAutoQuote(opts).finally(() => {
+    pendingStarts.delete(key);
+  });
+  pendingStarts.set(key, start);
+  return start;
 }

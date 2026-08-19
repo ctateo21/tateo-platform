@@ -106,6 +106,9 @@ export interface AuthUser {
   name: string;
   email: string;
   phone?: string;
+  /** Presence flag only. The DOB value remains in the protected profile and
+   *  is read server-side when a live quote is explicitly requested. */
+  hasDateOfBirth?: boolean;
   agent?: string;
   invitedUser?: InvitedUser;
   createdAt: string;
@@ -1435,11 +1438,20 @@ function enqueueWrite(key: string, fn: () => Promise<void>): Promise<void> {
 }
 
 async function loadProfile(userId: string): Promise<AuthUser | null> {
-  const { data, error } = await supabase
+  const baseColumns =
+    "id,name,email,phone,agent,invited_user,created_at";
+  let { data, error } = await supabase
     .from("profiles")
-    .select("*")
+    .select(`${baseColumns},monthly_income,monthly_debts`)
     .eq("id", userId)
     .maybeSingle();
+  if (error && /monthly_(income|debts)/i.test(error.message)) {
+    ({ data, error } = await supabase
+      .from("profiles")
+      .select(baseColumns)
+      .eq("id", userId)
+      .maybeSingle());
+  }
   if (error) { console.warn("[auth] loadProfile error:", error.message); return null; }
   return data ? rowToProfile(data) : null;
 }
@@ -1765,15 +1777,113 @@ export async function updateProfileContact(
   }
 }
 
+/**
+ * Parse and validate a date of birth without timezone conversion.
+ * Accepted storage format is the HTML date-input/Postgres DATE format.
+ */
+export function normalizeDateOfBirth(raw: string | null | undefined): string | null {
+  const value = raw?.trim() ?? "";
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() !== month - 1 ||
+    candidate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  const now = new Date();
+  const todayUtc = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  );
+  const candidateUtc = candidate.getTime();
+  if (
+    candidateUtc > todayUtc ||
+    year < 1900
+  ) {
+    return null;
+  }
+  return value;
+}
+
+/** Save a missing DOB from the authenticated live-quote preflight. */
+export async function saveDateOfBirth(
+  rawDateOfBirth: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!supabaseReady || !_session) {
+    return { ok: false, error: "Please sign in again before requesting quotes." };
+  }
+  const dateOfBirth = normalizeDateOfBirth(rawDateOfBirth);
+  if (!dateOfBirth) {
+    return { ok: false, error: "Please enter a valid date of birth." };
+  }
+
+  try {
+    const response = await authedFetch("/api/profile/date-of-birth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dateOfBirth }),
+    });
+    if (!response.ok) {
+      console.warn("[profile-save] date of birth was not persisted");
+      return {
+        ok: false,
+        error: "We couldn't save your date of birth. Please try again.",
+      };
+    }
+
+    _session = { ..._session, hasDateOfBirth: true };
+    notify();
+    return { ok: true };
+  } catch (error: any) {
+    console.warn("[profile-save] date of birth was not persisted");
+    return {
+      ok: false,
+      error: "We couldn't save your date of birth. Please try again.",
+    };
+  }
+}
+
+/** Check DOB presence without ever returning the sensitive date to the UI. */
+export async function hasSavedDateOfBirth(): Promise<boolean> {
+  if (!supabaseReady || !_session) return false;
+  try {
+    const response = await authedFetch("/api/profile/status");
+    if (!response.ok) return false;
+    const data = await response.json();
+    const hasDateOfBirth = data?.hasDateOfBirth === true;
+    if (hasDateOfBirth && !_session.hasDateOfBirth) {
+      _session = { ..._session, hasDateOfBirth: true };
+      notify();
+    }
+    return hasDateOfBirth;
+  } catch {
+    return false;
+  }
+}
+
 export async function register(
   name: string,
   email: string,
   password: string,
-  opts?: { phone?: string; agent?: string }
+  opts?: { phone?: string; agent?: string; dateOfBirth?: string }
 ): Promise<{ ok: boolean; error?: string }> {
   if (!supabaseReady) return NOT_CONFIGURED;
   const cleanEmail = email.toLowerCase().trim();
   const cleanPhone = opts?.phone?.trim() || "";
+  const dateOfBirth = normalizeDateOfBirth(opts?.dateOfBirth);
+  if (!dateOfBirth) {
+    return { ok: false, error: "Please enter a valid date of birth." };
+  }
+  const profileSetupNonce = crypto.randomUUID();
   const { data, error } = await supabase.auth.signUp({
     email: cleanEmail,
     password,
@@ -1782,12 +1892,35 @@ export async function register(
         name: name.trim(),
         phone: cleanPhone || null,
         agent: opts?.agent?.trim() || null,
+        // Non-sensitive, short-lived proof used by our server to finish the
+        // protected profile even when email confirmation yields no session.
+        profile_setup_nonce: profileSetupNonce,
       },
     },
   });
   if (error) { console.log("[auth-signup] error"); return { ok: false, error: error.message }; }
   console.log("[auth-signup] account created via Supabase Auth");
-  // Some Supabase projects require email confirmation — in that case there's no session yet.
+  if (!data.user?.id) {
+    return { ok: false, error: "Your account could not be completed. Please try again." };
+  }
+  const profileResponse = await fetch("/api/profile/complete-registration", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      userId: data.user.id,
+      profileSetupNonce,
+      dateOfBirth,
+    }),
+  });
+  if (!profileResponse.ok) {
+    console.warn("[auth-signup] protected profile not saved");
+    return {
+      ok: false,
+      error: "Your account was created, but your profile could not be saved. Please sign in and try again.",
+    };
+  }
+  // Some Supabase projects require email confirmation — the server-side step
+  // above still saved DOB before we ask the user to confirm and sign in.
   if (!data.session) {
     return { ok: false, error: "Check your email to confirm your account, then sign in." };
   }

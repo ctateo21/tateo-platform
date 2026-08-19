@@ -77,6 +77,40 @@ at the first carrier while others are still arriving.
 ## 30-day PolicyEffectiveDate
 The HO payload in `quoterush.ts` sets PolicyEffectiveDate to today+30d.
 
+## Explicit property answers always win
+When a user provides exact property answers for a live quote, send those
+answers unchanged and do not let QuoteRUSH property enrichment replace
+the year built or construction. Any client capable of starting a paid
+quote must require the exact year, roof, opening-protection, roof-shape,
+SWR, construction, and deductible inputs rather than silently filling
+legacy bucket defaults. Values the UI does not collect must be disclosed
+as carrier assumptions that need confirmation.
+**Why:** the general estimate collects exact details, and grouped or
+enriched substitutes can materially change a carrier result while the
+address-only cache preserves that first result for 30 days.
+**How to apply:** keep exact fields first-priority at the quote boundary;
+use enrichment only for missing ancillary data such as square footage,
+and retain the shared cache/race protections rather than re-quoting when
+answers change.
+
+## QuoteRUSH Apply Defaults is emulated in the importer
+
+Havo cannot click the Apply Defaults control inside the QuoteRUSH desktop
+application. Policy-specific defaults must be resolved in Havo and sent as
+explicit importer fields so a new lead arrives in the same intended state.
+The current property-information rules are HO3 → Primary, DP3 → Investment,
+HO6 → user-selected Primary/Secondary/Investment with a required rental term
+for Investment, and 9 months or more occupied for every policy. QuoteRUSH
+purchase price is the Havo rebuild cost for HO3/DP3 and twice that cost for
+HO6.
+
+**Why:** the integration has only the JSON importer and quote-submission API;
+it has no control channel into the desktop UI.
+
+**How to apply:** future QuoteRUSH phases should add equivalent importer
+fields rather than attempting UI automation, and should resolve material
+policy defaults at the server boundary before the address cache is claimed.
+
 ## Top-3 for 30 days then expired
 Cache stores the top-3 ranked quotes; after the 30-day TTL the entry is
 served with an `expired` flag → UI shows stale top-3 plus a re-run

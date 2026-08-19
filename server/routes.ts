@@ -31,7 +31,11 @@ import { getHillsboroughCountyPropertyTax } from "./routes/property-tax";
 import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
 import { supabaseAdmin } from "./supabase";
 import { db } from "./db";
-import { userSubscriptions, insuranceQuoteCache } from "@shared/schema";
+import {
+  userSubscriptions,
+  insuranceQuoteCache,
+  privateUserProfiles,
+} from "@shared/schema";
 import { eq } from "drizzle-orm";
 import {
   createSubscriptionCheckout,
@@ -48,6 +52,9 @@ import {
   getQuotes,
   type QuoteRushParams,
 } from "./integrations/quoterush";
+import { resolveQuoteRushPropertyInputs } from "./integrations/quoterush-inputs";
+import { claimQuoteRushAddress } from "./integrations/quoterush-cache-claim";
+import { prepareQuoteRushStartRequest } from "./integrations/quoterush-start-request";
 import {
   getMarketAnalysisForDisplay,
   precomputeWeeklyMarketAnalysesForAllSellerScenarios,
@@ -937,6 +944,211 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .slice(0, 200);
   }
 
+  const qrCountyCache = new Map<
+    string,
+    { county: string; resolvedAt: number }
+  >();
+  async function resolveCountyForAddress(
+    address: string,
+  ): Promise<string> {
+    const key = normalizeAddr(address);
+    const cached = qrCountyCache.get(key);
+    if (
+      cached &&
+      Date.now() - cached.resolvedAt < 24 * 60 * 60 * 1000
+    ) {
+      return cached.county;
+    }
+
+    try {
+      const apiKey = process.env.GOOGLE_MAPS_API_KEY ?? "";
+      if (!apiKey) return "";
+      const response = await fetch(
+        "https://maps.googleapis.com/maps/api/geocode/json" +
+          `?address=${encodeURIComponent(address)}` +
+          `&key=${encodeURIComponent(apiKey)}`,
+      );
+      if (!response.ok) return "";
+      const data = await response.json();
+      const components: Array<{
+        long_name?: string;
+        types?: string[];
+      }> = data?.results?.[0]?.address_components ?? [];
+      const countyComponent = components.find((component) =>
+        component.types?.includes("administrative_area_level_2")
+      );
+      const county = String(countyComponent?.long_name ?? "")
+        .replace(/\s+(County|Parish)$/i, "")
+        .trim();
+      if (county) {
+        qrCountyCache.set(key, {
+          county,
+          resolvedAt: Date.now(),
+        });
+      }
+      return county;
+    } catch {
+      return "";
+    }
+  }
+
+  function validProfileDateOfBirth(
+    value: unknown,
+  ): value is string {
+    if (typeof value !== "string") return false;
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (!match) return false;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    const now = new Date();
+    const today = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate(),
+    );
+    return (
+      year >= 1900 &&
+      date.getUTCFullYear() === year &&
+      date.getUTCMonth() === month - 1 &&
+      date.getUTCDate() === day &&
+      date.getTime() <= today
+    );
+  }
+
+  async function savePrivateDateOfBirth(
+    userId: string,
+    dateOfBirth: string,
+  ): Promise<void> {
+    await db
+      .insert(privateUserProfiles)
+      .values({ userId, dateOfBirth })
+      .onConflictDoUpdate({
+        target: privateUserProfiles.userId,
+        set: { dateOfBirth, updatedAt: new Date() },
+      });
+  }
+
+  async function getPrivateDateOfBirth(
+    userId: string,
+  ): Promise<string | null> {
+    const rows = await db
+      .select({ dateOfBirth: privateUserProfiles.dateOfBirth })
+      .from(privateUserProfiles)
+      .where(eq(privateUserProfiles.userId, userId))
+      .limit(1);
+    return rows[0]?.dateOfBirth ?? null;
+  }
+
+  // Complete the protected profile directly after Supabase signup. This also
+  // works when email confirmation is enabled and signUp returns no session.
+  // A short-lived random nonce proves this request belongs to the auth user
+  // that was just created.
+  app.post(
+    "/api/profile/complete-registration",
+    async (req, res) => {
+      try {
+        if (!supabaseAdmin) {
+          return res
+            .status(503)
+            .json({ error: "Profile service unavailable" });
+        }
+        const input = z.object({
+          userId: z.string().uuid(),
+          profileSetupNonce: z.string().uuid(),
+          dateOfBirth: z.string(),
+        }).parse(req.body);
+        if (!validProfileDateOfBirth(input.dateOfBirth)) {
+          return res
+            .status(400)
+            .json({ error: "Invalid date of birth" });
+        }
+
+        const { data, error: userError } =
+          await supabaseAdmin.auth.admin.getUserById(input.userId);
+        const authUser = data?.user;
+        if (userError || !authUser) {
+          return res
+            .status(403)
+            .json({ error: "Registration could not be verified" });
+        }
+
+        const createdAt = Date.parse(authUser.created_at);
+        const isFreshSignup =
+          Number.isFinite(createdAt) &&
+          Date.now() - createdAt <= 30 * 60 * 1000;
+        const metadata =
+          (authUser.user_metadata ?? {}) as Record<string, any>;
+        if (
+          !isFreshSignup ||
+          metadata.profile_setup_nonce !== input.profileSetupNonce
+        ) {
+          return res
+            .status(403)
+            .json({ error: "Registration could not be verified" });
+        }
+
+        await savePrivateDateOfBirth(
+          authUser.id,
+          input.dateOfBirth,
+        );
+
+        // Consume the proof so the public completion endpoint cannot be
+        // replayed. Raw DOB remains only in the private server database.
+        const cleanedMetadata = { ...metadata };
+        delete cleanedMetadata.profile_setup_nonce;
+        const cleanedAppMetadata = {
+          ...(authUser.app_metadata ?? {}),
+        };
+        delete cleanedAppMetadata.date_of_birth;
+        const [{ error: profileError }, { error: cleanupError }] =
+          await Promise.all([
+            supabaseAdmin
+              .from("profiles")
+              .upsert({
+                id: authUser.id,
+                name:
+                  String(metadata.name ?? "").trim() ||
+                  authUser.email?.split("@")[0] ||
+                  "User",
+                email: authUser.email ?? "",
+                phone: String(metadata.phone ?? "").trim() || null,
+                agent: String(metadata.agent ?? "").trim() || null,
+              }),
+            supabaseAdmin.auth.admin.updateUserById(
+              authUser.id,
+              {
+                user_metadata: cleanedMetadata,
+                app_metadata: cleanedAppMetadata,
+              },
+            ),
+          ]);
+        if (cleanupError) {
+          console.warn("[profile-registration] setup proof cleanup failed");
+          return res
+            .status(500)
+            .json({ error: "Registration could not be completed" });
+        }
+        if (profileError) {
+          console.warn("[profile-registration] public profile save failed");
+        }
+
+        return res.json({ ok: true });
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return res
+            .status(400)
+            .json({ error: "Invalid registration details" });
+        }
+        console.error("[profile-registration] completion failed");
+        return res
+          .status(500)
+          .json({ error: "Profile could not be saved" });
+      }
+    },
+  );
+
   // Since quote-polling routes are unauthenticated (auto-trigger runs
   // before/without a session), we still guard against enumerating
   // arbitrary QuoteRUSH agency LeadIds by only serving LeadIds that
@@ -964,6 +1176,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch {}
     return null;
   }
+
+  app.get(
+    "/api/profile/status",
+    async (req, res) => {
+      try {
+        const user = await optionalUser(req);
+        if (!user) {
+          return res.status(401).json({ error: "Sign in required" });
+        }
+        const dateOfBirth = await getPrivateDateOfBirth(user.id);
+        return res.json({
+          hasDateOfBirth:
+            validProfileDateOfBirth(dateOfBirth),
+        });
+      } catch {
+        return res
+          .status(500)
+          .json({ error: "Profile status unavailable" });
+      }
+    },
+  );
+
+  // Persist DOB against the authenticated Havo user in a private,
+  // server-owned table. The optional Supabase profile row is mirrored when
+  // its additive DOB column is available.
+  app.post(
+    "/api/profile/date-of-birth",
+    async (req, res) => {
+      try {
+        const user = await optionalUser(req);
+        if (!user || !supabaseAdmin) {
+          return res.status(401).json({ error: "Sign in required" });
+        }
+        const input = z.object({
+          dateOfBirth: z.string(),
+        }).parse(req.body);
+        if (!validProfileDateOfBirth(input.dateOfBirth)) {
+          return res
+            .status(400)
+            .json({ error: "Invalid date of birth" });
+        }
+
+        await savePrivateDateOfBirth(
+          user.id,
+          input.dateOfBirth,
+        );
+
+        // Remove any raw DOB written by an earlier release.
+        const cleanedAppMetadata = {
+          ...(user.app_metadata ?? {}),
+        };
+        delete cleanedAppMetadata.date_of_birth;
+        const { error: cleanupError } =
+          await supabaseAdmin.auth.admin.updateUserById(
+            user.id,
+            { app_metadata: cleanedAppMetadata },
+          );
+        if (cleanupError) {
+          console.warn("[profile-save] auth metadata cleanup failed");
+        }
+
+        return res.json({ ok: true, hasDateOfBirth: true });
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return res
+            .status(400)
+            .json({ error: "Invalid date of birth" });
+        }
+        console.error("[profile-save] DOB persistence failed");
+        return res
+          .status(500)
+          .json({ error: "Profile could not be saved" });
+      }
+    },
+  );
 
   // Public cache lookup — no auth. Used by the client to hydrate from
   // the shared cache before deciding whether to trigger a new quote.
@@ -1013,33 +1300,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/insurance/qr-start",
     async (req, res) => {
-      // Auth is OPTIONAL — use the user's details for FUB when present,
-      // otherwise fall back to generic lead details.
       const user = await optionalUser(req);
-      const userEmail = user?.email ?? "";
-      const userMeta =
-        (user?.user_metadata ?? {}) as Record<string, any>;
-      const userName = String(userMeta.name ?? "");
-      const userPhone = String(userMeta.phone ?? "");
+      if (!user) {
+        return res
+          .status(401)
+          .json({ error: "Sign in required" });
+      }
+      const { data: profile } = supabaseAdmin
+        ? await supabaseAdmin
+            .from("profiles")
+            .select("*")
+            .eq("id", user.id)
+            .maybeSingle()
+        : { data: null };
+      const userMetadata =
+        (user.user_metadata ?? {}) as Record<string, any>;
+      const userEmail = String(
+        profile?.email ?? user.email ?? "",
+      );
+      const userName = String(
+        profile?.name ?? userMetadata.name ?? "",
+      );
+      const userPhone = String(
+        profile?.phone ?? userMetadata.phone ?? "",
+      );
+      const dateOfBirth =
+        await getPrivateDateOfBirth(user.id) ?? "";
+      if (!validProfileDateOfBirth(dateOfBirth)) {
+        return res.status(428).json({
+          code: "DOB_REQUIRED",
+          error:
+            "A valid date of birth is required before requesting live quotes.",
+        });
+      }
 
       try {
-        const schema = z.object({
-          address: z.string().min(5),
-          coverageA: z.number().positive(),
-          policyType: z.string().default("HO3"),
-          yearIdx: z.number().int().min(0).max(3),
-          roofIdx: z.number().int().min(0).max(3),
-          constIdx: z.number().int().min(0).max(2),
-          windIdx: z.number().int().min(0).max(2),
-          hurrIdx: z.number().int().min(0).max(2),
-          claimsIdx: z.number().int().min(0).max(3),
-          aopDeductible: z.number().default(2500),
-          floodZone: z.string().default("X"),
-          sqFt: z.number().default(0),
-          newPurchase: z.boolean().default(false),
-        });
-
-        const b = schema.parse(req.body);
+        // Parse and resolve every paid-quote property detail before looking
+        // up or claiming the shared address cache.
+        const { request: b, propertyDefaults } =
+          prepareQuoteRushStartRequest(req.body);
         const norm = normalizeAddr(b.address);
         const now = new Date();
 
@@ -1090,61 +1389,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .where(eq(insuranceQuoteCache.addressNormalized, norm));
         }
 
-        // Map index values to QuoteRUSH strings
-        const YEAR_MAP = [2015, 1995, 1980, 1960];
-        const curYear = new Date().getFullYear();
-        const ROOF_YEAR_MAP = [
-          curYear - 2,
-          curYear - 8,
-          curYear - 17,
-          curYear - 22,
-        ];
-        const HURR_MAP = ["2%", "3%", "5%"];
+        // Keep these mappings in lockstep with the deductible choices in
+        // client/src/pages/insurance.tsx. QuoteRUSH expects display strings.
+        const HURR_MAP = ["2%", "5%", "10%"];
         const AOP_MAP: Record<number, string> = {
+          500: "$500",
           1000: "$1,000",
           2500: "$2,500",
           5000: "$5,000",
+          10000: "$10,000",
         };
-
-        function constFields(idx: number) {
-          if (idx === 0)
-            return {
-              constructionType: "Masonry",
-              masonryConstruction: "Concrete Block",
-              frameConstruction: "",
-            };
-          if (idx === 2)
-            return {
-              constructionType: "Frame",
-              masonryConstruction: "",
-              frameConstruction: "Stucco",
-            };
-          return {
-            constructionType: "Masonry",
-            masonryConstruction: "Concrete Block",
-            frameConstruction: "",
-          };
-        }
-
-        function windFields(idx: number) {
-          if (idx === 0)
-            return {
-              windMitForm: false,
-              openingProtection: "None",
-              secondaryWaterResistance: "No",
-            };
-          if (idx === 2)
-            return {
-              windMitForm: true,
-              openingProtection: "Hurricane Protection",
-              secondaryWaterResistance: "Yes",
-            };
-          return {
-            windMitForm: true,
-            openingProtection: "Basic",
-            secondaryWaterResistance: "No",
-          };
-        }
 
         // Parse address components
         const parts = b.address
@@ -1171,68 +1425,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const lastName =
           nameParts.slice(1).join(" ") || "Lead";
 
-        const params: QuoteRushParams = {
-          streetAddress,
-          city,
-          state,
-          zip,
-          county: "",
-          coverageA: b.coverageA,
-          policyType: b.policyType,
-          yearBuilt: YEAR_MAP[b.yearIdx] ?? 1995,
-          roofYear:
-            ROOF_YEAR_MAP[b.roofIdx] ??
-            curYear - 8,
-          hurrDeductible:
-            HURR_MAP[b.hurrIdx] ?? "2%",
-          aopDeductible:
-            AOP_MAP[b.aopDeductible] ?? "$2,500",
-          priorClaims: b.claimsIdx,
-          floodZone: b.floodZone,
-          sqFt: b.sqFt,
-          usageType: "Primary",
-          newPurchase: b.newPurchase ? "Yes" : "No",
-          firstName,
-          lastName,
-          email: userEmail,
-          phone: userPhone,
-          ...constFields(b.constIdx),
-          ...windFields(b.windIdx),
-        };
-
         // Atomically claim the address slot. `address_normalized` is
         // UNIQUE, so onConflictDoNothing lets exactly one concurrent
         // request win the insert; the loser gets 0 rows back and returns
         // the pending state instead of firing a second (paid) submission.
         const expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + 30);
-        const claimed = await db
-          .insert(insuranceQuoteCache)
-          .values({
-            addressNormalized: norm,
-            addressDisplay: b.address,
-            leadId: null,
-            status: "pending",
-            quotes: [],
-            quoteCounter: 0,
-            coverageA: b.coverageA,
-            policyType: b.policyType,
-            triggeredAt: new Date(),
-            expiresAt,
-          })
-          .onConflictDoNothing({
-            target: insuranceQuoteCache.addressNormalized,
-          })
-          .returning({ id: insuranceQuoteCache.id });
+        const claim = await claimQuoteRushAddress(
+          () =>
+            db
+              .insert(insuranceQuoteCache)
+              .values({
+                addressNormalized: norm,
+                addressDisplay: b.address,
+                leadId: null,
+                status: "pending",
+                quotes: [],
+                quoteCounter: 0,
+                coverageA: b.coverageA,
+                policyType: b.policyType,
+                triggeredAt: new Date(),
+                expiresAt,
+              })
+              .onConflictDoNothing({
+                target: insuranceQuoteCache.addressNormalized,
+              })
+              .returning({ id: insuranceQuoteCache.id }),
+          async () => {
+            const rows = await db
+              .select()
+              .from(insuranceQuoteCache)
+              .where(eq(insuranceQuoteCache.addressNormalized, norm))
+              .limit(1);
+            return rows[0];
+          },
+        );
 
-        if (claimed.length === 0) {
+        if (!claim.claimed) {
           // Lost the race — another request just claimed this address.
-          const rows = await db
-            .select()
-            .from(insuranceQuoteCache)
-            .where(eq(insuranceQuoteCache.addressNormalized, norm))
-            .limit(1);
-          const row = rows[0];
+          const row = claim.row;
           console.log("[qr-start] lost claim race:", norm);
           return res.json({
             leadId: row?.leadId ?? null,
@@ -1240,6 +1471,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
             status: row?.status ?? "pending",
           });
         }
+
+        // Only the winner performs trusted geocoding. Concurrent losers have
+        // already returned the pending row above and will poll for its leadId.
+        const county = await resolveCountyForAddress(b.address);
+        if (!county) {
+          await db
+            .update(insuranceQuoteCache)
+            .set({ status: "error" })
+            .where(eq(insuranceQuoteCache.addressNormalized, norm));
+          return res.status(422).json({
+            error:
+              "We couldn't verify the county for this property address.",
+          });
+        }
+
+        const params: QuoteRushParams = {
+          streetAddress,
+          city,
+          state,
+          zip,
+          county,
+          coverageA: b.coverageA,
+          policyType: b.policyType,
+          hurrDeductible:
+            HURR_MAP[b.hurrIdx] ?? "2%",
+          aopDeductible:
+            AOP_MAP[b.aopDeductible] ?? "$2,500",
+          priorClaims: b.claimsIdx,
+          floodZone: b.floodZone,
+          sqFt: b.sqFt,
+          usageType: propertyDefaults.usageType,
+          rentalTerm: propertyDefaults.rentalTerm,
+          monthsOccupied: propertyDefaults.monthsOccupied,
+          newPurchase: propertyDefaults.newPurchase,
+          purchaseDate: propertyDefaults.purchaseDate,
+          purchasePrice: propertyDefaults.purchasePrice,
+          firstName,
+          lastName,
+          dateOfBirth,
+          email: userEmail,
+          phone: userPhone,
+          ...resolveQuoteRushPropertyInputs(b),
+        };
 
         const result = await importAndSubmit(params);
 
@@ -2126,8 +2400,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const period: Period = (validPeriods.includes(raw as Period) ? raw : "today") as Period;
 
     try {
-      const data = await getLeaderboardData(apiKey, period);
-      res.json(data);
+      const result = await getLeaderboardData(apiKey, period);
+      res.json({
+        ...result.data,
+        refreshState: result.refreshState,
+        ...(result.retryAfterSeconds !== undefined ? { retryAfterSeconds: result.retryAfterSeconds } : {}),
+      });
     } catch (err: any) {
       console.error("[leaderboard] fetch error:", err.message);
       res.status(500).json({ error: err.message ?? "Failed to fetch leaderboard data" });

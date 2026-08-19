@@ -4,6 +4,7 @@ import ScenarioActions from "@/components/scenario-actions";
 import {
   getInsuranceScenarios, saveInsuranceScenarios, type InsuranceScenario,
   getPurchaseScenarios, getCashBuyScenarios, getTrackedLoans,
+  getSession, normalizeDateOfBirth, saveDateOfBirth, hasSavedDateOfBirth,
 } from "@/lib/auth";
 import { notifyNewScenario } from "@/lib/notify-scenario";
 import { authedFetch } from "@/lib/authed-fetch";
@@ -25,13 +26,12 @@ import {
 } from "@/lib/insurance-policy-type";
 import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  ArrowLeft, Shield, MapPin, Home, AlertTriangle, Info,
-  TrendingDown, TrendingUp, Minus, Share2, Save, Plus, X, Pencil,
+  ArrowLeft, Shield, MapPin, Home, AlertTriangle,
+  Share2, Save, Plus, X, Pencil,
 } from "lucide-react";
 import { getCountyName } from "@/lib/county-tax-estimator";
 import { normalizePropertyKey } from "@/lib/property-key";
@@ -40,6 +40,11 @@ import { loadGoogleMapsApi } from "@/lib/script-loader";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { posthog } from "@/lib/posthog";
 import { useToast } from "@/hooks/use-toast";
+import {
+  resolveQuoteRushPropertyDefaults,
+  type QuoteRushResidenceUse,
+  type QuoteRushRentalTerm,
+} from "@shared/quoterush-property-defaults";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -61,11 +66,15 @@ const REGIONS: Record<RegionKey, Region> = {
 };
 
 const ROOF_ADJ  = [0.90, 1.00, 1.20, 1.38];
-const WIND_ADJ  = [1.14, 1.00, 0.82];
+const OPENING_PROTECTION_ADJ = [1.00, 0.92]; // no, yes
+const ROOF_SHAPE_ADJ = [0.92, 1.06, 1.00]; // hip, flat, other / unsure
+const SWR_ADJ = [1.00, 1.00, 0.94]; // no, unsure, yes
 const HURR_ADJ  = [1.10, 1.05, 1.00];
 const CONST_ADJ = [0.93, 1.00, 1.08];
 const YEAR_ADJ  = [0.90, 1.00, 1.10, 1.28];
-const CLAIM_ADJ = [1.00, 1.14, 1.26, 1.40];
+const CURRENT_YEAR = new Date().getFullYear();
+const DEFAULT_ROOF_YEAR = CURRENT_YEAR - 10;
+const DEFAULT_YEAR_BUILT = 1995;
 
 const COUNTY_TO_REGION: Record<string, RegionKey> = {
   "monroe": "keys",
@@ -91,7 +100,38 @@ function getRegionFromAddress(address: string): RegionKey {
 // the raw factor product so a property with default factors yields
 // exactly `0.75% × rebuild` (matches the shared estimate everywhere).
 const NEUTRAL_FACTOR_PRODUCT =
-  ROOF_ADJ[1] * WIND_ADJ[1] * HURR_ADJ[0] * CONST_ADJ[0] * YEAR_ADJ[1] * CLAIM_ADJ[0];
+  ROOF_ADJ[1] *
+  OPENING_PROTECTION_ADJ[0] *
+  ROOF_SHAPE_ADJ[2] *
+  SWR_ADJ[1] *
+  HURR_ADJ[0] *
+  CONST_ADJ[0] *
+  YEAR_ADJ[1];
+
+function roofFactorIndex(roofYear: number): number {
+  const age = CURRENT_YEAR - roofYear;
+  if (age < 5) return 0;
+  if (age <= 14) return 1;
+  if (age <= 20) return 2;
+  return 3;
+}
+
+function yearBuiltFactorIndex(yearBuilt: number): number {
+  if (yearBuilt >= 2002) return 0;
+  if (yearBuilt >= 1990) return 1;
+  if (yearBuilt >= 1970) return 2;
+  return 3;
+}
+
+function windMitigationIndex(
+  openingProtectionIdx: number,
+  roofShapeIdx: number,
+  swrIdx: number,
+): number {
+  if (openingProtectionIdx === 1 && roofShapeIdx === 0 && swrIdx === 2) return 2;
+  if (openingProtectionIdx === 0 && roofShapeIdx !== 0 && swrIdx === 0) return 0;
+  return 1;
+}
 
 // Look up the best-known property value for an address across the
 // other scenario tabs (Purchase with Loan, Cash Buy, Refinance) and
@@ -220,6 +260,8 @@ interface InsuranceSettings {
   regionKey: RegionKey; rebuild: number;
   roofIdx: number; windIdx: number; hurrIdx: number;
   constIdx: number; yearIdx: number; claimsIdx: number;
+  roofYear: number; yearBuilt: number;
+  openingProtectionIdx: number; roofShapeIdx: number; swrIdx: number;
 }
 
 interface Scenario {
@@ -236,13 +278,10 @@ function shortLabel(addr: string) {
 }
 
 // All-Other-Perils (AOP) deductible — the standard Florida HO deductible
-// for non-hurricane claims. Default $2,500 (matches typical FL carrier
-// minimums). Carrier defaults to a "TBD" placeholder until a real quote
-// carrier is selected. Both values + the FEMA-resolved flood zone are
+// for non-hurricane claims. Both it and the FEMA-resolved flood zone are
 // persisted inside the `insurance_scenarios.user_answer_sources` jsonb
 // column (no new DB column needed).
 const DEFAULT_AOP_DEDUCTIBLE = 2500;
-const DEFAULT_CARRIER = "TBD";
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -305,6 +344,35 @@ function SelectRow({ label, value, onChange, options }: {
       >
         {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
+    </div>
+  );
+}
+
+function YearInputRow({ label, value, onChange, testId }: {
+  label: string; value: number; onChange: (v: number) => void; testId: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
+        {label}
+      </label>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={1900}
+        max={CURRENT_YEAR}
+        value={value}
+        onChange={e => {
+          const next = Number(e.target.value);
+          if (Number.isFinite(next)) onChange(next);
+        }}
+        onBlur={e => {
+          const next = Number(e.target.value);
+          onChange(Math.min(CURRENT_YEAR, Math.max(1900, Number.isFinite(next) ? next : CURRENT_YEAR)));
+        }}
+        data-testid={testId}
+        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+      />
     </div>
   );
 }
@@ -391,19 +459,10 @@ export default function InsuranceDashboard() {
   const [manualAnnualPremium, setManualAnnualPremium] = useState<number | null>(
     resolveManualPremiumFor(addressParam)
   );
-  // Editable input value (kept as a string so partial entry like "5" → "50"
-  // → "500" doesn't reset the cursor or coerce to 0 mid-typing).
-  const [manualPremiumInput, setManualPremiumInput] = useState<string>(
-    () => {
-      const v = resolveManualPremiumFor(addressParam);
-      return v == null ? "" : String(Math.round(v));
-    }
-  );
   // Re-hydrate from saved state when the address switches.
   useEffect(() => {
     const v = resolveManualPremiumFor(addressParam);
     setManualAnnualPremium(v);
-    setManualPremiumInput(v == null ? "" : String(Math.round(v)));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressParam]);
 
@@ -502,8 +561,17 @@ export default function InsuranceDashboard() {
   //    future property-value sync can't reset them.
   function resolveFactorsFor(addr: string): {
     roof: number; wind: number; hurr: number; cons: number; year: number; claims: number;
+    roofYear: number; yearBuilt: number;
+    openingProtection: number; roofShape: number; swr: number;
   } {
-    const defaults = { roof: 1, wind: 1, hurr: 0, cons: 0, year: 1, claims: 0 };
+    const defaults = {
+      roof: 1, wind: 1, hurr: 0, cons: 0, year: 1, claims: 0,
+      roofYear: DEFAULT_ROOF_YEAR,
+      yearBuilt: DEFAULT_YEAR_BUILT,
+      openingProtection: 0,
+      roofShape: 2,
+      swr: 1,
+    };
     const key = (addr ?? "").trim().toLowerCase();
     if (!key) return defaults;
     const ins = getInsuranceScenarios().find(
@@ -515,44 +583,148 @@ export default function InsuranceDashboard() {
       const v = ua[k];
       return typeof v === "number" && Number.isFinite(v) ? v : d;
     };
+    const legacyRoof = pick("factor_roofIdx", defaults.roof);
+    const legacyWind = pick("factor_windIdx", defaults.wind);
+    const legacyYear = pick("factor_yearIdx", defaults.year);
+    const roofYearsFromLegacy = [
+      CURRENT_YEAR - 2,
+      CURRENT_YEAR - 10,
+      CURRENT_YEAR - 17,
+      CURRENT_YEAR - 25,
+    ];
+    const yearsBuiltFromLegacy = [2005, 1995, 1980, 1960];
     return {
-      roof:   pick("factor_roofIdx",   defaults.roof),
-      wind:   pick("factor_windIdx",   defaults.wind),
-      hurr:   pick("factor_hurrIdx",   defaults.hurr),
-      cons:   pick("factor_constIdx",  defaults.cons),
-      year:   pick("factor_yearIdx",   defaults.year),
-      claims: pick("factor_claimsIdx", defaults.claims),
+      roof: legacyRoof,
+      wind: legacyWind,
+      hurr: pick("factor_hurrIdx", defaults.hurr),
+      cons: pick("factor_constIdx", defaults.cons),
+      year: legacyYear,
+      claims: 0,
+      roofYear: pick("roof_year", roofYearsFromLegacy[legacyRoof] ?? defaults.roofYear),
+      yearBuilt: pick("year_built", yearsBuiltFromLegacy[legacyYear] ?? defaults.yearBuilt),
+      openingProtection: pick(
+        "opening_protection_idx",
+        legacyWind === 2 ? 1 : defaults.openingProtection,
+      ),
+      roofShape: pick("roof_shape_idx", legacyWind === 2 ? 0 : defaults.roofShape),
+      swr: pick("swr_idx", legacyWind === 2 ? 2 : legacyWind === 0 ? 0 : defaults.swr),
     };
   }
   const initialFactors = resolveFactorsFor(addressParam);
-  const [roofIdx, setRoofIdx]     = useState(initialFactors.roof);
-  const [windIdx, setWindIdx]     = useState(initialFactors.wind);
   const [hurrIdx, setHurrIdx]     = useState(initialFactors.hurr);
   const [constIdx, setConstIdx]   = useState(initialFactors.cons);
-  const [yearIdx, setYearIdx]     = useState(initialFactors.year);
-  const [claimsIdx, setClaimsIdx] = useState(initialFactors.claims);
+  const [roofYear, setRoofYear] = useState(initialFactors.roofYear);
+  const [yearBuilt, setYearBuilt] = useState(initialFactors.yearBuilt);
+  const [openingProtectionIdx, setOpeningProtectionIdx] = useState(initialFactors.openingProtection);
+  const [roofShapeIdx, setRoofShapeIdx] = useState(initialFactors.roofShape);
+  const [swrIdx, setSwrIdx] = useState(initialFactors.swr);
+  const roofIdx = roofFactorIndex(roofYear);
+  const yearIdx = yearBuiltFactorIndex(yearBuilt);
+  const windIdx = windMitigationIndex(openingProtectionIdx, roofShapeIdx, swrIdx);
+  const claimsIdx = 0; // General estimates always assume no claims in the past five years.
 
-  // AOP deductible + carrier — same persistence pattern as the factor
-  // dropdowns (stored in `user_answer_sources`). Resolve a saved value
-  // for this address, else fall back to the standard defaults.
-  function resolveExtrasFor(addr: string): { aop: number; carrier: string } {
+  // AOP deductible uses the existing `user_answer_sources` jsonb scratch map.
+  function resolveExtrasFor(addr: string): { aop: number } {
     const key = (addr ?? "").trim().toLowerCase();
     const ins = key
       ? getInsuranceScenarios().find(s => (s.address ?? "").trim().toLowerCase() === key)
       : undefined;
     const ua = ins?.userAnswerSources;
     const aopRaw = ua?.aop_deductible;
-    const carrierRaw = ua?.carrier;
     return {
       aop: typeof aopRaw === "number" && Number.isFinite(aopRaw) && aopRaw > 0
         ? aopRaw : DEFAULT_AOP_DEDUCTIBLE,
-      carrier: typeof carrierRaw === "string" && carrierRaw.trim()
-        ? carrierRaw.trim() : DEFAULT_CARRIER,
     };
   }
   const initialExtras = resolveExtrasFor(addressParam);
   const [aopDeductible, setAopDeductible] = useState<number>(initialExtras.aop);
-  const [carrier, setCarrier]             = useState<string>(initialExtras.carrier);
+
+  function resolveQuotePropertyAnswersFor(addr: string): {
+    newPurchase: boolean | null;
+    purchaseDate: string;
+    ho6ResidenceUse: QuoteRushResidenceUse | "";
+    ho6RentalTerm: QuoteRushRentalTerm | "";
+  } {
+    const key = (addr ?? "").trim().toLowerCase();
+    const ins = key
+      ? getInsuranceScenarios().find(s => (s.address ?? "").trim().toLowerCase() === key)
+      : undefined;
+    const ua = ins?.userAnswerSources;
+    const savedNewPurchase = ua?.quote_new_purchase;
+    const savedResidenceUse = ua?.quote_ho6_residence_use;
+    const savedRentalTerm = ua?.quote_ho6_rental_term;
+    return {
+      newPurchase:
+        typeof savedNewPurchase === "boolean" ? savedNewPurchase : null,
+      purchaseDate:
+        typeof ua?.quote_purchase_date === "string" ? ua.quote_purchase_date : "",
+      ho6ResidenceUse:
+        savedResidenceUse === "primary" ||
+        savedResidenceUse === "secondary" ||
+        savedResidenceUse === "investment"
+          ? savedResidenceUse
+          : "",
+      ho6RentalTerm:
+        savedRentalTerm === "annual" ||
+        savedRentalTerm === "monthly" ||
+        savedRentalTerm === "weekly"
+          ? savedRentalTerm
+          : "",
+    };
+  }
+
+  const initialQuotePropertyAnswers = resolveQuotePropertyAnswersFor(addressParam);
+  const [newPurchase, setNewPurchase] = useState<boolean | null>(
+    initialQuotePropertyAnswers.newPurchase,
+  );
+  const [purchaseDate, setPurchaseDate] = useState(
+    initialQuotePropertyAnswers.purchaseDate,
+  );
+  const [ho6ResidenceUse, setHo6ResidenceUse] =
+    useState<QuoteRushResidenceUse | "">(
+      initialQuotePropertyAnswers.ho6ResidenceUse,
+    );
+  const [ho6RentalTerm, setHo6RentalTerm] =
+    useState<QuoteRushRentalTerm | "">(
+      initialQuotePropertyAnswers.ho6RentalTerm,
+    );
+
+  function withQuotePropertyAnswers(
+    existing: Record<string, any> | undefined,
+  ): Record<string, any> {
+    return {
+      ...(existing ?? {}),
+      quote_new_purchase: newPurchase,
+      quote_purchase_date: purchaseDate,
+      quote_ho6_residence_use: ho6ResidenceUse,
+      quote_ho6_rental_term: ho6RentalTerm,
+    };
+  }
+
+  function currentQuoteRushPropertyDefaults() {
+    if (!policyType) {
+      throw new Error("Select a policy type before requesting live quotes.");
+    }
+    if (newPurchase === null) {
+      throw new Error("Select whether this is a new purchase.");
+    }
+    if (!purchaseDate) {
+      throw new Error(
+        newPurchase
+          ? "Enter the expected closing date."
+          : "Enter the date the home was purchased.",
+      );
+    }
+    return resolveQuoteRushPropertyDefaults({
+      policyType,
+      rebuildCost: rebuild,
+      newPurchase,
+      purchaseDate,
+      ho6ResidenceUse,
+      ho6RentalTerm,
+    });
+  }
+
   // Flood zone resolved from FEMA (or a previously-saved value). Empty
   // string = unknown / still resolving (the UI shows "—").
   const [floodZone, setFloodZone]             = useState<string>("");
@@ -579,6 +751,10 @@ export default function InsuranceDashboard() {
     useState<string | null>(null);
   const [qrRefreshing, setQrRefreshing] =
     useState(false);
+  const [dobPromptOpen, setDobPromptOpen] = useState(false);
+  const [dobInput, setDobInput] = useState("");
+  const [dobError, setDobError] = useState("");
+  const [dobSaving, setDobSaving] = useState(false);
   const qrPollRef = useRef<
     ReturnType<typeof setInterval> | null
   >(null);
@@ -613,12 +789,22 @@ export default function InsuranceDashboard() {
     setQrQuoteCounter(0);
     setQrExpiresAt(null);
     const f = resolveFactorsFor(addressParam);
-    setRoofIdx(f.roof);    setWindIdx(f.wind);    setHurrIdx(f.hurr);
-    setConstIdx(f.cons);   setYearIdx(f.year);    setClaimsIdx(f.claims);
+    setHurrIdx(f.hurr);
+    setConstIdx(f.cons);
+    setRoofYear(f.roofYear);
+    setYearBuilt(f.yearBuilt);
+    setOpeningProtectionIdx(f.openingProtection);
+    setRoofShapeIdx(f.roofShape);
+    setSwrIdx(f.swr);
     const ex = resolveExtrasFor(addressParam);
-    setAopDeductible(ex.aop); setCarrier(ex.carrier);
+    setAopDeductible(ex.aop);
+    const quoteProperty = resolveQuotePropertyAnswersFor(addressParam);
+    setNewPurchase(quoteProperty.newPurchase);
+    setPurchaseDate(quoteProperty.purchaseDate);
+    setHo6ResidenceUse(quoteProperty.ho6ResidenceUse);
+    setHo6RentalTerm(quoteProperty.ho6RentalTerm);
     console.debug("[insurance-user-load] loaded user fields", {
-      address: addressParam, factors: f, aop: ex.aop, carrier: ex.carrier,
+      address: addressParam, factors: f, aop: ex.aop, quoteProperty,
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressParam]);
@@ -628,7 +814,7 @@ export default function InsuranceDashboard() {
     if (addressParam) setRegionKey(getRegionFromAddress(addressParam));
   }, [addressParam]);
 
-  // One-time note: AOP deductible, carrier, and flood zone reuse the
+  // One-time note: AOP deductible, property details, and flood zone reuse the
   // existing `user_answer_sources` jsonb column — no schema migration
   // was required to add them.
   useEffect(() => {
@@ -729,13 +915,21 @@ export default function InsuranceDashboard() {
 
   // ── Scenario helpers ─────────────────────────────────────────────────────
   function currentSettings(): InsuranceSettings {
-    return { regionKey, rebuild, roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx };
+    return {
+      regionKey, rebuild, roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx,
+      roofYear, yearBuilt, openingProtectionIdx, roofShapeIdx, swrIdx,
+    };
   }
 
   function applySettings(s: InsuranceSettings) {
     setRegionKey(s.regionKey); setRebuild(s.rebuild);
-    setRoofIdx(s.roofIdx); setWindIdx(s.windIdx); setHurrIdx(s.hurrIdx);
-    setConstIdx(s.constIdx); setYearIdx(s.yearIdx); setClaimsIdx(s.claimsIdx);
+    setHurrIdx(s.hurrIdx);
+    setConstIdx(s.constIdx);
+    setRoofYear(s.roofYear ?? [CURRENT_YEAR - 2, CURRENT_YEAR - 10, CURRENT_YEAR - 17, CURRENT_YEAR - 25][s.roofIdx] ?? DEFAULT_ROOF_YEAR);
+    setYearBuilt(s.yearBuilt ?? [2005, 1995, 1980, 1960][s.yearIdx] ?? DEFAULT_YEAR_BUILT);
+    setOpeningProtectionIdx(s.openingProtectionIdx ?? (s.windIdx === 2 ? 1 : 0));
+    setRoofShapeIdx(s.roofShapeIdx ?? (s.windIdx === 2 ? 0 : 2));
+    setSwrIdx(s.swrIdx ?? (s.windIdx === 2 ? 2 : s.windIdx === 0 ? 0 : 1));
   }
 
   function switchScenario(targetId: string) {
@@ -789,8 +983,14 @@ export default function InsuranceDashboard() {
     setActiveScenarioId(newId);
     setLocation(`/insurance?address=${encodeURIComponent(addr)}`);
     setRegionKey(getRegionFromAddress(addr));
-    setRebuild(defaultRebuildFor(addr, null)); setRoofIdx(1); setWindIdx(1); setHurrIdx(0);
-    setConstIdx(0); setYearIdx(1); setClaimsIdx(0);
+    setRebuild(defaultRebuildFor(addr, null));
+    setRoofYear(DEFAULT_ROOF_YEAR);
+    setYearBuilt(DEFAULT_YEAR_BUILT);
+    setOpeningProtectionIdx(0);
+    setRoofShapeIdx(2);
+    setSwrIdx(1);
+    setHurrIdx(0);
+    setConstIdx(0);
     setNewScenarioAddress("");
     setShowAddressPrompt(false);
   }
@@ -1023,8 +1223,13 @@ export default function InsuranceDashboard() {
       // change keeps annual premium consistent (mirrors the Save
       // button). When the user has typed a manual premium, that wins.
       const midNow = (() => {
-        const rawAdj = ROOF_ADJ[roofIdx] * WIND_ADJ[windIdx] * HURR_ADJ[hurrIdx]
-          * CONST_ADJ[constIdx] * YEAR_ADJ[yearIdx] * CLAIM_ADJ[claimsIdx];
+        const rawAdj = ROOF_ADJ[roofIdx]
+          * OPENING_PROTECTION_ADJ[openingProtectionIdx]
+          * ROOF_SHAPE_ADJ[roofShapeIdx]
+          * SWR_ADJ[swrIdx]
+          * HURR_ADJ[hurrIdx]
+          * CONST_ADJ[constIdx]
+          * YEAR_ADJ[yearIdx];
         const adj = rawAdj / NEUTRAL_FACTOR_PRODUCT;
         return rebuild * DEFAULT_HOMEOWNERS_INSURANCE_PERCENT * adj;
       })();
@@ -1034,23 +1239,23 @@ export default function InsuranceDashboard() {
       // all-defaults, we still preserve a prior manual stamp on the
       // existing row so they don't lose the lock by accident.
       const factorsChangedFromDefault =
-        roofIdx !== 1 || windIdx !== 1 || hurrIdx !== 0 ||
-        constIdx !== 0 || yearIdx !== 1 || claimsIdx !== 0;
+        roofYear !== DEFAULT_ROOF_YEAR ||
+        yearBuilt !== DEFAULT_YEAR_BUILT ||
+        openingProtectionIdx !== 0 ||
+        roofShapeIdx !== 2 ||
+        swrIdx !== 1 ||
+        hurrIdx !== 0 ||
+        constIdx !== 0;
       const discountsSource =
         factorsChangedFromDefault || match?.discountsSource === "manual"
           ? "manual" as const
           : match?.discountsSource;
-      // AOP deductible / carrier: stamp "manual" once edited away from the
-      // default, preserving any prior manual lock on the existing row.
-      const carrierNow = carrier.trim() || DEFAULT_CARRIER;
+      // AOP deductible: stamp "manual" once edited away from the default,
+      // preserving any prior manual lock on the existing row.
       const aopSourceNow =
         aopDeductible !== DEFAULT_AOP_DEDUCTIBLE || match?.aopDeductibleSource === "manual"
           ? "manual" as const
           : match?.aopDeductibleSource;
-      const carrierSourceNow =
-        carrierNow !== DEFAULT_CARRIER || match?.carrierSource === "manual"
-          ? "manual" as const
-          : match?.carrierSource;
       const updated: InsuranceScenario = {
         id: match?.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         address: addr,
@@ -1079,36 +1284,38 @@ export default function InsuranceDashboard() {
         ...(match?.occupancyType ? { occupancyType: match.occupancyType } : {}),
         ...(match?.propertyType ? { propertyType: match.propertyType } : {}),
         // Carry forward all previously-stamped source fields so we
-        // don't wipe locks set by future UI work (carrier / AOP /
+        // don't wipe locks set by future UI work (AOP /
         // deductibles / quote details).
         ...(match?.occupancyTypeSource ? { occupancyTypeSource: match.occupancyTypeSource } : {}),
         ...(match?.propertyTypeSource ? { propertyTypeSource: match.propertyTypeSource } : {}),
-        // Carrier / AOP source: stamp "manual" once the user changes the
-        // value away from the default, and keep a prior manual stamp so a
-        // reset back to the default doesn't silently unlock it.
-        ...(carrierSourceNow ? { carrierSource: carrierSourceNow } : {}),
+        // AOP source: stamp "manual" once the user changes the value away
+        // from the default, and keep a prior manual stamp.
         ...(aopSourceNow ? { aopDeductibleSource: aopSourceNow } : {}),
         ...(match?.hurricaneDeductibleSource ? { hurricaneDeductibleSource: match.hurricaneDeductibleSource } : {}),
         ...(match?.floodDeductibleSource ? { floodDeductibleSource: match.floodDeductibleSource } : {}),
         ...(match?.quoteDetailsSource ? { quoteDetailsSource: match.quoteDetailsSource } : {}),
         ...(discountsSource ? { discountsSource } : {}),
-        // Persist the six factor picks inside the jsonb scratch map.
+        // Persist the estimate answers inside the jsonb scratch map.
         // Keys are namespaced with `factor_` so they don't collide
         // with any future source-tag entries the cash-buy / seller
-        // pattern might add to the same column. AOP deductible, carrier,
-        // and the FEMA flood zone live here too (no dedicated value
+        // pattern might add to the same column. AOP deductible and the
+        // FEMA flood zone live here too (no dedicated value
         // column needed).
         userAnswerSources: {
-          ...(match?.userAnswerSources ?? {}),
+          ...withQuotePropertyAnswers(match?.userAnswerSources),
           factor_roofIdx: roofIdx,
           factor_windIdx: windIdx,
           factor_hurrIdx: hurrIdx,
           factor_constIdx: constIdx,
           factor_yearIdx: yearIdx,
-          factor_claimsIdx: claimsIdx,
+          factor_claimsIdx: 0,
+          roof_year: roofYear,
+          year_built: yearBuilt,
+          opening_protection_idx: openingProtectionIdx,
+          roof_shape_idx: roofShapeIdx,
+          swr_idx: swrIdx,
           ...(factorsChangedFromDefault ? { factor_source: "manual" } : {}),
           aop_deductible: aopDeductible,
-          carrier: carrierNow,
           // Only write a flood zone once one is actually resolved so the
           // empty mid-lookup state never wipes a previously-saved value.
           ...(floodZone
@@ -1121,7 +1328,10 @@ export default function InsuranceDashboard() {
       console.debug("[insurance-user-save] changed field", "(autosave snapshot)");
       console.debug("[insurance-user-save] value", {
         coverageA: rebuild, policyType, manualAnnualPremium,
-        factors: { roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx },
+        factors: {
+          roofYear, yearBuilt, openingProtectionIdx, roofShapeIdx, swrIdx,
+          hurrIdx, constIdx,
+        },
       });
       console.debug("[insurance-user-save] source", {
         coverageA: updated.coverageASource, policy: updated.policyTypeSource,
@@ -1142,8 +1352,9 @@ export default function InsuranceDashboard() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     isAuthenticated, address, rebuild, policyType, policyTypeSource,
-    manualAnnualPremium, roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx,
-    aopDeductible, carrier, floodZone, floodZoneSource,
+    manualAnnualPremium, roofYear, yearBuilt, openingProtectionIdx, roofShapeIdx,
+    swrIdx, hurrIdx, constIdx, aopDeductible, floodZone, floodZoneSource,
+    newPurchase, purchaseDate, ho6ResidenceUse, ho6RentalTerm,
   ]);
 
   // Auto-trigger / cache-hydrate QuoteRUSH when address + rebuild ready.
@@ -1435,6 +1646,45 @@ export default function InsuranceDashboard() {
     if (!address || !rebuild || !isAuthenticated)
       return;
 
+    try {
+      currentQuoteRushPropertyDefaults();
+    } catch (error) {
+      toast({
+        title: "Complete the property information",
+        description:
+          error instanceof Error ? error.message : "Complete the required property questions.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const hasDateOfBirth =
+      getSession()?.hasDateOfBirth ||
+      await hasSavedDateOfBirth();
+    if (!hasDateOfBirth) {
+      setDobError("");
+      setDobPromptOpen(true);
+      return;
+    }
+
+    await submitQuoteRush();
+  }
+
+  async function submitQuoteRush(): Promise<void> {
+    let propertyDefaults;
+    try {
+      propertyDefaults = currentQuoteRushPropertyDefaults();
+    } catch (error) {
+      setQrStatus("idle");
+      toast({
+        title: "Complete the property information",
+        description:
+          error instanceof Error ? error.message : "Complete the required property questions.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (qrPollRef.current)
       clearInterval(qrPollRef.current);
     if (qrTimerRef.current)
@@ -1458,6 +1708,14 @@ export default function InsuranceDashboard() {
             address,
             coverageA: rebuild,
             policyType: policyType || "HO3",
+            // Send the answers as entered. The index fields remain for
+            // compatibility with older callers of this endpoint.
+            yearBuilt,
+            roofYear,
+            openingProtection: openingProtectionIdx === 1,
+            roofShape: ["Hip", "Flat", "Gable"][roofShapeIdx] ?? "Gable",
+            secondaryWaterResistance:
+              swrIdx === 2 ? "Yes" : swrIdx === 0 ? "No" : "Unknown",
             yearIdx,
             roofIdx,
             constIdx,
@@ -1467,7 +1725,16 @@ export default function InsuranceDashboard() {
             aopDeductible,
             floodZone: floodZone || "X",
             sqFt: 0,
-            newPurchase: false,
+            newPurchase: propertyDefaults.newPurchase === "Yes",
+            purchaseDate,
+            ...(policyType === "HO6" && ho6ResidenceUse
+              ? { usageType: ho6ResidenceUse }
+              : {}),
+            ...(policyType === "HO6" &&
+            ho6ResidenceUse === "investment" &&
+            ho6RentalTerm
+              ? { rentalTerm: ho6RentalTerm }
+              : {}),
           }),
         }
       );
@@ -1475,6 +1742,15 @@ export default function InsuranceDashboard() {
       const data = await startRes.json();
 
       if (!startRes.ok) {
+        if (
+          startRes.status === 428 &&
+          data.code === "DOB_REQUIRED"
+        ) {
+          setQrStatus("idle");
+          setDobError("");
+          setDobPromptOpen(true);
+          return;
+        }
         setQrStatus("error");
         if (qrTimerRef.current)
           clearInterval(qrTimerRef.current);
@@ -1528,6 +1804,29 @@ export default function InsuranceDashboard() {
     }
   }
 
+  async function handleDobPreflight(
+    event: React.FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+    setDobError("");
+    if (!normalizeDateOfBirth(dobInput)) {
+      setDobError("Please enter a valid date of birth.");
+      return;
+    }
+
+    setDobSaving(true);
+    const result = await saveDateOfBirth(dobInput);
+    setDobSaving(false);
+    if (!result.ok) {
+      setDobError(result.error || "We couldn't save your date of birth.");
+      return;
+    }
+
+    setDobPromptOpen(false);
+    setDobInput("");
+    await submitQuoteRush();
+  }
+
   // ── Calculations ─────────────────────────────────────────────────────────
   const region = REGIONS[regionKey];
 
@@ -1537,29 +1836,27 @@ export default function InsuranceDashboard() {
     // Ongoing Costs row for the same property. Factors still scale the
     // band, but they're normalized against the default product so a
     // property with neutral factors lands exactly on the 0.75% number.
-    const rawAdj = ROOF_ADJ[roofIdx] * WIND_ADJ[windIdx] * HURR_ADJ[hurrIdx] * CONST_ADJ[constIdx] * YEAR_ADJ[yearIdx] * CLAIM_ADJ[claimsIdx];
+    // Claims are not a user input: general estimates always assume no
+    // claims during the past five years.
+    const rawAdj = ROOF_ADJ[roofIdx]
+      * OPENING_PROTECTION_ADJ[openingProtectionIdx]
+      * ROOF_SHAPE_ADJ[roofShapeIdx]
+      * SWR_ADJ[swrIdx]
+      * HURR_ADJ[hurrIdx]
+      * CONST_ADJ[constIdx]
+      * YEAR_ADJ[yearIdx];
     const adj = rawAdj / NEUTRAL_FACTOR_PRODUCT;
     const midRate  = DEFAULT_HOMEOWNERS_INSURANCE_PERCENT * adj;
-    const lowRate  = midRate * 0.85;
-    const highRate = midRate * 1.15;
-    const hurrDeductiblePct = [0.02, 0.03, 0.05][hurrIdx];
+    const hurrDeductiblePct = [0.02, 0.05, 0.10][hurrIdx];
     return {
-      low: rebuild * lowRate, mid: rebuild * midRate, high: rebuild * highRate,
-      monthly: rebuild * midRate / 12,
+      mid: rebuild * midRate,
       hurrDeductible: rebuild * hurrDeductiblePct,
       hurrPct: hurrDeductiblePct * 100,
-      windEffect: windIdx === 2 ? { label: "−18%", dir: "save" } : windIdx === 0 ? { label: "+14%", dir: "cost" } : { label: "Baseline", dir: "neutral" },
-      roofEffect: roofIdx === 0 ? { label: "−10%", dir: "save" } : roofIdx === 1 ? { label: "Baseline", dir: "neutral" } : roofIdx === 2 ? { label: "+20%", dir: "cost" } : { label: "+38%", dir: "cost" },
-      hurrEffect: hurrIdx === 0 ? { label: "Standard (2%)", dir: "neutral" } : hurrIdx === 1 ? { label: "−5% vs 2%", dir: "save" } : { label: "−10% vs 2%", dir: "save" },
-      constEffect: constIdx === 0 ? { label: "−7%", dir: "save" } : constIdx === 2 ? { label: "+8%", dir: "cost" } : { label: "Baseline", dir: "neutral" },
     };
-  }, [region, rebuild, roofIdx, windIdx, hurrIdx, constIdx, yearIdx, claimsIdx]);
-
-  function EffectBadge({ label, dir }: { label: string; dir: string }) {
-    if (dir === "save") return <span className="inline-flex items-center gap-1 text-green-700 font-semibold text-sm"><TrendingDown className="h-3.5 w-3.5" />{label}</span>;
-    if (dir === "cost") return <span className="inline-flex items-center gap-1 text-red-600 font-semibold text-sm"><TrendingUp className="h-3.5 w-3.5" />{label}</span>;
-    return <span className="inline-flex items-center gap-1 text-muted-foreground text-sm"><Minus className="h-3.5 w-3.5" />{label}</span>;
-  }
+  }, [
+    rebuild, roofIdx, openingProtectionIdx, roofShapeIdx, swrIdx,
+    hurrIdx, constIdx, yearIdx,
+  ]);
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -1778,20 +2075,8 @@ export default function InsuranceDashboard() {
                           { label: "Property type", value: propertyType || "—" },
                           { label: "Coverage A / Rebuild cost", value: fmt(rebuild) },
                           { label: "Annual premium", value: fmt(annualPremium) },
-                          { label: "Monthly premium", value: fmt(calc.monthly) },
-                          { label: `Hurricane deductible (${calc.hurrPct.toFixed(0)}%)`, value: fmt(calc.hurrDeductible) },
                           { label: "AOP deductible", value: fmt(aopDeductible) },
                           { label: "Flood zone", value: floodZone || "—" },
-                          { label: "Carrier", value: carrier.trim() || DEFAULT_CARRIER },
-                        ],
-                      },
-                      {
-                        heading: "Discounts / Mitigation",
-                        rows: [
-                          { label: "Roof", value: calc.roofEffect.label },
-                          { label: "Wind mitigation", value: calc.windEffect.label },
-                          { label: "Hurricane deductible", value: calc.hurrEffect.label },
-                          { label: "Construction", value: calc.constEffect.label },
                         ],
                       },
                     ],
@@ -1852,6 +2137,9 @@ export default function InsuranceDashboard() {
                       : {}),
                     ...(match?.occupancyType ? { occupancyType: match.occupancyType } : {}),
                     ...(match?.propertyType ? { propertyType: match.propertyType } : {}),
+                    userAnswerSources: withQuotePropertyAnswers(
+                      match?.userAnswerSources,
+                    ),
                   };
                   const next = match
                     ? existing.map(s => (s.id === match.id ? updated : s))
@@ -1875,14 +2163,17 @@ export default function InsuranceDashboard() {
             <div className="h-1.5 w-full rounded-full bg-primary" />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[420px_1fr] gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
-            {/* ── LEFT: Inputs ── */}
-            <Card className="border shadow-sm">
+            {/* ── SECTION 1: General estimate ── */}
+            <Card className="border shadow-sm overflow-hidden">
               <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <Home className="h-4 w-4 text-primary" /> Property Details
+                  <Home className="h-4 w-4 text-primary" /> General Insurance Estimate
                 </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Adjust the property details below to refine your planning estimate.
+                </p>
               </CardHeader>
               <CardContent className="space-y-5">
 
@@ -1915,17 +2206,128 @@ export default function InsuranceDashboard() {
                       <option key={k} value={k}>{INSURANCE_POLICY_TYPE_LABELS[k]}</option>
                     ))}
                   </select>
+                  <p className="text-xs text-muted-foreground/80">
+                    QuoteRUSH policy defaults are applied automatically when this selection changes.
+                  </p>
                 </div>
 
-                <SelectRow
-                  label="Region / Risk Tier"
-                  value={Object.keys(REGIONS).indexOf(regionKey)}
-                  onChange={i => setRegionKey(Object.keys(REGIONS)[i] as RegionKey)}
-                  options={Object.entries(REGIONS).map(([, r], i) => ({ value: i, label: r.name + " — " + r.counties }))}
-                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
+                      Is this a new purchase?
+                    </label>
+                    <select
+                      value={
+                        newPurchase === null ? "" : newPurchase ? "yes" : "no"
+                      }
+                      onChange={event => {
+                        const next = event.target.value;
+                        setNewPurchase(
+                          next === "yes" ? true : next === "no" ? false : null,
+                        );
+                        setPurchaseDate("");
+                      }}
+                      data-testid="select-new-purchase"
+                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    >
+                      <option value="">— select —</option>
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </div>
+
+                  {newPurchase !== null && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
+                        {newPurchase
+                          ? "Expected closing date"
+                          : "Date home was purchased"}
+                      </label>
+                      <input
+                        type="date"
+                        value={purchaseDate}
+                        onChange={event => setPurchaseDate(event.target.value)}
+                        data-testid="input-purchase-date"
+                        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {policyType === "HO6" && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
+                        Residence use
+                      </label>
+                      <select
+                        value={ho6ResidenceUse}
+                        onChange={event => {
+                          const next = event.target.value as QuoteRushResidenceUse | "";
+                          setHo6ResidenceUse(next);
+                          if (next !== "investment") setHo6RentalTerm("");
+                        }}
+                        data-testid="select-ho6-residence-use"
+                        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      >
+                        <option value="">— select —</option>
+                        <option value="primary">Primary residence</option>
+                        <option value="secondary">Secondary residence</option>
+                        <option value="investment">Investment property</option>
+                      </select>
+                    </div>
+
+                    {ho6ResidenceUse === "investment" && (
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
+                          Rental term
+                        </label>
+                        <select
+                          value={ho6RentalTerm}
+                          onChange={event =>
+                            setHo6RentalTerm(
+                              event.target.value as QuoteRushRentalTerm | "",
+                            )
+                          }
+                          data-testid="select-ho6-rental-term"
+                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        >
+                          <option value="">— select —</option>
+                          <option value="annual">Annual</option>
+                          <option value="monthly">Monthly</option>
+                          <option value="weekly">Week and under</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {policyType && (
+                  <div className="rounded-lg border border-primary/15 bg-primary/5 p-3 text-xs leading-relaxed text-foreground">
+                    <strong>QuoteRUSH defaults:</strong>{" "}
+                    {policyType === "HO3"
+                      ? "Primary residence"
+                      : policyType === "DP3"
+                        ? "Investment property"
+                        : ho6ResidenceUse
+                          ? `${ho6ResidenceUse[0].toUpperCase()}${ho6ResidenceUse.slice(1)} residence`
+                          : "Choose the residence use above"}
+                    {policyType === "HO6" && ho6ResidenceUse === "investment"
+                      ? `, ${
+                          ho6RentalTerm === "weekly"
+                            ? "Weekly"
+                            : ho6RentalTerm
+                              ? `${ho6RentalTerm[0].toUpperCase()}${ho6RentalTerm.slice(1)}`
+                              : "rental term required"
+                        } rental term`
+                      : ""}
+                    , 9 months or more occupied, and a purchase price of{" "}
+                    {fmt(rebuild * (policyType === "HO6" ? 2 : 1))}.
+                  </div>
+                )}
 
                 <SliderRow
-                  label="Rebuild / Replacement Cost (Coverage A)"
+                  label="Estimated Rebuild / Replacement Cost (Coverage A)"
                   value={rebuild}
                   onChange={setRebuild}
                   min={150000} max={1500000} step={25000}
@@ -1933,26 +2335,42 @@ export default function InsuranceDashboard() {
 
                 <Separator />
 
+                <YearInputRow
+                  label="What year was the roof installed?"
+                  value={roofYear}
+                  onChange={setRoofYear}
+                  testId="input-roof-year"
+                />
+
                 <SelectRow
-                  label="Roof Age"
-                  value={roofIdx}
-                  onChange={setRoofIdx}
+                  label="Hurricane impact-rated doors and windows or shutters?"
+                  value={openingProtectionIdx}
+                  onChange={setOpeningProtectionIdx}
                   options={[
-                    { value: 0, label: "Under 5 years" },
-                    { value: 1, label: "5–14 years — standard" },
-                    { value: 2, label: "15–20 years" },
-                    { value: 3, label: "20+ years — limited carrier options" },
+                    { value: 0, label: "No" },
+                    { value: 1, label: "Yes" },
                   ]}
                 />
 
                 <SelectRow
-                  label="Wind Mitigation"
-                  value={windIdx}
-                  onChange={setWindIdx}
+                  label="What type of roof do you have?"
+                  value={roofShapeIdx}
+                  onChange={setRoofShapeIdx}
                   options={[
-                    { value: 0, label: "No inspection / no features on file" },
-                    { value: 1, label: "Basic inspection on file — standard" },
-                    { value: 2, label: "Full mitigation: hip roof, shutters, SWR" },
+                    { value: 0, label: "Hip roof" },
+                    { value: 1, label: "Flat roof" },
+                    { value: 2, label: "Other / unsure" },
+                  ]}
+                />
+
+                <SelectRow
+                  label="Second Water Resistance Layer (SWR)?"
+                  value={swrIdx}
+                  onChange={setSwrIdx}
+                  options={[
+                    { value: 2, label: "Yes" },
+                    { value: 0, label: "No" },
+                    { value: 1, label: "Unsure" },
                   ]}
                 />
 
@@ -1962,8 +2380,8 @@ export default function InsuranceDashboard() {
                   onChange={setHurrIdx}
                   options={[
                     { value: 0, label: "2% of dwelling — standard" },
-                    { value: 1, label: "3% of dwelling" },
-                    { value: 2, label: "5% of dwelling" },
+                    { value: 1, label: "5% of dwelling — max allowed for most loans" },
+                    { value: 2, label: "10% of dwelling" },
                   ]}
                 />
 
@@ -1972,34 +2390,17 @@ export default function InsuranceDashboard() {
                   value={constIdx}
                   onChange={setConstIdx}
                   options={[
-                    { value: 0, label: "Concrete block / CBS — preferred" },
-                    { value: 1, label: "Mixed / unknown — standard" },
-                    { value: 2, label: "Frame construction" },
+                    { value: 0, label: "Concrete Block" },
+                    { value: 2, label: "Frame" },
+                    { value: 1, label: "Mix" },
                   ]}
                 />
 
-                <SelectRow
-                  label="Year Built"
-                  value={yearIdx}
-                  onChange={setYearIdx}
-                  options={[
-                    { value: 0, label: "2002 or newer — Florida Building Code" },
-                    { value: 1, label: "1990–2001 — standard" },
-                    { value: 2, label: "1970–1989" },
-                    { value: 3, label: "Pre-1970" },
-                  ]}
-                />
-
-                <SelectRow
-                  label="Claims History (past 5 years)"
-                  value={claimsIdx}
-                  onChange={setClaimsIdx}
-                  options={[
-                    { value: 0, label: "No claims — clean history" },
-                    { value: 1, label: "1 claim filed" },
-                    { value: 2, label: "2 claims filed" },
-                    { value: 3, label: "3+ claims" },
-                  ]}
+                <YearInputRow
+                  label="What year was the home built?"
+                  value={yearBuilt}
+                  onChange={setYearBuilt}
+                  testId="input-year-built"
                 />
 
                 <SelectRow
@@ -2007,24 +2408,13 @@ export default function InsuranceDashboard() {
                   value={aopDeductible}
                   onChange={setAopDeductible}
                   options={[
+                    { value: 500, label: "$500" },
                     { value: 1000, label: "$1,000" },
-                    { value: 2500, label: "$2,500 — standard" },
-                    { value: 5000, label: "$5,000" },
+                    { value: 2500, label: "$2,500" },
+                    { value: 5000, label: "$5,000 — max allowed for most loans" },
                     { value: 10000, label: "$10,000" },
                   ]}
                 />
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Carrier</label>
-                  <input
-                    type="text"
-                    value={carrier}
-                    onChange={e => setCarrier(e.target.value)}
-                    placeholder={DEFAULT_CARRIER}
-                    data-testid="input-carrier"
-                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Flood Zone</label>
@@ -2037,154 +2427,43 @@ export default function InsuranceDashboard() {
                       <span className="ml-2 text-xs text-muted-foreground/70">({floodZoneSource === "fema" ? "FEMA" : floodZoneSource})</span>
                     ) : null}
                   </div>
-                  <p className="text-xs text-muted-foreground/70">Auto-detected from the FEMA flood map for this address.</p>
+                  <p className="text-xs text-muted-foreground/70">
+                    Auto-detected for this address from the{" "}
+                    <a
+                      href="https://msc.fema.gov/portal/search"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary underline underline-offset-2 hover:text-primary/80"
+                    >
+                      FEMA flood map
+                    </a>.
+                  </p>
                 </div>
 
+                <div className="rounded-2xl bg-primary p-6 text-white shadow-lg">
+                  <div className="text-xs font-semibold text-white/65 uppercase tracking-widest">
+                    Estimated Annual Premium
+                  </div>
+                  <div
+                    className="mt-2 text-4xl font-bold font-mono"
+                    data-testid="estimated-annual-premium"
+                  >
+                    {fmt(calc.mid)}
+                  </div>
+                  <p className="mt-2 text-xs text-white/65">
+                    Midpoint planning estimate based on the answers above.
+                  </p>
+                </div>
+
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+                  <strong>Estimate assumption:</strong> This estimate assumes no insurance claims
+                  have been filed in the past five years.
+                </div>
               </CardContent>
             </Card>
 
-            {/* ── RIGHT: Results ── */}
-            <div className="space-y-5 lg:sticky lg:top-[145px]">
-
-              {/* Premium hero */}
-              <div className="bg-primary rounded-2xl p-6 text-white shadow-lg">
-                <div className="text-xs font-semibold text-white/60 uppercase tracking-widest mb-1">Estimated Annual Premium</div>
-                <div className="text-xs text-white/50 mb-5">{region.name} · ${rebuild.toLocaleString()} rebuild · HO-3 wind policy</div>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-white/10 rounded-xl p-4 border border-white/10">
-                    <div className="text-[10px] font-medium text-white/50 uppercase tracking-wide mb-2">Low Estimate</div>
-                    <div className="text-xl font-bold font-mono">{fmt(calc.low)}</div>
-                    <div className="text-[10px] text-white/40 mt-1">{(calc.low / rebuild * 100).toFixed(2)}% of rebuild</div>
-                  </div>
-                  <div className="bg-secondary/30 rounded-xl p-4 border border-secondary/50">
-                    <div className="text-[10px] font-medium text-secondary-foreground/70 uppercase tracking-wide mb-2">Midpoint</div>
-                    <div className="text-2xl font-bold font-mono text-secondary">{fmt(calc.mid)}</div>
-                    <div className="text-[10px] text-secondary/70 mt-1">{(calc.mid / rebuild * 100).toFixed(2)}% of rebuild</div>
-                  </div>
-                  <div className="bg-white/10 rounded-xl p-4 border border-white/10">
-                    <div className="text-[10px] font-medium text-white/50 uppercase tracking-wide mb-2">High Estimate</div>
-                    <div className="text-xl font-bold font-mono">{fmt(calc.high)}</div>
-                    <div className="text-[10px] text-white/40 mt-1">{(calc.high / rebuild * 100).toFixed(2)}% of rebuild</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Annual Premium override (editable) */}
-              <Card className="border shadow-sm">
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-                        Annual Premium
-                      </div>
-                      <div className="text-[11px] text-muted-foreground">
-                        {manualAnnualPremium != null
-                          ? "Manual override — sync will not change this"
-                          : "Auto-estimated from Coverage A — editable"}
-                      </div>
-                    </div>
-                    {manualAnnualPremium != null && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs h-7"
-                        onClick={() => {
-                          setManualAnnualPremium(null);
-                          setManualPremiumInput("");
-                        }}
-                        data-testid="insurance-reset-premium"
-                      >
-                        Reset to Estimate
-                      </Button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                        Annual
-                      </div>
-                      <div className="flex items-center gap-1 border rounded-md px-2 py-1.5 bg-white">
-                        <span className="text-muted-foreground text-sm">$</span>
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          className="flex-1 text-base font-mono font-semibold text-primary bg-transparent outline-none w-full min-w-0"
-                          value={
-                            manualAnnualPremium != null
-                              ? manualPremiumInput
-                              : String(Math.round(calc.mid))
-                          }
-                          onFocus={(e) => {
-                            // First focus while still on the auto-estimate:
-                            // seed the input with the current midpoint so
-                            // the user edits a real number, not a blank.
-                            if (manualAnnualPremium == null) {
-                              const seed = String(Math.round(calc.mid));
-                              setManualPremiumInput(seed);
-                              setManualAnnualPremium(Math.round(calc.mid));
-                              // Select the seeded text for quick replacement.
-                              setTimeout(() => e.target.select(), 0);
-                            }
-                          }}
-                          onChange={(e) => {
-                            const raw = e.target.value.replace(/[^0-9]/g, "");
-                            setManualPremiumInput(raw);
-                            if (raw === "") {
-                              // Empty input — clear manual stamp so the
-                              // calculated midpoint shows through and Reset
-                              // is effectively automatic.
-                              setManualAnnualPremium(null);
-                            } else {
-                              const n = parseInt(raw, 10);
-                              setManualAnnualPremium(Number.isFinite(n) ? n : null);
-                            }
-                          }}
-                          data-testid="insurance-manual-premium"
-                        />
-                        <span className="text-muted-foreground text-xs">/yr</span>
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide mb-1">
-                        Monthly
-                      </div>
-                      <div className="text-base font-mono font-semibold text-primary px-2 py-1.5">
-                        {fmt(
-                          (manualAnnualPremium != null
-                            ? manualAnnualPremium
-                            : calc.mid) / 12
-                        )}
-                        <span className="text-muted-foreground text-xs ml-1">/mo</span>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Key metric cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {[
-                  { label: "Monthly (midpoint)", value: fmt(calc.monthly) + "/mo", sub: "Budget planning figure" },
-                  { label: "Hurricane Deductible", value: fmt(calc.hurrDeductible), sub: `${calc.hurrPct}% of dwelling — per event` },
-                  { label: "Flood Insurance", value: "Separate", sub: "NFIP or private — not included" },
-                  { label: "Risk Tier", value: region.tier, sub: region.name, badge: true, tierColor: region.tierColor },
-                ].map((m, i) => (
-                  <Card key={i} className="border shadow-sm">
-                    <CardContent className="p-4">
-                      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">{m.label}</div>
-                      {m.badge
-                        ? <Badge className={`text-xs font-bold mt-1 ${m.tierColor} border-0`}>{m.value}</Badge>
-                        : <div className="text-base font-bold font-mono text-primary">{m.value}</div>
-                      }
-                      <div className="text-[10px] text-muted-foreground mt-1">{m.sub}</div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-
-              {/* QuoteRUSH Live Carrier Quotes */}
-              <Card className="border shadow-sm">
+            {/* ── SECTION 2: Live carrier quotes ── */}
+            <Card className="border shadow-sm">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
@@ -2274,6 +2553,77 @@ export default function InsuranceDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
+                  <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-xs leading-relaxed text-blue-950">
+                    <strong>New live quote requests use:</strong>{" "}
+                    roof installed {roofYear}, home built {yearBuilt},{" "}
+                    {openingProtectionIdx === 1
+                      ? "impact protection"
+                      : "no impact protection"}
+                    , {["hip", "flat", "gable (other / unsure)"][roofShapeIdx] ?? "gable"} roof,{" "}
+                    SWR {swrIdx === 2 ? "yes" : swrIdx === 0 ? "no" : "needs confirmation"},{" "}
+                    {["concrete block", "mixed masonry / frame", "frame"][constIdx] ?? "concrete block"} construction,{" "}
+                    {["2%", "5%", "10%"][hurrIdx] ?? "2%"} hurricane deductible, and{" "}
+                    {fmt(aopDeductible)} AOP deductible.
+                    {roofShapeIdx === 2 || swrIdx === 1 ? (
+                      <span className="block mt-1 text-blue-800">
+                        <strong>Carrier default to confirm:</strong>{" "}
+                        {roofShapeIdx === 2
+                          ? "the unspecified roof shape is sent as gable"
+                          : ""}
+                        {roofShapeIdx === 2 && swrIdx === 1 ? "; " : ""}
+                        {swrIdx === 1
+                          ? "SWR is sent as unknown for carrier confirmation"
+                          : ""}
+                        .
+                      </span>
+                    ) : null}
+                    {constIdx !== 0 ? (
+                      <span className="block mt-1 text-blue-800">
+                        <strong>Construction subtype default to confirm:</strong>{" "}
+                        {constIdx === 1
+                          ? "mixed construction is submitted as concrete-block masonry with stucco framing"
+                          : "frame construction is submitted with a stucco exterior"}
+                        .
+                      </span>
+                    ) : null}
+                    <span className="block mt-1 text-blue-800">
+                      <strong>Other defaults to confirm:</strong>{" "}
+                      {!policyType
+                        ? "policy type required"
+                        : policyType === "HO3"
+                          ? "primary residence"
+                          : policyType === "DP3"
+                            ? "investment property"
+                            : ho6ResidenceUse
+                              ? `${ho6ResidenceUse} residence`
+                              : "HO6 residence use required"}
+                      {policyType === "HO6" && ho6ResidenceUse === "investment"
+                        ? `, ${ho6RentalTerm || "rental term required"}`
+                        : ""}
+                      , {newPurchase === null
+                        ? "purchase status required"
+                        : newPurchase
+                          ? `new purchase closing ${purchaseDate || "date required"}`
+                          : `purchased ${purchaseDate || "date required"}`},
+                      9 months or more occupied, purchase price{" "}
+                      {fmt(rebuild * (policyType === "HO6" ? 2 : 1))},
+                      composite-shingle roof, slab foundation, and no claims in the past five years.
+                      Square footage uses the carrier property record when available, otherwise 1,800 sq. ft.
+                      Saved rates may reflect the answers from the original request.
+                    </span>
+                    <details className="mt-1 text-blue-800">
+                      <summary className="cursor-pointer font-semibold">
+                        View additional carrier assumptions
+                      </summary>
+                      <span className="block mt-1">
+                        QuoteRUSH also assumes excellent credit and permission to use it; currently
+                        insured with no lapse and an unknown current carrier; no mortgage or alarms;
+                        Exposure B terrain with nearby fire protection; and standard ancillary
+                        coverages and endorsements. Wind-mitigation-form status is inferred from the
+                        property answers above. Confirm these details with the carrier or licensed agent.
+                      </span>
+                    </details>
+                  </div>
 
                   {/* Progress bar */}
                   {(qrStatus === "starting" ||
@@ -2440,39 +2790,7 @@ export default function InsuranceDashboard() {
                   )}
 
                 </CardContent>
-              </Card>
-
-              {/* Region insight */}
-              <div className="flex gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
-                <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-                <p className="text-sm text-blue-900 leading-relaxed">
-                  <strong>{region.name}:</strong> {region.note}
-                </p>
-              </div>
-
-              {/* Rate adjustments */}
-              <Card className="border shadow-sm">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Applied Rate Adjustments</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-x-6 gap-y-3">
-                    {[
-                      { label: "Wind Mitigation",       effect: calc.windEffect },
-                      { label: "Roof Age",              effect: calc.roofEffect },
-                      { label: "Hurricane Deductible",  effect: calc.hurrEffect },
-                      { label: "Construction Type",     effect: calc.constEffect },
-                    ].map((item, i) => (
-                      <div key={i}>
-                        <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{item.label}</div>
-                        <EffectBadge label={item.effect.label} dir={item.effect.dir} />
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-            </div>
+            </Card>
           </div>
 
           {/* Flood warning */}
@@ -2499,6 +2817,74 @@ export default function InsuranceDashboard() {
         address={address}
         onSuccess={handleLeadSuccess}
       />
+
+      {/* ── Existing-account live-quote DOB preflight ── */}
+      <Dialog
+        open={dobPromptOpen}
+        onOpenChange={(open) => {
+          if (dobSaving) return;
+          setDobPromptOpen(open);
+          if (!open) {
+            setDobInput("");
+            setDobError("");
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Date of birth required</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleDobPreflight} className="space-y-4 pt-1">
+            <p className="text-sm text-muted-foreground">
+              Insurance carriers require the applicant's date of birth. Save it
+              once to continue this live quote request.
+            </p>
+            <div className="space-y-1.5">
+              <label
+                htmlFor="live-quote-date-of-birth"
+                className="text-sm font-medium"
+              >
+                Date of Birth
+              </label>
+              <input
+                id="live-quote-date-of-birth"
+                name="bday"
+                type="date"
+                min="1900-01-01"
+                max={new Date().toISOString().slice(0, 10)}
+                value={dobInput}
+                onChange={(event) => setDobInput(event.target.value)}
+                required
+                autoComplete="bday"
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+            {dobError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {dobError}
+              </p>
+            ) : null}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setDobPromptOpen(false)}
+                disabled={dobSaving}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                className="flex-1"
+                disabled={dobSaving || !dobInput}
+              >
+                {dobSaving ? "Saving…" : "Save & Continue"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Add property dialog ── */}
       <Dialog open={showAddressPrompt} onOpenChange={setShowAddressPrompt}>

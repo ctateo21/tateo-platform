@@ -20,3 +20,8 @@ description: Which Follow Up Boss endpoints actually hold agent activity, and th
 - RE stages encode Buy/Sell in the stage name itself: "Under Contract - Buy", "Under Contract - Sell", "2026 - Buy", "2026 - Sell" (customRealEstateTransaction is NOT the discriminator). Also "Active Listing" and "2025" (both pipelines have 2025 closed stages). Mortgage: "Under Contract", "2026", "2025".
 - v9 classifyDeal matched bare "under contract"/"2026" + custom field, so it missed most RE deals — any classifier must match the suffixed stage names.
 - FUB commission fields: `commissionValue` is authoritative (82/83 deals populated); `agentCommission` is often 0 even when commissionValue set (32/83). Where both exist, commissionValue = agentCommission + teamCommission. Leaderboard summing agentCommission undercounts.
+
+## Rate-limit degradation rule
+- Preserve the last complete leaderboard snapshot when a refresh is rate-limited; never promote a zero-filled partial refresh over known-good data. Exact duplicate source reads should share one request, and all callers must honor one cooldown.
+- **Why:** independent per-person retries amplify a single 429 into a burst, while caching their partial result makes a temporary upstream limit look like real zero activity.
+- **How to apply:** new leaderboard sources must use the shared request/cooldown path and surface cached or partial status explicitly instead of silently substituting zeros.

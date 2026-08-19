@@ -10,23 +10,6 @@ import {
   type ScenarioPdfContent,
 } from "@/lib/scenario-pdf";
 
-// Maps each detail-view flow to the stable dashboard tab ID the
-// MY DASHBOARD button should land on. These IDs come from
-// dashboard.tsx's VALID_TABS list (purchase | refinance | insurance
-// | sellers | cash_buy). Per spec we route on stable IDs, not
-// display labels, so a future tab rename does not break this map.
-// Note: the seller flow uses dashboard tab ID "sellers" (not
-// "for_sale" as some product copy suggests) because that's the ID
-// the dashboard URL parser accepts. "purchase" is the default tab
-// and is reachable without a ?tab= param.
-const DASHBOARD_TAB_FOR_FLOW: Record<ScenarioActionsProps["scenarioType"], string> = {
-  cash_buy: "cash_buy",
-  purchase: "purchase",
-  refinance: "refinance",
-  insurance: "insurance",
-  seller: "sellers",
-};
-
 /**
  * Reusable Save + Share button pair for the five detail views
  * (Purchase with Cash, Purchase with Loan, Refinance, Insurance,
@@ -255,14 +238,11 @@ export default function ScenarioActions({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  /** Build the dashboard URL for this flow and navigate to it.
-   *  "purchase" is the default tab and is reachable without any
-   *  query string — match dashboard.tsx's own URL writer which
-   *  drops the ?tab= for purchase to keep the URL clean. */
+  /** MY DASHBOARD always returns to the five-service overview.
+   *  Flow-specific links use an explicit `?tab=` when they need to
+   *  open a particular workspace. */
   function goToDashboard() {
-    const tab = DASHBOARD_TAB_FOR_FLOW[scenarioType];
-    const url = tab === "purchase" ? "/dashboard" : `/dashboard?tab=${tab}`;
-    navigate(url);
+    navigate("/dashboard");
   }
 
   function handleDashboard() {
