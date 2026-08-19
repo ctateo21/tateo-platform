@@ -21,3 +21,10 @@ Push pattern: create blobs (base64) → create tree with `base_tree` = remote tr
 **Why:** Replit checkpoints auto-commit locally, so committed-but-unpushed files are invisible to `git diff --name-only HEAD` — a sync once silently omitted four feature files while pushing only package.json.
 
 **How to apply:** fetch the remote tree recursively (`/git/trees/{sha}?recursive=1`), map path→blob sha, then compare each local file (`git ls-files` + untracked) via `git hash-object`; push every path whose sha differs.
+
+## Resolve the base tree through the branch commit
+Do not assume the `sha` returned by `/git/trees/main?recursive=1` is safe to reuse as `base_tree`; resolve the branch ref, fetch its commit, and use `commit.tree.sha`.
+
+**Why:** the branch-name tree lookup returned the branch commit SHA in `sha`, causing a false concurrent-change check even though `main` had not moved.
+
+**How to apply:** GET the branch ref for the parent commit SHA, GET `/git/commits/{parent}`, use `commit.tree.sha` for recursive comparison and `base_tree`, then update the ref with `force: false`.
