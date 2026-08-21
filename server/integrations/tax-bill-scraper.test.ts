@@ -5,7 +5,13 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseBillMarkdown } from "./tax-bill-scraper";
+import {
+  filterTaxSysAnnualBillPagesForSitus,
+  parseBillMarkdown,
+  parseTaxSysSitusIdentityMarkdown,
+  type TaxSysContractAnnualBill,
+  type TaxSysContractPage,
+} from "./tax-bill-scraper";
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -119,4 +125,127 @@ test("parseBillMarkdown: per-authority millage rows parsed", () => {
     assert.ok(school, "SCHOOL BOARD millage row should be parsed");
     assert.equal(school!.mills, 6.293);
   }
+});
+
+test("parseTaxSysSitusIdentityMarkdown: extracts strict situs identity from an account summary", () => {
+  const md = [
+    "# Pinellas",
+    "",
+    "Account Summary",
+    "",
+    "Owner:",
+    "",
+    "PUBLIC FIXTURE HOTEL CO",
+    "",
+    "Situs:",
+    "",
+    "501 5TH AVE NE  ",
+    "ST PETERSBURG",
+    "",
+    "## Amount due",
+    "",
+    "Loading",
+    "",
+    "## Account history",
+    "",
+    "Loading",
+  ].join("\n");
+
+  assert.deepEqual(parseTaxSysSitusIdentityMarkdown(md), {
+    county: "Pinellas",
+    situsAddress: "501 5TH AVE NE",
+    situsCity: "ST PETERSBURG",
+  });
+});
+
+test("parseTaxSysSitusIdentityMarkdown: also accepts a rendered bill detail page", () => {
+  const md = [
+    "# Pinellas",
+    "",
+    "Bill Details",
+    "",
+    "## Parcel details",
+    "",
+    "Situs:",
+    "",
+    "501 5TH AVE NE",
+    "ST PETERSBURG",
+  ].join("\n");
+  assert.deepEqual(parseTaxSysSitusIdentityMarkdown(md), {
+    county: "Pinellas",
+    situsAddress: "501 5TH AVE NE",
+    situsCity: "ST PETERSBURG",
+  });
+});
+
+test("parseTaxSysSitusIdentityMarkdown: rejects pages without a complete situs identity", () => {
+  assert.equal(
+    parseTaxSysSitusIdentityMarkdown(
+      "# Pinellas\n\nAccount Summary\n\nSitus:\n\n501 5TH AVE NE"
+    ),
+    null,
+  );
+});
+
+const contractFixtureIdentity = {
+  county: "Pinellas",
+  situsAddress: "501 5TH AVE NE",
+  situsCity: "ST PETERSBURG",
+};
+
+const contractFixtureAnnualBill: TaxSysContractAnnualBill = {
+  year: 2025,
+  isAnnual: true,
+  lineCount: 0,
+  total: 0,
+  noAssessments: true,
+  totalMillage: 19.9197,
+  totalAdValorem: 1713094.2,
+  adValoremMills: [{ authority: "GENERAL FUND", mills: 4.5423 }],
+};
+
+test("TaxSys contract association rejects summary identity paired with a different parcel's bill", () => {
+  const pages: TaxSysContractPage[] = [
+    {
+      url: "https://pinellas.county-taxes.com/public/search/property_tax",
+      isBillPage: false,
+      situsIdentity: contractFixtureIdentity,
+      annualBill: null,
+    },
+    {
+      url: "https://county-taxes.net/pinellas/property-tax/example/bills/other",
+      isBillPage: true,
+      situsIdentity: {
+        county: "Pinellas",
+        situsAddress: "999 OTHER ST",
+        situsCity: "CLEARWATER",
+      },
+      annualBill: contractFixtureAnnualBill,
+    },
+  ];
+
+  assert.deepEqual(
+    filterTaxSysAnnualBillPagesForSitus(
+      pages,
+      contractFixtureIdentity,
+    ),
+    [],
+  );
+});
+
+test("TaxSys contract association accepts a matching annual-bill page", () => {
+  const matchingPage: TaxSysContractPage = {
+    url: "https://county-taxes.net/pinellas/property-tax/example/bills/match",
+    isBillPage: true,
+    situsIdentity: contractFixtureIdentity,
+    annualBill: contractFixtureAnnualBill,
+  };
+
+  assert.deepEqual(
+    filterTaxSysAnnualBillPagesForSitus(
+      [matchingPage],
+      contractFixtureIdentity,
+    ),
+    [matchingPage],
+  );
 });

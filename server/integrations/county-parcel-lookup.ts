@@ -65,6 +65,10 @@ export function selectStrictParcelCandidate(
 export interface PinellasParcelData {
   /** DISPLAY_STRAP_NOHYPHEN — the tax-site search key. */
   account: string;
+  /** Canonical situs street returned by the ArcGIS parcel layer. */
+  situsAddress: string;
+  /** Normalized situs city used by the strict identity match. */
+  situsCity: string;
   /** Current just/market value from the PropertyPopup layer, or
    *  null when the popup lookup failed. */
   justValue: number | null;
@@ -100,12 +104,13 @@ export async function lookupPinellasParcel(
       );
       if (!best) continue;
 
-      const account = best.attributes?.DISPLAY_STRAP_NOHYPHEN;
+      const attributes = best.attributes;
+      const account = attributes?.DISPLAY_STRAP_NOHYPHEN;
       if (!account) return null;
 
       // Second query: current just/market value (PropertyPopup layer).
       let justValue: number | null = null;
-      const internal = best.attributes?.INTERNAL_STRAP;
+      const internal = attributes?.INTERNAL_STRAP;
       if (internal) {
         try {
           const popupUrl =
@@ -128,7 +133,12 @@ export async function lookupPinellasParcel(
         }
       }
 
-      return { account: String(account), justValue };
+      return {
+        account: String(account),
+        situsAddress: String(attributes?.SITE_ADDRESS ?? ""),
+        situsCity: normalizeCity(String(attributes?.SITE_CITYZIP ?? "")),
+        justValue,
+      };
     }
     return null;
   } catch (err: any) {

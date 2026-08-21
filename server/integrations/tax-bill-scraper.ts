@@ -69,6 +69,42 @@ interface ParsedBill {
   adValoremMills?: Array<{ authority: string; mills: number }> | null;
 }
 
+export interface TaxSysSitusIdentity {
+  county: string;
+  situsAddress: string;
+  situsCity: string;
+}
+
+/**
+ * Parse the stable situs identity from either a Tyler TaxSys account summary
+ * or bill detail page. A fully rendered summary moves the situs into its bill
+ * pages, while the transient Loading summary includes it inline.
+ */
+export function parseTaxSysSitusIdentityMarkdown(
+  md: string
+): TaxSysSitusIdentity | null {
+  const lines = md.split(/\r?\n/).map(line => line.trim());
+  const heading = lines.find(line => /^#\s+\S/.test(line));
+  const county = heading?.replace(/^#\s+/, "").trim() ?? "";
+  const situsIndex = lines.findIndex(line => /^Situs:\s*$/i.test(line));
+  if (!county || situsIndex < 0) return null;
+
+  const situs: string[] = [];
+  for (let i = situsIndex + 1; i < lines.length && situs.length < 2; i++) {
+    const line = lines[i];
+    if (!line) continue;
+    if (/^(?:#{1,6}\s|\[|Owner:|Account Summary)/i.test(line)) break;
+    situs.push(line.replace(/\s+/g, " ").trim());
+  }
+  if (situs.length !== 2) return null;
+
+  return {
+    county,
+    situsAddress: situs[0],
+    situsCity: situs[1],
+  };
+}
+
 /** Parse the "Non-Ad Valorem Assessments" markdown table from a
  *  crawled bill page. Returns null when the page has no NAV section. */
 export function parseBillMarkdown(md: string): ParsedBill | null {
@@ -178,6 +214,62 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
   };
 }
 
+export interface TaxSysContractAnnualBill {
+  year: number | null;
+  isAnnual: boolean;
+  lineCount: number;
+  total: number;
+  noAssessments: boolean;
+  totalMillage: number | null;
+  totalAdValorem: number | null;
+  adValoremMills: Array<{ authority: string; mills: number }> | null;
+}
+
+export interface TaxSysContractPage {
+  url: string;
+  isBillPage: boolean;
+  situsIdentity: TaxSysSitusIdentity | null;
+  annualBill: TaxSysContractAnnualBill | null;
+}
+
+export interface TaxSysContractSnapshot {
+  newestListedYear: number | null;
+  pages: TaxSysContractPage[];
+}
+
+function toTaxSysContractAnnualBill(
+  bill: ParsedBill
+): TaxSysContractAnnualBill {
+  return {
+    year: bill.year,
+    isAnnual: bill.isAnnual,
+    lineCount: bill.lines.length,
+    total: bill.total,
+    noAssessments: Boolean(bill.noAssessments),
+    totalMillage: bill.totalMillage ?? null,
+    totalAdValorem: bill.totalAdValorem ?? null,
+    adValoremMills: bill.adValoremMills ?? null,
+  };
+}
+
+/**
+ * Return only annual-bill pages whose own parsed situs matches the expected
+ * fixture. Identity from an account summary or a different bill page cannot
+ * satisfy this association.
+ */
+export function filterTaxSysAnnualBillPagesForSitus(
+  pages: TaxSysContractPage[],
+  expected: TaxSysSitusIdentity
+): TaxSysContractPage[] {
+  return pages.filter(page =>
+    page.isBillPage &&
+    page.annualBill !== null &&
+    page.situsIdentity?.county === expected.county &&
+    page.situsIdentity.situsAddress === expected.situsAddress &&
+    page.situsIdentity.situsCity === expected.situsCity
+  );
+}
+
 /** Start a Website Content Crawler run, poll until it finishes, and
  *  return the parsed bills found in its dataset. */
 async function runWccScrape(
@@ -188,8 +280,13 @@ async function runWccScrape(
   /** Newest "NNNN Annual bill" year listed on the account summary
    *  page — used to detect when the crawl only rendered old bills. */
   newestListedYear: number | null;
+  contractPages: TaxSysContractPage[];
 }> {
-  const empty = { bills: [], newestListedYear: null };
+  const empty = {
+    bills: [],
+    newestListedYear: null,
+    contractPages: [],
+  };
   const token = process.env.APIFY_TOKEN;
   if (!token) {
     console.log("[nav-scrape] APIFY_TOKEN not set — skipping");
@@ -268,11 +365,23 @@ async function runWccScrape(
   if (!Array.isArray(items)) return empty;
 
   const parsed: ParsedBill[] = [];
+  const contractPages: TaxSysContractPage[] = [];
   let newestListedYear: number | null = null;
   for (const item of items) {
     const md = item?.markdown || item?.text || "";
+    const url = String(item?.url ?? "");
+    const isBillPage = /\/bills\//i.test(url);
+    const situsIdentity = parseTaxSysSitusIdentityMarkdown(md);
     const bill = parseBillMarkdown(md);
     if (bill) parsed.push(bill);
+    contractPages.push({
+      url,
+      isBillPage,
+      situsIdentity,
+      annualBill: bill?.isAnnual
+        ? toTaxSysContractAnnualBill(bill)
+        : null,
+    });
     // Account summary pages list "[2025 Annual bill](…)" links.
     for (const m of md.matchAll(/\[(\d{4}) Annual bill\]/g)) {
       const y = parseInt(m[1], 10);
@@ -281,7 +390,26 @@ async function runWccScrape(
       }
     }
   }
-  return { bills: parsed, newestListedYear };
+  return {
+    bills: parsed,
+    newestListedYear,
+    contractPages,
+  };
+}
+
+/**
+ * One uncached live TaxSys crawl for scheduled contract diagnostics.
+ * Callers own retry policy and must not use this in request handling.
+ */
+export async function fetchTaxSysContractSnapshot(
+  account: string,
+  county: string
+): Promise<TaxSysContractSnapshot> {
+  const result = await runWccScrape(account, county);
+  return {
+    newestListedYear: result.newestListedYear,
+    pages: result.contractPages,
+  };
 }
 
 /** Background scrape + cache write for one folio.
