@@ -1,185 +1,338 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { loadGoogleMapsApi } from '@/lib/script-loader';
 
 interface GooglePlacesHookProps {
-  apiKey: string;
-  onPlaceSelected?: (place: any) => void;
+  apiKey?: string;
+  enabled?: boolean;
+  onPlaceSelected?: (place: GooglePlaceResult) => void;
 }
 
-// Define Google Maps API types
-type AutocompleteInstance = google.maps.places.Autocomplete;
-type AutocompleteOptions = google.maps.places.AutocompleteOptions;
-
-export function useGooglePlaces({ apiKey, onPlaceSelected }: GooglePlacesHookProps) {
-  const [scriptLoaded, setScriptLoaded] = useState(false);
-  const [autocomplete, setAutocomplete] = useState<AutocompleteInstance | null>(null);
-
-  // Load the Google Maps script only once when apiKey is available
-  useEffect(() => {
-    if (!apiKey) return;
-    
-    // Check if script is already in the document
-    const existingScript = document.getElementById('google-maps-script');
-    if (existingScript) {
-      // Script tag exists, check if Google Maps is loaded
-      if (window.google?.maps?.places) {
-        setScriptLoaded(true);
-      }
-      return;
-    }
-    
-    // Create and add the script element
-    const script = document.createElement('script');
-    script.id = 'google-maps-script';
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async`;
-    script.async = true;
-    script.defer = true;
-    
-    // Set up onload handler
-    script.onload = () => setScriptLoaded(true);
-    
-    // Handle load errors
-    script.onerror = () => {
-      console.error('Failed to load Google Maps script');
+export interface GooglePlaceResult {
+  formatted_address: string;
+  place_id?: string;
+  address_components?: Array<{
+    long_name: string;
+    short_name: string;
+    types: string[];
+  }>;
+  geometry?: {
+    location?: {
+      lat: () => number;
+      lng: () => number;
     };
-    
-    // Add to document
-    document.head.appendChild(script);
-    
-    // No cleanup needed for script tag as it should persist
-  }, [apiKey]);
+  };
+  rawPlace?: any;
+}
 
-  // Function to initialize autocomplete on an input element
-  const initializeAutocomplete = useCallback(
-    (inputElement: HTMLInputElement) => {
-      if (!scriptLoaded || !window.google?.maps?.places || !inputElement) {
-        return;
-      }
+/**
+ * Binds Google's current Place Autocomplete Data API to an existing input.
+ * This keeps each screen's native input and styling while avoiding the
+ * legacy google.maps.places.Autocomplete constructor.
+ */
+export function useGooglePlaces({
+  apiKey,
+  enabled = true,
+  onPlaceSelected,
+}: GooglePlacesHookProps = {}) {
+  const [scriptLoaded, setScriptLoaded] = useState(false);
+  const [inputElement, setInputElement] = useState<HTMLInputElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const onPlaceSelectedRef = useRef(onPlaceSelected);
+  onPlaceSelectedRef.current = onPlaceSelected;
 
+  const bindInputRef = useCallback((element: HTMLInputElement | null) => {
+    inputRef.current = element;
+    setInputElement(element);
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || !inputElement) return;
+
+    let active = true;
+    let teardown: (() => void) | undefined;
+
+    async function initialize() {
       try {
-        // Skip if autocomplete is already initialized
-        if ((inputElement as any).__googleAutocomplete) {
-          return;
+        await loadGoogleMapsApi(apiKey);
+        if (!active || !inputElement) return;
+
+        const places = await window.google.maps.importLibrary('places');
+        const AutocompleteSuggestion = places.AutocompleteSuggestion;
+        const AutocompleteSessionToken = places.AutocompleteSessionToken;
+        if (!AutocompleteSuggestion || !AutocompleteSessionToken) {
+          throw new Error('Google Place Autocomplete Data API is unavailable');
         }
 
-        // Configure autocomplete options
-        const options: AutocompleteOptions = {
-          types: ['address'],
-          componentRestrictions: { country: 'us' } // Restrict to US addresses
-        };
-        
-        // Create autocomplete instance
-        const instance = new window.google.maps.places.Autocomplete(inputElement, options);
-        
-        // Prevent autocomplete from interfering with React's controlled input
-        // Store original value setter
-        const originalSetValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-        
-        // Add place_changed listener
-        instance.addListener('place_changed', () => {
-          const place = instance.getPlace();
-          if (place && place.formatted_address) {
-            // Update the input value directly
-            inputElement.value = place.formatted_address;
-            
-            // Trigger React's onChange event properly
-            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-            if (nativeInputValueSetter) {
-              nativeInputValueSetter.call(inputElement, place.formatted_address);
-            }
-            
-            // Create and dispatch a proper input event that React will recognize
-            const inputEvent = new Event('input', { bubbles: true });
-            Object.defineProperty(inputEvent, 'target', { writable: false, value: inputElement });
-            inputElement.dispatchEvent(inputEvent);
-            
-            // Also dispatch change event for good measure
-            const changeEvent = new Event('change', { bubbles: true });
-            Object.defineProperty(changeEvent, 'target', { writable: false, value: inputElement });
-            inputElement.dispatchEvent(changeEvent);
-            
-            // Call the onPlaceSelected callback
-            if (onPlaceSelected) {
-              onPlaceSelected(place);
-            }
-          }
+        setScriptLoaded(true);
+
+        const parent = inputElement.parentElement;
+        if (!parent) return;
+
+        const previousParentPosition = parent.style.position;
+        if (window.getComputedStyle(parent).position === 'static') {
+          parent.style.position = 'relative';
+        }
+
+        const listId = `google-places-${Math.random().toString(36).slice(2)}`;
+        const list = document.createElement('div');
+        list.id = listId;
+        list.className = 'google-places-suggestions';
+        list.setAttribute('role', 'listbox');
+        Object.assign(list.style, {
+          display: 'none',
+          position: 'absolute',
+          left: `${inputElement.offsetLeft}px`,
+          top: `${inputElement.offsetTop + inputElement.offsetHeight + 4}px`,
+          width: `${inputElement.offsetWidth}px`,
+          maxHeight: '18rem',
+          overflowY: 'auto',
+          zIndex: '100000',
+          background: '#ffffff',
+          border: '1px solid rgba(15, 23, 42, 0.18)',
+          borderRadius: '0.5rem',
+          boxShadow: '0 10px 25px rgba(15, 23, 42, 0.16)',
         });
-        
-        // Handle keyboard events to allow normal typing
-        const handleKeydown = (e: KeyboardEvent) => {
-          // Only prevent form submission on Enter, allow all other typing
-          if (e.key === 'Enter') {
-            e.preventDefault();
+        parent.appendChild(list);
+
+        const previousAria = {
+          role: inputElement.getAttribute('role'),
+          expanded: inputElement.getAttribute('aria-expanded'),
+          autocomplete: inputElement.getAttribute('aria-autocomplete'),
+          controls: inputElement.getAttribute('aria-controls'),
+        };
+        inputElement.setAttribute('role', 'combobox');
+        inputElement.setAttribute('aria-expanded', 'false');
+        inputElement.setAttribute('aria-autocomplete', 'list');
+        inputElement.setAttribute('aria-controls', listId);
+
+        let sessionToken: any | null = null;
+        let predictions: any[] = [];
+        let selectedIndex = -1;
+        let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+        let blurTimer: ReturnType<typeof setTimeout> | undefined;
+        let requestId = 0;
+        let selectionGeneration = 0;
+
+        const hideList = () => {
+          list.style.display = 'none';
+          list.replaceChildren();
+          predictions = [];
+          selectedIndex = -1;
+          inputElement.setAttribute('aria-expanded', 'false');
+          inputElement.removeAttribute('aria-activedescendant');
+        };
+
+        const abandonSession = () => {
+          requestId += 1;
+          selectionGeneration += 1;
+          sessionToken = null;
+          hideList();
+        };
+
+        const getSessionToken = () => {
+          if (!sessionToken) sessionToken = new AutocompleteSessionToken();
+          return sessionToken;
+        };
+
+        const highlight = () => {
+          Array.from(list.children).forEach((child, index) => {
+            const element = child as HTMLElement;
+            const selected = index === selectedIndex;
+            element.style.background = selected ? '#f1f5f9' : '#ffffff';
+            element.setAttribute('aria-selected', String(selected));
+          });
+          const activeOption = list.children[selectedIndex] as HTMLElement | undefined;
+          if (activeOption) {
+            inputElement.setAttribute('aria-activedescendant', activeOption.id);
+            activeOption.scrollIntoView({ block: 'nearest' });
+          } else {
+            inputElement.removeAttribute('aria-activedescendant');
           }
         };
-        
-        inputElement.addEventListener('keydown', handleKeydown);
-        
-        // Store reference to prevent input field interference
-        (inputElement as any).__googleAutocomplete = instance;
-        setAutocomplete(instance);
-        
-        // Return cleanup function
-        return () => {
-          inputElement.removeEventListener('keydown', handleKeydown);
-          // Clear the reference
-          delete (inputElement as any).__googleAutocomplete;
+
+        const selectPrediction = async (prediction: any) => {
+          requestId += 1;
+          const currentSelectionGeneration = ++selectionGeneration;
+          hideList();
+          // The selected prediction retains its token association. Clear our
+          // reference now so any new typing starts a separate session while
+          // this selection's place details are still in flight.
+          sessionToken = null;
+          const fallbackAddress = prediction?.text?.text || '';
+          let place: any;
+
+          try {
+            place = prediction.toPlace();
+            await place.fetchFields({
+              fields: ['formattedAddress', 'id', 'addressComponents', 'location'],
+            });
+          } catch (error) {
+            console.warn('Google place details unavailable; using the selected address text.', error);
+          }
+
+          if (!active || currentSelectionGeneration !== selectionGeneration) return;
+          const formattedAddress = place?.formattedAddress || fallbackAddress;
+          if (!formattedAddress) return;
+
+          inputElement.value = formattedAddress;
+          const location = place?.location;
+          const result: GooglePlaceResult = {
+            formatted_address: formattedAddress,
+            place_id: place?.id || prediction?.placeId,
+            address_components: place?.addressComponents?.map((component: any) => ({
+              long_name: component.longText || '',
+              short_name: component.shortText || component.longText || '',
+              types: component.types || [],
+            })),
+            geometry: location ? { location } : undefined,
+            rawPlace: place,
+          };
+          onPlaceSelectedRef.current?.(result);
+        };
+
+        const renderPredictions = (nextPredictions: any[]) => {
+          predictions = nextPredictions.slice(0, 6);
+          selectedIndex = -1;
+          list.replaceChildren();
+
+          predictions.forEach((prediction, index) => {
+            const option = document.createElement('div');
+            option.id = `${listId}-option-${index}`;
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', 'false');
+            option.textContent = prediction?.text?.text || '';
+            Object.assign(option.style, {
+              padding: '0.7rem 0.85rem',
+              cursor: 'pointer',
+              color: '#0f172a',
+              fontSize: '0.875rem',
+              lineHeight: '1.3rem',
+              borderBottom: index === predictions.length - 1 ? 'none' : '1px solid #e2e8f0',
+            });
+            option.addEventListener('mouseenter', () => {
+              selectedIndex = index;
+              highlight();
+            });
+            option.addEventListener('mousedown', event => event.preventDefault());
+            option.addEventListener('click', () => void selectPrediction(prediction));
+            list.appendChild(option);
+          });
+
+          const isOpen = predictions.length > 0;
+          list.style.display = isOpen ? 'block' : 'none';
+          inputElement.setAttribute('aria-expanded', String(isOpen));
+        };
+
+        const requestPredictions = async () => {
+          const input = inputElement.value.trim();
+          const currentRequestId = ++requestId;
+          if (input.length < 3) {
+            abandonSession();
+            return;
+          }
+
+          try {
+            const response = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
+              input,
+              includedRegionCodes: ['us'],
+              sessionToken: getSessionToken(),
+            });
+            if (!active || currentRequestId !== requestId) return;
+            renderPredictions(
+              (response.suggestions || [])
+                .map((suggestion: any) => suggestion.placePrediction)
+                .filter(Boolean),
+            );
+          } catch (error) {
+            if (currentRequestId === requestId) hideList();
+            console.warn('Google address suggestions unavailable:', error);
+          }
+        };
+
+        const handleInput = () => {
+          requestId += 1;
+          selectionGeneration += 1;
+          hideList();
+          if (debounceTimer) clearTimeout(debounceTimer);
+          if (inputElement.value.trim().length < 3) {
+            abandonSession();
+            return;
+          }
+          debounceTimer = setTimeout(() => void requestPredictions(), 180);
+        };
+        const handleFocus = () => {
+          if (blurTimer) clearTimeout(blurTimer);
+          if (inputElement.value.trim().length >= 3) handleInput();
+        };
+        const handleBlur = () => {
+          blurTimer = setTimeout(abandonSession, 150);
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+          if (event.key === 'Escape') {
+            const suggestionsAreOpen =
+              list.style.display !== 'none' && predictions.length > 0;
+            if (suggestionsAreOpen) event.preventDefault();
+            abandonSession();
+            return;
+          }
+          if (list.style.display === 'none' || predictions.length === 0) return;
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            selectedIndex = (selectedIndex + 1) % predictions.length;
+            highlight();
+          } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            selectedIndex = selectedIndex <= 0 ? predictions.length - 1 : selectedIndex - 1;
+            highlight();
+          } else if (event.key === 'Enter') {
+            event.preventDefault();
+            event.stopPropagation();
+            void selectPrediction(predictions[selectedIndex >= 0 ? selectedIndex : 0]);
+          }
+        };
+
+        inputElement.addEventListener('input', handleInput);
+        inputElement.addEventListener('focus', handleFocus);
+        inputElement.addEventListener('blur', handleBlur);
+        inputElement.addEventListener('keydown', handleKeyDown);
+
+        teardown = () => {
+          requestId += 1;
+          if (debounceTimer) clearTimeout(debounceTimer);
+          if (blurTimer) clearTimeout(blurTimer);
+          inputElement.removeEventListener('input', handleInput);
+          inputElement.removeEventListener('focus', handleFocus);
+          inputElement.removeEventListener('blur', handleBlur);
+          inputElement.removeEventListener('keydown', handleKeyDown);
+          list.remove();
+          parent.style.position = previousParentPosition;
+
+          const restoreAttribute = (name: string, value: string | null) => {
+            if (value === null) inputElement.removeAttribute(name);
+            else inputElement.setAttribute(name, value);
+          };
+          restoreAttribute('role', previousAria.role);
+          restoreAttribute('aria-expanded', previousAria.expanded);
+          restoreAttribute('aria-autocomplete', previousAria.autocomplete);
+          restoreAttribute('aria-controls', previousAria.controls);
+          inputElement.removeAttribute('aria-activedescendant');
         };
       } catch (error) {
-        console.error('Error initializing Google Places Autocomplete:', error);
+        if (active) console.warn('Google Maps autocomplete unavailable:', error);
       }
-    },
-    [scriptLoaded, onPlaceSelected]
-  );
+    }
 
-  // Function to bind an input ref to Google Places
-  const bindInputRef = useCallback(
-    (inputElement: HTMLInputElement | null) => {
-      if (!inputElement) return;
-      
-      if (scriptLoaded && window.google?.maps?.places) {
-        initializeAutocomplete(inputElement);
-      }
-    },
-    [scriptLoaded, initializeAutocomplete]
-  );
+    void initialize();
+    return () => {
+      active = false;
+      teardown?.();
+    };
+  }, [apiKey, enabled, inputElement]);
 
   return {
     bindInputRef,
+    inputRef,
     isLoaded: scriptLoaded && !!window.google?.maps?.places,
-    autocomplete,
+    autocomplete: null,
   };
-}
-
-// Add TypeScript definitions for the Google Maps API
-declare global {
-  namespace google.maps {
-    namespace places {
-      class Autocomplete {
-        constructor(inputElement: HTMLInputElement, options?: AutocompleteOptions);
-        addListener(eventName: string, handler: Function): any;
-        getPlace(): any;
-      }
-      
-      interface AutocompleteOptions {
-        types?: string[];
-        componentRestrictions?: {
-          country: string | string[];
-        };
-      }
-      
-      class PlacesService {
-        constructor(attrContainer: Element);
-        findPlaceFromQuery(request: any, callback: (results: any, status: any) => void): void;
-      }
-      
-      const PlacesServiceStatus: {
-        OK: string;
-        ZERO_RESULTS: string;
-        OVER_QUERY_LIMIT: string;
-        REQUEST_DENIED: string;
-        INVALID_REQUEST: string;
-        UNKNOWN_ERROR: string;
-      };
-    }
-  }
 }

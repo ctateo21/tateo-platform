@@ -7,18 +7,51 @@
  * publishes them, so no bill scrape is needed).
  */
 
-const TIMEOUT_MS = 8_000;
+import {
+  streetAddressMatches,
+  streetQueriesForSearch,
+} from "./hillsborough-tax";
 
-/** "3102 W Nassau St, Tampa, FL 33607" → "3102 W Nassau"
- *  (first 3 tokens of the street avoids suffix mismatches). */
-function streetForQuery(fullAddress: string): string {
-  const street = fullAddress.split(",")[0].trim();
-  return street.split(/\s+/).slice(0, 3).join(" ");
-}
+const TIMEOUT_MS = 8_000;
 
 function cityFromAddress(fullAddress: string): string {
   const parts = fullAddress.split(",");
-  return (parts[1] ?? "").trim().toUpperCase();
+  return normalizeCity(parts[1] ?? "");
+}
+
+function normalizeCity(value: string): string {
+  return value
+    .toUpperCase()
+    .replace(/\bFL(?:ORIDA)?\b/g, " ")
+    .replace(/\b\d{5}(?:-\d{4})?\b/g, " ")
+    .replace(/[^A-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Selects only an exact street/unit + exact city match from an ArcGIS result
+ * list. A city-only match or the provider's first result is never accepted.
+ */
+export function selectStrictParcelCandidate(
+  requestedAddress: string,
+  features: any[],
+  streetField: string,
+  cityField: string,
+): any | null {
+  const requestedCity = cityFromAddress(requestedAddress);
+  if (!requestedCity) return null;
+
+  return features.find((feature: any) => {
+    const attributes = feature?.attributes;
+    if (!attributes) return false;
+    const candidateStreet = String(attributes[streetField] ?? "");
+    const candidateCity = normalizeCity(String(attributes[cityField] ?? ""));
+    return (
+      streetAddressMatches(requestedAddress, candidateStreet) &&
+      candidateCity === requestedCity
+    );
+  }) ?? null;
 }
 
 // ── Pinellas ─────────────────────────────────────────────────────
@@ -41,61 +74,63 @@ export async function lookupPinellasParcel(
   address: string
 ): Promise<PinellasParcelData | null> {
   try {
-    const street = encodeURIComponent(
-      `${streetForQuery(address).toUpperCase()}%`
-    );
-    const url =
-      "https://egis.pinellas.gov/pcpagis/rest/services/Pcpao_gov/" +
-      "PropertySearch_A/MapServer/0/query" +
-      `?where=SITE_ADDRESS+LIKE+%27${street}%27` +
-      "&outFields=INTERNAL_STRAP,DISPLAY_STRAP_NOHYPHEN,SITE_ADDRESS,SITE_CITYZIP" +
-      "&resultRecordCount=5&returnGeometry=false&f=json";
+    for (const streetQuery of streetQueriesForSearch(address)) {
+      const escapedStreet = streetQuery
+        .toUpperCase()
+        .replace(/'/g, "''");
+      const street = encodeURIComponent(`${escapedStreet}%`);
+      const url =
+        "https://egis.pinellas.gov/pcpagis/rest/services/Pcpao_gov/" +
+        "PropertySearch_A/MapServer/0/query" +
+        `?where=SITE_ADDRESS+LIKE+%27${street}%27` +
+        "&outFields=INTERNAL_STRAP,DISPLAY_STRAP_NOHYPHEN,SITE_ADDRESS,SITE_CITYZIP" +
+        "&resultRecordCount=100&returnGeometry=false&f=json";
 
-    const resp = await fetch(url, {
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const features = data?.features ?? [];
-    if (!features.length) return null;
+      const resp = await fetch(url, {
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const features = data?.features ?? [];
+      const best = selectStrictParcelCandidate(
+        address,
+        features,
+        "SITE_ADDRESS",
+        "SITE_CITYZIP",
+      );
+      if (!best) continue;
 
-    const inputCity = cityFromAddress(address);
-    const best =
-      features.find((f: any) =>
-        (f.attributes?.SITE_CITYZIP ?? "")
-          .toUpperCase()
-          .includes(inputCity)
-      ) ?? features[0];
+      const account = best.attributes?.DISPLAY_STRAP_NOHYPHEN;
+      if (!account) return null;
 
-    const account = best?.attributes?.DISPLAY_STRAP_NOHYPHEN;
-    if (!account) return null;
-
-    // Second query: current just/market value (PropertyPopup layer).
-    let justValue: number | null = null;
-    const internal = best?.attributes?.INTERNAL_STRAP;
-    if (internal) {
-      try {
-        const popupUrl =
-          "https://egis.pinellas.gov/pcpagis/rest/services/Pcpao_gov/" +
-          "PropertyPopup_A/MapServer/0/query" +
-          `?where=INTERNAL_STRAP=%27${internal}%27` +
-          "&outFields=TOTAL_JST_VALUE" +
-          "&returnGeometry=false&f=json";
-        const popupResp = await fetch(popupUrl, {
-          signal: AbortSignal.timeout(TIMEOUT_MS),
-        });
-        if (popupResp.ok) {
-          const popup = await popupResp.json();
-          const jv =
-            popup?.features?.[0]?.attributes?.TOTAL_JST_VALUE;
-          if (typeof jv === "number" && jv > 0) justValue = jv;
+      // Second query: current just/market value (PropertyPopup layer).
+      let justValue: number | null = null;
+      const internal = best.attributes?.INTERNAL_STRAP;
+      if (internal) {
+        try {
+          const popupUrl =
+            "https://egis.pinellas.gov/pcpagis/rest/services/Pcpao_gov/" +
+            "PropertyPopup_A/MapServer/0/query" +
+            `?where=INTERNAL_STRAP=%27${encodeURIComponent(String(internal).replace(/'/g, "''"))}%27` +
+            "&outFields=TOTAL_JST_VALUE" +
+            "&returnGeometry=false&f=json";
+          const popupResp = await fetch(popupUrl, {
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+          });
+          if (popupResp.ok) {
+            const popup = await popupResp.json();
+            const jv =
+              popup?.features?.[0]?.attributes?.TOTAL_JST_VALUE;
+            if (typeof jv === "number" && jv > 0) justValue = jv;
+          }
+        } catch {
+          // just value is a best-effort enhancement
         }
-      } catch {
-        // just value is a best-effort enhancement
       }
-    }
 
-    return { account, justValue };
+      return { account: String(account), justValue };
+    }
+    return null;
   } catch (err: any) {
     console.error("[pinellas-lookup]", err?.message);
     return null;
@@ -113,53 +148,87 @@ export interface ManateeParcelData {
   /** Non-zero non-ad valorem lines, ready for disclosure display. */
   navLines: Array<{ authority: string; amount: number }>;
   totalNonAdValorem: number;
+  /**
+   * Best available actual annual tax bill from the ArcGIS record.
+   *
+   * Layer 0 publishes up to 4 historical tax years (TAX_YEAR1..4 /
+   * TAXES_YEAR1..4). The current calendar year often appears as
+   * TAX_YEAR1 with TAXES_YEAR1=0 (placeholder — bill not yet set).
+   * We pick the newest TAX_YEARn whose TAXES_YEARn is a finite
+   * positive number. CAD_AD_VAL_TAXES is frequently 0 even when
+   * history rows are positive, so we do NOT use it here.
+   *
+   * This field is the actual owner's total bill (ad valorem +
+   * non-ad valorem combined) and reflects existing exemptions — it
+   * is NOT a safe new-buyer purchase estimate.
+   */
+  actualBillYear: number | null;
+  /** Actual total annual tax dollars for actualBillYear (null when
+   *  no positive historical row found). */
+  actualBillTotal: number | null;
 }
 
 /**
  * Manatee County PA — WebLayers ArcGIS. The parcel record carries
  * ALL non-ad valorem amounts (CDD, fire, stormwater, …) directly,
  * so Manatee needs no Tax Collector scrape at all.
+ *
+ * Layer 0 fields used:
+ *   PARID, SITUS_ADDRESS, SITUS_POSTAL_CITY, CAD_JUST_VALUE
+ *   NAV_CDD_TAX, NAV_CDD_NAME, NAV_CITY_TAX, NAV_FIRE_TAX,
+ *   NAV_STORM_TAX, NAV_DREDGE_TAX, NAV_LIGHT_TAX, NAV_OTHER_TAX,
+ *   NAV_PARK_TAX, NAV_PAVE_TAX, NAV_SEWER_TAX, NAV_PACE_TAX,
+ *   NAV_STEWARD_TAX,
+ *   TAX_YEAR1..4, TAXES_YEAR1..4   ← actual historical bill totals
  */
 export async function lookupManateeParcel(
   address: string
 ): Promise<ManateeParcelData | null> {
   try {
-    const street = encodeURIComponent(
-      `${streetForQuery(address).toUpperCase()}%`
-    );
     const fields = [
       "PARID", "SITUS_ADDRESS", "SITUS_POSTAL_CITY", "CAD_JUST_VALUE",
       "NAV_CDD_TAX", "NAV_CDD_NAME", "NAV_CITY_TAX", "NAV_FIRE_TAX",
       "NAV_STORM_TAX", "NAV_DREDGE_TAX", "NAV_LIGHT_TAX",
       "NAV_OTHER_TAX", "NAV_PARK_TAX", "NAV_PAVE_TAX", "NAV_SEWER_TAX",
       "NAV_PACE_TAX", "NAV_STEWARD_TAX",
+      // Historical annual bill totals (up to 4 years)
+      "TAX_YEAR1", "TAXES_YEAR1",
+      "TAX_YEAR2", "TAXES_YEAR2",
+      "TAX_YEAR3", "TAXES_YEAR3",
+      "TAX_YEAR4", "TAXES_YEAR4",
     ].join(",");
 
-    const url =
-      "https://gis.manateepao.com/arcgis/rest/services/Website/" +
-      "WebLayers/MapServer/0/query" +
-      `?where=SITUS_ADDRESS+LIKE+%27${street}%27` +
-      `&outFields=${fields}` +
-      "&resultRecordCount=5&returnGeometry=false&f=json";
+    let a: Record<string, any> | null = null;
+    for (const streetQuery of streetQueriesForSearch(address)) {
+      const escapedStreet = streetQuery
+        .toUpperCase()
+        .replace(/'/g, "''");
+      const street = encodeURIComponent(`${escapedStreet}%`);
+      const url =
+        "https://gis.manateepao.com/arcgis/rest/services/Website/" +
+        "WebLayers/MapServer/0/query" +
+        `?where=SITUS_ADDRESS+LIKE+%27${street}%27` +
+        `&outFields=${fields}` +
+        "&resultRecordCount=100&returnGeometry=false&f=json";
 
-    const resp = await fetch(url, {
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!resp.ok) return null;
-    const data = await resp.json();
-    const features = data?.features ?? [];
-    if (!features.length) return null;
+      const resp = await fetch(url, {
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!resp.ok) return null;
+      const data = await resp.json();
+      const best = selectStrictParcelCandidate(
+        address,
+        data?.features ?? [],
+        "SITUS_ADDRESS",
+        "SITUS_POSTAL_CITY",
+      );
+      if (best?.attributes) {
+        a = best.attributes;
+        break;
+      }
+    }
+    if (!a || !a.PARID) return null;
 
-    const inputCity = cityFromAddress(address);
-    const best =
-      features.find((f: any) =>
-        (f.attributes?.SITUS_POSTAL_CITY ?? "")
-          .toUpperCase()
-          .includes(inputCity)
-      ) ?? features[0];
-
-    if (!best?.attributes) return null;
-    const a = best.attributes;
     const nav = (v: any) =>
       typeof v === "number" && v > 0 ? v : 0;
 
@@ -184,9 +253,12 @@ export async function lookupManateeParcel(
     push("Stewardship", nav(a.NAV_STEWARD_TAX));
     push("Other Assessments", nav(a.NAV_OTHER_TAX));
 
-    const totalNonAdValorem = Math.round(
-      navLines.reduce((s, l) => s + l.amount, 0)
-    );
+    const totalNonAdValorem =
+      Math.round(navLines.reduce((s, l) => s + l.amount, 0) * 100) / 100;
+
+    // Pick the best actual annual bill total: newest TAX_YEARn where
+    // TAXES_YEARn is a finite positive number (skip zero placeholders).
+    const { bestYear, bestTotal } = pickBestManateeBillYear(a);
 
     return {
       parid: String(a.PARID ?? ""),
@@ -196,11 +268,56 @@ export async function lookupManateeParcel(
       navCddName: a.NAV_CDD_NAME ?? null,
       navLines,
       totalNonAdValorem,
+      actualBillYear: bestYear,
+      actualBillTotal: bestTotal,
     };
   } catch (err: any) {
     console.error("[manatee-lookup]", err?.message);
     return null;
   }
+}
+
+/**
+ * From a Manatee ArcGIS attribute object, find the newest TAX_YEARn /
+ * TAXES_YEARn pair where the tax amount is a finite positive number.
+ *
+ * The layer publishes up to 4 slots. TAX_YEAR1 is often the current
+ * calendar year with TAXES_YEAR1=0 (placeholder — bill not yet issued).
+ * We walk all four slots, collect the ones with positive amounts, and
+ * return the most recent year.
+ *
+ * CAD_AD_VAL_TAXES is intentionally NOT used here because it is
+ * frequently 0 even when historical rows are positive.
+ *
+ * Exported for unit testing.
+ */
+export function pickBestManateeBillYear(
+  attributes: Record<string, unknown>
+): { bestYear: number | null; bestTotal: number | null } {
+  let bestYear: number | null = null;
+  let bestTotal: number | null = null;
+
+  for (let i = 1; i <= 4; i++) {
+    const yearVal = attributes[`TAX_YEAR${i}`];
+    const taxVal  = attributes[`TAXES_YEAR${i}`];
+
+    const year  = typeof yearVal === "number" && Number.isFinite(yearVal)
+      ? Math.round(yearVal)
+      : typeof yearVal === "string" ? parseInt(yearVal, 10) : NaN;
+    const total = typeof taxVal  === "number" && Number.isFinite(taxVal)
+      ? taxVal
+      : typeof taxVal === "string" ? parseFloat(taxVal) : NaN;
+
+    if (!Number.isFinite(year) || year <= 0) continue;
+    if (!Number.isFinite(total) || total <= 0) continue;  // skip zero placeholders
+
+    if (bestYear === null || year > bestYear) {
+      bestYear  = year;
+      bestTotal = total;
+    }
+  }
+
+  return { bestYear, bestTotal };
 }
 
 // ── Pasco ────────────────────────────────────────────────────────

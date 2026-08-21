@@ -1,0 +1,156 @@
+# Property Tax — Two-Part Architecture (Ad Valorem % + Non-Ad Valorem $) + Refinance
+
+Supersedes the previous version of this spec. Same underlying findings
+(Collier's rate is wrong, refinance has no tax logic yet) — this version
+reflects the correct target architecture before Replit builds anything, so
+it gets built once, correctly, instead of needing a second pass.
+
+## The architecture, in one sentence per part
+
+- **Part 1 (ad valorem):** pull live, once, per address+homestead-status →
+  reverse-engineer into a stored `%` of the price it was pulled at → apply
+  that `%` directly to any future purchase price at that address, so small
+  price edits update instantly with zero live re-fetch.
+- **Part 2 (non-ad valorem / CDD):** pull live, once, per address → store as
+  a flat **dollar** amount (never a percentage — CDD/special-assessment
+  fees don't move with sale price) → always add on top of Part 1's result.
+- **Refinance:** neither of the above. Pull the actual current tax bill's
+  bottom-line total directly — no reassessment happens on a refinance, so
+  there's nothing to calculate. Store it as its own thing, not derived from
+  Part 1/2.
+
+This finishes something already half-built: `hcpa_tax_cache` in the current
+Supabase schema already has `ad_valorem_pct` and `non_ad_valorem_amt`
+columns — that table was designed for exactly this split, it just never got
+connected to any code. Rather than wire up a Hillsborough-only table, build
+one general table every county's live path writes into.
+
+---
+
+## One precision safeguard worth knowing about
+A flat `%` of price is very accurate for **small** adjustments (an offer
+moving by a few thousand dollars) because Florida's homestead exemption is
+a **flat dollar deduction**, not a percentage — so the true effective rate
+technically rises a little as price rises and falls a little as price
+drops. For the stated use case (minor price tweaks) this is a non-issue.
+**Guardrail:** if a user changes the purchase price by more than ~20% from
+`sample_price` (the price the cached `%` was derived from), re-fetch live
+instead of trusting the stored percentage, rather than silently drifting
+inaccurate on a big price change. Cheap to implement, prevents the one
+real failure mode of this approach.
+
+---
+
+## Supabase schema
+
+### 1. Replace `hcpa_tax_cache` with a general-purpose table (all counties)
+
+```sql
+drop table if exists public.hcpa_tax_cache;
+
+create table if not exists public.property_tax_cache (
+  id serial primary key,
+  county text not null,
+  address_normalized text not null,
+  address_display text not null,
+  parcel_id text,                 -- county-specific id: HCPA pin, Pinellas
+                                   -- strap, Manatee parid, etc.
+  folio text,
+  tax_district text,
+
+  -- Part 1: ad valorem, stored as a % of the price it was derived from.
+  -- Homestead and non-homestead get different %s (different exemptions),
+  -- so both live on the same row.
+  ad_valorem_pct_homestead numeric(10,6),
+  ad_valorem_pct_non_homestead numeric(10,6),
+  sample_price integer not null,  -- price the % above was derived from
+  millage_rate numeric(8,4),      -- raw millage, kept for debugging/audit
+
+  -- Part 2: non-ad valorem / CDD, flat dollars, does NOT scale with price.
+  non_ad_valorem_amt integer not null default 0,
+  non_ad_valorem_lines jsonb default '[]',  -- itemized breakdown, when available
+
+  source text not null,           -- 'hcpa-api' | 'pinellas-bill-derived' |
+                                   -- 'manatee-arcgis' | 'formula' (be honest
+                                   -- here per the source-labeling fix already
+                                   -- specced for Pinellas/Pasco)
+  queried_at timestamptz not null default now(),
+  expires_at timestamptz not null,  -- ~1 year default; FL millage resets
+                                     -- annually via TRIM (Aug-Oct), so this
+                                     -- should roll over then, not on a fixed
+                                     -- 365-day timer from queried_at
+
+  unique (county, address_normalized)
+);
+create index if not exists property_tax_cache_addr_idx
+  on public.property_tax_cache (address_normalized);
+```
+
+### 2. New table for refinance — the actual current bill, not derived
+
+```sql
+create table if not exists public.current_tax_bills (
+  id serial primary key,
+  county text not null,
+  address_normalized text not null,
+  parcel_id text,
+  folio text,
+  tax_year integer not null,
+  current_annual_tax_bill integer not null,  -- the real bottom-line total
+                                              -- (ad valorem + non-ad valorem
+                                              -- combined, as actually billed)
+  ad_valorem_portion integer,                -- optional breakdown, when the
+  non_ad_valorem_portion integer,            -- source provides one
+  source text not null,                      -- 'tax-collector-bill-scrape'
+                                              -- or 'user-provided' (for
+                                              -- counties with no live source)
+  queried_at timestamptz not null default now(),
+  expires_at timestamptz not null,           -- next year's bill supersedes
+                                              -- this one, ~November each year
+
+  unique (address_normalized, tax_year)
+);
+create index if not exists current_tax_bills_addr_idx
+  on public.current_tax_bills (address_normalized);
+```
+
+Why two separate tables instead of one: `property_tax_cache` answers "what
+would a *new buyer* pay at this address" (price-scalable, homestead-status-
+dependent). `current_tax_bills` answers "what does the *current owner*
+already pay" (fixed, tied to their existing assessment and exemptions, has
+nothing to do with any price at all). Conflating them into one table would
+make it easy to accidentally feed a refinance a purchase-flow number, which
+is the exact bug this whole spec exists to prevent.
+
+---
+
+## How each county's code should use this
+
+| County | Part 1 source (write to `property_tax_cache`) | Part 2 source | Refinance source (write to `current_tax_bills`) |
+|---|---|---|---|
+| Hillsborough | HCPA `TaxEstimator` millage -> reverse-engineer % | Apify Tax Collector bill scrape | Same Apify bill scrape's actual current-year total |
+| Pinellas | Bill-derived per-authority millage (when scrape succeeds) -> reverse-engineer % | Same bill scrape | Same bill scrape's current-year total |
+| Manatee | ArcGIS parcel's current millage -> reverse-engineer % | ArcGIS `NAV_*` fields directly | ArcGIS parcel's current assessed/taxable value x current millage |
+| Pasco, Sarasota, Hernando, Collier, Polk, Lee | Once each gets a real live source (per the earlier county-fix specs) -> reverse-engineer % | Same live source | No live source yet -> ask the homeowner directly for their current bill; store with `source: 'user-provided'` |
+
+For every county, the **first** live lookup for a given address does the
+real work (fetch -> compute -> write both the `%` and the flat `$` to
+`property_tax_cache`); every purchase-price change after that is a cache
+read plus one multiplication, not a new live fetch -- this is also the
+speed fix from the earlier Hillsborough spec (Bug 3), now generalized to
+every county instead of just Hillsborough.
+
+---
+
+## Priority order for Replit
+1. Build `property_tax_cache` and `current_tax_bills` per the SQL above
+   (run in Supabase SQL editor, then drop the old unused `hcpa_tax_cache`).
+2. Wire Hillsborough's existing live logic to read/write Part 1 + Part 2
+   through the new table instead of re-fetching live every request -- this
+   alone fixes the speed problem for the one county that's fully live today.
+3. Do the same for Pinellas and Manatee.
+4. Build the refinance flow against `current_tax_bills`, per data tier
+   above -- including the "ask the homeowner directly" input for counties
+   with no live source yet.
+5. Only after 1-4: extend live Part 1/2 sourcing to Sarasota, Hernando,
+   Collier, Polk, and Lee, per the earlier per-county specs.

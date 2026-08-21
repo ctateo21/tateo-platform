@@ -79,6 +79,9 @@ import {
   DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
   calculateDefaultHomeownersInsurance,
 } from "@/lib/insurance-default";
+import {
+  buildPropertyTaxRoutePlan,
+} from "@/lib/property-tax-routing";
 import { useAuth } from "@/context/auth-context";
 import { apiRequest } from "@/lib/queryClient";
 import { ScheduleShowingButton } from "@/components/ui/schedule-showing-button";
@@ -90,7 +93,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { loadGoogleMapsApi } from "@/lib/script-loader";
+import { useGooglePlaces } from "@/hooks/use-google-places";
 import { scrollToTop } from "@/lib/scroll";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -1231,15 +1234,11 @@ export default function Estimate() {
   }
 
   const [newScenarioAddress, setNewScenarioAddress] = useState("");
-  const newScenarioInputRef = useRef<HTMLInputElement>(null);
-  const newScenarioAcRef = useRef<any>(null);
-  // Holds the latest "auto-add on place_changed" handler so the Google
-  // Autocomplete listener (whose closure is captured at attach time)
+  // Holds the latest auto-add handler so the autocomplete selection callback
   // always sees current state when it fires.
   const autoAddRef = useRef<((addr: string, meta?: PlaceMeta) => void) | null>(null);
-  // Idempotency: prevents Google's known double-fire of place_changed (and
-  // any rapid re-selection of the same suggestion) from creating duplicate
-  // tabs. Cleared when the dialog is closed.
+  // Idempotency prevents duplicate selection events (and any rapid
+  // re-selection of the same suggestion) from creating duplicate tabs.
   const lastAddedPlaceKeyRef = useRef<string | null>(null);
   const [leadDialogForScenario, setLeadDialogForScenario] = useState(false);
 
@@ -1248,9 +1247,7 @@ export default function Estimate() {
   // always sees current inputs/scenarios when it fires.
   useEffect(() => {
     autoAddRef.current = (addr, meta) => {
-      // Idempotency guard — Google sometimes fires place_changed twice for
-      // a single selection. Key on placeId when available, otherwise on the
-      // normalized address string.
+      // Key on placeId when available, otherwise on the normalized address.
       const key = (meta?.placeId || addr.trim().toLowerCase());
       if (lastAddedPlaceKeyRef.current === key) return;
       lastAddedPlaceKeyRef.current = key;
@@ -1265,6 +1262,32 @@ export default function Estimate() {
   useEffect(() => {
     if (showAddressPrompt) lastAddedPlaceKeyRef.current = null;
   }, [showAddressPrompt]);
+
+  const { bindInputRef: newScenarioInputRef } = useGooglePlaces({
+    enabled: showAddressPrompt,
+    onPlaceSelected: place => {
+      const formatted = place.formatted_address;
+      if (!formatted || formatted.length < 6 || !formatted.includes(",")) return;
+
+      const components = place.address_components || [];
+      const get = (type: string) =>
+        components.find(component => component.types.includes(type));
+      const streetNumber = get("street_number")?.long_name || "";
+      const route = get("route")?.long_name || "";
+      const meta: PlaceMeta = {
+        placeId: place.place_id,
+        street: [streetNumber, route].filter(Boolean).join(" ") || undefined,
+        city: get("locality")?.long_name || get("sublocality")?.long_name,
+        state: get("administrative_area_level_1")?.short_name,
+        zip: get("postal_code")?.long_name,
+        county: get("administrative_area_level_2")?.long_name,
+        lat: place.geometry?.location?.lat?.(),
+        lng: place.geometry?.location?.lng?.(),
+      };
+      setNewScenarioAddress(formatted);
+      autoAddRef.current?.(formatted, meta);
+    },
+  });
 
   // Keep active scenario's address in sync when URL changes (inline edit).
   // Defensive: never overwrite an existing valid address with empty/placeholder.
@@ -1314,73 +1337,6 @@ export default function Estimate() {
       return next;
     });
   }
-
-  // Init Google Maps autocomplete on the new-scenario address prompt
-  useEffect(() => {
-    if (!showAddressPrompt) return;
-    let cancelled = false;
-    const timer = setTimeout(async () => {
-      if (!newScenarioInputRef.current) return;
-      try {
-        let apiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || "";
-        if (!apiKey) {
-          const res = await fetch("/api/config/google-maps-api-key");
-          const data = await res.json();
-          apiKey = data.apiKey || "";
-        }
-        if (!apiKey || cancelled || !newScenarioInputRef.current) return;
-        await loadGoogleMapsApi(apiKey);
-        if (cancelled || !(window as any).google?.maps?.places?.Autocomplete || !newScenarioInputRef.current) return;
-        const ac = new (window as any).google.maps.places.Autocomplete(
-          newScenarioInputRef.current,
-          {
-            types: ["address"],
-            componentRestrictions: { country: "us" },
-            fields: ["formatted_address", "place_id", "address_components", "geometry"],
-          }
-        );
-        ac.addListener("place_changed", () => {
-          const place = ac.getPlace();
-          const formatted = place?.formatted_address as string | undefined;
-          // Defensive: ignore empty/partial results so an existing valid
-          // address can never be overwritten with nothing.
-          if (!formatted || formatted.length < 6 || !formatted.includes(",")) {
-            return;
-          }
-          // Extract metadata from address_components (forgiving of missing parts).
-          const comps: any[] = place?.address_components || [];
-          const get = (type: string) =>
-            comps.find(c => Array.isArray(c?.types) && c.types.includes(type));
-          const streetNumber = get("street_number")?.long_name || "";
-          const route = get("route")?.long_name || "";
-          const meta: PlaceMeta = {
-            placeId: place?.place_id,
-            street: [streetNumber, route].filter(Boolean).join(" ") || undefined,
-            city: get("locality")?.long_name || get("sublocality")?.long_name,
-            state: get("administrative_area_level_1")?.short_name,
-            zip: get("postal_code")?.long_name,
-            county: get("administrative_area_level_2")?.long_name,
-            lat: place?.geometry?.location?.lat?.(),
-            lng: place?.geometry?.location?.lng?.(),
-          };
-          setNewScenarioAddress(formatted);
-          // Auto-add — `place_changed` is the source of truth, no extra click needed.
-          autoAddRef.current?.(formatted, meta);
-        });
-        newScenarioAcRef.current = ac;
-      } catch (err) {
-        console.warn("New-scenario autocomplete unavailable:", err);
-      }
-    }, 100);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      if (newScenarioAcRef.current) {
-        (window as any).google?.maps?.event?.clearInstanceListeners?.(newScenarioAcRef.current);
-        newScenarioAcRef.current = null;
-      }
-    };
-  }, [showAddressPrompt]);
 
   function switchScenario(targetId: string) {
     if (targetId === activeScenarioId) return;
@@ -1447,7 +1403,7 @@ export default function Estimate() {
     // React state, which may not have flushed yet when this runs.
     const addr = (addrOverride ?? newScenarioAddress).trim();
     // Defensive: reject empty / obviously-partial addresses so a half-typed
-    // entry (or an empty place_changed callback) can't overwrite anything.
+    // entry (or an empty autocomplete callback) can't overwrite anything.
     // A real Google formatted_address always has at least one comma
     // ("123 Main St, Tampa, FL 33602").
     if (!addr) return;
@@ -1997,50 +1953,23 @@ export default function Estimate() {
   // Editable address
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [editAddressVal, setEditAddressVal] = useState(address);
-  const addressInputRef = useRef<HTMLInputElement>(null);
-  const addressAutocompleteRef = useRef<any>(null);
+  const {
+    bindInputRef: addressInputRef,
+    inputRef: addressInputElementRef,
+  } = useGooglePlaces({
+    enabled: isEditingAddress,
+    onPlaceSelected: place => {
+      setIsEditingAddress(false);
+      setLocation(`/estimate?address=${encodeURIComponent(place.formatted_address)}`);
+    },
+  });
 
   useEffect(() => {
     if (!isEditingAddress) return;
     setEditAddressVal(address);
-    setTimeout(() => addressInputRef.current?.select(), 30);
-
-    async function initAutocomplete() {
-      try {
-        let apiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || "";
-        if (!apiKey) {
-          const res = await fetch("/api/config/google-maps-api-key");
-          const data = await res.json();
-          apiKey = data.apiKey || "";
-        }
-        if (!apiKey || !addressInputRef.current) return;
-        await loadGoogleMapsApi(apiKey);
-        if (!window.google?.maps?.places?.Autocomplete || !addressInputRef.current) return;
-        addressAutocompleteRef.current = new window.google.maps.places.Autocomplete(addressInputRef.current, {
-          types: ["address"],
-          componentRestrictions: { country: "us" },
-          fields: ["formatted_address"],
-        });
-        addressAutocompleteRef.current.addListener("place_changed", () => {
-          const place = addressAutocompleteRef.current.getPlace();
-          if (place?.formatted_address) {
-            setIsEditingAddress(false);
-            setLocation(`/estimate?address=${encodeURIComponent(place.formatted_address)}`);
-          }
-        });
-      } catch (err) {
-        console.warn("Address autocomplete unavailable:", err);
-      }
-    }
-    initAutocomplete();
-
-    return () => {
-      if (addressAutocompleteRef.current) {
-        window.google?.maps?.event?.clearInstanceListeners?.(addressAutocompleteRef.current);
-        addressAutocompleteRef.current = null;
-      }
-    };
-  }, [isEditingAddress]);
+    const timer = setTimeout(() => addressInputElementRef.current?.select(), 30);
+    return () => clearTimeout(timer);
+  }, [address, addressInputElementRef, isEditingAddress]);
 
   const defaultPrice = 350000;
 
@@ -2490,26 +2419,12 @@ export default function Estimate() {
       !hcpaTax.navPending
     ) return;
 
-    // Hillsborough addresses use the dedicated HCPA route
-    const isHillsborough =
-      /\btampa\b|\bbrandon\b|\briverview\b|\bapollo beach\b|\btemple terrace\b|\bplant city\b|\blithia\b|\bodessa\b|\bwestchase\b|\bcarrollwood\b|\blutz\b|\bruskin\b|\bvalrico\b|\bsun city center\b|\bwimauma\b|\bgibsonton\b|\bbalm\b|\bthonotosassa\b|\bfishhawk\b|\bboyette\b|\bsydney\b|\bcitrus park\b|\bnorthdale\b|\btown n country\b|\bseffner\b|\bdover\b|\bmango\b/i.test(activeAddr);
+    // ZIP boundaries can cross county lines, so routing is ordered:
+    // strict HCPA first, then a known neighboring county on rejection.
+    const taxRoutePlan =
+      buildPropertyTaxRoutePlan(activeAddr);
 
-    // Other supported FL counties → /api/property-tax/county.
-    // Pinellas & Manatee have live parcel lookups (Manatee returns
-    // CDD amounts instantly; Pinellas scrapes the bill in the
-    // background like Hillsborough); the rest get a formula estimate.
-    const otherCounty: string | null =
-      /\bbradenton\b|\blakewood ranch\b|\bpalmetto\b|\bparrish\b|\bmyakka city\b|\banna maria\b|\bholmes beach\b|\bellenton\b|\blongboat key\b/i.test(activeAddr) ? "manatee" :
-      /\bclearwater\b|\bst\.?\s*pete(?:rsburg)?\b|\btarpon springs\b|\bdunedin\b|\blargo\b|\bseminole\b|\boldsmar\b|\bsafety harbor\b|\bbelleair\b|\bgulfport\b|\bpinellas park\b|\bpalm harbor\b|\btreasure island\b|\bmadeira beach\b|\bindian rocks beach\b|\bkenneth city\b/i.test(activeAddr) ? "pinellas" :
-      /\bnew port richey\b|\bland o'? ?lakes\b|\bzephyrhills\b|\bdade city\b|\bholiday\b|\bhudson\b|\bwesley chapel\b|\bport richey\b|\btrinity\b|\bsan antonio\b|\bshady hills\b/i.test(activeAddr) ? "pasco" :
-      /\bsarasota\b|\bvenice\b|\bnokomis\b|\bosprey\b|\bnorth port\b|\bsiesta key\b/i.test(activeAddr) ? "sarasota" :
-      /\bspring hill\b|\bbrooksville\b|\bweeki wachee\b|\bhernando beach\b/i.test(activeAddr) ? "hernando" :
-      /\bfort myers\b|\bcape coral\b|\bbonita springs\b|\bestero\b|\bsanibel\b|\blehigh acres\b|\bnorth fort myers\b|\bcaptiva\b/i.test(activeAddr) ? "lee" :
-      /\bnaples\b|\bmarco island\b|\bimmokalee\b|\bgolden gate\b|\bave maria\b/i.test(activeAddr) ? "collier" :
-      /\blakeland\b|\bbartow\b|\bwinter haven\b|\bhaines city\b|\bauburndale\b|\blake wales\b|\bmulberry\b|\bdavenport\b/i.test(activeAddr) ? "polk" :
-      null;
-
-    if (!isHillsborough && !otherCounty) {
+    if (!taxRoutePlan.length) {
       if (hcpaTax) setHcpaTax(null);
       return;
     }
@@ -2522,17 +2437,21 @@ export default function Estimate() {
     // takes a few minutes on first lookup). When it reports
     // nonAdValoremPending we show the ad valorem figure now and
     // re-poll until the full bill total is available.
-    const fetchTax = (attempt: number) => {
-      const url = isHillsborough
-        ? "/api/property-tax/hillsborough"
-        : "/api/property-tax/county";
+    const fetchTax = (attempt: number, routeIndex = 0) => {
+      const route = taxRoutePlan[routeIndex];
+      if (!route) {
+        setHcpaTax(null);
+        return;
+      }
       const body: Record<string, unknown> = {
         address: activeAddr,
         purchasePrice: price,
         isPrimaryResidence: isPrimary,
       };
-      if (!isHillsborough) body.county = otherCounty;
-      fetch(url, {
+      if (route.kind === "county") {
+        body.county = route.county;
+      }
+      fetch(route.url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
@@ -2555,17 +2474,26 @@ export default function Estimate() {
             });
             if (data.nonAdValoremPending && attempt < 14) {
               retryTimer = setTimeout(
-                () => fetchTax(attempt + 1),
+                () => fetchTax(attempt + 1, routeIndex),
                 45000
               );
             }
+          } else if (routeIndex + 1 < taxRoutePlan.length) {
+            // A cross-county ZIP was not an HCPA parcel. Preserve the
+            // existing neighboring-county lookup before using a formula.
+            fetchTax(0, routeIndex + 1);
           } else {
             // useFallback — keep existing formula
             setHcpaTax(null);
           }
         })
         .catch(() => {
-          if (!cancelled) setHcpaTax(null);
+          if (cancelled) return;
+          if (routeIndex + 1 < taxRoutePlan.length) {
+            fetchTax(0, routeIndex + 1);
+          } else {
+            setHcpaTax(null);
+          }
         });
     };
     fetchTax(0);
@@ -6367,18 +6295,6 @@ export default function Estimate() {
         <DialogContent
           className="sm:max-w-sm"
           aria-describedby="add-property-desc"
-          // Google Places Autocomplete renders its dropdown (.pac-container)
-          // directly inside <body>, which Radix sees as "outside" the dialog.
-          // Without this guard, clicking a suggestion closes the dialog
-          // BEFORE `place_changed` fires — and the address is lost.
-          onPointerDownOutside={(e) => {
-            const target = e.target as HTMLElement | null;
-            if (target?.closest(".pac-container")) e.preventDefault();
-          }}
-          onInteractOutside={(e) => {
-            const target = e.target as HTMLElement | null;
-            if (target?.closest(".pac-container")) e.preventDefault();
-          }}
         >
           <DialogHeader>
             <DialogTitle>Add New Property</DialogTitle>
@@ -6394,14 +6310,6 @@ export default function Estimate() {
                 type="text"
                 value={newScenarioAddress}
                 onChange={(e) => setNewScenarioAddress(e.target.value)}
-                onKeyDown={(e) => {
-                  // If the suggestions dropdown is visible, always let Google
-                  // consume Enter (it fires place_changed → auto-add).
-                  if (e.key !== "Enter") return;
-                  const pac = document.querySelector(".pac-container") as HTMLElement | null;
-                  const pacOpen = pac && pac.offsetParent !== null && pac.children.length > 0;
-                  if (pacOpen) e.preventDefault();
-                }}
                 placeholder="123 Main St, City, State…"
                 autoComplete="off"
                 autoFocus

@@ -36,7 +36,7 @@ import {
 import { getCountyName } from "@/lib/county-tax-estimator";
 import { normalizePropertyKey } from "@/lib/property-key";
 import { fetchFloodZone } from "@/lib/flood-zone";
-import { loadGoogleMapsApi } from "@/lib/script-loader";
+import { useGooglePlaces } from "@/hooks/use-google-places";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { posthog } from "@/lib/posthog";
 import { useToast } from "@/hooks/use-toast";
@@ -419,7 +419,10 @@ export default function InsuranceDashboard() {
   const [activeScenarioId, setActiveScenarioId] = useState("sc0");
   const [showAddressPrompt, setShowAddressPrompt] = useState(false);
   const [newScenarioAddress, setNewScenarioAddress] = useState("");
-  const newScenarioInputRef = useRef<HTMLInputElement>(null);
+  const { bindInputRef: newScenarioInputRef } = useGooglePlaces({
+    enabled: showAddressPrompt,
+    onPlaceSelected: place => setNewScenarioAddress(place.formatted_address),
+  });
 
   // Keep active scenario address in sync with URL
   useEffect(() => {
@@ -823,8 +826,18 @@ export default function InsuranceDashboard() {
   // ── Address editing ──────────────────────────────────────────────────────
   const [isEditingAddress, setIsEditingAddress] = useState(false);
   const [editAddressVal, setEditAddressVal] = useState(addressParam);
-  const addressInputRef = useRef<HTMLInputElement>(null);
-  const addressAcRef = useRef<any>(null);
+  const [showEmptyAddInput, setShowEmptyAddInput] = useState(false);
+  const {
+    bindInputRef: addressInputRef,
+    inputRef: addressInputElementRef,
+  } = useGooglePlaces({
+    enabled: isEditingAddress || showEmptyAddInput,
+    onPlaceSelected: place => {
+      setIsEditingAddress(false);
+      setShowEmptyAddInput(false);
+      setLocation(`/insurance?address=${encodeURIComponent(place.formatted_address)}`);
+    },
+  });
 
   const address = scenarios.find(s => s.id === activeScenarioId)?.address || addressParam;
 
@@ -861,57 +874,9 @@ export default function InsuranceDashboard() {
   useEffect(() => {
     if (!isEditingAddress) return;
     setEditAddressVal(address);
-    setTimeout(() => addressInputRef.current?.select(), 30);
-
-    async function init() {
-      try {
-        let apiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || "";
-        if (!apiKey) {
-          const res = await fetch("/api/config/google-maps-api-key");
-          const data = await res.json();
-          apiKey = data.apiKey || "";
-        }
-        if (!apiKey || !addressInputRef.current) return;
-        await loadGoogleMapsApi(apiKey);
-        if (!window.google?.maps?.places?.Autocomplete || !addressInputRef.current) return;
-        addressAcRef.current = new window.google.maps.places.Autocomplete(addressInputRef.current, {
-          types: ["address"], componentRestrictions: { country: "us" }, fields: ["formatted_address"],
-        });
-        addressAcRef.current.addListener("place_changed", () => {
-          const place = addressAcRef.current.getPlace();
-          if (place?.formatted_address) {
-            setIsEditingAddress(false);
-            setLocation(`/insurance?address=${encodeURIComponent(place.formatted_address)}`);
-          }
-        });
-      } catch { /* autocomplete unavailable */ }
-    }
-    init();
-    return () => {
-      if (addressAcRef.current) {
-        window.google?.maps?.event?.clearInstanceListeners?.(addressAcRef.current);
-        addressAcRef.current = null;
-      }
-    };
-  }, [isEditingAddress]);
-
-  // ── New scenario autocomplete ────────────────────────────────────────────
-  useEffect(() => {
-    if (!showAddressPrompt) return;
-    const timer = setTimeout(() => {
-      if (!newScenarioInputRef.current) return;
-      loadGoogleMapsApi((import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || "").then(() => {
-        const ac = new (window as any).google.maps.places.Autocomplete(
-          newScenarioInputRef.current, { types: ["address"] }
-        );
-        ac.addListener("place_changed", () => {
-          const place = ac.getPlace();
-          if (place.formatted_address) setNewScenarioAddress(place.formatted_address);
-        });
-      });
-    }, 100);
+    const timer = setTimeout(() => addressInputElementRef.current?.select(), 30);
     return () => clearTimeout(timer);
-  }, [showAddressPrompt]);
+  }, [address, addressInputElementRef, isEditingAddress]);
 
   // ── Scenario helpers ─────────────────────────────────────────────────────
   function currentSettings(): InsuranceSettings {
@@ -1011,7 +976,6 @@ export default function InsuranceDashboard() {
   // 2) If the user has zero saved scenarios, an empty state is rendered
   //    below (no redirect, no auto-mounting of the simulator content).
   // 3) Guests are untouched — they keep the simulator-first experience.
-  const [showEmptyAddInput, setShowEmptyAddInput] = useState(false);
   const savedInsuranceCount = isAuthenticated && !addressParam
     ? getInsuranceScenarios().length
     : -1; // sentinel: don't read when not needed
@@ -1097,46 +1061,11 @@ export default function InsuranceDashboard() {
     setActiveScenarioId(activeId);
   }, [isAuthenticated, addressParam]);
 
-  // Wire Google autocomplete onto the empty-state inline input. Mirrors the
-  // existing address-edit autocomplete pattern (uses addressInputRef /
-  // addressAcRef) — these refs are mutually exclusive because the edit
-  // input only renders inside the simulator, and the simulator is skipped
-  // when the empty state is shown.
   useEffect(() => {
     if (!showEmptyAddInput) return;
-    setTimeout(() => addressInputRef.current?.focus(), 30);
-
-    async function init() {
-      try {
-        let apiKey = (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || "";
-        if (!apiKey) {
-          const res = await fetch("/api/config/google-maps-api-key");
-          const data = await res.json();
-          apiKey = data.apiKey || "";
-        }
-        if (!apiKey || !addressInputRef.current) return;
-        await loadGoogleMapsApi(apiKey);
-        if (!window.google?.maps?.places?.Autocomplete || !addressInputRef.current) return;
-        addressAcRef.current = new window.google.maps.places.Autocomplete(addressInputRef.current, {
-          types: ["address"], componentRestrictions: { country: "us" }, fields: ["formatted_address"],
-        });
-        addressAcRef.current.addListener("place_changed", () => {
-          const place = addressAcRef.current.getPlace();
-          if (place?.formatted_address) {
-            setShowEmptyAddInput(false);
-            setLocation(`/insurance?address=${encodeURIComponent(place.formatted_address)}`);
-          }
-        });
-      } catch { /* autocomplete unavailable */ }
-    }
-    init();
-    return () => {
-      if (addressAcRef.current) {
-        (window as any).google?.maps?.event?.clearInstanceListeners?.(addressAcRef.current);
-        addressAcRef.current = null;
-      }
-    };
-  }, [showEmptyAddInput, setLocation]);
+    const timer = setTimeout(() => addressInputElementRef.current?.focus(), 30);
+    return () => clearTimeout(timer);
+  }, [addressInputElementRef, showEmptyAddInput]);
 
   const showInsuranceEmptyState =
     isAuthenticated && !addressParam && savedInsuranceCount === 0;

@@ -1,21 +1,21 @@
 /**
  * Hillsborough County property tax estimator.
- * Uses the live HCPA CommonServices API —
- * the same backend the Tax Estimator website
- * at gis.hcpafl.org/PropertySearch/TaxEstimator
- * calls.
  *
- * Two-step flow:
- *   1. BasicSearch by street address → PIN
+ * Two-step live flow:
+ *   1. BasicSearch by street address → PIN + folio
  *   2. TaxEstimator?pin=PIN → millage rates
- *      + nonAdValoremTaxes (CDD/assessments)
  *
- * Returns the LOW estimate (purchasePrice × 0.85
- * as taxable base) matching HCPA's lower bound,
- * plus the nonAdValoremTaxes added on top since
- * the website explicitly excludes them from its
- * range display.
+ * Parcel rates are cached independently of price and homestead status, so a
+ * cache hit always recalculates the estimate from the caller's current inputs.
  */
+
+import {
+  isHillsboroughCountyAddress,
+  normalizeHillsboroughAddressKey,
+} from "@shared/hillsborough-county";
+import { supabaseAdmin } from "../supabase";
+
+export { isHillsboroughCountyAddress };
 
 const HCPA_BASE =
   "https://gis.hcpafl.org/CommonServices/" +
@@ -24,6 +24,8 @@ const HCPA_REFERER =
   "https://gis.hcpafl.org/PropertySearch/" +
   "TaxEstimator.aspx";
 const FETCH_TIMEOUT_MS = 8_000;
+export const HCPA_CACHE_TTL_MS =
+  60 * 24 * 60 * 60 * 1000;
 
 const HCPA_HEADERS = {
   "Referer": HCPA_REFERER,
@@ -31,7 +33,7 @@ const HCPA_HEADERS = {
   "X-Requested-With": "XMLHttpRequest",
 };
 
-interface HCPATaxData {
+export interface HCPATaxData {
   schoolTaxRate: number;
   nonschoolTaxRate: number;
   totalTaxRate: number;
@@ -50,70 +52,254 @@ export interface HCPATaxResult {
   totalMillageRate: number;
   homestead: boolean;
   folio: string | null;
-  source: "hcpa-api";
+  source: "hcpa-api" | "hcpa-cache";
 }
 
-/** Parse the street portion of a full address
- *  for the HCPA BasicSearch query.
- *  "3102 W Nassau St, Tampa, FL 33607"
- *  → "3102 W Nassau" */
-function streetForSearch(fullAddress: string): string {
-  const street = fullAddress.split(",")[0].trim();
-  const tokens = street.split(/\s+/);
-  // Use first 3 tokens: number + direction + name
-  // Avoids suffix mismatches (St vs Street)
-  return tokens.slice(0, 3).join(" ");
+export interface HCPATaxCacheRecord {
+  addressNormalized: string;
+  addressDisplay: string;
+  pin: string;
+  folio: string | null;
+  schoolTaxRate: number;
+  nonschoolTaxRate: number;
+  totalTaxRate: number;
+  nonAdValoremTaxes: number;
+  taxDistrict: string;
+  queriedAt: string;
+  expiresAt: string;
 }
 
-/** Step 1: Resolve address → PIN via BasicSearch.
- *  Returns null when address is not found. */
-async function lookupPIN(
-  address: string
-): Promise<{ pin: string; folio: string | null } | null> {
-  const query = encodeURIComponent(
-    streetForSearch(address)
+export interface HCPATaxCacheStore {
+  get(addressNormalized: string): Promise<HCPATaxCacheRecord | null>;
+  set(record: HCPATaxCacheRecord): Promise<void>;
+}
+
+const STREET_SUFFIXES = new Set([
+  "ALY", "ALLEY",
+  "AVE", "AV", "AVENUE",
+  "BLVD", "BOULEVARD",
+  "CIR", "CIRCLE",
+  "CT", "COURT",
+  "DR", "DRIVE",
+  "EXPY", "EXPRESSWAY",
+  "HWY", "HIGHWAY",
+  "LN", "LANE",
+  "LOOP",
+  "PKWY", "PARKWAY",
+  "PL", "PLACE",
+  "RD", "ROAD",
+  "ST", "STREET",
+  "TER", "TERRACE",
+  "TRL", "TRAIL",
+  "WAY",
+]);
+
+const TOKEN_ALIASES: Record<string, string> = {
+  NORTH: "N",
+  SOUTH: "S",
+  EAST: "E",
+  WEST: "W",
+  NORTHEAST: "NE",
+  NORTHWEST: "NW",
+  SOUTHEAST: "SE",
+  SOUTHWEST: "SW",
+};
+
+function streetOnly(address: string): string {
+  return (address.split(",")[0] ?? "")
+    .replace(
+      /\s+(?:#|APT(?:ARTMENT)?|UNIT|STE|SUITE)\s*[-A-Z0-9]*.*$/i,
+      "",
+    )
+    .trim();
+}
+
+function unitFromAddress(address: string): string | null {
+  const street = address.split(",")[0] ?? "";
+  const match = street.match(
+    /(?:^|\s)(?:#|APT(?:ARTMENT)?|UNIT|STE|SUITE)\s*[-#]?([A-Z0-9-]+)/i,
   );
-  const url =
-    `${HCPA_BASE}/BasicSearch?address=${query}`;
+  return match?.[1]
+    ? match[1].toUpperCase().replace(/[^A-Z0-9]/g, "")
+    : null;
+}
 
-  const resp = await fetch(url, {
-    headers: HCPA_HEADERS,
-    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-  });
-  if (!resp.ok) return null;
+function normalizedStreetTokens(address: string): string[] {
+  const tokens = streetOnly(address)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(token => TOKEN_ALIASES[token] ?? token);
 
-  const results = await resp.json();
-  if (!Array.isArray(results) || !results.length) {
-    return null;
+  if (tokens.length > 1 && STREET_SUFFIXES.has(tokens[tokens.length - 1])) {
+    tokens.pop();
+  }
+  return tokens;
+}
+
+/**
+ * Search the complete street first. If HCPA returns no candidates, retry only
+ * by removing a recognized trailing street suffix. We never fall back to the
+ * old fixed-token truncation that changed "W Bay to Bay" into "W Bay".
+ */
+export function streetQueriesForSearch(fullAddress: string): string[] {
+  const fullStreet = streetOnly(fullAddress)
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!fullStreet) return [];
+
+  const rawTokens = fullStreet.split(/\s+/);
+  const last = (rawTokens[rawTokens.length - 1] ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+  if (rawTokens.length > 2 && STREET_SUFFIXES.has(last)) {
+    return [
+      fullStreet,
+      rawTokens.slice(0, -1).join(" "),
+    ];
+  }
+  return [fullStreet];
+}
+
+export function streetAddressMatches(
+  requestedAddress: string,
+  candidateAddress: string,
+): boolean {
+  const requested = normalizedStreetTokens(requestedAddress);
+  const candidate = normalizedStreetTokens(candidateAddress);
+  if (requested.length < 2 || candidate.length < 2) return false;
+  if (requested[0] !== candidate[0]) return false;
+  if (requested.length !== candidate.length) return false;
+  if (!requested.every((token, index) => token === candidate[index])) {
+    return false;
   }
 
-  // If multiple results, prefer the one whose
-  // city matches the input address
-  const inputCity = (
-    address.split(",")[1] ?? ""
-  ).trim().toUpperCase();
-
-  const best =
-    results.find(
-      (r: any) =>
-        (r.address ?? "")
-          .toUpperCase()
-          .includes(inputCity)
-    ) ?? results[0];
-
-  if (!best.pin) return null;
-  return { pin: best.pin, folio: best.folio ?? null };
+  // A building-level street match is not enough for condos or suites. If
+  // either side identifies a unit, both must identify the same unit.
+  const requestedUnit = unitFromAddress(requestedAddress);
+  const candidateUnit = unitFromAddress(candidateAddress);
+  return requestedUnit === candidateUnit;
 }
 
-/** Step 2: Fetch tax data by PIN. */
+function cityFromAddress(address: string): string {
+  return (address.split(",")[1] ?? "")
+    .trim()
+    .toUpperCase();
+}
+
+function candidateCity(address: string): string {
+  return cityFromAddress(address)
+    .replace(/[^A-Z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+type FetchImplementation = typeof fetch;
+
+export function areHcpaRatesValid(rates: {
+  schoolTaxRate: unknown;
+  nonschoolTaxRate: unknown;
+  totalTaxRate: unknown;
+}): rates is {
+  schoolTaxRate: number;
+  nonschoolTaxRate: number;
+  totalTaxRate: number;
+} {
+  return (
+    typeof rates.schoolTaxRate === "number" &&
+    Number.isFinite(rates.schoolTaxRate) &&
+    rates.schoolTaxRate >= 0 &&
+    typeof rates.nonschoolTaxRate === "number" &&
+    Number.isFinite(rates.nonschoolTaxRate) &&
+    rates.nonschoolTaxRate >= 0 &&
+    typeof rates.totalTaxRate === "number" &&
+    Number.isFinite(rates.totalTaxRate) &&
+    rates.totalTaxRate > 0
+  );
+}
+
+/** Step 1: Resolve address → PIN via BasicSearch with strict street matching. */
+export async function lookupPIN(
+  address: string,
+  fetchImpl: FetchImplementation = fetch,
+): Promise<{ pin: string; folio: string | null } | null> {
+  const inputCity = cityFromAddress(address);
+
+  for (const query of streetQueriesForSearch(address)) {
+    const search = new URLSearchParams({
+      address: query,
+      pagesize: "100",
+      page: "1",
+    });
+    const resp = await fetchImpl(
+      `${HCPA_BASE}/BasicSearch?${search.toString()}`,
+      {
+        headers: HCPA_HEADERS,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      },
+    );
+    if (!resp.ok) return null;
+
+    const results = await resp.json();
+    if (!Array.isArray(results) || !results.length) {
+      continue;
+    }
+
+    const streetMatches = results.filter((candidate: any) => {
+      const matches =
+        typeof candidate?.address === "string" &&
+        streetAddressMatches(address, candidate.address);
+      if (!matches) {
+        console.log("[hcpa-tax] street mismatch, rejecting");
+      }
+      return matches;
+    });
+    if (!streetMatches.length) return null;
+
+    const cityMatches = inputCity
+      ? streetMatches.filter(
+          (candidate: any) =>
+            candidateCity(String(candidate.address ?? "")) ===
+            candidateCity(`,${inputCity}`),
+        )
+      : streetMatches;
+    if (!cityMatches.length) {
+      console.log("[hcpa-tax] city mismatch, rejecting");
+      return null;
+    }
+
+    const best = cityMatches[0];
+    if (typeof best?.pin !== "string" || !best.pin) return null;
+    return {
+      pin: best.pin,
+      folio:
+        typeof best.folio === "string" && best.folio
+          ? best.folio
+          : null,
+    };
+  }
+  return null;
+}
+
+/** Step 2: Fetch tax data by PIN. Exported as fetchHcpaRatesForPin for the general tax service. */
+export async function fetchHcpaRatesForPin(
+  pin: string,
+  fetchImpl: FetchImplementation = fetch,
+): Promise<HCPATaxData | null> {
+  return fetchTaxData(pin, fetchImpl);
+}
+
 async function fetchTaxData(
-  pin: string
+  pin: string,
+  fetchImpl: FetchImplementation = fetch,
 ): Promise<HCPATaxData | null> {
   const url =
     `${HCPA_BASE}/TaxEstimator?pin=` +
     encodeURIComponent(pin);
 
-  const resp = await fetch(url, {
+  const resp = await fetchImpl(url, {
     headers: HCPA_HEADERS,
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
@@ -122,10 +308,7 @@ async function fetchTaxData(
   const data = await resp.json();
 
   // Validate we got useful data back
-  if (
-    typeof data?.schoolTaxRate !== "number" ||
-    typeof data?.nonschoolTaxRate !== "number"
-  ) {
+  if (!areHcpaRatesValid(data ?? {})) {
     return null;
   }
 
@@ -146,7 +329,12 @@ async function fetchTaxData(
     schoolTaxRate: data.schoolTaxRate,
     nonschoolTaxRate: data.nonschoolTaxRate,
     totalTaxRate: data.totalTaxRate,
-    nonAdValoremTaxes: data.nonAdValoremTaxes ?? 0,
+    nonAdValoremTaxes:
+      typeof data.nonAdValoremTaxes === "number" &&
+      Number.isFinite(data.nonAdValoremTaxes) &&
+      data.nonAdValoremTaxes >= 0
+        ? data.nonAdValoremTaxes
+        : 0,
     taxDistrict: data.taxDistrict ?? "",
     justValue: data.justValue ?? 0,
     assessedValue: data.assessedValue ?? 0,
@@ -160,7 +348,7 @@ async function fetchTaxData(
  *  taxable base (matches HCPA website lower bound).
  *  NonAdValorem (CDD) is added separately on top.
  */
-function calcAdValorem(
+export function calcAdValorem(
   purchasePrice: number,
   homestead: boolean,
   schoolRate: number,
@@ -202,6 +390,200 @@ function calcAdValorem(
   return Math.round(schoolTax + nonSchoolTax);
 }
 
+function numberOrNull(value: unknown): number | null {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number(value)
+        : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+const LEGACY_FOLIO_MARKER = "::folio=";
+
+function parseCachedPin(
+  pinValue: unknown,
+  folioValue: unknown,
+): { pin: string; folio: string | null } {
+  const stored = typeof pinValue === "string" ? pinValue : "";
+  const markerIndex = stored.indexOf(LEGACY_FOLIO_MARKER);
+  const pin = markerIndex >= 0 ? stored.slice(0, markerIndex) : stored;
+  const embeddedFolio =
+    markerIndex >= 0
+      ? stored.slice(markerIndex + LEGACY_FOLIO_MARKER.length)
+      : "";
+  const folio =
+    typeof folioValue === "string" && folioValue
+      ? folioValue
+      : embeddedFolio || null;
+  return { pin, folio };
+}
+
+let cacheFolioColumn: "unknown" | "present" | "missing" = "unknown";
+const CACHE_COLUMNS =
+  "address_normalized,address_display,pin,tax_district," +
+  "school_tax_rate,non_school_tax_rate,total_millage_rate," +
+  "non_ad_valorem_amt,queried_at,expires_at";
+
+async function selectCachedRow(addressNormalized: string) {
+  if (!supabaseAdmin) return { data: null, error: null };
+
+  const columns =
+    cacheFolioColumn === "missing"
+      ? CACHE_COLUMNS
+      : `${CACHE_COLUMNS},folio`;
+  let result = await supabaseAdmin
+    .from("hcpa_tax_cache")
+    .select(columns)
+    .eq("address_normalized", addressNormalized)
+    .maybeSingle();
+
+  if (
+    result.error &&
+    cacheFolioColumn === "unknown" &&
+    (
+      result.error.code === "42703" ||
+      result.error.code === "PGRST204"
+    )
+  ) {
+    cacheFolioColumn = "missing";
+    result = await supabaseAdmin
+      .from("hcpa_tax_cache")
+      .select(CACHE_COLUMNS)
+      .eq("address_normalized", addressNormalized)
+      .maybeSingle();
+  } else if (!result.error && cacheFolioColumn === "unknown") {
+    cacheFolioColumn = "present";
+  }
+  return result;
+}
+
+export const supabaseHcpaTaxCache: HCPATaxCacheStore = {
+  async get(addressNormalized) {
+    if (!supabaseAdmin) return null;
+    try {
+      const { data, error } = await selectCachedRow(addressNormalized);
+      if (error) {
+        console.error("[hcpa-tax] cache read failed:", error.message);
+        return null;
+      }
+      if (!data) return null;
+
+      const row = data as unknown as Record<string, unknown>;
+      const schoolTaxRate = numberOrNull(row.school_tax_rate);
+      const nonschoolTaxRate = numberOrNull(row.non_school_tax_rate);
+      const totalTaxRate = numberOrNull(row.total_millage_rate);
+      const nonAdValoremTaxes =
+        numberOrNull(row.non_ad_valorem_amt) ?? 0;
+      if (
+        schoolTaxRate === null ||
+        nonschoolTaxRate === null ||
+        totalTaxRate === null ||
+        !areHcpaRatesValid({
+          schoolTaxRate,
+          nonschoolTaxRate,
+          totalTaxRate,
+        }) ||
+        typeof row.expires_at !== "string"
+      ) {
+        return null;
+      }
+      const { pin, folio } = parseCachedPin(row.pin, row.folio);
+      return {
+        addressNormalized: String(row.address_normalized ?? ""),
+        addressDisplay: String(row.address_display ?? ""),
+        pin,
+        folio,
+        schoolTaxRate,
+        nonschoolTaxRate,
+        totalTaxRate,
+        nonAdValoremTaxes,
+        taxDistrict: String(row.tax_district ?? ""),
+        queriedAt: String(row.queried_at ?? ""),
+        expiresAt: row.expires_at,
+      };
+    } catch (error: any) {
+      console.error("[hcpa-tax] cache read failed:", error?.message);
+      return null;
+    }
+  },
+
+  async set(record) {
+    if (!supabaseAdmin) return;
+    const baseRow = {
+      address_normalized: record.addressNormalized,
+      address_display: record.addressDisplay,
+      pin:
+        cacheFolioColumn === "missing" && record.folio
+          ? `${record.pin}${LEGACY_FOLIO_MARKER}${record.folio}`
+          : record.pin,
+      tax_district: record.taxDistrict,
+      school_tax_rate: record.schoolTaxRate,
+      non_school_tax_rate: record.nonschoolTaxRate,
+      total_millage_rate: record.totalTaxRate,
+      ad_valorem_pct: 0,
+      non_ad_valorem_amt: Math.round(record.nonAdValoremTaxes),
+      homestead_sample: false,
+      sample_price: 0,
+      queried_at: record.queriedAt,
+      expires_at: record.expiresAt,
+    };
+    const row =
+      cacheFolioColumn === "present"
+        ? { ...baseRow, folio: record.folio }
+        : baseRow;
+    try {
+      const { error } = await supabaseAdmin
+        .from("hcpa_tax_cache")
+        .upsert(row, { onConflict: "address_normalized" });
+      if (error) {
+        console.error("[hcpa-tax] cache write failed:", error.message);
+      }
+    } catch (error: any) {
+      console.error("[hcpa-tax] cache write failed:", error?.message);
+    }
+  },
+};
+
+function taxResultFromRates(params: {
+  purchasePrice: number;
+  isPrimaryResidence: boolean;
+  pin: string;
+  folio: string | null;
+  taxData: HCPATaxData;
+  source: HCPATaxResult["source"];
+}): HCPATaxResult {
+  const adValorem = calcAdValorem(
+    params.purchasePrice,
+    params.isPrimaryResidence,
+    params.taxData.schoolTaxRate,
+    params.taxData.nonschoolTaxRate,
+    params.taxData.totalTaxRate,
+  );
+  const nonAdValorem = Math.round(
+    params.taxData.nonAdValoremTaxes ?? 0,
+  );
+  const annualTax = adValorem + nonAdValorem;
+  return {
+    annualTax,
+    monthlyTax: Math.round((annualTax / 12) * 100) / 100,
+    adValoremTax: adValorem,
+    nonAdValoremTax: nonAdValorem,
+    taxDistrict: params.taxData.taxDistrict,
+    totalMillageRate: params.taxData.totalTaxRate,
+    homestead: params.isPrimaryResidence,
+    folio: params.folio,
+    source: params.source,
+  };
+}
+
+export interface GetHillsboroughTaxOptions {
+  fetchImpl?: FetchImplementation;
+  cacheStore?: HCPATaxCacheStore;
+  now?: number;
+}
+
 /** Main export: resolve address → full tax
  *  estimate including CDD/non-ad valorem.
  *  Returns null on any API failure. */
@@ -209,9 +591,42 @@ export async function getHillsboroughTax(params: {
   address: string;
   purchasePrice: number;
   isPrimaryResidence: boolean;
-}): Promise<HCPATaxResult | null> {
+}, options: GetHillsboroughTaxOptions = {}): Promise<HCPATaxResult | null> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const cacheStore = options.cacheStore ?? supabaseHcpaTaxCache;
+  const now = options.now ?? Date.now();
+  const addressNormalized =
+    normalizeHillsboroughAddressKey(params.address);
+
+  const cached = await cacheStore.get(addressNormalized);
+  if (
+    cached &&
+    new Date(cached.expiresAt).getTime() > now &&
+    cached.folio &&
+    areHcpaRatesValid(cached)
+  ) {
+    const result = taxResultFromRates({
+      purchasePrice: params.purchasePrice,
+      isPrimaryResidence: params.isPrimaryResidence,
+      pin: cached.pin,
+      folio: cached.folio,
+      taxData: {
+        schoolTaxRate: cached.schoolTaxRate,
+        nonschoolTaxRate: cached.nonschoolTaxRate,
+        totalTaxRate: cached.totalTaxRate,
+        nonAdValoremTaxes: cached.nonAdValoremTaxes,
+        taxDistrict: cached.taxDistrict,
+        justValue: 0,
+        assessedValue: 0,
+      },
+      source: "hcpa-cache",
+    });
+    console.log("[hcpa-tax] cache hit");
+    return result;
+  }
+
   // Step 1: address → PIN
-  const found = await lookupPIN(params.address);
+  const found = await lookupPIN(params.address, fetchImpl);
   if (!found) {
     console.log(
       "[hcpa-tax] PIN not found for:",
@@ -223,7 +638,7 @@ export async function getHillsboroughTax(params: {
   console.log("[hcpa-tax] PIN:", pin);
 
   // Step 2: PIN → tax data
-  const taxData = await fetchTaxData(pin);
+  const taxData = await fetchTaxData(pin, fetchImpl);
   if (!taxData) {
     console.log("[hcpa-tax] TaxEstimator failed");
     return null;
@@ -234,65 +649,48 @@ export async function getHillsboroughTax(params: {
     nonAdValorem: taxData.nonAdValoremTaxes,
   });
 
-  // Step 3: calculate
-  const adValorem = calcAdValorem(
-    params.purchasePrice,
-    params.isPrimaryResidence,
-    taxData.schoolTaxRate,
-    taxData.nonschoolTaxRate,
-    taxData.totalTaxRate
-  );
-
-  const nonAdValorem = Math.round(
-    taxData.nonAdValoremTaxes ?? 0
-  );
-
-  const annualTax = adValorem + nonAdValorem;
+  const folio =
+    found.folio ??
+    (cached?.pin === pin ? cached.folio : null);
+  const result = taxResultFromRates({
+    purchasePrice: params.purchasePrice,
+    isPrimaryResidence: params.isPrimaryResidence,
+    pin,
+    folio,
+    taxData,
+    source: "hcpa-api",
+  });
 
   console.log(
     `[hcpa-tax] ${taxData.taxDistrict}` +
     ` mills=${taxData.totalTaxRate}` +
     ` homestead=${params.isPrimaryResidence}` +
-    ` adVal=$${adValorem}` +
-    ` nonAdVal=$${nonAdValorem}` +
-    ` total=$${annualTax}`
+    ` adVal=$${result.adValoremTax}` +
+    ` nonAdVal=$${result.nonAdValoremTax}` +
+    ` total=$${result.annualTax}`
   );
 
-  return {
-    annualTax,
-    monthlyTax: Math.round(
-      (annualTax / 12) * 100
-    ) / 100,
-    adValoremTax: adValorem,
-    nonAdValoremTax: nonAdValorem,
-    taxDistrict: taxData.taxDistrict,
-    totalMillageRate: taxData.totalTaxRate,
-    homestead: params.isPrimaryResidence,
-    folio: found.folio,
-    source: "hcpa-api",
-  };
-}
+  // A cache entry without folio would suppress the separate Tax Collector
+  // CDD lookup on a later hit. Skip incomplete writes rather than replacing
+  // a previously usable row with less parcel identity.
+  if (folio) {
+    await cacheStore.set({
+      addressNormalized,
+      addressDisplay: params.address.trim(),
+      pin,
+      folio,
+      schoolTaxRate: taxData.schoolTaxRate,
+      nonschoolTaxRate: taxData.nonschoolTaxRate,
+      totalTaxRate: taxData.totalTaxRate,
+      nonAdValoremTaxes:
+        cached?.pin === pin
+          ? cached.nonAdValoremTaxes
+          : taxData.nonAdValoremTaxes,
+      taxDistrict: taxData.taxDistrict,
+      queriedAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + HCPA_CACHE_TTL_MS).toISOString(),
+    });
+  }
 
-/** Fast pre-filter: does this address look like
- *  it could be Hillsborough County? Used to skip
- *  the API call for clearly out-of-county addresses. */
-export function isHillsboroughCountyAddress(
-  address: string
-): boolean {
-  const lower = address.toLowerCase();
-  const hasFL =
-    lower.includes(", fl ") ||
-    lower.includes(",fl ") ||
-    / fl \d{5}/.test(lower);
-  if (!hasFL) return false;
-
-  return [
-    "tampa", "brandon", "riverview",
-    "apollo beach", "temple terrace",
-    "plant city", "lithia", "odessa",
-    "westchase", "carrollwood", "lutz",
-    "ruskin", "valrico", "sun city center",
-    "gibsonton", "thonotosassa", "wimauma",
-    "fishhawk", "boyette",
-  ].some(c => lower.includes(c));
+  return result;
 }

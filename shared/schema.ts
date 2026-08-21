@@ -516,6 +516,10 @@ export const nonAdValoremCache = pgTable(
       .$type<Array<{ authority: string; amount: number }>>()
       .default([]),
     totalNonAdValorem: integer("total_non_ad_valorem").default(0),
+    // Actual ad valorem dollar amount from the bill's "Total Ad Valorem
+    // Taxes" row, in cents (×100). Null when the bill didn't expose a
+    // dollar total (only millage is sometimes present, not dollars).
+    totalAdValoremCents: integer("total_ad_valorem_cents"),
     // Total ad valorem millage parsed from the bill, in mills × 10000
     // (e.g. 19.9197 mills → 199197). Null when the bill didn't parse.
     totalMillage: integer("total_millage"),
@@ -551,3 +555,8 @@ export const emailCampaignLog = pgTable(
 );
 
 export type EmailCampaignLog = typeof emailCampaignLog.$inferSelect;
+
+// NOTE: property_tax_cache and current_tax_bills are Supabase-only tables
+// (accessed via supabaseAdmin REST, not Drizzle/Neon). They are defined in
+// supabase/schema.sql and supabase/migrations/. Types live in
+// server/integrations/property-tax-cache.ts and server/integrations/current-tax-bill.ts.

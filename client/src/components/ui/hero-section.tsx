@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Search, LayoutDashboard, LogIn } from "lucide-react";
-import { loadGoogleMapsApi } from "@/lib/script-loader";
 import { useAuth } from "@/context/auth-context";
 import AuthDialog from "@/components/ui/auth-dialog";
+import { useGooglePlaces } from "@/hooks/use-google-places";
 
 function LoginOrDashboardButton() {
   const { user } = useAuth();
@@ -41,43 +41,11 @@ function LoginOrDashboardButton() {
 
 export default function HeroSection() {
   const [, setLocation] = useLocation();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const autocompleteRef = useRef<any>(null);
-
-  useEffect(() => {
-    async function init() {
-      try {
-        let apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
-        if (!apiKey) {
-          const res = await fetch("/api/config/google-maps-api-key");
-          const data = await res.json();
-          apiKey = data.apiKey || "";
-        }
-        if (!apiKey || !inputRef.current) return;
-
-        await loadGoogleMapsApi(apiKey);
-
-        if (!window.google?.maps?.places?.Autocomplete) return;
-
-        autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
-          types: ["address"],
-          componentRestrictions: { country: "us" },
-          fields: ["formatted_address"],
-        });
-
-        autocompleteRef.current.addListener("place_changed", () => {
-          const place = autocompleteRef.current.getPlace();
-          if (place?.formatted_address) {
-            setLocation(`/select-service?address=${encodeURIComponent(place.formatted_address)}`);
-          }
-        });
-      } catch (err) {
-        console.warn("Google Maps autocomplete unavailable:", err);
-      }
-    }
-
-    init();
-  }, []);
+  const { bindInputRef, inputRef } = useGooglePlaces({
+    onPlaceSelected: place => {
+      setLocation(`/select-service?address=${encodeURIComponent(place.formatted_address)}`);
+    },
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,7 +73,7 @@ export default function HeroSection() {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground z-10 pointer-events-none" />
             <input
-              ref={inputRef}
+              ref={bindInputRef}
               type="text"
               placeholder="Enter a property address..."
               className="w-full pl-10 pr-4 h-14 text-base rounded-xl bg-white border-0 shadow-lg outline-none focus:ring-2 focus:ring-secondary"

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,17 +7,7 @@ import { Home, Loader2, SearchIcon, CheckIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-
-// Define simplified types for Google Maps API to avoid conflicts
-type GoogleMapsEvent = any;
-type GoogleAutocomplete = any;
-
-// Simplify the Window interface
-declare global {
-  interface Window {
-    google?: any;
-  }
-}
+import { useGooglePlaces } from "@/hooks/use-google-places";
 
 interface InsuranceType {
   id: string;
@@ -43,9 +33,15 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
   const [propertyType, setPropertyType] = useState<string>('');
   const [selectedInsuranceTypes, setSelectedInsuranceTypes] = useState<string[]>([]);
   const [selectedOtherOptions, setSelectedOtherOptions] = useState<string[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const autocompleteRef = useRef<GoogleAutocomplete | null>(null);
-  const listenerRef = useRef<GoogleMapsEvent | null>(null);
+  const { bindInputRef } = useGooglePlaces({
+    onPlaceSelected: place => {
+      setAddress(place.formatted_address);
+      setSelectedAddress({
+        address: place.formatted_address,
+        placeId: place.place_id,
+      });
+    },
+  });
   
   // Insurance types
   const insuranceTypes: InsuranceType[] = [
@@ -71,117 +67,6 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
 
   // Determine if other options should be shown
   const showOtherOptions = selectedInsuranceTypes.includes('other');
-
-  // Load Google Maps script with Places API
-  useEffect(() => {
-    // Skip if script is already loaded
-    if (window.google?.maps?.places) {
-      return;
-    }
-
-    // Skip if script is already being loaded
-    if (document.getElementById('google-maps-script')) {
-      return;
-    }
-
-    const loadScript = async () => {
-      try {
-        // Fetch API key
-        const response = await fetch('/api/config/google-maps-api-key');
-        const data = await response.json();
-        
-        if (!data.apiKey) {
-          console.error('No Google Maps API key found');
-          return;
-        }
-
-        // Create and add script
-        const script = document.createElement('script');
-        script.id = 'google-maps-script';
-        script.src = `https://maps.googleapis.com/maps/api/js?key=${data.apiKey}&libraries=places&loading=async`;
-        script.async = true;
-        script.defer = true;
-        document.head.appendChild(script);
-      } catch (err) {
-        console.error('Error loading Google Maps API:', err);
-      }
-    };
-
-    loadScript();
-  }, []);
-
-  // Initialize autocomplete when input is available and Google Maps is loaded
-  useEffect(() => {
-    // Check if Google Maps API is loaded and input exists
-    if (!inputRef.current || !window.google?.maps?.places) {
-      // We need to check if the API is loaded periodically if it's not loaded yet
-      const checkGoogleApi = setInterval(() => {
-        if (window.google?.maps?.places) {
-          clearInterval(checkGoogleApi);
-          initializeAutocomplete();
-        }
-      }, 300);
-      
-      // Clear the interval when the component unmounts
-      return () => clearInterval(checkGoogleApi);
-    }
-    
-    // If the API is already loaded, initialize autocomplete
-    initializeAutocomplete();
-    
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once when component mounts
-
-  // Function to initialize the Google Places Autocomplete
-  const initializeAutocomplete = () => {
-    if (!inputRef.current || !window.google?.maps?.places) return;
-    
-    // Clean up previous instance if it exists
-    if (listenerRef.current && window.google?.maps?.event?.removeListener) {
-      window.google.maps.event.removeListener(listenerRef.current);
-      listenerRef.current = null;
-    }
-
-    try {
-      // Create new autocomplete instance
-      const options = {
-        types: ['address'],
-        componentRestrictions: { country: 'us' }
-      };
-      
-      const autocomplete = new window.google.maps.places.Autocomplete(inputRef.current, options);
-      autocompleteRef.current = autocomplete;
-
-      // Add place_changed listener
-      const listener = autocomplete.addListener('place_changed', () => {
-        const place = autocomplete.getPlace();
-        if (place && place.formatted_address) {
-          setAddress(place.formatted_address);
-          if (place.place_id) {
-            // Store selected address for property type selection
-            setSelectedAddress({
-              address: place.formatted_address,
-              placeId: place.place_id
-            });
-          }
-        }
-      });
-
-      listenerRef.current = listener;
-
-      // Prevent form submission on Enter key
-      const preventSubmit = (e: KeyboardEvent) => {
-        if (e.key === 'Enter' && document.activeElement === inputRef.current) {
-          e.preventDefault();
-        }
-      };
-
-      inputRef.current.addEventListener('keydown', preventSubmit);
-      
-    } catch (err) {
-      console.error('Error initializing Google Places Autocomplete:', err);
-    }
-  };
 
   // Handle insurance type selection
   const handleInsuranceTypeChange = (type: string, checked: boolean) => {
@@ -261,7 +146,7 @@ export default function AddressSearch({ onAddressSelected }: AddressSearchProps)
           {/* Address input - always show it */}
           <div className="relative">
             <Input
-              ref={inputRef}
+              ref={bindInputRef}
               type="text"
               placeholder="Enter your address"
               className="pr-10 h-12 border-gray-300"

@@ -631,6 +631,19 @@ export interface TrackedLoan {
   /** Property owned outright — models a 1st-lien cash-out refinance.
    *  Stored on `tracked_loans.free_and_clear`. */
   freeAndClear?: boolean;
+  /** Current annual property-tax bill for the existing owner (NOT a purchase
+   *  estimate). Looked up from the tax-collector or entered manually.
+   *  Stored on `tracked_loans.annual_property_tax`. */
+  annualPropertyTax?: number;
+  /** Where annualPropertyTax came from. "manual" is never overwritten by
+   *  a background lookup. Stored on `tracked_loans.annual_property_tax_source`. */
+  annualPropertyTaxSource?: "manual" | "tax-collector-bill-scrape" | "manatee-arcgis";
+  /** Tax year the bill was issued. Stored on
+   *  `tracked_loans.annual_property_tax_year`. */
+  annualPropertyTaxYear?: number;
+  /** ISO timestamp of last successful lookup. Stored on
+   *  `tracked_loans.annual_property_tax_queried_at`. */
+  annualPropertyTaxQueriedAt?: string;
 }
 
 export type TrackedLoanType = "va" | "fha" | "conventional" | "dscr" | "bank_statement";
@@ -1373,6 +1386,18 @@ function rowToTrackedLoan(row: any): TrackedLoan {
     amortizedBalanceCheck: numOrUndef(row.amortized_balance_check),
     balanceConfirmed: typeof row.balance_confirmed === "boolean" ? row.balance_confirmed : undefined,
     freeAndClear: typeof row.free_and_clear === "boolean" ? row.free_and_clear : undefined,
+    annualPropertyTax: numOrUndef(row.annual_property_tax),
+    annualPropertyTaxSource: ((): TrackedLoan["annualPropertyTaxSource"] => {
+      const v = row.annual_property_tax_source;
+      return v === "manual" || v === "tax-collector-bill-scrape" || v === "manatee-arcgis"
+        ? v : undefined;
+    })(),
+    annualPropertyTaxYear: ((): number | undefined => {
+      const n = numOrUndef(row.annual_property_tax_year);
+      return n !== undefined ? Math.round(n) : undefined;
+    })(),
+    annualPropertyTaxQueriedAt: typeof row.annual_property_tax_queried_at === "string" && row.annual_property_tax_queried_at
+      ? row.annual_property_tax_queried_at : undefined,
   };
 }
 function trackedLoanToRow(l: TrackedLoan, userId: string) {
@@ -1422,6 +1447,21 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
       ? { amortized_balance_check: l.amortizedBalanceCheck } : {}),
     ...(typeof l.balanceConfirmed === "boolean" ? { balance_confirmed: l.balanceConfirmed } : {}),
     ...(typeof l.freeAndClear === "boolean" ? { free_and_clear: l.freeAndClear } : {}),
+    ...(typeof l.annualPropertyTax === "number" && l.annualPropertyTax >= 0
+      ? { annual_property_tax: l.annualPropertyTax } : {}),
+    ...(l.annualPropertyTaxSource
+      ? { annual_property_tax_source: l.annualPropertyTaxSource } : {}),
+    ...(l.annualPropertyTaxSource === "manual"
+      ? {
+          annual_property_tax_year: null,
+          annual_property_tax_queried_at: null,
+        }
+      : {
+          ...(typeof l.annualPropertyTaxYear === "number" && l.annualPropertyTaxYear > 0
+            ? { annual_property_tax_year: Math.round(l.annualPropertyTaxYear) } : {}),
+          ...(l.annualPropertyTaxQueriedAt
+            ? { annual_property_tax_queried_at: l.annualPropertyTaxQueriedAt } : {}),
+        }),
   };
   return row;
 }
@@ -2742,6 +2782,8 @@ const TRACKED_LOAN_OPTIONAL_COLUMNS = [
   "entry_method", "purchase_date", "original_purchase_price", "original_loan_amount",
   "original_rate", "original_term_months", "amortized_balance_check",
   "balance_confirmed", "free_and_clear",
+  "annual_property_tax", "annual_property_tax_source",
+  "annual_property_tax_year", "annual_property_tax_queried_at",
 ] as const;
 
 export function extractMissingColumn(message: string): string | null {

@@ -1,0 +1,130 @@
+# Hillsborough Tax Estimator — Root Cause Findings & Fix Spec
+
+Investigated live against `gis.hcpafl.org` on 2026-08-20. Two real, reproducible
+bugs found (not guesses — both confirmed against the live API with real
+Hillsborough parcels), plus one caching gap causing unnecessary latency,
+plus one dead-code cleanup.
+
+---
+
+## BUG 1 (HIGH — likely primary cause of wrong numbers)
+**File:** `server/integrations/hillsborough-tax.ts`
+**Functions:** `streetForSearch()`, `lookupPIN()`
+
+### The problem
+`streetForSearch()` always keeps only the first 3 tokens of the street
+(house number + up to 2 words), assuming that's enough to drop the suffix
+(St/Ave/Dr/Blvd) and land on a unique match. For streets with a directional
+prefix AND a multi-word name, this drops real words from the street name —
+and `lookupPIN()`'s candidate selection only checks that the returned
+address contains the input **city**, never the street name. So when the
+truncated query happens to match a *different real street*, it gets
+silently accepted.
+
+### Proof (live test against gis.hcpafl.org)
+Input address: `2814 W Bay to Bay Blvd, Tampa, FL`
+Current code sends: `BasicSearch?address=2814%20W%20Bay` (3-token truncation)
+
+```
+Returned (WRONG parcel, silently accepted):
+{"address":"2814 W BAY HAVEN DR, TAMPA", "pin":"18301541N000000000310A", ...}
+```
+
+That's a real, different street (Bay Haven Dr vs. Bay to Bay Blvd) with its
+own millage/CDD data. The current validation only checks `.includes("TAMPA")`,
+which this passes — so the wrong parcel's tax data gets returned as if correct.
+
+Separately, `5401 N Dale Mabry Hwy` truncates to `"5401 N Dale"`, which
+returns **zero results** — meaning every Dale Mabry Hwy address (one of the
+busiest corridors in Tampa) currently falls through to the formula estimate
+instead of ever reaching the live HCPA path, since it never becomes "not
+Hillsborough" — it just silently fails to find its own PIN.
+
+### Fix
+1. **Stop guessing a fixed token count.** Strip only a trailing known street
+   suffix (St, Ave, Dr, Blvd, Ln, Rd, Way, Ct, Pl, Cir, Ter, Hwy, Pkwy, Trl,
+   Loop) if present, and search with everything else intact — number,
+   direction, and full street name. Only fall back to a shorter query if the
+   full-length one returns zero results.
+2. **Validate the street name, not just the city**, before accepting a
+   candidate. Normalize both the input street and each candidate's returned
+   street (strip suffix, uppercase, split into tokens) and require a real
+   token match — not just substring-of-city. If no candidate's street name
+   reasonably matches the input, return `null` (safe fallback to the formula
+   estimator) instead of accepting the best-available wrong guess.
+3. Log a `[hcpa-tax] street mismatch, rejecting` line (same pattern as the
+   existing decoy-PIN rejection) whenever a candidate is discarded for this
+   reason, so mismatches are visible in server logs going forward instead of
+   silently producing a plausible-looking wrong number.
+
+---
+
+## BUG 2 (HIGH — silent fallback to a less accurate formula)
+**Files:** `client/src/pages/estimate.tsx` (`isHillsborough` regex),
+`server/integrations/hillsborough-tax.ts` (`isHillsboroughCountyAddress`)
+
+### The problem
+Two separate, hand-maintained lists of Hillsborough community names gate
+whether the live HCPA path runs at all — and they don't even match each
+other (the client list includes `sydney`, `boyette`, `fishhawk`,
+`citrus park`, `northdale`, `town n country`, `seffner`, `dover`, `mango`
+that the server list is missing). Any Hillsborough address in a community
+not on the list silently gets the blunt statewide formula instead
+(`county-tax-estimator.ts`: flat 1.5498% for homestead), which is a real,
+material divergence from the live per-parcel rate — in the parcel I tested,
+the live effective rate came out to ~1.83%, not 1.55%. There's currently no
+indication to the user (or to you) that this happened.
+
+### Fix
+Replace both name whitelists with a single shared, ZIP-code-based check.
+Hillsborough County ZIP codes are a fixed, known set (335xx/336xx range,
+specific list — e.g. 33510, 33511, 33513, 33514, 33547, 33556, 33558,
+33559, 33563, 33565, 33566, 33567, 33569, 33570, 33572, 33573, 33578,
+33579, 33584, 33592, 33594, 33596, 33598, 33602–33619, 33621, 33624,
+33625, 33629, 33634, 33635, 33637, 33647). A ZIP check is immune to
+"missing neighborhood" bugs entirely and is one array to maintain instead
+of two divergent regexes. Export it once from `hillsborough-tax.ts` and
+import it in `estimate.tsx` so client and server can never drift again.
+
+---
+
+## BUG 3 (MEDIUM — speed, and consistency between repeat lookups)
+**Missing integration:** `hcpa_tax_cache` Supabase table exists in the
+schema (`ad_valorem_pct`, `non_ad_valorem_amt`, `total_millage_rate`, etc.)
+but is **never referenced anywhere in the server code**. Every single
+request — even the same address looked up twice in a row — does a full
+live round trip: `BasicSearch` → `TaxEstimator` → (separately) the Apify
+CDD bill scrape.
+
+### Fix
+On a successful live lookup, write the resolved `pin`, `folio`,
+`schoolTaxRate`, `nonschoolTaxRate`, `totalTaxRate`, and `taxDistrict` into
+`hcpa_tax_cache` keyed on normalized address, with a reasonable TTL (these
+rates only change once a year at re-certification, so 30–90 days is safe).
+On each request, check the cache first; only hit HCPA live on a cache miss
+or expiry. This directly cuts latency on repeat address views (a buyer
+re-checking the same property, or the same address being quoted for
+different purchase prices) and reduces load on HCPA's endpoint.
+
+---
+
+## CLEANUP (LOW — no current bug, but a landmine)
+**File:** `server/routes/property-tax.ts`
+`getHillsboroughCountyPropertyTax()` / `simulateHillsboroughTaxEstimator()`
+is a hardcoded "2024 estimates" simulator. It's imported in `routes.ts`
+(line 30) but **never registered to any actual route** — the real
+`/api/property-tax/hillsborough` route correctly calls `getHillsboroughTax`
+from `hillsborough-tax.ts` instead. Not currently causing wrong numbers,
+but it's dead, stale, hardcoded logic sitting in the codebase under a
+near-identical name to the real implementation — delete it (and its now-
+unused import) so a future edit (by you, me, or a Replit agent) doesn't
+accidentally get pointed at it.
+
+---
+
+## Priority order for Replit
+1. Bug 1 (street-name validation) — highest impact, directly fixes wrong
+   numbers on real, common addresses.
+2. Bug 2 (ZIP-based gate) — fixes silent fallback to the worse formula.
+3. Bug 3 (wire up `hcpa_tax_cache`) — the "faster" ask.
+4. Cleanup — delete the dead simulator.

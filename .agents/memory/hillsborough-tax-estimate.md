@@ -1,18 +1,10 @@
 ---
 name: Hillsborough property tax estimate
-description: How Havo reproduces the HCPA Tax Estimator exactly (per-parcel rates endpoint, decoy gotcha, 85% ratio)
+description: Durable accuracy constraints for HCPA parcel matching and caching
 ---
 
-**Rule:** Don't hardcode Hillsborough millage. HCPA exposes the same JSON endpoint its own Tax Estimator uses: `https://gis.hcpafl.org/CommonServices/property/search/TaxEstimator?pin=<strap>` — returns the parcel's actual `schoolTaxRate`, `nonschoolTaxRate`, `nonAdValoremTaxes` (CDD etc.), taxDistrict.
+**Rule:** Treat HCPA address search as fuzzy, not authoritative. Use parcel rates only after exact normalized house, full street, unit, and postal-city identity; otherwise fall back safely. Cache parcel identity/rates rather than a final scenario tax, and bind assessments to the same PIN/folio.
 
-**Gotchas:**
-- The `pin` MUST be the internal `strap` (e.g. `203229C89000000001470U`). Passing the folio (or any unrecognized pin) returns plausible-looking **obfuscated decoy JSON** that changes every request. Validate by checking `parcelID === pin` in the response.
-- No ArcGIS layer needed: `CommonServices/property/search/BasicSearch?address=<first 3 street tokens>` (with an hcpafl.org Referer header) returns matches with the correct `pin` directly — pick the result whose address contains the input city.
-- The client gates the live fetch on a Hillsborough city-name regex in estimate.tsx — a missing community (Wimauma was) silently drops the whole live path even though the server works.
-- School millage varies by district (e.g. 6.34 unincorporated vs 7.336 assumed) — a flat county-wide school rate is wrong.
-- HCPA's lower-bound formula (from their taxEstimatorVM.js): taxable T = 85% of price; homestead: school (T−25k)×schoolRate, non-school (T−50k)×nonschoolRate with a phase-in between 50–75k (taxable capped at 25k there); plus nonAdValoremTaxes flat.
-- `tsx` dev server does NOT hot-reload server files — restart the workflow after editing server integrations or you'll test stale code.
+**Why:** Live investigation found that a truncated multi-word street search returned a different real parcel with plausible tax data. ZIPs can also cross county lines, and cached final taxes become wrong when price, homestead, or parcel identity changes.
 
-**Why:** User compared Havo against the HCPA estimator twice; with per-parcel rates Havo matches HCPA's lower bound to the dollar ($6,613 Wimauma, $11,413 Tampa).
-
-**How to apply:** If a Hillsborough tax figure is challenged, compare against HCPA's LOWER bound at the exact price entered; check the server log line `[hcpa-tax]` to confirm the live path ran, and remember the client only shows the live figure once the async sync effect writes it into stored inputs.
+**How to apply:** Never relax matching to city-only or a street substring. Recalculate from current scenario inputs on every cache hit, preserve folio/assessment metadata only for the same PIN, and allow a rejected shared-ZIP HCPA lookup to continue to a supported neighboring county.

@@ -1,0 +1,109 @@
+# Property Tax Estimator — Findings for All Non-Hillsborough Counties
+
+Companion to HILLSBOROUGH_TAX_FIX_SPEC.md. Investigated live against the
+actual `server/routes.ts`, `server/integrations/county-parcel-lookup.ts`,
+and `server/integrations/tax-bill-scraper.ts` on 2026-08-20.
+
+## Headline finding
+The P1 status table said Lee County was "confirmed" via ArcGIS and Pinellas
+had its `pcpao.gov tax_estimatorout` flow "cracked and matching exactly."
+**Neither is true of the code currently live in `routes.ts`.** Lee is
+explicitly grouped with the formula-only counties (line 709 comment:
+`"Sarasota, Hernando, Lee, Collier, Polk use a formula estimate"`), and the
+`tax_estimatorout` endpoint doesn't appear anywhere in the codebase — only
+a comment mentioning `(pcpao.gov)`. That work either never got merged or
+was lost. Worth checking Replit's history/checkpoints for it before
+rebuilding from scratch.
+
+---
+
+## County-by-county actual status
+
+| County | What the code actually does | Real accuracy |
+|---|---|---|
+| **Manatee** | Live ArcGIS parcel lookup for CDD/fire/stormwater (`lookupManateeParcel`) — this part is real. Ad valorem still comes from the flat `COUNTY_MILLAGE` table, not from anything in the live parcel data. | NAV accurate, ad valorem approximate |
+| **Pinellas** | Live parcel lookup + Tax Collector bill scrape. When the scrape succeeds, ad valorem *is* computed from real per-authority millage. When it's pending/fails, silently falls back to the flat table — **and the response still says `source: "pinellas-api"` either way.** | Sometimes accurate, indistinguishable from approximate |
+| **Pasco** | Parcel search (`search.pascopa.com` HTML scrape) frequently returns nothing per your own code comments. Even on a rare success, there's no bill-derived override — ad valorem is always the flat table regardless. | Always approximate |
+| **Lee** | No live integration wired in despite P1 doc claiming otherwise. | Always approximate |
+| **Sarasota / Hernando / Collier / Polk** | Formula only, as expected — matches the P1 doc. | Always approximate |
+
+---
+
+## BUG 1 (shared with Hillsborough): street-truncation + city-only validation
+**Files:** `county-parcel-lookup.ts` → `streetForQuery()`, used by
+`lookupPinellasParcel()` and `lookupManateeParcel()`
+
+Identical bug to Hillsborough's `streetForSearch()` — same 3-token
+truncation, same city-only match validation (`SITE_CITYZIP.includes(inputCity)`
+/ `SITUS_POSTAL_CITY.includes(inputCity)`), no street-name check. Any
+Pinellas or Manatee address on a multi-word or directional street is at
+the same risk of silently resolving to the wrong parcel that I proved live
+for Hillsborough's Bay to Bay Blvd case.
+
+**Fix:** Same as Hillsborough Bug 1 — don't truncate to a fixed token
+count, validate the returned street name (not just city) before accepting
+a match. Since this exact bug is now duplicated three times across three
+files, worth extracting one shared `resolveStreetCandidate()` utility used
+by all three lookups instead of three independent copies that can each
+drift or be fixed inconsistently.
+
+---
+
+## BUG 2 (Pinellas/Pasco): fallback silently mislabeled as live
+**File:** `routes.ts`, the `/api/property-tax/county` handler
+
+`source` is hardcoded to `` `${county}-api` `` any time the code enters the
+Pinellas/Pasco branch at all — regardless of whether `pinellasAdValorem`
+actually resolved from the bill scrape or fell through to the flat
+`adValorem`. There is currently no way — not in the API response, not in
+the UI if it surfaces `source` — to tell a real Pinellas number from an
+approximated one.
+
+**Fix:** Set `source` based on what actually happened:
+`"pinellas-bill-derived"` when `pinellasAdValorem !== null`,
+`"pinellas-formula-fallback"` otherwise (same idea for Pasco, which should
+just always report `"pasco-formula-fallback"` until it has its own
+bill-derived path). This costs nothing to implement and immediately makes
+it possible to audit, county by county, what fraction of live estimates
+are actually live.
+
+---
+
+## BUG 3 (Lee): claimed-done work isn't in the live route
+**Fix:** Before writing new code, have Replit search its own checkpoint/
+version history for a Lee ArcGIS integration matching the P1 doc's
+description (`services2.arcgis.com/.../LvWGAAhHwbCJ2GMP`) — this may just
+need to be re-wired into `routes.ts`'s county branch rather than rebuilt.
+If it's genuinely gone, it should follow the same pattern as
+`lookupManateeParcel` (Lee's ArcGIS layer, per the P1 doc, is a live
+source — worth confirming what fields it actually exposes for millage vs.
+just parcel identification).
+
+---
+
+## BUG 4 (all counties): silent scrape disablement
+**File:** `tax-bill-scraper.ts`, line ~163
+
+If `APIFY_TOKEN` isn't set in the live Replit environment, every CDD/
+non-ad-valorem scrape (Hillsborough included) silently no-ops with just a
+`console.log` — no error surfaced anywhere the user or you would see it.
+**Action:** confirm `APIFY_TOKEN` is actually set in the live deployment's
+environment (not just your local `.env`), and consider upgrading this from
+a `console.log` to something that surfaces in whatever monitoring/logging
+you actually check, since a missing token silently degrades every county
+at once.
+
+---
+
+## Priority order for Replit
+1. Bug 1 (shared street-validation fix) — same fix as Hillsborough, applies
+   to Pinellas + Manatee too. Do all three together since it's one root cause.
+2. Bug 3 (Lee) — check history for the claimed-done work before rebuilding.
+3. Bug 2 (honest `source` labeling for Pinellas/Pasco) — cheap, high value
+   for knowing what's actually working.
+4. Bug 4 (confirm APIFY_TOKEN on live deployment) — 5-minute check, high
+   blast radius if wrong.
+5. Longer-term: Sarasota/Hernando/Collier/Polk remain genuinely hard
+   (session-based PA sites, Blazor app, internal-DNS GIS) — worth
+   revisiting only after 1-4 are done and Pinellas/Manatee/Lee are
+   confirmed actually accurate.

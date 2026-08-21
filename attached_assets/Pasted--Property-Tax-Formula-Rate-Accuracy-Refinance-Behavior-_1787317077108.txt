@@ -1,0 +1,100 @@
+# Property Tax — Formula Rate Accuracy + Refinance Behavior
+
+Companion to HILLSBOROUGH_TAX_FIX_SPEC.md and OTHER_COUNTIES_TAX_FIX_SPEC.md.
+
+## Part 1 — Formula-only counties are likely undershooting on purpose-built accuracy
+
+### Confirmed: Collier's flat rate is wrong in a specific, structural way
+Verified against current published Collier County data: 2025 total millage is
+~11.05 mills, and a homesteaded $350,000 purchase with the standard $50,000
+exemption lands near $3,432/yr — an effective rate of ~0.98% of purchase
+price. Havo's `COUNTY_MILLAGE.collier` currently has `h: 0.00804` (0.804%)
+applied directly to full purchase price with **no exemption subtracted at
+all**. That's the wrong number and the wrong mechanism.
+
+### Root cause (likely affects all formula-only counties, not just Collier)
+The flat per-county percentages appear to be sourced from "average effective
+tax rate" statistics (the tax-rates.org / SmartAsset style figures — e.g.
+Collier's often-cited "0.67% average"). Those averages are dominated by
+long-tenured owners protected by Florida's Save Our Homes 3%/CPI assessment
+cap, which does **not** apply to a brand-new buyer. A new purchase is
+reassessed to full market value with no cap benefit, so a new buyer's real
+bill runs meaningfully closer to the raw current millage rate than to the
+county-wide blended average. Using the blended average as the estimate for a
+new buyer systematically undershoots.
+
+### Fix
+For each formula-only county (Sarasota, Hernando, Collier, Polk, and Lee
+until its live integration exists), replace the current flat percentage with:
+1. The county's actual current total millage rate (source this from the
+   county's own TRIM notice or Property Appraiser's published millage table
+   for the current tax year — not a third-party "average effective rate"
+   aggregator site).
+2. Apply Florida's actual homestead exemption mechanics — $25,000 off all
+   taxes, an additional $25,000 off non-school taxes only for value between
+   $50k–$75k (same structure already correctly implemented for Hillsborough
+   in `calcAdValorem()`) — instead of a single flat percentage with no
+   exemption subtraction.
+3. For non-homestead, apply the full millage with no exemption, since
+   investment/secondary purchases get none.
+
+This is the same shape as Hillsborough's `calcAdValorem()` — worth factoring
+that function out to be reusable across every county instead of each one
+reimplementing its own math (or, for the formula counties, not implementing
+exemption math at all, which is the current gap).
+
+---
+
+## Part 2 — Refinance needs fundamentally different logic than purchase (new feature, not a bug fix)
+
+### Current state
+`refinance.tsx` has no property tax logic at all today — confirmed via
+direct code search, zero references. This section is a build spec, not a
+bug report.
+
+### Why refinance can't reuse the purchase calculator
+Florida does not reassess a property for tax purposes on a refinance. The
+existing owner keeps their current assessed value and Save Our Homes cap
+regardless of new appraisal value or new loan amount. Running the purchase
+estimator (which assumes a fresh reassessment at purchase price) against a
+refinance scenario will produce a wrong number by construction — it's
+answering "what would a new buyer pay," not "what does this owner already
+pay."
+
+### Correct approach, by data tier
+- **Hillsborough & Pinellas** — these already scrape the actual current Tax
+  Collector bill (`getNonAdValoremForFolio` / the Apify bill scrape). For a
+  refinance, surface that scraped total directly. No formula needed — it's
+  already the real current bill.
+- **Manatee** — `lookupManateeParcel()` already returns real current parcel
+  data from ArcGIS. Use the parcel's actual current assessed/taxable value
+  and the county's current millage directly, not the purchase-price-based
+  formula.
+- **Sarasota, Hernando, Collier, Polk, Lee (until live)** — no reliable way
+  to reconstruct the actual current bill without a live source. For these,
+  add a direct input: "What's your current annual property tax?" — sourced
+  from the homeowner's own bill or escrow statement. This will be more
+  accurate than any computed estimate for a county Havo can't reach live,
+  and is honest about the limitation rather than guessing.
+
+### Implementation note
+Whatever field/flow surfaces this in `refinance.tsx`, it should NOT call
+the same `/api/property-tax/hillsborough` or `/api/property-tax/county`
+purchase-flow endpoints with the refinance loan amount as `purchasePrice` —
+that would silently reproduce the exact wrong-mechanism bug this section
+exists to prevent. Either add a `mode: "refinance" | "purchase"` parameter
+so the server applies the correct logic per tier above, or build a
+dedicated endpoint for the refinance case.
+
+---
+
+## Priority order for Replit
+1. Refinance property tax logic (Part 2) — currently a complete gap, and
+   the wrong-mechanism risk here is real if someone reuses the purchase
+   endpoint as a shortcut.
+2. Collier's exemption-based recalculation (Part 1) — concrete, already
+   verified wrong, same fix pattern as Hillsborough's existing
+   `calcAdValorem()`.
+3. Sarasota/Hernando/Polk/Lee formula audit (Part 1) — same fix pattern,
+   needs each county's actual current millage sourced from that county's
+   own TRIM/Property Appraiser data before applying.

@@ -11,9 +11,14 @@ import {
   ChevronDown, ChevronUp, Trash2, MapPin, TrendingDown, TrendingUp,
   Minus, Clock, DollarSign, AlertCircle, Wallet, ArrowLeftRight,
   Banknote, Pencil, Check, X, Info, Landmark, Home, Building2, Sparkles,
+  Loader2, Receipt, Search,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { calculateRefinance, calculateMonthlyPayment, formatCurrency, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
+import {
+  buildCurrentTaxLookupPatch,
+  buildManualPropertyTaxPatch,
+} from "@/lib/property-tax-refi";
 import { priceLoan } from "@/lib/mortgage-pricing";
 import { PHYSICAL_PROPERTY_TYPE_OPTIONS } from "@/lib/property-type-options";
 import { DtiCheck } from "@/components/refi/dti-check";
@@ -88,6 +93,19 @@ export interface TrackedLoan {
   balanceConfirmed?: boolean;
   /** Owned outright — only the 1st-lien cash-out analysis applies. */
   freeAndClear?: boolean;
+  /** Current annual property-tax bill for the existing owner (NOT a purchase
+   *  estimate). Looked up from the tax-collector or entered manually.
+   *  Stored on tracked_loans.annual_property_tax. */
+  annualPropertyTax?: number;
+  /** Where annualPropertyTax came from. "manual" is never overwritten by
+   *  a background lookup. Stored on tracked_loans.annual_property_tax_source. */
+  annualPropertyTaxSource?: "manual" | "tax-collector-bill-scrape" | "manatee-arcgis";
+  /** Tax year the bill was issued. Stored on
+   *  tracked_loans.annual_property_tax_year. */
+  annualPropertyTaxYear?: number;
+  /** ISO timestamp of last successful lookup. Stored on
+   *  tracked_loans.annual_property_tax_queried_at. */
+  annualPropertyTaxQueriedAt?: string;
 }
 
 export interface LiveRate {
@@ -377,6 +395,239 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
           housingPayment={newMonthlyPI + monthlyEscrow}
           paymentLabel="new mortgage payment incl. escrow"
         />
+      )}
+    </div>
+  );
+}
+
+// ── Property-Tax lookup state (per-loan, keyed by loan.id) ───────────
+type TaxLookupStatus = "idle" | "pending" | "ready" | "unavailable" | "error";
+interface TaxLookupState {
+  status: TaxLookupStatus;
+  pendingMessage?: string;
+  unavailableReason?: string;
+  errorMessage?: string;
+}
+
+/** Section shown on every LoanCard with the current owner's property-tax bill.
+ *  Clearly labeled as the EXISTING OWNER's bill (not a purchase estimate).
+ *  Supports lookup via POST /api/refinance/property-tax/current and manual entry. */
+function PropertyTaxSection({ loan, onUpdate }: { loan: TrackedLoan; onUpdate: (u: Partial<TrackedLoan>) => void }) {
+  const [lookupState, setLookupState] = useState<TaxLookupState>({ status: "idle" });
+  const [manualInput, setManualInput] = useState<string>("");
+  const [showManual, setShowManual] = useState(false);
+
+  // Pre-populate manual input when the loan already has a manual value.
+  useEffect(() => {
+    if (loan.annualPropertyTax !== undefined && loan.annualPropertyTaxSource === "manual") {
+      setManualInput(String(loan.annualPropertyTax));
+    }
+  }, [loan.id, loan.annualPropertyTax, loan.annualPropertyTaxSource]);
+
+  async function handleLookup() {
+    if (!loan.propertyAddress || loan.propertyAddress === "Unknown address") return;
+    setLookupState({ status: "pending", pendingMessage: "Contacting tax collector…" });
+    try {
+      const res = await fetch("/api/refinance/property-tax/current", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Only send address — never purchase price, originalPurchasePrice,
+        // estimatedHomeValue, or any purchase-estimator data.
+        body: JSON.stringify({ address: loan.propertyAddress }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setLookupState({ status: "error", errorMessage: data?.error || "Unexpected error from tax lookup." });
+        return;
+      }
+      if (data.state === "ready") {
+        const patch = buildCurrentTaxLookupPatch(data);
+        if (!patch) {
+          setLookupState({ status: "error", errorMessage: "Tax lookup returned an invalid amount." });
+          return;
+        }
+        onUpdate(patch);
+        setLookupState({ status: "ready" });
+      } else if (data.state === "pending") {
+        setLookupState({
+          status: "pending",
+          pendingMessage: data.county
+            ? `Looking up ${data.county} county tax records — this may take a moment. Try again shortly.`
+            : "Tax lookup is in progress. Try again in a few seconds.",
+        });
+      } else if (data.state === "unavailable") {
+        setLookupState({
+          status: "unavailable",
+          unavailableReason: data.reason || "Automatic lookup is not available for this address.",
+        });
+        setShowManual(true);
+      } else {
+        setLookupState({ status: "error", errorMessage: "Unexpected response from tax lookup." });
+      }
+    } catch (e: any) {
+      setLookupState({ status: "error", errorMessage: e?.message || "Network error — check your connection and try again." });
+    }
+  }
+
+  function commitManual() {
+    const n = parseFloat(manualInput.replace(/[^0-9.]/g, ""));
+    const patch = buildManualPropertyTaxPatch(n);
+    if (!patch) return;
+    onUpdate(patch);
+    setShowManual(false);
+    setLookupState({ status: "idle" });
+  }
+
+  const hasTax = typeof loan.annualPropertyTax === "number";
+  const monthly = hasTax ? loan.annualPropertyTax! / 12 : null;
+  const sourceLabel: Record<NonNullable<TrackedLoan["annualPropertyTaxSource"]>, string> = {
+    "manual": "Entered manually",
+    "tax-collector-bill-scrape": "Tax collector",
+    "manatee-arcgis": "Manatee Property Appraiser",
+  };
+
+  return (
+    <div
+      className="rounded-md border bg-muted/20 p-3 space-y-2"
+      data-testid={`property-tax-section-${loan.id}`}
+      role="region"
+      aria-label="Current owner's annual property-tax bill"
+    >
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-1.5">
+          <Receipt className="h-4 w-4 text-muted-foreground shrink-0" />
+          <span className="text-sm font-medium">Current Owner's Annual Property Tax</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {/* Lookup button — always available unless a lookup is in flight */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 text-xs"
+            onClick={handleLookup}
+            disabled={
+              lookupState.status === "pending" ||
+              !loan.propertyAddress ||
+              loan.propertyAddress === "Unknown address"
+            }
+            data-testid={`btn-property-tax-lookup-${loan.id}`}
+            aria-label="Look up current property tax bill from the tax collector"
+          >
+            {lookupState.status === "pending"
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <Search className="h-3 w-3" />}
+            Look up current bill
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 text-xs"
+            onClick={() => setShowManual(v => !v)}
+            data-testid={`btn-property-tax-manual-${loan.id}`}
+            aria-label="Enter property tax bill manually"
+          >
+            <Pencil className="h-3 w-3" />
+            {showManual ? "Cancel" : hasTax && loan.annualPropertyTaxSource === "manual" ? "Edit" : "Enter manually"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Display: current bill details */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-sm">
+        <div>
+          <p className="text-xs text-muted-foreground">Annual bill</p>
+          <p className="font-semibold" data-testid={`property-tax-annual-${loan.id}`}>
+            {hasTax ? formatCurrency(loan.annualPropertyTax!) : <span className="text-muted-foreground italic">Not provided</span>}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Monthly equivalent</p>
+          <p className="font-semibold" data-testid={`property-tax-monthly-${loan.id}`}>
+            {monthly !== null ? formatCurrency(monthly) : <span className="text-muted-foreground italic">—</span>}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Source / Year</p>
+          <p className="text-xs" data-testid={`property-tax-source-${loan.id}`}>
+            {hasTax ? (
+              <>
+                {loan.annualPropertyTaxSource ? sourceLabel[loan.annualPropertyTaxSource] : "Unknown"}
+                {loan.annualPropertyTaxYear ? ` · ${loan.annualPropertyTaxYear}` : ""}
+              </>
+            ) : (
+              <span className="text-muted-foreground italic">—</span>
+            )}
+          </p>
+        </div>
+      </div>
+
+      {/* Clarifying note — always visible */}
+      <p className="text-xs text-muted-foreground flex items-start gap-1">
+        <Info className="h-3 w-3 shrink-0 mt-0.5" />
+        This is the <strong>current owner's</strong> tax bill, not a purchase estimate. It does not affect payment or refinance calculations.
+      </p>
+
+      {/* Pending feedback */}
+      {lookupState.status === "pending" && lookupState.pendingMessage && (
+        <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-700">
+          <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 mt-0.5" />
+          <span>{lookupState.pendingMessage}</span>
+        </div>
+      )}
+
+      {/* Unavailable feedback */}
+      {lookupState.status === "unavailable" && lookupState.unavailableReason && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>
+            Automatic lookup not available: {lookupState.unavailableReason} Please enter your annual bill manually.
+          </span>
+        </div>
+      )}
+
+      {/* Error feedback */}
+      {lookupState.status === "error" && lookupState.errorMessage && (
+        <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <span>{lookupState.errorMessage}</span>
+        </div>
+      )}
+
+      {/* Manual entry form */}
+      {showManual && (
+        <div className="flex items-center gap-2 pt-1 flex-wrap">
+          <Label htmlFor={`manual-tax-${loan.id}`} className="text-xs whitespace-nowrap">Annual bill ($)</Label>
+          <Input
+            id={`manual-tax-${loan.id}`}
+            data-testid={`input-property-tax-manual-${loan.id}`}
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            placeholder="e.g. 4800"
+            value={manualInput}
+            onChange={e => setManualInput(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") commitManual(); if (e.key === "Escape") setShowManual(false); }}
+            className="w-32 h-7 text-sm"
+            aria-label="Annual property tax bill in dollars"
+          />
+          <Button
+            size="sm"
+            className="h-7 px-2 gap-1 text-xs"
+            onClick={commitManual}
+            data-testid={`btn-property-tax-save-manual-${loan.id}`}
+          >
+            <Check className="h-3 w-3" />Save
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 px-2"
+            onClick={() => setShowManual(false)}
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -728,6 +979,10 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
               </p>
             )}
           </div>
+
+          {/* Current owner's property tax bill — shown for all tracked loans.
+              Clearly separate from purchase estimates and escrow math. */}
+          <PropertyTaxSection loan={loan} onUpdate={onUpdate} />
 
           {/* Best option banner */}
           {isFreeClear ? (

@@ -45,7 +45,7 @@ import { fetchFloodZone } from "@/lib/flood-zone";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { loadGoogleMapsApi } from "@/lib/script-loader";
+import { useGooglePlaces } from "@/hooks/use-google-places";
 import { useToast } from "@/hooks/use-toast";
 import {
   getBestOption, getBestConventionalRate, PROPERTY_TYPE_ADJUSTMENTS,
@@ -511,36 +511,9 @@ function AddressSearchBar({ onNavigate, compact = false }: {
   onNavigate: (addr: string) => void;
   compact?: boolean;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const autocompleteRef = useRef<any>(null);
-
-  useEffect(() => {
-    async function init() {
-      try {
-        let apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
-        if (!apiKey) {
-          const res = await fetch("/api/config/google-maps-api-key");
-          const data = await res.json();
-          apiKey = data.apiKey || "";
-        }
-        if (!apiKey || !inputRef.current) return;
-        await loadGoogleMapsApi(apiKey);
-        if (!window.google?.maps?.places?.Autocomplete) return;
-        autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
-          types: ["address"],
-          componentRestrictions: { country: "us" },
-          fields: ["formatted_address"],
-        });
-        autocompleteRef.current.addListener("place_changed", () => {
-          const place = autocompleteRef.current.getPlace();
-          if (place?.formatted_address) onNavigate(place.formatted_address);
-        });
-      } catch (err) {
-        console.warn("Google Maps autocomplete unavailable:", err);
-      }
-    }
-    init();
-  }, []);
+  const { bindInputRef, inputRef } = useGooglePlaces({
+    onPlaceSelected: place => onNavigate(place.formatted_address),
+  });
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -554,7 +527,7 @@ function AddressSearchBar({ onNavigate, compact = false }: {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
           <input
-            ref={inputRef}
+            ref={bindInputRef}
             type="text"
             placeholder="Enter a property address..."
             autoFocus
@@ -577,7 +550,7 @@ function AddressSearchBar({ onNavigate, compact = false }: {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground pointer-events-none" />
             <input
-              ref={inputRef}
+              ref={bindInputRef}
               type="text"
               placeholder="Enter a property address..."
               className="w-full pl-10 pr-4 h-14 text-base rounded-xl border bg-background shadow-sm outline-none focus:ring-2 focus:ring-primary"

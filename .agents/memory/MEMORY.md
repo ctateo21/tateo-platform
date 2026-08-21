@@ -7,7 +7,7 @@
 - [Seller mortgage payoff resolution](seller-mortgage-payoff.md) — priority manual>statement>refinance>amortized>existing>zero; manual/statement never auto-overwritten (double-guarded).
 - [Seller net-proceeds shared helper](seller-net-proceeds-helper.md) — detail view, dashboard overview, and save handler must all use seller-net-proceeds.ts; gate "—" on hasSalePrice to avoid drift.
 - [Auth & password reset](auth-password-reset.md) — Supabase-only passwords (never in public tables); email-only login; reset link needs origin on Supabase Auth redirect allowlist.
-- [Full-project tsc time limit](tsc-env-limit.md) — `npx tsc --noEmit` won't finish in the sandbox; verify small edits via Vite HMR "hot updated" / no transform errors instead.
+- [TypeScript incremental config changes](tsc-env-limit.md) — clear tsbuildinfo once if old diagnostics survive a compiler-option change.
 - [GitHub sync method & checkpoint gotcha](github-sync.md) — push via connectors-sdk proxy (no raw tokens); diff vs REMOTE tree, never `git diff HEAD` (checkpoints auto-commit).
 - [QuoteRUSH live quoting](quoterush-integration.md) — explicit answers beat enrichment/defaults; manual quotes use a shared 30-day cache with lead-bound updates and race-safe polling.
 - [Tax Collector bill scrape](tax-collector-bill-scrape.md) — HCPA nonAdValorem field is dead; CDD lines come from Apify browser scrape (needs one-time actor approval), cached per folio.
@@ -16,3 +16,5 @@
 - [Refinance entry methods](refinance-entry-methods.md) — 4 add-loan flows share commitNewLoan; CD extraction strictly validated; free&clear prices from max-LTV default, never the 0 balance.
 - [Hillsborough property tax estimate](hillsborough-tax-estimate.md) — HCPA estimator range = assessed-value range (85%–100% of price); Havo matches the LOWER bound via 85% assessed ratio.
 - [Private applicant DOB](private-applicant-dob.md) — DOB stays server-only in Neon; browser gets only a boolean status, and QuoteRUSH resolves DOB at the server boundary.
+- [Google Places autocomplete sessions](google-places-autocomplete.md) — independently invalidate prediction/detail races and rotate billing tokens when a search is abandoned.
+- [Two-part property-tax architecture](property-tax-two-part.md) — purchase estimates and refinance owner bills stay separate; current-bill lookups are address-only and actual-total-only.

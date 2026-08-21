@@ -37,6 +37,14 @@ export interface NonAdValoremResult {
   totalMillage: number | null;
   /** Per-authority millage rates from the bill's Ad Valorem table. */
   adValoremMills: Array<{ authority: string; mills: number }> | null;
+  /**
+   * Actual ad-valorem dollar total from the bill's "Total Ad Valorem
+   * Taxes" row (e.g. $2,288.68 → 2288.68). Null when the bill did
+   * not include a dollar amount on that row (only millage).
+   * Use this for the refinance current-bill endpoint; do NOT use for
+   * purchase estimates (reflects existing owner's exemptions/SOH cap).
+   */
+  totalAdValorem: number | null;
 }
 
 /** Folios with a scrape currently running (dedupe concurrent misses). */
@@ -53,6 +61,9 @@ interface ParsedBill {
   /** Total ad valorem millage from the bill's
    *  "Total Ad Valorem Taxes" row (e.g. 19.9197). */
   totalMillage?: number | null;
+  /** Actual dollar amount from the bill's "Total Ad Valorem Taxes"
+   *  row (e.g. $2,288.68 → 2288.68). Null when absent. */
+  totalAdValorem?: number | null;
   /** Per-authority millage rates from the bill's Ad Valorem table
    *  ("| NAME | 4.5423 | $assessed | $exempt | $taxable | $tax |"). */
   adValoremMills?: Array<{ authority: string; mills: number }> | null;
@@ -73,10 +84,25 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
   const section = seg.split(/\n##[^#]/)[0];
 
   // "| Total Ad Valorem Taxes | 19.9197 | ... | $2,288.68 |"
-  const millMatch = md.match(
-    /\|\s*Total Ad Valorem Taxes\s*\|\s*([\d.]+)\s*\|/i
-  );
-  const totalMillage = millMatch ? parseFloat(millMatch[1]) : null;
+  // Match the entire row on a single line so we don't bleed across sections.
+  // Pattern: capture mills (col 2) and last $N,NNN.NN on that line (col last).
+  let totalMillage: number | null = null;
+  let totalAdValorem: number | null = null;
+  for (const line of md.split("\n")) {
+    const m = line.match(
+      /\|\s*Total Ad Valorem Taxes\s*\|\s*([\d.]+)\s*\|/i
+    );
+    if (!m) continue;
+    totalMillage = parseFloat(m[1]);
+    // Find the last dollar amount on this line.
+    const dollars = Array.from(line.matchAll(/\$\s*([\d,]+\.\d{2})/g));
+    if (dollars.length) {
+      const last = dollars[dollars.length - 1][1];
+      const val = parseFloat(last.replace(/,/g, ""));
+      if (Number.isFinite(val) && val > 0) totalAdValorem = val;
+    }
+    break; // found the row
+  }
 
   // Per-authority millage from the Ad Valorem table:
   // "| ST PETERSBURG | 6.4525 | $402,007.00 | … |"
@@ -127,6 +153,8 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
         total: 0,
         noAssessments: true,
         totalMillage,
+        totalAdValorem: (totalAdValorem != null && Number.isFinite(totalAdValorem) && totalAdValorem > 0)
+          ? totalAdValorem : null,
         adValoremMills: adValoremMills.length
           ? adValoremMills
           : null,
@@ -144,6 +172,8 @@ export function parseBillMarkdown(md: string): ParsedBill | null {
     lines,
     total,
     totalMillage,
+    totalAdValorem: (totalAdValorem != null && Number.isFinite(totalAdValorem) && totalAdValorem > 0)
+      ? totalAdValorem : null,
     adValoremMills: adValoremMills.length ? adValoremMills : null,
   };
 }
@@ -317,6 +347,7 @@ async function scrapeAndCache(
     .sort(
       (a, b) =>
         (b.year ?? 0) - (a.year ?? 0) ||
+        (b.totalAdValorem ? 1 : 0) - (a.totalAdValorem ? 1 : 0) ||
         (b.adValoremMills ? 1 : 0) - (a.adValoremMills ? 1 : 0) ||
         b.lines.length - a.lines.length
     );
@@ -360,6 +391,9 @@ async function scrapeAndCache(
       status: best ? "success" : "error",
       lines: best?.lines ?? [],
       totalNonAdValorem: Math.round((best?.total ?? 0) * 100),
+      totalAdValoremCents: (best?.totalAdValorem != null && best.totalAdValorem > 0)
+        ? Math.round(best.totalAdValorem * 100)
+        : null,
       totalMillage: best?.totalMillage
         ? Math.round(best.totalMillage * 10000)
         : null,
@@ -391,7 +425,8 @@ export type NonAdValoremLookup =
 export async function getNonAdValoremForFolio(
   folio: string,
   county: string = "hillsborough",
-  accountOverride?: string
+  accountOverride?: string,
+  options?: { requireAdValoremTotal?: boolean },
 ): Promise<NonAdValoremLookup> {
   // Only Hillsborough uses the A-prefixed account format.
   const bareFolio =
@@ -413,25 +448,40 @@ export async function getNonAdValoremForFolio(
     if (rows.length && rows[0].expiresAt > new Date()) {
       const row = rows[0];
       if (row.status === "success") {
-        return {
-          state: "ready",
-          data: {
-            folio: cleanFolio,
-            billYear: row.billYear,
-            lines: row.lines ?? [],
-            total: (row.totalNonAdValorem ?? 0) / 100,
-            fromCache: true,
-            totalMillage: row.totalMillage
-              ? row.totalMillage / 10000
-              : null,
-            adValoremMills: row.adValoremMills ?? null,
-          },
-        };
+        // Existing purchase-only cache rows predate totalAdValoremCents.
+        // A refinance lookup must refresh those rows rather than reporting
+        // "unavailable" until their normal 180-day expiry.
+        if (
+          !options?.requireAdValoremTotal ||
+          row.totalAdValoremCents != null
+        ) {
+          return {
+            state: "ready",
+            data: {
+              folio: cleanFolio,
+              billYear: row.billYear,
+              lines: row.lines ?? [],
+              total: (row.totalNonAdValorem ?? 0) / 100,
+              fromCache: true,
+              totalMillage: row.totalMillage
+                ? row.totalMillage / 10000
+                : null,
+              totalAdValorem: row.totalAdValoremCents != null
+                ? row.totalAdValoremCents / 100
+                : null,
+              adValoremMills: row.adValoremMills ?? null,
+            },
+          };
+        }
       }
-      // Recent failed attempt — don't hammer Apify.
-      return inFlight.has(cleanFolio)
-        ? { state: "pending" }
-        : { state: "unavailable" };
+      if (row.status !== "success") {
+        // Recent failed attempt — don't hammer Apify.
+        return inFlight.has(cleanFolio)
+          ? { state: "pending" }
+          : { state: "unavailable" };
+      }
+      // A successful legacy row without ad-valorem dollars falls through and
+      // starts one deduplicated refresh for the current-bill endpoint.
     }
   } catch (e: any) {
     console.error("[nav-scrape] cache read failed:", e?.message);

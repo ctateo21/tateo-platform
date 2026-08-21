@@ -24,45 +24,77 @@ export function loadScript(src: string): Promise<void> {
 /**
  * Load Google Maps API with Places library
  */
-export async function loadGoogleMapsApi(apiKey: string): Promise<void> {
-  if (!apiKey) {
-    console.error('Cannot load Google Maps API: API key is empty or invalid');
-    return Promise.reject(new Error('Google Maps API key is required'));
+let googleMapsPromise: Promise<void> | null = null;
+
+async function resolveGoogleMapsApiKey(apiKey?: string): Promise<string> {
+  if (apiKey) return apiKey;
+
+  const response = await fetch('/api/config/google-maps-api-key');
+  if (!response.ok) throw new Error('Google Maps API key is not configured');
+  const data = await response.json();
+  if (!data.apiKey) throw new Error('Google Maps API key is not configured');
+  return data.apiKey;
+}
+
+async function ensurePlacesLibrary(): Promise<void> {
+  if (!window.google?.maps?.importLibrary) {
+    throw new Error('Google Maps JavaScript API did not initialize');
+  }
+  await window.google.maps.importLibrary('places');
+}
+
+export async function loadGoogleMapsApi(apiKey?: string): Promise<void> {
+  if (window.google?.maps?.importLibrary) {
+    await ensurePlacesLibrary();
+    return;
   }
 
-  // If already loaded
-  if (window.google && window.google.maps && window.google.maps.places) {
-    return Promise.resolve();
-  }
-  
-  const scriptUrl = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&loading=async&callback=initGoogleMapsCallback`;
-  
-  return new Promise((resolve, reject) => {
-    // Create a global callback function that Google Maps will call when loaded
-    (window as any).initGoogleMapsCallback = function() {
-      delete (window as any).initGoogleMapsCallback;
-      resolve();
-    };
+  if (googleMapsPromise) return googleMapsPromise;
 
-    try {
+  googleMapsPromise = (async () => {
+    const resolvedApiKey = await resolveGoogleMapsApiKey(apiKey);
+    const existingScript = document.getElementById('google-maps-script') as HTMLScriptElement | null;
+
+    if (existingScript) {
+      await new Promise<void>((resolve, reject) => {
+        if (window.google?.maps?.importLibrary) {
+          resolve();
+          return;
+        }
+        existingScript.addEventListener('load', () => resolve(), { once: true });
+        existingScript.addEventListener('error', () => reject(new Error('Failed to load Google Maps API')), { once: true });
+      });
+      await ensurePlacesLibrary();
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const callbackName = '__havoGoogleMapsReady';
+      (window as any)[callbackName] = () => {
+        delete (window as any)[callbackName];
+        resolve();
+      };
+
       const script = document.createElement('script');
-      script.src = scriptUrl;
+      script.id = 'google-maps-script';
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(resolvedApiKey)}&libraries=places&loading=async&v=weekly&callback=${callbackName}`;
       script.async = true;
       script.defer = true;
-      
-      script.onerror = (e) => {
-        console.error('Error loading Google Maps script:', e);
-        delete (window as any).initGoogleMapsCallback;
-        reject(new Error(`Failed to load Google Maps API`));
+      script.onerror = () => {
+        delete (window as any)[callbackName];
+        script.remove();
+        reject(new Error('Failed to load Google Maps API'));
       };
-      
       document.head.appendChild(script);
-    } catch (error) {
-      console.error('Error setting up Google Maps API script:', error);
-      delete (window as any).initGoogleMapsCallback;
-      reject(error);
-    }
+    });
+
+    await ensurePlacesLibrary();
+  })().catch(error => {
+    googleMapsPromise = null;
+    throw error;
   });
+
+  return googleMapsPromise;
 }
 
 // Add types for global Google Maps API. Typed as `any` to stay
@@ -72,6 +104,6 @@ export async function loadGoogleMapsApi(apiKey: string): Promise<void> {
 declare global {
   interface Window {
     google?: any;
-    initGoogleMapsCallback?: () => void;
+    __havoGoogleMapsReady?: () => void;
   }
 }

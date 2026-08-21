@@ -28,6 +28,21 @@ This app talks to TWO Postgres databases:
 **How to apply:** any new persisted field on a Supabase table → schema.sql +
 migration + optional-columns list, all three, every time.
 
+## Partial legacy-draft migrations
+
+**Rule:** Supabase upgrade migrations must tolerate optional legacy tables being
+absent and retain old draft columns while relaxing incompatible `NOT NULL`
+constraints before the finalized writer omits them.
+
+**Why:** shared projects can have only part of a historical draft applied; an
+unconditional backfill can fail on a missing legacy table, while a preserved
+legacy required field can reject a new-format upsert even after the new columns
+exist.
+
+**How to apply:** guard optional backfills with `to_regclass`, inspect legacy
+columns through `information_schema`, copy historical values where present, and
+drop only the incompatible `NOT NULL` constraint—never the legacy column.
+
 **Migration-free alternative (preferred for small scalar/UI fields):** stash the
 value inside the existing `user_answer_sources` jsonb column instead of a new
 column. It already round-trips end-to-end (rowToInsurance/insuranceToRow and is
