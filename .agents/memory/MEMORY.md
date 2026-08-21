@@ -9,6 +9,7 @@
 - [Auth & password reset](auth-password-reset.md) — Supabase-only passwords (never in public tables); email-only login; reset link needs origin on Supabase Auth redirect allowlist.
 - [TypeScript incremental config changes](tsc-env-limit.md) — clear tsbuildinfo once if old diagnostics survive a compiler-option change.
 - [GitHub sync method & checkpoint gotcha](github-sync.md) — push via connectors-sdk proxy (no raw tokens); diff vs REMOTE tree, never `git diff HEAD` (checkpoints auto-commit).
+- [GitHub workflow publishing permissions](github-workflow-permissions.md) — the connector can manage repo data but cannot add workflow files; publishing needs a classic PAT with `repo` + `workflow`.
 - [QuoteRUSH live quoting](quoterush-integration.md) — explicit answers beat enrichment/defaults; manual quotes use a shared 30-day cache with lead-bound updates and race-safe polling.
 - [Tax Collector bill scrape](tax-collector-bill-scrape.md) — HCPA nonAdValorem field is dead; CDD lines come from Apify browser scrape (needs one-time actor approval), cached per folio.
 - [FUB leaderboard data sources](fub-leaderboard-data-sources.md) — calls in /v1/calls (userId), showings in /v1/appointments (createdById, -1=system); texts/emails not listable globally.
