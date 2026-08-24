@@ -47,6 +47,56 @@ test("county identification remains conservative for shared ZIPs", () => {
     identifyCountyCandidatesFromAddress("100 Main St, Dade City, FL 33523"),
     ["hillsborough", "pasco", "hernando"],
   );
+  assert.deepEqual(
+    identifyCountyCandidatesFromAddress(
+      "16807 McGregor Blvd, Fort Myers, FL 33908",
+    ),
+    ["lee"],
+  );
+});
+
+test("Lee queries by house number and strictly selects the matching parcel", async () => {
+  const fetchImpl: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+    assert.match(url.pathname, /Lee_County_Parcels\/FeatureServer\/0\/query/);
+    assert.equal(
+      url.searchParams.get("where"),
+      "SITEADDR LIKE '16807%' AND SITECITY='FORT MYERS'",
+    );
+    return new Response(
+      JSON.stringify({
+        features: [
+          {
+            attributes: {
+              STRAP: "29442307000000190",
+              FOLIOID: 10602786,
+              SITEADDR: "16807 PRINCE PHILLIP CT",
+              SITECITY: "CAPE CORAL",
+            },
+          },
+          {
+            attributes: {
+              STRAP: "024623010000E0060",
+              FOLIOID: 10636991,
+              SITEADDR: "16807 MCGREGOR BLVD",
+              SITECITY: "FORT MYERS",
+              JUST: 390344,
+              ASSESSED: 248634,
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  };
+  const result = await resolveParcel(
+    "lee",
+    "16807 McGregor Blvd, Fort Myers, FL 33908",
+    { fetchImpl, skipCache: true },
+  );
+  assert.equal(result.status, "found");
+  assert.equal(result.parcelId, "024623010000E0060");
+  assert.equal(result.justValue, 390344);
 });
 
 test("SWFWMD Hernando uses ALTKEY as the TaxSys parcel key", async () => {

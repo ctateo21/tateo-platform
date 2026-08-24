@@ -140,6 +140,40 @@ type MillageInputs = Pick<
   | "rateYear"
 >;
 
+// Amendment 5 (2024) indexes the SECOND homestead exemption to CPI from
+// the 2025 tax year. The first $25,000 (all levies, incl. school) is fixed.
+// FL DOR published: 2025 = $25,722, 2026 = $26,411.
+// Review each January when DOR publishes the new figure.
+export const ADDITIONAL_HOMESTEAD_EXEMPTION_BY_YEAR: Record<number, number> = {
+  2025: 25_722,
+  2026: 26_411,
+};
+
+const loggedUnknownExemptionYears = new Set<number>();
+
+export function additionalHomesteadExemptionForYear(rateYear: number): number {
+  const exact = ADDITIONAL_HOMESTEAD_EXEMPTION_BY_YEAR[rateYear];
+  if (exact != null) return exact;
+
+  const mostRecentYear = Math.max(
+    ...Object.keys(ADDITIONAL_HOMESTEAD_EXEMPTION_BY_YEAR).map(Number),
+  );
+  if (!loggedUnknownExemptionYears.has(rateYear)) {
+    loggedUnknownExemptionYears.add(rateYear);
+    console.warn(
+      `[property-tax] no indexed homestead exemption for ${rateYear}; ` +
+      `using ${mostRecentYear}. Review the FL DOR annual amount.`,
+    );
+  }
+  return ADDITIONAL_HOMESTEAD_EXEMPTION_BY_YEAR[mostRecentYear];
+}
+
+export function totalNonSchoolHomesteadExemptionForYear(
+  rateYear: number,
+): number {
+  return 25_000 + additionalHomesteadExemptionForYear(rateYear);
+}
+
 /** True only when a row has every component of the Florida rate formula. */
 function hasCompleteMillageInputs(row: Partial<MillageInputs>): boolean {
   return (
@@ -185,8 +219,15 @@ export function computeFromCache(
     const schoolTaxableValue = homestead
       ? Math.max(0, assessedValue - row.homesteadSchoolExemption!)
       : assessedValue;
+    const additionalExemption = Math.max(
+      0,
+      Math.min(
+        assessedValue - 50_000,
+        additionalHomesteadExemptionForYear(row.rateYear!),
+      ),
+    );
     const nonSchoolTaxableValue = homestead
-      ? Math.max(0, assessedValue - row.homesteadNonSchoolExemption!)
+      ? Math.max(0, assessedValue - 25_000 - additionalExemption)
       : assessedValue;
     adValoremTax = Math.round(
       (schoolTaxableValue * row.schoolMillage! +

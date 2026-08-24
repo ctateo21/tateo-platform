@@ -259,11 +259,16 @@ async function lookupLee(
   const county: CountySlug = "lee";
   const source = "lee-county-parcels";
   const street = requestedStreet(address).toUpperCase().replace(/'/g, "''");
+  const firstStreetToken = street.split(/\s+/)[0] ?? "";
+  const houseNumber = /^\d+[A-Z-]*$/.test(firstStreetToken)
+    ? firstStreetToken
+    : "";
+  const streetPrefix = houseNumber || street;
   const city = requestedCity(address).replace(/'/g, "''");
   try {
     const candidates = await queryArcGis({
       url: LEE_LAYER,
-      where: `SITESTREET LIKE '${street}%' AND SITECITY='${city}'`,
+      where: `SITEADDR LIKE '${streetPrefix}%' AND SITECITY='${city}'`,
       outFields:
         "STRAP,FOLIOID,SITEADDR,SITECITY,SITEZIP,JUST,ASSESSED," +
         "TAXABLE,HSTDAMOUNT,TAXINGDIST,TAXDISTDES",
@@ -533,7 +538,10 @@ const COUNTY_ZIP_PATTERNS: Array<[CountySlug, RegExp]> = [
 export function identifyCountyCandidatesFromAddress(
   address: string,
 ): CountySlug[] {
-  const zip = address.match(/\b(\d{5})(?:-\d{4})?\b/)?.[1];
+  const zipMatches = Array.from(
+    address.matchAll(/\b(\d{5})(?:-\d{4})?\b/g),
+  );
+  const zip = zipMatches.at(-1)?.[1];
   if (!zip) return [];
   return COUNTY_ZIP_PATTERNS
     .filter(([, pattern]) => pattern.test(zip))

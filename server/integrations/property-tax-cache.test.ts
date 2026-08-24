@@ -180,7 +180,7 @@ test("complete millage row is valid at every positive purchase price", () => {
     nonSchoolMillage: 12,
     assessmentRatio: 1,
     homesteadSchoolExemption: 25_000,
-    homesteadNonSchoolExemption: 50_000,
+    homesteadNonSchoolExemption: 51_411,
     rateYear: 2026,
   };
   assert.equal(isCacheRowValid(row, 1, NOW), true);
@@ -262,13 +262,13 @@ test("computeFromCache: exact millage applies Florida homestead exemptions separ
     nonSchoolMillage: 10,
     assessmentRatio: 1,
     homesteadSchoolExemption: 25_000,
-    homesteadNonSchoolExemption: 50_000,
+    homesteadNonSchoolExemption: 51_411,
     rateYear: 2026,
   };
   const homestead = computeFromCache(row, 400_000, true);
   const nonHomestead = computeFromCache(row, 400_000, false);
-  // (375k × 5 + 350k × 10) / 1,000 = $5,375.
-  assert.equal(homestead.adValoremTax, 5_375);
+  // (375k × 5 + 348,589 × 10) / 1,000 = $5,361.
+  assert.equal(homestead.adValoremTax, 5_361);
   // (400k × (5 + 10)) / 1,000 = $6,000.
   assert.equal(nonHomestead.adValoremTax, 6_000);
 });
@@ -282,11 +282,28 @@ test("computeFromCache: exact millage honors assessment ratio at arbitrary price
     nonSchoolMillage: 8,
     assessmentRatio: 0.9,
     homesteadSchoolExemption: 25_000,
-    homesteadNonSchoolExemption: 50_000,
+    homesteadNonSchoolExemption: 51_411,
     rateYear: 2026,
   };
   // $600k price → $540k assessed; non-homestead has no exemption.
   assert.equal(computeFromCache(row, 600_000, false).adValoremTax, 6_480);
+});
+
+test("computeFromCache phases in the additional exemption above $50k", () => {
+  const row = {
+    homesteadAdValoremPct: 0,
+    nonHomesteadAdValoremPct: 0,
+    nonAdValoremAmtCents: 0,
+    schoolMillage: 0,
+    nonSchoolMillage: 10,
+    assessmentRatio: 1,
+    homesteadSchoolExemption: 25_000,
+    homesteadNonSchoolExemption: 51_411,
+    rateYear: 2026,
+  };
+  // At $60k assessed, only $10k of the indexed additional exemption has
+  // phased in: $25k first exemption + $10k additional = $35k total.
+  assert.equal(computeFromCache(row, 60_000, true).adValoremTax, 250);
 });
 
 // ── Source label requirements ─────────────────────────────────────

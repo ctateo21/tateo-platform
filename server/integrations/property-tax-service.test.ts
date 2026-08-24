@@ -73,7 +73,7 @@ test("Pinellas millage cache recomputes at arbitrary prices", () => {
     homesteadSchoolExemption: 25_000,
     homesteadNonSchoolExemption: 51_411,
     parcelSource: "pinellas-pa-arcgis",
-    rateYear: 2025,
+    rateYear: 2026,
     nonAdValoremAmtCents: 35_336,
     nonAdValoremLines: [{ authority: "Fire Assessment", amount: 353.36 }],
     source: "pinellas-bill-live",
@@ -111,10 +111,11 @@ test("shared live purchase basis uses verified county parcel value", () => {
       purchasePrice: 500_000,
       justValue: 450_000,
       assessedValue: 300_000,
+      rateYear: 2026,
     }),
     {
       assessmentRatio: 0.9,
-      homesteadNonSchoolExemption: 50_000,
+      homesteadNonSchoolExemption: 51_411,
       valueBasis: "verified-parcel-value",
     },
   );
@@ -126,6 +127,7 @@ test("Pinellas assessment basis preserves its 85% estimator floor", () => {
       county: "pinellas",
       purchasePrice: 500_000,
       justValue: 350_000,
+      rateYear: 2026,
     }).assessmentRatio,
     0.85,
   );
@@ -134,6 +136,7 @@ test("Pinellas assessment basis preserves its 85% estimator floor", () => {
       county: "pinellas",
       purchasePrice: 500_000,
       justValue: 600_000,
+      rateYear: 2026,
     }).assessmentRatio,
     1.2,
   );
@@ -144,11 +147,49 @@ test("county without a verified value is explicitly formula-based at market valu
     deriveCountyAssessmentBasis({
       county: "collier",
       purchasePrice: 500_000,
+      rateYear: 2026,
     }),
     {
       assessmentRatio: 1,
-      homesteadNonSchoolExemption: 50_000,
+      homesteadNonSchoolExemption: 51_411,
       valueBasis: "formula-assumed-market-value",
     },
   );
+});
+
+test("Save Our Homes assessed value never substitutes for missing just value", () => {
+  const basis = deriveCountyAssessmentBasis({
+    county: "lee",
+    purchasePrice: 500_000,
+    justValue: 0,
+    assessedValue: 200_000,
+    rateYear: 2026,
+  });
+  assert.equal(basis.assessmentRatio, 1);
+  assert.equal(basis.valueBasis, "formula-assumed-market-value");
+});
+
+test("2026 indexed non-school homestead exemption is statewide", () => {
+  const counties = [
+    "hillsborough",
+    "pinellas",
+    "manatee",
+    "pasco",
+    "hernando",
+    "sarasota",
+    "lee",
+    "collier",
+    "polk",
+  ] as const;
+  for (const county of counties) {
+    assert.equal(
+      deriveCountyAssessmentBasis({
+        county,
+        purchasePrice: 500_000,
+        rateYear: 2026,
+      }).homesteadNonSchoolExemption,
+      51_411,
+      county,
+    );
+  }
 });

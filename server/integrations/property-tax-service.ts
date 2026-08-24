@@ -38,6 +38,7 @@ import {
   writePropertyTaxCache,
   isCacheRowValid,
   computeFromCache,
+  totalNonSchoolHomesteadExemptionForYear,
 } from "./property-tax-cache";
 import {
   normalizeHillsboroughAddressKey,
@@ -81,6 +82,7 @@ export function deriveCountyAssessmentBasis(params: {
   purchasePrice: number;
   justValue?: number;
   assessedValue?: number;
+  rateYear: number;
 }): {
   assessmentRatio: number;
   homesteadNonSchoolExemption: number;
@@ -89,18 +91,21 @@ export function deriveCountyAssessmentBasis(params: {
   const observedValue =
     Number.isFinite(params.justValue) && (params.justValue ?? 0) > 0
       ? params.justValue!
-      : Number.isFinite(params.assessedValue) &&
-          (params.assessedValue ?? 0) > 0
-        ? params.assessedValue!
-        : null;
+      : null;
   const observedRatio =
     observedValue && params.purchasePrice > 0
       ? observedValue / params.purchasePrice
       : null;
   const saneObservedRatio =
-    observedRatio != null && observedRatio >= 0.25 && observedRatio <= 2
+    observedRatio != null && observedRatio >= 0.7 && observedRatio <= 2
       ? observedRatio
       : null;
+  if (observedRatio != null && saneObservedRatio == null) {
+    console.warn(
+      `[property-tax] rejected ${params.county} just-value ratio ` +
+      `${observedRatio.toFixed(4)} outside 0.7–2.0`,
+    );
+  }
 
   // Pinellas's public estimator uses the larger of 85% of purchase price or
   // current just value. The ratio captures that verified basis at cache time,
@@ -113,7 +118,7 @@ export function deriveCountyAssessmentBasis(params: {
   return {
     assessmentRatio,
     homesteadNonSchoolExemption:
-      params.county === "pinellas" ? 51_411 : 50_000,
+      totalNonSchoolHomesteadExemptionForYear(params.rateYear),
     valueBasis: saneObservedRatio
       ? "verified-parcel-value"
       : "formula-assumed-market-value",
@@ -329,7 +334,8 @@ export async function getHillsboroughPurchaseTax(params: {
       nonSchoolMillage: taxData.nonschoolTaxRate,
       assessmentRatio: 0.85,
       homesteadSchoolExemption: 25_000,
-      homesteadNonSchoolExemption: 50_000,
+      homesteadNonSchoolExemption:
+        totalNonSchoolHomesteadExemptionForYear(now.getUTCFullYear()),
       parcelSource: "hcpa-api",
       rateYear: now.getUTCFullYear(),
       nonAdValoremAmtCents: navPending ? 0 : Math.round(navTotal * 100),
@@ -546,7 +552,10 @@ export async function getPinellasPurchaseTax(params: {
         nonSchoolMillage,
         assessmentRatio: 0.85,
         homesteadSchoolExemption: 25_000,
-        homesteadNonSchoolExemption: 51_411,
+        homesteadNonSchoolExemption:
+          totalNonSchoolHomesteadExemptionForYear(
+            billYear ?? now.getUTCFullYear(),
+          ),
         parcelSource: "pinellas-pa-arcgis",
         rateYear: billYear ?? now.getUTCFullYear(),
         nonAdValoremAmtCents: nonAdValoremPending
@@ -740,6 +749,7 @@ export async function getCountyPurchaseTax(params: {
     purchasePrice,
     justValue: identity.justValue,
     assessedValue: identity.assessedValue,
+    rateYear: bill.data.billYear ?? now.getUTCFullYear(),
   });
   const {
     assessmentRatio,
