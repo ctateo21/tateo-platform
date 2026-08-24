@@ -203,12 +203,20 @@ async function lookupSwfwmd(
   const layer = SWFWMD_LAYERS[county];
   if (layer == null) return missing(county, "swfwmd-parcel-search");
   const street = requestedStreet(address).toUpperCase().replace(/'/g, "''");
+  const firstStreetToken = street.split(/\s+/)[0] ?? "";
+  const houseNumber = /^\d+[A-Z-]*$/.test(firstStreetToken)
+    ? firstStreetToken
+    : "";
+  // Hernando commonly stores two spaces between the house number and street
+  // name. Query by house number so ArcGIS returns those rows, then rely on the
+  // strict normalized street/unit/city matcher below to select the parcel.
+  const streetPrefix = houseNumber ? `${houseNumber} ` : street;
   const city = requestedCity(address).replace(/'/g, "''");
   const source = `swfwmd-layer-${layer}`;
   try {
     const candidates = await queryArcGis({
       url: `${SWFWMD_BASE}/${layer}`,
-      where: `SITEADD LIKE '${street}%' AND SCITY='${city}'`,
+      where: `SITEADD LIKE '${streetPrefix}%' AND SCITY='${city}'`,
       outFields:
         "PARNO,SITEADD,SCITY,SZIP,PARVAL,ASSD_TOT,JV_HMSTD," +
         "TAX_AUTH_CD,ALTKEY,PIN",

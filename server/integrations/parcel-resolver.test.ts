@@ -52,13 +52,18 @@ test("county identification remains conservative for shared ZIPs", () => {
 test("SWFWMD Hernando uses ALTKEY as the TaxSys parcel key", async () => {
   const fetchImpl: typeof fetch = async (input) => {
     assert.match(String(input), /MapServer\/5\/query/);
+    const where = new URL(String(input)).searchParams.get("where");
+    assert.equal(
+      where,
+      "SITEADD LIKE '3301 %' AND SCITY='BROOKSVILLE'",
+    );
     return new Response(
       JSON.stringify({
         features: [{
           attributes: {
             PARNO: "R-Z APN 19 0000 0310 0030",
             ALTKEY: "1738622",
-            SITEADD: "3301 NORTHEAST PKWY",
+            SITEADD: "3301  NORTHEAST PKWY",
             SCITY: "BROOKSVILLE",
             PARVAL: 300000,
             ASSD_TOT: 250000,
