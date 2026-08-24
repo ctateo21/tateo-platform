@@ -41,6 +41,22 @@ export function paymentsMadeSince(closingDate: string | Date, now: Date = new Da
   return Math.max(0, months - 1);
 }
 
+/** Scheduled payments due from the explicit first-payment date through `now`.
+ * Returns zero before that due date, one on/after the first due date, etc. */
+export function paymentsMadeFromFirstPaymentDate(
+  firstPaymentDate: string | Date,
+  now: Date = new Date(),
+): number {
+  const d = typeof firstPaymentDate === "string"
+    ? new Date(`${firstPaymentDate}T00:00:00`)
+    : firstPaymentDate;
+  if (isNaN(d.getTime()) || now.getTime() < d.getTime()) return 0;
+  let months = (now.getFullYear() - d.getFullYear()) * 12
+    + (now.getMonth() - d.getMonth());
+  if (now.getDate() < d.getDate()) months -= 1;
+  return Math.max(0, months + 1);
+}
+
 /** Estimated remaining years given payments already made. */
 export function remainingYears(termMonths: number, monthsElapsed: number): number {
   return Math.max(0, (termMonths - monthsElapsed) / 12);

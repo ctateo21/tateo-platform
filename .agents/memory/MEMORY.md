@@ -1,6 +1,7 @@
 - [Insurance policy type & property-type resolution](insurance-policy-type.md) — condo/townhome→HO6 resolution priority, Zillow-type-on-client, dual TrackedLoan gotcha, manual locks.
 - [Adding a persisted tracked_loans field](tracked-loans-persistence.md) — the 5-place checklist + migration, plus hydration-sync & onValueCommit gotchas for refi inputs.
 - [Supabase vs Neon DB split](supabase-vs-neon-split.md) — scenario/property tables live in user's Supabase (can't ALTER); new cols need schema.sql + migration + *_OPTIONAL_COLUMNS in auth.ts.
+- [Supabase persistence communication](supabase-persistence-communication.md) — always flag required SQL/migrations and design user-entered settings to survive return visits.
 - [Transactional emails & scenario-save hook](transactional-emails.md) — Resend best-effort senders (skip without RESEND_API_KEY/ALERT_FROM_EMAIL); scenarios save client-side, notify-new-scenario is the only server save hook.
 - [Havo access mode](havo-paywall.md) — ACTIVE: FREE_ACCESS (no payment anywhere, /subscribe redirects to dashboard, FUB notify on register/login only); paid Stripe/trial model dormant but retained, flip via FREE_ACCESS_MODE.
 - [Link-share previews (Open Graph)](link-share-previews.md) — iMessage crawler runs JS, so a page's react-helmet title override hijacks share previews; keep homepage Helmet OG consistent with index.html.
@@ -19,3 +20,6 @@
 - [Private applicant DOB](private-applicant-dob.md) — DOB stays server-only in Neon; browser gets only a boolean status, and QuoteRUSH resolves DOB at the server boundary.
 - [Google Places autocomplete sessions](google-places-autocomplete.md) — independently invalidate prediction/detail races and rotate billing tokens when a search is abandoned.
 - [Two-part property-tax architecture](property-tax-two-part.md) — purchase estimates and refinance owner bills stay separate; current-bill lookups are address-only and actual-total-only.
+- [Refinance financing defaults](refinance-financing-defaults.md) — escrow-bearing loans default to financing both closing costs and the new escrow reserve; preserve saved choices.
+- [Refinance VA funding fee](refinance-va-funding-fee.md) — require disability Yes/No; exempt=$0, non-exempt=3.3% subsequent-use financed into the note.
+- [Refinance escrow-refund estimate](refinance-escrow-refund.md) — prefer statement balance; CD/manual fallback is 2 monthly escrow payments; never include it in guaranteed cash figures.

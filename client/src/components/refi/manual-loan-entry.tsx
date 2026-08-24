@@ -32,6 +32,7 @@ export function ManualLoanEntry({ onAnalyzed }: ManualLoanEntryProps) {
   const [rate, setRate] = useState("");
   const [termYears, setTermYears] = useState("30");
   const [balance, setBalance] = useState("");
+  const [monthlyEscrow, setMonthlyEscrow] = useState("");
   const [error, setError] = useState<string | null>(null);
   // Verification step state — set after "Verify Balance" is pressed.
   const [check, setCheck] = useState<{ amortized: number; entered: number; monthsElapsed: number } | null>(null);
@@ -89,9 +90,10 @@ export function ManualLoanEntry({ onAnalyzed }: ManualLoanEntryProps) {
     const analysis: MortgageAnalysis = {
       loanBalance: Math.round(useBalance),
       interestRate: num(rate),
-      monthlyPayment: pi, // no escrow info in manual entry
+      monthlyPayment: pi + num(monthlyEscrow),
       principalAndInterest: pi,
-      escrowAmount: 0,
+      escrowAmount: num(monthlyEscrow),
+      currentEscrowBalance: null,
       propertyAddress: address.trim(),
       lender: "",
       estimatedRemainingYears: Math.round(remainingYears(termMonths, check.monthsElapsed) * 10) / 10,
@@ -231,6 +233,18 @@ export function ManualLoanEntry({ onAnalyzed }: ManualLoanEntryProps) {
           <div className="space-y-1">
             <Label htmlFor="manual-balance">Current loan balance</Label>
             <Input id="manual-balance" data-testid="input-manual-balance" inputMode="numeric" placeholder="$340,000" value={balance} onChange={e => { setBalance(e.target.value); setCheck(null); }} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="manual-monthly-escrow">Current monthly escrow payment</Label>
+            <Input
+              id="manual-monthly-escrow"
+              data-testid="input-manual-monthly-escrow"
+              inputMode="numeric"
+              placeholder="$650"
+              value={monthlyEscrow}
+              onChange={e => setMonthlyEscrow(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">Used to estimate a possible escrow refund at two months.</p>
           </div>
         </div>
 

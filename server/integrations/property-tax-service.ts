@@ -46,14 +46,20 @@ import {
   lookupPIN,
   fetchHcpaRatesForPin,
   calcAdValorem,
-  areHcpaRatesValid,
-  supabaseHcpaTaxCache,
 } from "./hillsborough-tax";
 import {
   lookupPinellasParcel,
   lookupManateeParcel,
 } from "./county-parcel-lookup";
-import { getNonAdValoremForFolio } from "./tax-bill-scraper";
+import {
+  getNonAdValoremForFolio,
+  type TaxSysSitusIdentity,
+} from "./tax-bill-scraper";
+import {
+  resolveParcel,
+  type CountySlug,
+} from "./parcel-resolver";
+import { getPolkPhenixTaxBill } from "./polk-phenix-tax";
 
 // ── Formula percentages used when live millage is unavailable ─────
 // 2025 effective county tax rates as share of purchase price.
@@ -64,14 +70,72 @@ export const COUNTY_FORMULA_RATES: Record<string, { h: number; nh: number }> = {
   sarasota: { h: 0.0105, nh: 0.0128 },
   hernando: { h: 0.01197, nh: 0.0146 },
   lee: { h: 0.01148, nh: 0.014 },
-  collier: { h: 0.00804, nh: 0.0098 },
+  // 2025 Collier parcel millage is roughly 11.05 mills. New-purchase
+  // reassessment at the shared 85% model is about 0.94% before homestead.
+  collier: { h: 0.00825, nh: 0.00939 },
   polk: { h: 0.01263, nh: 0.0154 },
 };
+
+export function deriveCountyAssessmentBasis(params: {
+  county: CountySlug;
+  purchasePrice: number;
+  justValue?: number;
+  assessedValue?: number;
+}): {
+  assessmentRatio: number;
+  homesteadNonSchoolExemption: number;
+  valueBasis: "verified-parcel-value" | "formula-assumed-market-value";
+} {
+  const observedValue =
+    Number.isFinite(params.justValue) && (params.justValue ?? 0) > 0
+      ? params.justValue!
+      : Number.isFinite(params.assessedValue) &&
+          (params.assessedValue ?? 0) > 0
+        ? params.assessedValue!
+        : null;
+  const observedRatio =
+    observedValue && params.purchasePrice > 0
+      ? observedValue / params.purchasePrice
+      : null;
+  const saneObservedRatio =
+    observedRatio != null && observedRatio >= 0.25 && observedRatio <= 2
+      ? observedRatio
+      : null;
+
+  // Pinellas's public estimator uses the larger of 85% of purchase price or
+  // current just value. The ratio captures that verified basis at cache time,
+  // as required by the arbitrary-price cache contract.
+  const assessmentRatio =
+    params.county === "pinellas"
+      ? Math.max(0.85, saneObservedRatio ?? 0.85)
+      : saneObservedRatio ?? 1;
+
+  return {
+    assessmentRatio,
+    homesteadNonSchoolExemption:
+      params.county === "pinellas" ? 51_411 : 50_000,
+    valueBasis: saneObservedRatio
+      ? "verified-parcel-value"
+      : "formula-assumed-market-value",
+  };
+}
 
 // ── Shared address normalizer ──────────────────────────────────────
 function normalizeAddr(address: string): string {
   // For Hillsborough we use the shared normalizer; for others a simple upper-trim.
   return address.trim().toUpperCase().replace(/\s+/g, " ");
+}
+
+function expectedTaxSysSitus(
+  county: CountySlug,
+  address: string,
+): TaxSysSitusIdentity {
+  const parts = address.split(",");
+  return {
+    county: county.charAt(0).toUpperCase() + county.slice(1),
+    situsAddress: (parts[0] ?? "").trim(),
+    situsCity: (parts[1] ?? "").trim(),
+  };
 }
 
 // ── Result types ──────────────────────────────────────────────────
@@ -89,6 +153,7 @@ export interface PurchaseTaxResult {
   millageRate?: number;
   nonAdValoremLines?: Array<{ authority: string; amount: number }>;
   nonAdValoremPending?: boolean;
+  operationalError?: string;
 }
 
 // ── Hillsborough ─────────────────────────────────────────────────
@@ -107,12 +172,15 @@ export async function getHillsboroughPurchaseTax(params: {
   const cached = await getPropertyTaxCacheRow("hillsborough", addrNorm);
   if (
     cached &&
-    isCacheRowValid(cached, purchasePrice, now, {
-      requireExactSamplePrice: true,
-    })
+    (
+      cached.source.endsWith("-situs-v2") ||
+      cached.source.endsWith("-nav-pending")
+    ) &&
+    isCacheRowValid(cached, purchasePrice, now)
   ) {
     let cacheRow = cached;
     let nonAdValoremPending = /-nav-pending$/.test(cached.source);
+    let operationalError: string | undefined;
 
     // A rates-only row remains useful while the bill scrape runs, but it must
     // keep checking for the fixed assessments instead of freezing $0 until
@@ -121,10 +189,13 @@ export async function getHillsboroughPurchaseTax(params: {
       const nav = await getNonAdValoremForFolio(
         cached.folio,
         "hillsborough",
+        undefined,
+        { expectedSitus: expectedTaxSysSitus("hillsborough", address) },
       );
       if (nav.state === "ready") {
         const nonAdValoremAmtCents = Math.round(nav.data.total * 100);
-        const source = cached.source.replace(/-nav-pending$/, "");
+        const source =
+          `${cached.source.replace(/-nav-pending$/, "")}-situs-v2`;
         await writePropertyTaxCache({
           county: cached.county,
           addressNormalized: cached.addressNormalized,
@@ -136,6 +207,13 @@ export async function getHillsboroughPurchaseTax(params: {
           nonHomesteadAdValoremPct: cached.nonHomesteadAdValoremPct,
           samplePrice: cached.samplePrice,
           totalMillage: cached.totalMillage,
+          schoolMillage: cached.schoolMillage,
+          nonSchoolMillage: cached.nonSchoolMillage,
+          assessmentRatio: cached.assessmentRatio,
+          homesteadSchoolExemption: cached.homesteadSchoolExemption,
+          homesteadNonSchoolExemption: cached.homesteadNonSchoolExemption,
+          parcelSource: cached.parcelSource,
+          rateYear: cached.rateYear,
           nonAdValoremAmtCents,
           nonAdValoremLines: nav.data.lines,
           source,
@@ -148,6 +226,13 @@ export async function getHillsboroughPurchaseTax(params: {
           source,
         };
         nonAdValoremPending = false;
+      } else if (
+        nav.state === "unavailable" &&
+        nav.reason === "apify_token_missing"
+      ) {
+        nonAdValoremPending = false;
+        operationalError =
+          "Live county tax bills are unavailable because APIFY_TOKEN is not configured.";
       }
     }
 
@@ -171,81 +256,11 @@ export async function getHillsboroughPurchaseTax(params: {
       millageRate: cacheRow.totalMillage ?? undefined,
       nonAdValoremLines: cacheRow.nonAdValoremLines,
       nonAdValoremPending,
+      operationalError,
     };
   }
 
-  // Step 2: Legacy HCPA cache (Supabase hcpa_tax_cache) as fallback during rollout.
-  const legacyCached = await supabaseHcpaTaxCache.get(addrNorm);
-  const legacyValid =
-    legacyCached &&
-    new Date(legacyCached.expiresAt).getTime() > now.getTime() &&
-    legacyCached.folio &&
-    areHcpaRatesValid(legacyCached);
-
-  // Step 3: Preserve the existing legacy-rate cache as the second read path
-  // during rollout. Raw school/non-school rates can be safely recalculated for
-  // any price, then promoted into the general cache at the new sample price.
-  if (legacyValid && legacyCached) {
-    const hAdValorem = calcAdValorem(
-      purchasePrice, true,
-      legacyCached.schoolTaxRate, legacyCached.nonschoolTaxRate,
-      legacyCached.totalTaxRate,
-    );
-    const nhAdValorem = calcAdValorem(
-      purchasePrice, false,
-      legacyCached.schoolTaxRate, legacyCached.nonschoolTaxRate,
-      legacyCached.totalTaxRate,
-    );
-    let navTotal = legacyCached.nonAdValoremTaxes;
-    let navLines: Array<{ authority: string; amount: number }> = [];
-    let navPending = navTotal <= 0;
-    const nav = await getNonAdValoremForFolio(
-      legacyCached.folio!,
-      "hillsborough",
-    );
-    if (nav.state === "ready") {
-      navTotal = Math.round(nav.data.total * 100) / 100;
-      navLines = nav.data.lines;
-      navPending = false;
-    }
-    const source = navPending
-      ? "hillsborough-hcpa-cache-nav-pending"
-      : "hillsborough-hcpa-cache";
-    await writePropertyTaxCache({
-      county: "hillsborough",
-      addressNormalized: addrNorm,
-      addressDisplay: address.trim(),
-      parcelId: legacyCached.pin,
-      folio: legacyCached.folio,
-      taxDistrict: legacyCached.taxDistrict,
-      homesteadAdValoremPct: hAdValorem / purchasePrice,
-      nonHomesteadAdValoremPct: nhAdValorem / purchasePrice,
-      samplePrice: purchasePrice,
-      totalMillage: legacyCached.totalTaxRate,
-      nonAdValoremAmtCents: Math.round(navTotal * 100),
-      nonAdValoremLines: navLines,
-      source,
-      now,
-    });
-    const adValorem = isPrimaryResidence ? hAdValorem : nhAdValorem;
-    const annualTax = adValorem + navTotal;
-    return {
-      adValoremTax: adValorem,
-      nonAdValoremTax: navTotal,
-      annualTax,
-      monthlyTax: Math.round((annualTax / 12) * 100) / 100,
-      source: "hcpa-cache",
-      fromGeneralCache: false,
-      parcelId: legacyCached.pin,
-      folio: legacyCached.folio ?? undefined,
-      taxDistrict: legacyCached.taxDistrict,
-      millageRate: legacyCached.totalTaxRate,
-      nonAdValoremLines: navLines,
-      nonAdValoremPending: navPending,
-    };
-  }
-
-  // Step 4: Live HCPA fetch.
+  // Step 2: Live HCPA fetch.
   const found = await lookupPIN(address);
   if (!found) return null;
 
@@ -274,18 +289,26 @@ export async function getHillsboroughPurchaseTax(params: {
   let navTotal = 0;
   let navLines: Array<{ authority: string; amount: number }> = [];
   let navPending = false;
+  let operationalError: string | undefined;
   if (folio) {
-    const nav = await getNonAdValoremForFolio(folio, "hillsborough");
+    const nav = await getNonAdValoremForFolio(
+      folio,
+      "hillsborough",
+      undefined,
+      { expectedSitus: expectedTaxSysSitus("hillsborough", address) },
+    );
     if (nav.state === "ready") {
       navTotal = Math.round(nav.data.total * 100) / 100;
       navLines = nav.data.lines;
-    } else if (
-      legacyCached?.pin === pin &&
-      legacyCached.nonAdValoremTaxes > 0
-    ) {
-      navTotal = legacyCached.nonAdValoremTaxes;
     } else {
-      navPending = true;
+      navPending = nav.state === "pending";
+      if (
+        nav.state === "unavailable" &&
+        nav.reason === "apify_token_missing"
+      ) {
+        operationalError =
+          "Live county tax bills are unavailable because APIFY_TOKEN is not configured.";
+      }
     }
   }
 
@@ -302,27 +325,19 @@ export async function getHillsboroughPurchaseTax(params: {
       nonHomesteadAdValoremPct: nhPct,
       samplePrice,
       totalMillage: taxData.totalTaxRate,
+      schoolMillage: taxData.schoolTaxRate,
+      nonSchoolMillage: taxData.nonschoolTaxRate,
+      assessmentRatio: 0.85,
+      homesteadSchoolExemption: 25_000,
+      homesteadNonSchoolExemption: 50_000,
+      parcelSource: "hcpa-api",
+      rateYear: now.getUTCFullYear(),
       nonAdValoremAmtCents: navPending ? 0 : Math.round(navTotal * 100),
       nonAdValoremLines: navPending ? [] : navLines,
-      source: navPending ? "hillsborough-hcpa-api-nav-pending" : "hillsborough-hcpa-api",
+      source: navPending || operationalError
+        ? "hillsborough-hcpa-api-nav-pending"
+        : "hillsborough-hcpa-api-situs-v2",
       now,
-    });
-  }
-
-  // Also update legacy HCPA cache if folio.
-  if (folio) {
-    await supabaseHcpaTaxCache.set({
-      addressNormalized: addrNorm,
-      addressDisplay: address.trim(),
-      pin,
-      folio,
-      schoolTaxRate: taxData.schoolTaxRate,
-      nonschoolTaxRate: taxData.nonschoolTaxRate,
-      totalTaxRate: taxData.totalTaxRate,
-      nonAdValoremTaxes: navPending ? (legacyCached?.pin === pin ? legacyCached.nonAdValoremTaxes : 0) : navTotal,
-      taxDistrict: taxData.taxDistrict,
-      queriedAt: now.toISOString(),
-      expiresAt: new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString(),
     });
   }
 
@@ -341,6 +356,7 @@ export async function getHillsboroughPurchaseTax(params: {
     millageRate: taxData.totalTaxRate,
     nonAdValoremLines: navLines,
     nonAdValoremPending: navPending,
+    operationalError,
   };
 }
 
@@ -408,9 +424,7 @@ export async function getPinellasPurchaseTax(params: {
   const cached = await getPropertyTaxCacheRow("pinellas", addrNorm);
   if (
     cached &&
-    isCacheRowValid(cached, purchasePrice, now, {
-      requireExactSamplePrice: true,
-    })
+    isCacheRowValid(cached, purchasePrice, now)
   ) {
     const { adValoremTax, nonAdValoremTax } = computeFromCache(
       cached, purchasePrice, isPrimaryResidence
@@ -459,13 +473,20 @@ export async function getPinellasPurchaseTax(params: {
   let nonAdValoremPending = false;
   let billMillage: number | null = null;
   let billMills: Array<{ authority: string; mills: number }> | null = null;
+  let billYear: number | null = null;
 
-  const nav = await getNonAdValoremForFolio(parcelId, "pinellas");
+  const nav = await getNonAdValoremForFolio(
+    parcelId,
+    "pinellas",
+    undefined,
+    { expectedSitus: expectedTaxSysSitus("pinellas", address) },
+  );
   if (nav.state === "ready") {
     nonAdValorem = Math.round(nav.data.total * 100) / 100;
     nonAdValoremLines = nav.data.lines;
     billMillage = nav.data.totalMillage;
     billMills = nav.data.adValoremMills;
+    billYear = nav.data.billYear;
   } else if (nav.state === "pending") {
     nonAdValoremPending = true;
   }
@@ -504,6 +525,12 @@ export async function getPinellasPurchaseTax(params: {
     const nhPct = purchasePrice > 0 ? nhAdValorem / purchasePrice : 0;
 
     if (hPct > 0 && nhPct > 0) {
+      const schoolMillage = billMills?.length
+        ? billMills
+            .filter((line) => /SCHOOL/i.test(line.authority))
+            .reduce((sum, line) => sum + line.mills, 0)
+        : Math.min(SCHOOL_MILLAGE_FALLBACK, billMillage);
+      const nonSchoolMillage = Math.max(billMillage - schoolMillage, 0);
       await writePropertyTaxCache({
         county: "pinellas",
         addressNormalized: addrNorm,
@@ -515,6 +542,13 @@ export async function getPinellasPurchaseTax(params: {
         nonHomesteadAdValoremPct: nhPct,
         samplePrice: purchasePrice,
         totalMillage: billMillage,
+        schoolMillage,
+        nonSchoolMillage,
+        assessmentRatio: 0.85,
+        homesteadSchoolExemption: 25_000,
+        homesteadNonSchoolExemption: 51_411,
+        parcelSource: "pinellas-pa-arcgis",
+        rateYear: billYear ?? now.getUTCFullYear(),
         nonAdValoremAmtCents: nonAdValoremPending
           ? 0
           : Math.round(nonAdValorem * 100),
@@ -542,6 +576,234 @@ export async function getPinellasPurchaseTax(params: {
     parcelId,
     millageRate: billMillage,
     fromGeneralCache: false,
+  };
+}
+
+const SCHOOL_MILLAGE_FALLBACK = 6.293;
+
+function formulaPurchaseResult(params: {
+  county: CountySlug;
+  purchasePrice: number;
+  isPrimaryResidence: boolean;
+  sourceSuffix?: string;
+  parcelId?: string;
+  operationalError?: string;
+}): PurchaseTaxResult {
+  const rates = COUNTY_FORMULA_RATES[params.county];
+  const adValoremTax = rates
+    ? Math.round(
+        params.purchasePrice *
+          (params.isPrimaryResidence ? rates.h : rates.nh),
+      )
+    : 0;
+  return {
+    adValoremTax,
+    nonAdValoremTax: 0,
+    annualTax: adValoremTax,
+    monthlyTax: Math.round((adValoremTax / 12) * 100) / 100,
+    source:
+      `${params.county}-formula-` +
+      (params.sourceSuffix ?? "fallback"),
+    fromGeneralCache: false,
+    parcelId: params.parcelId,
+    nonAdValoremLines: [],
+    nonAdValoremPending: params.sourceSuffix === "bill-pending",
+    operationalError: params.operationalError,
+  };
+}
+
+/**
+ * Shared purchase estimator for the eight non-Hillsborough route targets.
+ * A live row is written only after a verified parcel and TaxSys bill provide
+ * millage. Formula results remain explicitly labeled and are never cached as
+ * live parcel calculations.
+ */
+export async function getCountyPurchaseTax(params: {
+  county: CountySlug;
+  address: string;
+  purchasePrice: number;
+  isPrimaryResidence: boolean;
+  now?: Date;
+}): Promise<PurchaseTaxResult> {
+  const {
+    county,
+    address,
+    purchasePrice,
+    isPrimaryResidence,
+  } = params;
+  const now = params.now ?? new Date();
+  const addressNormalized = normalizeAddr(address);
+  const cached = await getPropertyTaxCacheRow(county, addressNormalized);
+  if (
+    cached &&
+    cached.source.endsWith("-situs-v2") &&
+    isCacheRowValid(cached, purchasePrice, now)
+  ) {
+    const computed = computeFromCache(
+      cached,
+      purchasePrice,
+      isPrimaryResidence,
+    );
+    return {
+      ...computed,
+      monthlyTax: Math.round((computed.annualTax / 12) * 100) / 100,
+      source: cached.source,
+      fromGeneralCache: true,
+      parcelId: cached.parcelId ?? undefined,
+      folio: cached.folio ?? undefined,
+      taxDistrict: cached.taxDistrict ?? undefined,
+      millageRate: cached.totalMillage ?? undefined,
+      nonAdValoremLines: cached.nonAdValoremLines,
+      nonAdValoremPending: false,
+    };
+  }
+
+  const identity = await resolveParcel(county, address, { now });
+  if (identity.status !== "found" || !identity.parcelId) {
+    return {
+      adValoremTax: 0,
+      nonAdValoremTax: 0,
+      annualTax: 0,
+      monthlyTax: 0,
+      source: `${county}-strict-parcel-unavailable`,
+      fromGeneralCache: false,
+      nonAdValoremLines: [],
+      nonAdValoremPending: false,
+    };
+  }
+
+  const expectedSitus = {
+    county: county.charAt(0).toUpperCase() + county.slice(1),
+    situsAddress: identity.situsAddress ?? address.split(",")[0] ?? "",
+    situsCity: identity.situsCity ?? address.split(",")[1] ?? "",
+  };
+  const bill = county === "polk"
+    ? await getPolkPhenixTaxBill(identity.parcelId, expectedSitus)
+    : await getNonAdValoremForFolio(
+        identity.parcelId,
+        county,
+        undefined,
+        { expectedSitus },
+      );
+  if (bill.state === "pending") {
+    return formulaPurchaseResult({
+      county,
+      purchasePrice,
+      isPrimaryResidence,
+      sourceSuffix: "bill-pending",
+      parcelId: identity.parcelId,
+    });
+  }
+  if (bill.state === "unavailable") {
+    const missingToken = bill.reason === "apify_token_missing";
+    return formulaPurchaseResult({
+      county,
+      purchasePrice,
+      isPrimaryResidence,
+      sourceSuffix: missingToken ? "operational-error" : "fallback",
+      parcelId: identity.parcelId,
+      operationalError: missingToken
+        ? "Live county tax bills are unavailable because APIFY_TOKEN is not configured."
+        : undefined,
+    });
+  }
+
+  const totalMillage = bill.data.totalMillage;
+  if (!totalMillage || totalMillage <= 0) {
+    return formulaPurchaseResult({
+      county,
+      purchasePrice,
+      isPrimaryResidence,
+      sourceSuffix: "bill-millage-unavailable",
+      parcelId: identity.parcelId,
+    });
+  }
+
+  const schoolMillage = bill.data.adValoremMills?.length
+    ? bill.data.adValoremMills
+        .filter((line) => /SCHOOL/i.test(line.authority))
+        .reduce((sum, line) => sum + line.mills, 0)
+    : Math.min(SCHOOL_MILLAGE_FALLBACK, totalMillage);
+  const nonSchoolMillage = Math.max(totalMillage - schoolMillage, 0);
+  if (schoolMillage <= 0 || nonSchoolMillage <= 0) {
+    return formulaPurchaseResult({
+      county,
+      purchasePrice,
+      isPrimaryResidence,
+      sourceSuffix: "bill-millage-unavailable",
+      parcelId: identity.parcelId,
+    });
+  }
+
+  const assessmentBasis = deriveCountyAssessmentBasis({
+    county,
+    purchasePrice,
+    justValue: identity.justValue,
+    assessedValue: identity.assessedValue,
+  });
+  const {
+    assessmentRatio,
+    homesteadNonSchoolExemption,
+    valueBasis,
+  } = assessmentBasis;
+  const formulaRow = {
+    homesteadAdValoremPct: 0,
+    nonHomesteadAdValoremPct: 0,
+    schoolMillage,
+    nonSchoolMillage,
+    assessmentRatio,
+    homesteadSchoolExemption: 25_000,
+    homesteadNonSchoolExemption,
+    rateYear: bill.data.billYear ?? now.getUTCFullYear(),
+    nonAdValoremAmtCents: Math.round(bill.data.total * 100),
+  };
+  const computed = computeFromCache(
+    formulaRow,
+    purchasePrice,
+    isPrimaryResidence,
+  );
+  const homestead = computeFromCache(formulaRow, purchasePrice, true);
+  const nonHomestead = computeFromCache(formulaRow, purchasePrice, false);
+  const source = valueBasis === "verified-parcel-value"
+    ? `${county}-bill-live-observed-value-situs-v2`
+    : `${county}-bill-live-value-formula-situs-v2`;
+
+  await writePropertyTaxCache({
+    county,
+    addressNormalized,
+    addressDisplay: address.trim(),
+    parcelId: identity.parcelId,
+    folio: identity.folio,
+    taxDistrict: identity.taxDistrict,
+    homesteadAdValoremPct: homestead.adValoremTax / purchasePrice,
+    nonHomesteadAdValoremPct:
+      nonHomestead.adValoremTax / purchasePrice,
+    samplePrice: purchasePrice,
+    totalMillage,
+    schoolMillage,
+    nonSchoolMillage,
+    assessmentRatio,
+    homesteadSchoolExemption: 25_000,
+    homesteadNonSchoolExemption,
+    parcelSource: identity.source,
+    rateYear: bill.data.billYear ?? now.getUTCFullYear(),
+    nonAdValoremAmtCents: Math.round(bill.data.total * 100),
+    nonAdValoremLines: bill.data.lines,
+    source,
+    now,
+  });
+
+  return {
+    ...computed,
+    monthlyTax: Math.round((computed.annualTax / 12) * 100) / 100,
+    source,
+    fromGeneralCache: false,
+    parcelId: identity.parcelId,
+    folio: identity.folio ?? undefined,
+    taxDistrict: identity.taxDistrict ?? undefined,
+    millageRate: totalMillage,
+    nonAdValoremLines: bill.data.lines,
+    nonAdValoremPending: false,
   };
 }
 

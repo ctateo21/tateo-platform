@@ -1,0 +1,345 @@
+# Property Tax — Complete All-County Build Spec
+
+Every endpoint in this document was tested live on 2026-08-24 and returned
+real data. Nothing here is assumed or copied from documentation. Where a
+source did NOT work, that is stated explicitly.
+
+Goal: all 9 counties on live per-parcel data for BOTH purchase estimates
+and refinance current-bill lookups, with a cache that makes the 2nd user
+at an address fast — at ANY purchase price, not just the first one used.
+
+---
+
+## PART 0 — THE MOST IMPORTANT FIX (read this first)
+
+**The current cache defeats its own purpose for Hillsborough and Pinellas.**
+
+`property-tax-service.ts` lines 111 and 412 pass
+`requireExactSamplePrice: true`. That means a cached row is only reused when
+the new purchase price matches the cached `sample_price` to within half a
+cent. User 2 looking at the same house at $505,000 instead of $500,000 gets
+a **complete cache miss and a full live re-fetch** — HCPA round trip plus
+Apify bill scrape. The stated principle ("2nd user gets it faster", "price
+edits adjust automatically") currently does not hold for the two counties
+that matter most.
+
+**Why it was written that way (the reasoning was sound):** Florida's
+homestead exemption is a fixed *dollar* deduction ($25k + $25k), not a
+percentage. So effective tax % is NOT linear with price — a stored `%`
+derived at $500k is slightly wrong at $600k. Rather than serve a subtly
+wrong number, the code refuses the cache hit.
+
+**The correct fix — get both speed and exactness:** stop caching only the
+derived percentage. Cache the *inputs* — school millage, non-school
+millage, and the assessment ratio — and recompute the exact ad valorem at
+whatever price the user enters. This is pure arithmetic on cached numbers,
+no network call, and it is *exactly* correct at every price, not an
+approximation. The percentage stays in the table as a display/debug
+convenience, but it is no longer what the math runs on.
+
+After this change:
+- User 1 at an address: full live fetch (~2-5s), cache written.
+- User 2 at the same address, ANY price: cache hit, pure local math,
+  no network call, exact to the dollar.
+- `requireExactSamplePrice` gets deleted entirely — it exists only to
+  paper over the missing millage inputs.
+
+The ±20% guardrail also becomes unnecessary for counties where real
+millage is cached (it stays only for formula-fallback counties, where a
+flat % genuinely is the only thing available).
+
+---
+
+## PART 1 — VERIFIED PARCEL SOURCES FOR ALL 9 COUNTIES
+
+Three of these are already built. Six are new. All six new ones were
+tested live and returned real parcels.
+
+### Already working (no change needed to the lookup itself)
+| County | Source |
+|---|---|
+| Hillsborough | HCPA CommonServices `BasicSearch` + `TaxEstimator` |
+| Pinellas | `egis.pinellas.gov` PropertySearch_A ArcGIS |
+| Manatee | `gis.manateepao.com` ArcGIS (also returns NAV directly) |
+
+### NEW — Lee County (verified working)
+```
+https://services2.arcgis.com/LvWGAAhHwbCJ2GMP/ArcGIS/rest/services/Lee_County_Parcels/FeatureServer/0/query
+  ?where=SITESTREET LIKE '<STREET>%' AND SITECITY='<CITY>'
+  &outFields=STRAP,FOLIOID,SITEADDR,SITECITY,SITEZIP,JUST,ASSESSED,TAXABLE,HSTDAMOUNT,TAXINGDIST,TAXDISTDES
+  &returnGeometry=false&f=json
+```
+Live result confirmed: `STRAP 024623010000E0060`, `16807 MCGREGOR BLVD`,
+`FORT MYERS`, `33908`, `JUST 390344`, `ASSESSED 248634`, `TAXABLE 248634`,
+`TAXINGDIST 068`, `TAXDISTDES IONA MCGREGOR FIRE`.
+`STRAP` is the key for `lee.county-taxes.com`.
+
+### NEW — Sarasota, Hernando, Polk, Pasco (verified working, ONE shared integration)
+All four are layers on a single SWFWMD service with an **identical field
+schema** — write one function, pass a layer ID.
+```
+https://www25.swfwmd.state.fl.us/arcgis12/rest/services/BaseVector/parcel_search/MapServer/{LAYER}/query
+  ?where=SITEADD LIKE '<STREET>%' AND SCITY='<CITY>'
+  &outFields=PARNO,SITEADD,SCITY,SZIP,PARVAL,ASSD_TOT,JV_HMSTD,TAX_AUTH_CD,ALTKEY,PIN
+  &returnGeometry=false&f=json
+```
+| County | LAYER |
+|---|---|
+| Hernando | 5 |
+| Manatee | 10 (backup for existing PAO source) |
+| Pasco | 12 |
+| Pinellas | 13 (backup) |
+| Polk | 14 |
+| Sarasota | 15 |
+
+Live results confirmed for all four target counties, e.g. Hernando
+`PARNO "R-Z APN 19 0000 0310 0030"` / `ALTKEY 1738622` /
+`3301 NORTHEAST PKWY, BROOKSVILLE 34604`; Polk
+`PARNO 222602000000011010, LAKELAND 33809`; Pasco
+`PARNO 01-26-15-0000-49900-0000, NEW PORT RICHEY 34652`; Sarasota
+`PARNO 0000007033, 1630 MAIN ST, SARASOTA 34236`.
+
+**This replaces the fragile Pasco `search.pascopa.com` HTML scrape.** That
+scrape is documented in your own code as frequently returning nothing and
+needing suffix-stripped street names. Delete it in favour of layer 12.
+
+**Note on value fields:** `PARVAL`/`ASSD_TOT` are populated for most
+parcels but came back `0` on one Sarasota commercial record, and
+`JV_HMSTD` was null on several. Treat these as best-effort enrichment —
+the *authoritative* number for both the purchase estimate and the
+refinance bill still comes from the tax bill scrape (Part 2). Use the
+ArcGIS values only for the assessment-ratio sanity check, and never fail a
+lookup because a value field is null.
+
+### NEW — Collier County (verified working)
+`maps.collierappraiser.com` is IP-blocked from Replit (confirmed again
+today — connection reset). But Collier publishes an address-points layer
+that carries the folio number:
+```
+https://services2.arcgis.com/SlIq32SqARUHIhSx/arcgis/rest/services/Site_Address_Points_b/FeatureServer/3/query
+  ?where=FULLADDR LIKE '<STREET>%' AND MUNICIPALITY='<CITY>'
+  &outFields=FULLADDR,MUNICIPALITY,FLN,SITEADDID,is_primary
+  &returnGeometry=false&f=json
+```
+Live result confirmed: `7762 Ashton RD, Naples` → `FLN 22455700124`.
+**`FLN` is the Collier folio number** — feed it straight to
+`collier.county-taxes.com` via the existing Apify scraper.
+Filter on `is_primary = 1` to avoid duplicate address points.
+Note `FULLADDR` is mixed-case with the city appended
+(`"7762 Ashton RD, Naples"`), so normalize case before matching and expect
+the city inside the field.
+
+### Sources that did NOT work (do not waste time re-testing these)
+- **FDOR Florida Statewide Cadastral** (`services9.arcgis.com/.../Florida_Statewide_Cadastral`)
+  — has perfect fields (`PHY_ADDR1`, `JV`, `TV_SD`, `TV_NSD`, `TAX_AUTH_C`)
+  for all 67 counties, but the layer **rejects every attribute WHERE
+  clause** (`CO_NO=29`, `PHY_ZIPCD=33618`, `PHY_CITY='TAMPA'` all return
+  HTTP 400). Only `1=1` and OBJECTID filters work. It is a bulk-download
+  dataset, not a queryable API.
+- `gis.fdot.gov/arcgis/rest/services/Parcels` — returns zero layers.
+- `ags3.scgov.net` — Hosted/Utilities folders only, no parcel service.
+- `sc-pa.com/propertysearch/api` — redirects to
+  `sarasotapropertyappraiser.gov`, which returns "No HTTP resource found".
+- Collier's own hub (`hub-collierbcc.opendata.arcgis.com`) — DCAT feed
+  returns 0 datasets.
+
+---
+
+## PART 2 — MILLAGE + NAV + CURRENT BILL (the Tyler TaxSys layer)
+
+The parcel lookup gives identity. The **tax bill** gives the three things
+that actually matter: per-authority millage (Part 1 ad valorem), non-ad
+valorem lines (Part 2 CDD), and the bottom-line current bill (refinance).
+
+`tax-bill-scraper.ts` already does this via Apify for Hillsborough and
+Pinellas. Generalize it — same scraper, per-county subdomain:
+
+| County | Tax bill host | Parcel key to pass |
+|---|---|---|
+| Hillsborough | `hillsborough.county-taxes.com` | folio |
+| Pinellas | `pinellas.county-taxes.com` | DISPLAY_STRAP_NOHYPHEN |
+| Pasco | `pasco.county-taxes.com` | `PARNO` (layer 12) |
+| Hernando | `hernando.county-taxes.com` | `ALTKEY` (layer 5) |
+| Manatee | `manatee.county-taxes.com` | parid |
+| Sarasota | `sarasota.county-taxes.com` | `PARNO` (layer 15) |
+| Lee | `lee.county-taxes.com` | `STRAP` |
+| Collier | `collier.county-taxes.com` | `FLN` (address points) |
+| **Polk** | **`polktaxes.com` — NOT Tyler TaxSys** | `PARNO` (layer 14) |
+
+**Polk is the one genuine exception.** It runs the Phenix platform, not
+Tyler TaxSys, so it needs its own scrape shape. Build the other 8 first,
+then treat Polk as a separate task — do NOT let Polk block the other 8.
+
+**Hard dependency:** all of this needs `APIFY_TOKEN` set in the live Replit
+deployment. Replit already confirmed it is currently NOT set in production,
+which silently disables every scrape. **Set it before any of this work
+ships, or none of it will function in production.** Also upgrade the
+missing-token path from a `console.log` no-op to a loud error, because a
+silent global degradation is what let this go unnoticed.
+
+---
+
+## PART 3 — SQL (run in Supabase SQL editor)
+
+Two things: clean up duplicate columns from the two overlapping migrations,
+and add the millage-component columns that make exact recomputation
+possible.
+
+```sql
+-- ── 3.1 Drop the unused duplicate columns ────────────────────────────
+-- property_tax_cache currently has BOTH the numeric columns from the
+-- first manual create AND the text columns Replit's migration added.
+-- The code (property-tax-cache.ts) reads ONLY the text ones. The numeric
+-- ones have never been written to. Safe to drop.
+alter table public.property_tax_cache
+  drop column if exists ad_valorem_pct_homestead,
+  drop column if exists ad_valorem_pct_non_homestead,
+  drop column if exists millage_rate,
+  drop column if exists non_ad_valorem_amt;
+
+-- ── 3.2 Add millage components for exact recomputation at any price ──
+-- These are what kill requireExactSamplePrice. With school/non-school
+-- millage cached, ad valorem can be computed exactly at ANY purchase
+-- price with zero network calls.
+alter table public.property_tax_cache
+  add column if not exists school_millage        numeric(10,4),
+  add column if not exists non_school_millage    numeric(10,4),
+  -- assessed/just value as a ratio of the sale price observed at cache
+  -- time; used to model the post-sale reassessment. Null = assume 1.0.
+  add column if not exists assessment_ratio      numeric(10,6),
+  -- which layer/endpoint resolved this parcel, for debugging per-county
+  -- source quality over time
+  add column if not exists parcel_source         text,
+  -- so a stale row can be identified per-county when a source changes
+  add column if not exists rate_year             integer;
+
+-- ── 3.3 current_tax_bills: allow a manual/user-provided path ─────────
+-- The refinance flow needs to accept an owner-entered bill for counties
+-- where the scrape fails. parcel_id is currently NOT NULL, which blocks
+-- storing a manual entry for a parcel we never resolved.
+alter table public.current_tax_bills
+  alter column parcel_id drop not null;
+
+alter table public.current_tax_bills
+  add column if not exists entered_by_user_id uuid,
+  add column if not exists notes text;
+
+-- Existing unique constraint is (county, parcel_id); with nullable
+-- parcel_id, add an address-based uniqueness path for manual rows.
+create unique index if not exists current_tax_bills_addr_year_unique_idx
+  on public.current_tax_bills (county, address_normalized, tax_year)
+  where parcel_id is null;
+
+-- ── 3.4 Parcel identity cache (address → parcel ID) ──────────────────
+-- Parcel IDs effectively never change, but millage changes annually.
+-- Splitting them means the annual Nov 1 rate expiry does NOT force a
+-- re-lookup of parcel identity — the slow part stays cached for years.
+create table if not exists public.parcel_identity_cache (
+  id                 serial primary key,
+  county             text not null,
+  address_normalized text not null,
+  address_display    text not null,
+  parcel_id          text not null,
+  folio              text,
+  tax_district       text,
+  source             text not null,
+  queried_at         timestamptz not null default now(),
+  expires_at         timestamptz not null,
+  unique (county, address_normalized)
+);
+create index if not exists parcel_identity_cache_addr_idx
+  on public.parcel_identity_cache (county, address_normalized);
+alter table public.parcel_identity_cache enable row level security;
+
+notify pgrst, 'reload schema';
+```
+
+---
+
+## PART 4 — THE BUILD, IN ORDER
+
+Work through these in order. Do not stop between steps to ask which to do
+next — the order is the answer. Report back after each numbered step.
+
+### Step 1 — Kill `requireExactSamplePrice` (highest value, smallest change)
+- Extend `writePropertyTaxCache` / `PropertyTaxCacheRow` to persist
+  `school_millage`, `non_school_millage`, `assessment_ratio`.
+- Add `computeExactFromCache(row, purchasePrice, isHomestead)` in
+  `property-tax-cache.ts` that runs the real Florida exemption math
+  (reuse `calcAdValorem`'s logic from `hillsborough-tax.ts`) using the
+  cached millage rather than multiplying a stored percentage.
+- In `property-tax-service.ts`, delete `requireExactSamplePrice: true`
+  from both call sites (lines 111 and 412) and route cache hits through
+  `computeExactFromCache` when millage columns are present, falling back
+  to the existing percentage path (with its ±20% guard) only for rows
+  that have no cached millage.
+- Keep writing the derived percentages for display/debug.
+
+### Step 2 — Universal parcel resolver
+Create `server/integrations/parcel-resolver.ts` exporting
+`resolveParcel(county, address)` returning
+`{ parcelId, folio, taxDistrict, justValue, assessedValue, source } | null`.
+- One internal helper for the four SWFWMD counties (layer ID as a param).
+- One for Lee, one for Collier address-points, and delegate Hillsborough /
+  Pinellas / Manatee to the existing functions.
+- **Every** county path must run results through the existing
+  `streetAddressMatches` from `hillsborough-tax.ts` before accepting a
+  candidate. This is the fix that stopped the wrong-parcel bug; every new
+  county inherits it rather than reinventing it.
+- Read/write `parcel_identity_cache` around this whole function.
+- Delete the `search.pascopa.com` HTML scrape once layer 12 is wired.
+
+### Step 3 — Generalize the bill scrape to 8 Tyler TaxSys counties
+- Extend `tax-bill-scraper.ts`'s county → host map to all 8.
+- Parse per-authority millage lines (already done for Pinellas) for every
+  county, so `school_millage` / `non_school_millage` can be populated.
+- Make the missing-`APIFY_TOKEN` path a loud error, not a silent no-op.
+
+### Step 4 — Wire all 9 counties into the purchase route
+- Replace the per-county `if` blocks in `routes.ts` with a single generic
+  path: `resolveParcel` → bill scrape → compute → cache → respond.
+- Honest `source` labels throughout, per the existing convention
+  (`<county>-bill-live`, `<county>-formula-fallback`, etc.). A county that
+  falls back must say so.
+- Keep `COUNTY_FORMULA_RATES` as the last-resort fallback only.
+
+### Step 5 — Wire all 9 counties into the refinance route
+- Extend `resolveCurrentTaxBill` in `current-tax-bill.ts` beyond its
+  current 3 counties using the same `resolveParcel` + bill scrape.
+- The bill's bottom-line total is the answer — no purchase-price math ever
+  touches this path.
+- Keep the manual-entry fallback for any county whose scrape fails; store
+  with `source: 'user-provided'`.
+
+### Step 6 — Polk (separate, last)
+`polktaxes.com` (Phenix platform) needs its own scrape shape. Parcel
+lookup is already solved via SWFWMD layer 14. Until the bill scrape works,
+Polk runs formula + manual-entry refinance — clearly labeled.
+
+### Step 7 — Correct the formula fallback rates
+`COUNTY_FORMULA_RATES` still holds unverified numbers — Collier's
+`{ h: 0.00804 }` was confirmed wrong (real 2025 Collier millage ~11.05
+mills gives ~0.98% effective on a non-Save-Our-Homes new purchase). These
+rates appear to have come from county-wide "average effective rate"
+sources, which are skewed low by long-tenured owners protected by the
+Save Our Homes cap — a brand-new buyer gets no such protection. Re-derive
+each county's rate from that county's own current published millage plus
+real exemption math, not from an aggregator average. Lower priority than
+Steps 1-5, because once live per-parcel data works these are only a
+last-resort path.
+
+---
+
+## PART 5 — WHAT "DONE" LOOKS LIKE (acceptance checks)
+
+1. Same address, two different purchase prices, Hillsborough → second
+   request logs a cache hit and makes **zero** outbound network calls.
+2. All 9 counties return a `source` label that honestly distinguishes
+   live per-parcel data from formula fallback.
+3. A refinance lookup in each of the 9 counties returns either a real
+   scraped bill or an explicit manual-entry prompt — never a
+   purchase-price-derived estimate.
+4. `APIFY_TOKEN` present in production; missing token produces a visible
+   error, not silence.
+5. `property_tax_cache` has no duplicate/unused columns and populated
+   `school_millage` / `non_school_millage` on live rows.

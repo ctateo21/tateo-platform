@@ -85,8 +85,8 @@ export default function Header() {
             <span>(813) 214-8356</span>
           </div>
           <div className="flex items-center space-x-4">
-            <a href="mailto:admin@tateoco.com" className="text-white hover:text-white/80 text-sm">
-              admin@tateoco.com
+            <a href="mailto:sales@havofl.com" className="text-white hover:text-white/80 text-sm">
+              sales@havofl.com
             </a>
             <a href="#" className="text-white hover:text-white/80">
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">

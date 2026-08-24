@@ -104,8 +104,8 @@ export default function Terms() {
 
           <section>
             <h2 className="text-lg font-semibold text-foreground mb-2">12. Contact</h2>
-            <p>Questions about these Terms? Email us at hello@havofl.com
-            or call (239) 580-7786.</p>
+            <p>Questions about these Terms? Email us at sales@havofl.com
+            or call (813) 214-8356.</p>
           </section>
 
         </div>

@@ -2,7 +2,6 @@
 -- Migration: property_tax_cache + current_tax_bills + tracked_loans columns
 --
 -- Safe to re-run: CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS.
--- Never drops or alters hcpa_tax_cache.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
@@ -232,65 +231,7 @@ create index if not exists current_tax_bills_expires_idx
 alter table public.current_tax_bills enable row level security;
 
 -- ----------------------------------------------------------------------------
--- 3. Backfill property_tax_cache from hcpa_tax_cache rows with verified folios.
---    sample_price is left at 0 so these rows are ALWAYS invalid per
---    isCacheRowValid (sample_price <= 0 → miss → live refresh).
---    Percentages are also left at 0 for the same reason. The backfill's only
---    purpose is to pre-populate parcel identity (folio) so when a live HCPA
---    request hits and writes a real row, ON CONFLICT simply updates it.
---    We do NOT invent approximate percentages from raw millage here.
---    Some deployments predate this optional legacy table; skip the seed there.
--- ----------------------------------------------------------------------------
-do $migration$
-begin
-  if to_regclass('public.hcpa_tax_cache') is not null then
-    execute $seed$
-      insert into public.property_tax_cache (
-        county,
-        address_normalized,
-        address_display,
-        parcel_id,
-        folio,
-        tax_district,
-        homestead_ad_valorem_pct,
-        non_homestead_ad_valorem_pct,
-        sample_price,
-        total_millage,
-        non_ad_valorem_amt_cents,
-        non_ad_valorem_lines,
-        source,
-        queried_at,
-        expires_at
-      )
-      select
-        'hillsborough'                 as county,
-        address_normalized,
-        address_display,
-        pin                            as parcel_id,
-        folio,
-        tax_district,
-        '0'                            as homestead_ad_valorem_pct,
-        '0'                            as non_homestead_ad_valorem_pct,
-        0                              as sample_price,
-        cast(total_millage_rate as text) as total_millage,
-        non_ad_valorem_amt * 100       as non_ad_valorem_amt_cents,
-        '[]'::jsonb                    as non_ad_valorem_lines,
-        'hillsborough-hcpa-cache-seed' as source,
-        queried_at,
-        expires_at
-      from public.hcpa_tax_cache
-      where
-        folio is not null
-        and folio <> ''
-        and total_millage_rate > 0
-      on conflict (county, address_normalized) do nothing
-    $seed$;
-  end if;
-end
-$migration$;
-
--- ----------------------------------------------------------------------------
--- 4. tracked_loans: property-tax persistence columns
+-- 3. tracked_loans: property-tax persistence columns
 -- ----------------------------------------------------------------------------
 alter table public.tracked_loans
   add column if not exists annual_property_tax            numeric,

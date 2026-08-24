@@ -69,7 +69,7 @@ export default function SmsTerms() {
             <ul className="list-disc pl-5 mt-2 space-y-1">
               <li>Replying <strong>STOP</strong>{" "}
                 to any text message you receive from us</li>
-              <li>Emailing hello@havofl.com with your phone number and
+              <li>Emailing sales@havofl.com with your phone number and
                 a request to opt out</li>
               <li>Updating your notification preferences
                 in your Havo account settings</li>
@@ -84,7 +84,7 @@ export default function SmsTerms() {
             <h2 className="text-lg font-semibold text-foreground mb-2">Help</h2>
             <p>Reply <strong>HELP</strong>{" "}
             to any text message for assistance, or contact us at
-            hello@havofl.com or (239) 580-7786.</p>
+            sales@havofl.com or (813) 214-8356.</p>
           </section>
 
           <section>
@@ -110,8 +110,8 @@ export default function SmsTerms() {
 
           <section>
             <h2 className="text-lg font-semibold text-foreground mb-2">Contact</h2>
-            <p>SMS compliance questions: hello@havofl.com or
-            (239) 580-7786.</p>
+            <p>SMS compliance questions: sales@havofl.com or
+            (813) 214-8356.</p>
           </section>
 
         </div>

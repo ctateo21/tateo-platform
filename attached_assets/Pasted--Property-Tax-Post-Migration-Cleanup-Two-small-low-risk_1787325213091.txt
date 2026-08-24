@@ -1,0 +1,86 @@
+# Property Tax — Post-Migration Cleanup
+
+Two small, low-risk cleanups from reviewing commit 3437b84. Both are safe
+to do now that `property_tax_cache` is confirmed live and working correctly.
+
+---
+
+## 1. Remove the dead `hcpa_tax_cache` calls in the Hillsborough path
+
+`hcpa_tax_cache` does not exist in production (confirmed directly against
+Supabase). There was nothing to migrate from it, so the "legacy fallback"
+path built for a safe rollout is now just dead weight — every call to it
+fails silently and gets logged as an error.
+
+**File:** `server/integrations/property-tax-service.ts`
+
+- Delete **Step 2 / Step 3** in `getHillsboroughPurchaseTax()` (the
+  `legacyCached = await supabaseHcpaTaxCache.get(addrNorm)` block and the
+  `if (legacyValid && legacyCached) { ... }` block that follows it, roughly
+  lines 177–246). Go straight from the Step 1 general-cache check to Step 4
+  (live HCPA fetch) on a cache miss.
+- In the live-fetch path (~line 312–327), delete the
+  `if (folio) { await supabaseHcpaTaxCache.set({...}) }` block — stop
+  writing to the table.
+- Remove the now-unused `legacyCached` references inside the live-fetch
+  NAV-fallback logic (~lines 282–289) — that branch used
+  `legacyCached?.pin === pin` as a fallback source for `navTotal`; since
+  `legacyCached` is going away, that branch can simply be dropped, leaving
+  the `nav.state === "ready"` and `else navPending = true` cases.
+- Remove the `supabaseHcpaTaxCache` import from `property-tax-service.ts`.
+
+**File:** `server/integrations/hillsborough-tax.ts`
+
+- The `supabaseHcpaTaxCache` export (the `get`/`set` object,
+  ~lines 462–547) and its supporting helpers (`parseCachedPin`,
+  `selectCachedRow`, `CACHE_COLUMNS`, `cacheFolioColumn`,
+  `LEGACY_FOLIO_MARKER`) are now unused outside of tests — confirm no other
+  caller remains (`grep -rn "supabaseHcpaTaxCache" server/` should return
+  only the test file after step 1), then delete them.
+- Leave `hillsborough-tax.test.ts` — either delete the tests covering the
+  removed cache object, or leave them if they're testing logic
+  (`calcAdValorem`, `streetAddressMatches`, etc.) that's staying.
+
+**File:** `supabase/migrations/2026_08_20_hcpa_tax_cache.sql`
+
+- This migration creates `hcpa_tax_cache`. Since nothing references it
+  after the above changes, don't run it against production, and consider
+  deleting the file from the repo (or leaving it as a historical artifact —
+  your call, it's harmless either way as long as it's never executed).
+
+---
+
+## 2. Extend ZIP-based routing to the other 8 counties
+
+Hillsborough's routing gate moved from a community-name whitelist to a ZIP
+list (`shared/hillsborough-county.ts`). The other 8 counties
+(`getOtherSupportedCounty` in `client/src/lib/property-tax-routing.ts`)
+still use the old regex-of-city-names approach, which has the same
+"missing neighborhood" failure mode the Hillsborough fix was built to
+close.
+
+**File:** `client/src/lib/property-tax-routing.ts`
+
+- Replace the regex-per-county pattern in `getOtherSupportedCounty()` with
+  ZIP-code lookups, following the same shape as
+  `shared/hillsborough-county.ts`: a `Record<string, string>` (or similar)
+  mapping ZIP code → county, sourced from each county's own ZIP reference
+  data (not a third-party "average" list) for: Manatee, Pinellas, Pasco,
+  Sarasota, Hernando, Lee, Collier, Polk.
+- Keep the existing regex list as a fallback for addresses where ZIP
+  extraction fails (no 5-digit ZIP present in the string) rather than
+  deleting it outright — same defense-in-depth principle already used for
+  Hillsborough (ZIP first, existing matcher as backup).
+- This is routing only — it decides which county's live path to try, not
+  whether the eventual match is accepted. Each county's own strict
+  parcel-matching (already fixed in item 1's companion work) remains the
+  final authority either way.
+
+---
+
+## Priority
+Do item 1 first — it's pure deletion, zero behavior change, and removes
+error-log noise plus a wasted round trip on every Hillsborough cache miss.
+Item 2 is lower urgency since those 8 counties are formula-fallback for ad
+valorem regardless; it only affects whether the *routing* correctly finds
+them at all for a handful of ZIP-boundary edge cases.

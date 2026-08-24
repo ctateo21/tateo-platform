@@ -53,7 +53,8 @@ import {
   CLOSING_COST_PERCENT, CLOSING_COST_FIXED,
   type TrackedLoan, type LiveRate, type BestOption,
 } from "@/components/refi/loan-tracker";
-import { calculateRefinance, calculateMonthlyPayment, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
+import { calculateRefinance, calculateMonthlyPayment } from "@/lib/refi-calculations";
+import { resolveTrackedLoanBalance } from "@/lib/tracked-loan-balance";
 import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-refinance";
 import { getEstimatedSellerTaxesDue } from "@/lib/seller-taxes";
 import { calculateSellerNetProceeds, resolveSellerClosingCosts } from "@/lib/seller-net-proceeds";
@@ -314,10 +315,7 @@ function RefiTab() {
     const rateAdj = PROPERTY_TYPE_ADJUSTMENTS[loan.propertyType] ?? 0;
     const adjustedTodayRate = (bestRate?.rate ?? FALLBACK_TODAY_RATE) + rateAdj;
 
-    const liveMonths = monthsBetween(loan.balanceAsOf ?? loan.addedAt);
-    const currentBalance = liveMonths > 0 && loan.currentPI > 0
-      ? amortizeBalance(loan.loanBalance, loan.currentRate, loan.currentPI, liveMonths)
-      : loan.loanBalance;
+    const { currentBalance } = resolveTrackedLoanBalance(loan);
 
     const rec = getBestOption(
       { ...loan, loanBalance: currentBalance },

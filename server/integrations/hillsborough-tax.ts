@@ -13,7 +13,6 @@ import {
   isHillsboroughCountyAddress,
   normalizeHillsboroughAddressKey,
 } from "@shared/hillsborough-county";
-import { supabaseAdmin } from "../supabase";
 
 export { isHillsboroughCountyAddress };
 
@@ -390,162 +389,6 @@ export function calcAdValorem(
   return Math.round(schoolTax + nonSchoolTax);
 }
 
-function numberOrNull(value: unknown): number | null {
-  const parsed =
-    typeof value === "number"
-      ? value
-      : typeof value === "string"
-        ? Number(value)
-        : NaN;
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-const LEGACY_FOLIO_MARKER = "::folio=";
-
-function parseCachedPin(
-  pinValue: unknown,
-  folioValue: unknown,
-): { pin: string; folio: string | null } {
-  const stored = typeof pinValue === "string" ? pinValue : "";
-  const markerIndex = stored.indexOf(LEGACY_FOLIO_MARKER);
-  const pin = markerIndex >= 0 ? stored.slice(0, markerIndex) : stored;
-  const embeddedFolio =
-    markerIndex >= 0
-      ? stored.slice(markerIndex + LEGACY_FOLIO_MARKER.length)
-      : "";
-  const folio =
-    typeof folioValue === "string" && folioValue
-      ? folioValue
-      : embeddedFolio || null;
-  return { pin, folio };
-}
-
-let cacheFolioColumn: "unknown" | "present" | "missing" = "unknown";
-const CACHE_COLUMNS =
-  "address_normalized,address_display,pin,tax_district," +
-  "school_tax_rate,non_school_tax_rate,total_millage_rate," +
-  "non_ad_valorem_amt,queried_at,expires_at";
-
-async function selectCachedRow(addressNormalized: string) {
-  if (!supabaseAdmin) return { data: null, error: null };
-
-  const columns =
-    cacheFolioColumn === "missing"
-      ? CACHE_COLUMNS
-      : `${CACHE_COLUMNS},folio`;
-  let result = await supabaseAdmin
-    .from("hcpa_tax_cache")
-    .select(columns)
-    .eq("address_normalized", addressNormalized)
-    .maybeSingle();
-
-  if (
-    result.error &&
-    cacheFolioColumn === "unknown" &&
-    (
-      result.error.code === "42703" ||
-      result.error.code === "PGRST204"
-    )
-  ) {
-    cacheFolioColumn = "missing";
-    result = await supabaseAdmin
-      .from("hcpa_tax_cache")
-      .select(CACHE_COLUMNS)
-      .eq("address_normalized", addressNormalized)
-      .maybeSingle();
-  } else if (!result.error && cacheFolioColumn === "unknown") {
-    cacheFolioColumn = "present";
-  }
-  return result;
-}
-
-export const supabaseHcpaTaxCache: HCPATaxCacheStore = {
-  async get(addressNormalized) {
-    if (!supabaseAdmin) return null;
-    try {
-      const { data, error } = await selectCachedRow(addressNormalized);
-      if (error) {
-        console.error("[hcpa-tax] cache read failed:", error.message);
-        return null;
-      }
-      if (!data) return null;
-
-      const row = data as unknown as Record<string, unknown>;
-      const schoolTaxRate = numberOrNull(row.school_tax_rate);
-      const nonschoolTaxRate = numberOrNull(row.non_school_tax_rate);
-      const totalTaxRate = numberOrNull(row.total_millage_rate);
-      const nonAdValoremTaxes =
-        numberOrNull(row.non_ad_valorem_amt) ?? 0;
-      if (
-        schoolTaxRate === null ||
-        nonschoolTaxRate === null ||
-        totalTaxRate === null ||
-        !areHcpaRatesValid({
-          schoolTaxRate,
-          nonschoolTaxRate,
-          totalTaxRate,
-        }) ||
-        typeof row.expires_at !== "string"
-      ) {
-        return null;
-      }
-      const { pin, folio } = parseCachedPin(row.pin, row.folio);
-      return {
-        addressNormalized: String(row.address_normalized ?? ""),
-        addressDisplay: String(row.address_display ?? ""),
-        pin,
-        folio,
-        schoolTaxRate,
-        nonschoolTaxRate,
-        totalTaxRate,
-        nonAdValoremTaxes,
-        taxDistrict: String(row.tax_district ?? ""),
-        queriedAt: String(row.queried_at ?? ""),
-        expiresAt: row.expires_at,
-      };
-    } catch (error: any) {
-      console.error("[hcpa-tax] cache read failed:", error?.message);
-      return null;
-    }
-  },
-
-  async set(record) {
-    if (!supabaseAdmin) return;
-    const baseRow = {
-      address_normalized: record.addressNormalized,
-      address_display: record.addressDisplay,
-      pin:
-        cacheFolioColumn === "missing" && record.folio
-          ? `${record.pin}${LEGACY_FOLIO_MARKER}${record.folio}`
-          : record.pin,
-      tax_district: record.taxDistrict,
-      school_tax_rate: record.schoolTaxRate,
-      non_school_tax_rate: record.nonschoolTaxRate,
-      total_millage_rate: record.totalTaxRate,
-      ad_valorem_pct: 0,
-      non_ad_valorem_amt: Math.round(record.nonAdValoremTaxes),
-      homestead_sample: false,
-      sample_price: 0,
-      queried_at: record.queriedAt,
-      expires_at: record.expiresAt,
-    };
-    const row =
-      cacheFolioColumn === "present"
-        ? { ...baseRow, folio: record.folio }
-        : baseRow;
-    try {
-      const { error } = await supabaseAdmin
-        .from("hcpa_tax_cache")
-        .upsert(row, { onConflict: "address_normalized" });
-      if (error) {
-        console.error("[hcpa-tax] cache write failed:", error.message);
-      }
-    } catch (error: any) {
-      console.error("[hcpa-tax] cache write failed:", error?.message);
-    }
-  },
-};
-
 function taxResultFromRates(params: {
   purchasePrice: number;
   isPrimaryResidence: boolean;
@@ -593,12 +436,14 @@ export async function getHillsboroughTax(params: {
   isPrimaryResidence: boolean;
 }, options: GetHillsboroughTaxOptions = {}): Promise<HCPATaxResult | null> {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const cacheStore = options.cacheStore ?? supabaseHcpaTaxCache;
+  const cacheStore = options.cacheStore;
   const now = options.now ?? Date.now();
   const addressNormalized =
     normalizeHillsboroughAddressKey(params.address);
 
-  const cached = await cacheStore.get(addressNormalized);
+  const cached = cacheStore
+    ? await cacheStore.get(addressNormalized)
+    : null;
   if (
     cached &&
     new Date(cached.expiresAt).getTime() > now &&
@@ -673,7 +518,7 @@ export async function getHillsboroughTax(params: {
   // A cache entry without folio would suppress the separate Tax Collector
   // CDD lookup on a later hit. Skip incomplete writes rather than replacing
   // a previously usable row with less parcel identity.
-  if (folio) {
+  if (folio && cacheStore) {
     await cacheStore.set({
       addressNormalized,
       addressDisplay: params.address.trim(),

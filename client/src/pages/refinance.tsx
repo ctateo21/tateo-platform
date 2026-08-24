@@ -19,12 +19,14 @@ import {
   getSellerScenarios, saveSellerScenarios,
   type TrackedLoan,
 } from "@/lib/auth";
+import { isCdPurchasePriceLocked } from "@/lib/cd-property-value";
 import { notifyNewScenario } from "@/lib/notify-scenario";
 import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-refinance";
 import { useAuth } from "@/context/auth-context";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { posthog } from "@/lib/posthog";
+import { mergeStatementRefresh } from "@/lib/refinance-statement-refresh";
 
 const MAX_TRACKED_LOANS = 10;
 const DEFAULT_CREDIT_SCORE = 740;
@@ -56,6 +58,9 @@ function analysisToTrackedLoan(
     currentRate: analysis.interestRate,
     currentPI: analysis.principalAndInterest,
     monthlyPayment: analysis.monthlyPayment,
+    ...(typeof analysis.currentEscrowBalance === "number" && analysis.currentEscrowBalance >= 0
+      ? { currentEscrowBalance: analysis.currentEscrowBalance }
+      : {}),
     estimatedHomeValue: analysis.estimatedHomeValue,
     estimatedRemainingYears: analysis.estimatedRemainingYears,
     addedAt: now,
@@ -196,12 +201,23 @@ export default function Refinance() {
       });
       return;
     }
-    updateLoans(prev => prev.map(l =>
+    const editableCount = trackedLoans.filter(l =>
       l.propertyAddress.trim().toLowerCase() === key
+      && !isCdPurchasePriceLocked(l)
+    ).length;
+    updateLoans(prev => prev.map(l =>
+      l.propertyAddress.trim().toLowerCase() === key && !isCdPurchasePriceLocked(l)
         ? { ...l, estimatedHomeValue: homeValue }
         : l
     ));
-    toast({ title: "Home value updated", description: `${matchCount} loan${matchCount > 1 ? "s" : ""} updated to $${homeValue.toLocaleString()}.` });
+    if (editableCount === 0) {
+      toast({
+        title: "Closing Disclosure value kept",
+        description: "This loan uses the CD purchase price as its assumed appraised value. Use the pencil edit if you need to override it.",
+      });
+      return;
+    }
+    toast({ title: "Home value updated", description: `${editableCount} loan${editableCount > 1 ? "s" : ""} updated to $${homeValue.toLocaleString()}.` });
   }
   // Property type dialog state
   const [pendingAnalysis, setPendingAnalysis] = useState<MortgageAnalysis | null>(null);
@@ -290,28 +306,28 @@ export default function Refinance() {
       // create a second row, but DO refresh the saved loan number when the
       // new statement contains one. Never overwrite an existing loan
       // number with blank/null.
-      const incomingLn = typeof analysis.loanNumber === "string"
-        ? analysis.loanNumber.trim() : "";
-      if (incomingLn && incomingLn !== (duplicate.loanNumber ?? "")) {
+      const refreshed = mergeStatementRefresh(duplicate, analysis);
+      const loanNumberChanged = refreshed.loanNumber !== duplicate.loanNumber;
+      const escrowBalanceChanged = refreshed.currentEscrowBalance !== duplicate.currentEscrowBalance;
+      if (loanNumberChanged || escrowBalanceChanged) {
         updateLoans(prev => prev.map(l =>
-          l.id === duplicate.id ? { ...l, loanNumber: incomingLn } : l
+          l.id === duplicate.id ? mergeStatementRefresh(l, analysis) : l
         ));
         toast({
-          title: "Loan number updated",
-          description: `Updated saved loan number for ${duplicate.propertyAddress}.`,
+          title: "Loan details updated",
+          description: `Updated statement details for ${duplicate.propertyAddress}.`,
         });
       }
       // Re-uploading a statement for the same property: still try to
       // backfill the matching seller scenario in case the statement
       // carried a fresher loan balance / home value. The helper's
       // blank-only rule guarantees we never clobber a user edit.
-      const refreshed: TrackedLoan = {
-        ...duplicate,
+      const refreshedForSeller: TrackedLoan = {
+        ...refreshed,
         loanBalance: analysis.loanBalance || duplicate.loanBalance,
         estimatedHomeValue: analysis.estimatedHomeValue || duplicate.estimatedHomeValue,
-        loanNumber: incomingLn || duplicate.loanNumber,
       };
-      syncSellerFromRefinance(refreshed);
+      syncSellerFromRefinance(refreshedForSeller);
       return;
     }
     // Government-backed loans (VA/FHA — and USDA if ever added) can only
@@ -437,6 +453,7 @@ export default function Refinance() {
     // the value flowed through the refinance pencil (source stays
     // "refinance"). So we gate on the snapshot here.
     const originalHomeValue = loan.estimatedHomeValue;
+    const preserveCdPurchasePrice = isCdPurchasePriceLocked(loan);
     const photos = Array.isArray(p.photos) ? p.photos.filter(Boolean) : [];
     // Resolve the race-guard synchronously from the auth cache. We
     // CANNOT use the React state-updater closure for this because the
@@ -450,10 +467,12 @@ export default function Refinance() {
     );
     const userEditedSinceStart =
       !!matched && matched.estimatedHomeValue !== originalHomeValue;
-    const finalHomeValue = userEditedSinceStart
+    const finalHomeValue = preserveCdPurchasePrice
+      ? originalHomeValue
+      : userEditedSinceStart
       ? matched!.estimatedHomeValue
       : homeValue;
-    if (!userEditedSinceStart) {
+    if (!preserveCdPurchasePrice && !userEditedSinceStart) {
       updateLoans(prev => prev.map(l => {
         if (l.propertyAddress.trim().toLowerCase() !== key) return l;
         if (l.estimatedHomeValue !== originalHomeValue) return l;

@@ -90,16 +90,18 @@ export default function Footer() {
               </a>
             </div>
             <div className="mt-2">
-              <p className="text-white/70
-                text-sm">
-                (239) 580-7786
-              </p>
-              <a href=
-                "mailto:hello@havofl.com"
-                className="text-white/70
+              <a href="tel:+18132148356"
+                className="block text-white/70
                   text-sm
                   hover:text-[#00B6A9]">
-                hello@havofl.com
+                (813) 214-8356
+              </a>
+              <a href=
+                "mailto:sales@havofl.com"
+                className="block text-white/70
+                  text-sm
+                  hover:text-[#00B6A9]">
+                sales@havofl.com
               </a>
             </div>
           </div>

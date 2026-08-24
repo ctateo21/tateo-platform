@@ -55,6 +55,7 @@ import {
 } from "./auth";
 import { normalizePropertyKey } from "./property-key";
 import { getInsuranceCoverageMultiplier } from "./insurance-default";
+import { isCdPurchasePriceLocked } from "./cd-property-value";
 
 export type PropertyValueSourceTab =
   | "purchase" | "cash_buy" | "refinance" | "seller";
@@ -154,7 +155,10 @@ export function syncPropertyValueAcrossTabs(args: SyncArgs): void {
 
     // ── Refinance / tracked_loans ────────────────────────────────
     if (sourceTab !== "refinance" && matchLoan) {
-      if (matchLoan.estimatedHomeValueSource === "manual") {
+      if (
+        matchLoan.estimatedHomeValueSource === "manual"
+        || isCdPurchasePriceLocked(matchLoan)
+      ) {
       } else if (matchLoan.estimatedHomeValue !== newValue) {
         const next = loans.map(l =>
           l.id === matchLoan.id

@@ -561,6 +561,9 @@ export interface TrackedLoan {
   currentRate: number;
   currentPI: number;
   monthlyPayment: number;
+  /** Current existing-servicer escrow balance extracted from a mortgage
+   *  statement. Stored on tracked_loans.current_escrow_balance. */
+  currentEscrowBalance?: number;
   estimatedHomeValue: number;
   estimatedRemainingYears: number;
   propertyType: TrackedLoanPropertyType;
@@ -581,6 +584,8 @@ export interface TrackedLoan {
    *  enforces this and auto-falls-back to "conventional" if the user
    *  switches occupancy. */
   loanType?: TrackedLoanType;
+  /** VA disability funding-fee exemption. Stored on tracked_loans.va_disability. */
+  vaDisability?: boolean;
   addedAt: string;
   balanceAsOf?: string;
   /** Servicer loan/account number extracted from the uploaded mortgage
@@ -620,6 +625,7 @@ export interface TrackedLoan {
   entryMethod?: "statement" | "closing_disclosure" | "manual" | "free_and_clear";
   /** Origination details (Closing Disclosure + manual flows). */
   purchaseDate?: string;            // ISO date, tracked_loans.purchase_date
+  firstPaymentDate?: string;        // first scheduled due date, tracked_loans.first_payment_date
   originalPurchasePrice?: number;   // tracked_loans.original_purchase_price
   originalLoanAmount?: number;      // tracked_loans.original_loan_amount
   originalRate?: number;            // note rate %, tracked_loans.original_rate
@@ -1311,6 +1317,7 @@ function rowToTrackedLoan(row: any): TrackedLoan {
     currentRate: Number(row.current_rate),
     currentPI: Number(row.current_pi),
     monthlyPayment: Number(row.monthly_payment),
+    currentEscrowBalance: numOrUndef(row.current_escrow_balance),
     estimatedHomeValue: Number(row.estimated_home_value),
     estimatedRemainingYears: Number(row.estimated_remaining_years),
     propertyType: (row.property_type ?? "primary") as TrackedLoanPropertyType,
@@ -1376,6 +1383,8 @@ function rowToTrackedLoan(row: any): TrackedLoan {
         : undefined,
     purchaseDate: typeof row.purchase_date === "string" && row.purchase_date
       ? row.purchase_date : undefined,
+    firstPaymentDate: typeof row.first_payment_date === "string" && row.first_payment_date
+      ? row.first_payment_date : undefined,
     originalPurchasePrice: numOrUndef(row.original_purchase_price),
     originalLoanAmount: numOrUndef(row.original_loan_amount),
     originalRate: numOrUndef(row.original_rate),
@@ -1398,6 +1407,7 @@ function rowToTrackedLoan(row: any): TrackedLoan {
     })(),
     annualPropertyTaxQueriedAt: typeof row.annual_property_tax_queried_at === "string" && row.annual_property_tax_queried_at
       ? row.annual_property_tax_queried_at : undefined,
+    vaDisability: typeof row.va_disability === "boolean" ? row.va_disability : undefined,
   };
 }
 function trackedLoanToRow(l: TrackedLoan, userId: string) {
@@ -1410,12 +1420,16 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
     current_rate: l.currentRate,
     current_pi: l.currentPI,
     monthly_payment: l.monthlyPayment,
+    ...(typeof l.currentEscrowBalance === "number" && l.currentEscrowBalance >= 0
+      ? { current_escrow_balance: l.currentEscrowBalance }
+      : {}),
     estimated_home_value: l.estimatedHomeValue,
     estimated_remaining_years: l.estimatedRemainingYears,
     property_type: l.propertyType ?? "primary",
     ...(l.occupancyType ? { occupancy_type: l.occupancyType } : {}),
     ...(l.physicalPropertyType ? { physical_property_type: l.physicalPropertyType } : {}),
     loan_type: l.loanType ?? "conventional",
+    ...(typeof l.vaDisability === "boolean" ? { va_disability: l.vaDisability } : {}),
     added_at: l.addedAt,
     balance_as_of: l.balanceAsOf ?? null,
     loan_number: l.loanNumber && l.loanNumber.trim() ? l.loanNumber.trim() : null,
@@ -1435,6 +1449,7 @@ function trackedLoanToRow(l: TrackedLoan, userId: string) {
       : {}),
     ...(l.entryMethod ? { entry_method: l.entryMethod } : {}),
     ...(l.purchaseDate ? { purchase_date: l.purchaseDate } : {}),
+    ...(l.firstPaymentDate ? { first_payment_date: l.firstPaymentDate } : {}),
     ...(typeof l.originalPurchasePrice === "number" && l.originalPurchasePrice > 0
       ? { original_purchase_price: l.originalPurchasePrice } : {}),
     ...(typeof l.originalLoanAmount === "number" && l.originalLoanAmount > 0
@@ -2776,14 +2791,17 @@ function autoCreateInsuranceFromAddresses(
 // retry the upsert once so the save still succeeds on older schemas.
 const TRACKED_LOAN_OPTIONAL_COLUMNS = [
   "loan_number", "credit_score", "loan_type", "balance_as_of",
+  "va_disability",
   "occupancy_type", "physical_property_type",
   "refi_goal", "finance_fees", "include_escrows",
   "cash_out_new_loan_amount", "home_equity_product", "home_equity_borrow_amount",
   "entry_method", "purchase_date", "original_purchase_price", "original_loan_amount",
+  "first_payment_date",
   "original_rate", "original_term_months", "amortized_balance_check",
   "balance_confirmed", "free_and_clear",
   "annual_property_tax", "annual_property_tax_source",
   "annual_property_tax_year", "annual_property_tax_queried_at",
+  "current_escrow_balance",
 ] as const;
 
 export function extractMissingColumn(message: string): string | null {

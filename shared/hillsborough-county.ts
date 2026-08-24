@@ -70,8 +70,19 @@ const HILLSBOROUGH_ZIP_SET = new Set<string>(
 );
 
 export function extractFiveDigitZip(address: string): string | null {
-  const matches = Array.from(address.matchAll(/\b(\d{5})(?:-\d{4})?\b/g));
-  return matches.length ? matches[matches.length - 1][1] : null;
+  const stateMatches = Array.from(
+    address.matchAll(
+      /\b(?:FL|Florida)[,\s]+(\d{5})(?:-\d{4})?\b/gi,
+    ),
+  );
+  if (stateMatches.length) {
+    return stateMatches[stateMatches.length - 1][1];
+  }
+
+  const terminalMatch = address.match(
+    /(?:^|[\s,])(\d{5})(?:-\d{4})?(?=\s*(?:,\s*)?(?:USA|US|United States)?\s*$)/i,
+  );
+  return terminalMatch?.[1] ?? null;
 }
 
 export function isHillsboroughCountyAddress(address: string): boolean {

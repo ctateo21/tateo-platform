@@ -14,9 +14,12 @@ import {
 import {
   filterTaxSysAnnualBillPagesForSitus,
   fetchTaxSysContractSnapshot,
+  resolveWebsiteContentCrawlerBuild,
   type TaxSysContractAnnualBill,
   type TaxSysContractPage,
 } from "../server/integrations/tax-bill-scraper";
+import { resolveParcel } from "../server/integrations/parcel-resolver";
+import { getPolkPhenixTaxBill } from "../server/integrations/polk-phenix-tax";
 
 const PINELLAS_FIXTURE = {
   query: "501 5th Ave NE, St Petersburg, FL 33701",
@@ -28,6 +31,12 @@ const MANATEE_FIXTURE = {
   query: "1305 17th St W, Palmetto, FL 34221",
   situsAddress: "1305 17TH ST W",
   situsCity: "PALMETTO",
+} as const;
+
+const POLK_FIXTURE = {
+  query: "45098 Hwy 54, Lakeland, FL 33809",
+  situsAddress: "45098 HWY 54",
+  situsCity: "LAKELAND",
 } as const;
 
 function assertPositiveParcelId(value: string): void {
@@ -87,6 +96,7 @@ test(
       situsCity: PINELLAS_FIXTURE.situsCity,
     };
     const pages: TaxSysContractPage[] = [];
+    const requestedCrawlerBuild = resolveWebsiteContentCrawlerBuild();
 
     // TaxSys renders bill content in an iframe and occasionally captures a
     // transient Loading shell. Match the production scraper's retry budget
@@ -99,6 +109,16 @@ test(
       const snapshot = await fetchTaxSysContractSnapshot(
         parcel.account,
         "pinellas",
+      );
+      assert.equal(
+        snapshot.requestedCrawlerBuild,
+        requestedCrawlerBuild,
+        "TaxSys contract crawl requested a different crawler build",
+      );
+      assert.equal(
+        snapshot.crawlerBuild,
+        requestedCrawlerBuild,
+        "Apify did not start the exact requested crawler build",
       );
       pages.push(...snapshot.pages);
 
@@ -201,4 +221,30 @@ test("Manatee ArcGIS fixture preserves strict parcel identity and shape", async 
       (Number.isFinite(parcel.actualBillTotal) &&
         parcel.actualBillTotal > 0),
   );
+});
+
+test("Polk Phenix fixture preserves SWFWMD parcel and annual bill association", async () => {
+  const parcel = await resolveParcel("polk", POLK_FIXTURE.query, {
+    skipCache: true,
+  });
+  assert.equal(parcel.status, "found");
+  assert.ok(parcel.parcelId);
+  assertPositiveParcelId(parcel.parcelId!);
+  assert.equal(parcel.situsAddress, POLK_FIXTURE.situsAddress);
+  assert.equal(parcel.situsCity, POLK_FIXTURE.situsCity);
+
+  const bill = await getPolkPhenixTaxBill(parcel.parcelId!, {
+    county: "Polk",
+    situsAddress: parcel.situsAddress!,
+    situsCity: parcel.situsCity!,
+  });
+  assert.equal(bill.state, "ready");
+  if (bill.state !== "ready") return;
+  assert.ok(Number.isInteger(bill.data.billYear));
+  assert.ok((bill.data.billYear ?? 0) > 2000);
+  assert.ok((bill.data.totalMillage ?? 0) > 0);
+  assert.ok((bill.data.totalAdValorem ?? 0) > 0);
+  assert.ok(Array.isArray(bill.data.adValoremMills));
+  assert.ok((bill.data.adValoremMills?.length ?? 0) > 0);
+  assert.ok(bill.data.total >= 0);
 });

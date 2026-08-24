@@ -44,6 +44,12 @@ type ValidInput = Pick<
   | "homesteadAdValoremPct"
   | "nonHomesteadAdValoremPct"
   | "samplePrice"
+  | "schoolMillage"
+  | "nonSchoolMillage"
+  | "assessmentRatio"
+  | "homesteadSchoolExemption"
+  | "homesteadNonSchoolExemption"
+  | "rateYear"
   | "nonAdValoremAmtCents"
   | "source"
   | "expiresAt"
@@ -56,6 +62,12 @@ function baseRow(): ValidInput {
     homesteadAdValoremPct: 0.01197,
     nonHomesteadAdValoremPct: 0.0146,
     samplePrice: 400_000,
+    schoolMillage: null,
+    nonSchoolMillage: null,
+    assessmentRatio: null,
+    homesteadSchoolExemption: null,
+    homesteadNonSchoolExemption: null,
+    rateYear: null,
     nonAdValoremAmtCents: 0,
     source: "manatee-formula-plus-arcgis-nav",
     expiresAt: new Date(Date.UTC(2027, 10, 1)), // far future
@@ -145,11 +157,39 @@ test("hillsborough backfill seed (sample_price=0, pcts=0) is always a miss", () 
     homesteadAdValoremPct: 0,
     nonHomesteadAdValoremPct: 0,
     samplePrice: 0,
+    schoolMillage: null,
+    nonSchoolMillage: null,
+    assessmentRatio: null,
+    homesteadSchoolExemption: null,
+    homesteadNonSchoolExemption: null,
+    rateYear: null,
     nonAdValoremAmtCents: 0,
     source: "hillsborough-hcpa-cache-seed",
     expiresAt: new Date(Date.UTC(2027, 10, 1)),
   };
   assert.equal(isCacheRowValid(seedRow, 400_000, NOW), false);
+});
+
+test("complete millage row is valid at every positive purchase price", () => {
+  const row = {
+    ...baseRow(),
+    homesteadAdValoremPct: 0,
+    nonHomesteadAdValoremPct: 0,
+    samplePrice: 0,
+    schoolMillage: 5.5,
+    nonSchoolMillage: 12,
+    assessmentRatio: 1,
+    homesteadSchoolExemption: 25_000,
+    homesteadNonSchoolExemption: 50_000,
+    rateYear: 2026,
+  };
+  assert.equal(isCacheRowValid(row, 1, NOW), true);
+  assert.equal(isCacheRowValid(row, 10_000_000, NOW), true);
+});
+
+test("incomplete millage does not bypass legacy sample-price guard", () => {
+  const row = { ...baseRow(), schoolMillage: 5.5, nonSchoolMillage: 12 };
+  assert.equal(isCacheRowValid(row, 800_000, NOW), false);
 });
 
 // ── computeFromCache ──────────────────────────────────────────────
@@ -211,6 +251,42 @@ test("computeFromCache: rounds ad valorem to whole dollars", () => {
   };
   const result = computeFromCache(row, 333_333, true);
   assert.equal(result.adValoremTax, Math.round(333_333 * 0.01197));
+});
+
+test("computeFromCache: exact millage applies Florida homestead exemptions separately", () => {
+  const row = {
+    homesteadAdValoremPct: 0,
+    nonHomesteadAdValoremPct: 0,
+    nonAdValoremAmtCents: 0,
+    schoolMillage: 5,
+    nonSchoolMillage: 10,
+    assessmentRatio: 1,
+    homesteadSchoolExemption: 25_000,
+    homesteadNonSchoolExemption: 50_000,
+    rateYear: 2026,
+  };
+  const homestead = computeFromCache(row, 400_000, true);
+  const nonHomestead = computeFromCache(row, 400_000, false);
+  // (375k × 5 + 350k × 10) / 1,000 = $5,375.
+  assert.equal(homestead.adValoremTax, 5_375);
+  // (400k × (5 + 10)) / 1,000 = $6,000.
+  assert.equal(nonHomestead.adValoremTax, 6_000);
+});
+
+test("computeFromCache: exact millage honors assessment ratio at arbitrary price", () => {
+  const row = {
+    homesteadAdValoremPct: 0,
+    nonHomesteadAdValoremPct: 0,
+    nonAdValoremAmtCents: 0,
+    schoolMillage: 4,
+    nonSchoolMillage: 8,
+    assessmentRatio: 0.9,
+    homesteadSchoolExemption: 25_000,
+    homesteadNonSchoolExemption: 50_000,
+    rateYear: 2026,
+  };
+  // $600k price → $540k assessed; non-homestead has no exemption.
+  assert.equal(computeFromCache(row, 600_000, false).adValoremTax, 6_480);
 });
 
 // ── Source label requirements ─────────────────────────────────────

@@ -4,6 +4,7 @@ import { buildScenarioFileName } from "@/lib/scenario-pdf";
 import { estimateAnnualTax, getCountyTaxLink, getCountyName } from "@/lib/county-tax-estimator";
 import { getConventionalAmiRateDiscount } from "@/lib/ami-discount";
 import { buildFeeWorksheet, money as feeMoney, type FeeSection } from "@/lib/fee-worksheet";
+import { PURCHASE_LENDER_INFO } from "@/lib/lender-info";
 import { checkLoanLimit, canDowngradeFromJumbo, CONFORMING_LOAN_LIMIT_2026, FHA_FLOOR_LIMIT_2026 } from "@/lib/loan-limits";
 import { FeeWorksheetDialog } from "@/components/fee-worksheet-dialog";
 import { useQuery } from "@tanstack/react-query";
@@ -1838,7 +1839,24 @@ export default function Estimate() {
       doc.setFont("helvetica", "bold");
       doc.setTextColor(23, 55, 94);
       doc.text("Initial Fees Worksheet", margin, y + 6);
-      y += 14;
+      y += 18;
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 30, 30);
+      doc.text(PURCHASE_LENDER_INFO.companyName, margin, y + 6);
+      doc.text(PURCHASE_LENDER_INFO.loanOfficerName, W / 2, y + 6);
+      y += 12;
+      doc.setFontSize(8);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(90, 90, 90);
+      doc.text(`Company NMLS #${PURCHASE_LENDER_INFO.companyNmls}`, margin, y + 6);
+      doc.text(PURCHASE_LENDER_INFO.loanOfficerTitle, W / 2, y + 6);
+      y += 11;
+      doc.text(PURCHASE_LENDER_INFO.addressLine1, margin, y + 6);
+      doc.text(`Individual MLO NMLS #${PURCHASE_LENDER_INFO.loanOfficerNmls}`, W / 2, y + 6);
+      y += 11;
+      doc.text(PURCHASE_LENDER_INFO.addressLine2, margin, y + 6);
+      y += 16;
       doc.setFontSize(8.5);
       doc.setFont("helvetica", "italic");
       doc.setTextColor(110, 110, 110);
@@ -1895,7 +1913,7 @@ export default function Estimate() {
       doc.setFont("helvetica", "normal");
       doc.setTextColor(160, 160, 160);
       hLine(pageH - 30);
-      doc.text("Havo · admin@tateoco.com · (813) 214-8356 · This estimate is for informational purposes only.", margin, pageH - 16);
+      doc.text("Havo · sales@havofl.com · (813) 214-8356 · This estimate is for informational purposes only.", margin, pageH - 16);
       doc.text(`Page ${i} of ${totalPages}`, W - margin, pageH - 16, { align: "right" });
     }
 
@@ -2388,6 +2406,10 @@ export default function Estimate() {
       /** Server is still scraping the parcel's CDD/assessment lines
        *  from the Tax Collector bill — keep polling. */
       navPending: boolean;
+      /** A configuration failure is shown even though the last-resort
+       * formula can still produce a planning estimate. */
+      operationalError?: string;
+      source?: string;
     } | null>(null);
 
   // Live HCPA property tax lookup
@@ -2471,6 +2493,14 @@ export default function Estimate() {
               isPrimary,
               nonAdValoremTax: data.nonAdValoremTax ?? 0,
               navPending: !!data.nonAdValoremPending,
+              operationalError:
+                typeof data.operationalError === "string"
+                  ? data.operationalError
+                  : undefined,
+              source:
+                typeof data.source === "string"
+                  ? data.source
+                  : undefined,
             });
             if (data.nonAdValoremPending && attempt < 14) {
               retryTimer = setTimeout(
@@ -5692,6 +5722,16 @@ export default function Estimate() {
                       Checking the county tax bill for CDD &amp; special assessments — this figure may update in a few minutes…
                     </p>
                   )}
+                  {hcpaTax?.operationalError && (
+                    <p
+                      className="flex items-start gap-1.5 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 -mt-1 mb-1"
+                      data-testid="note-property-tax-operational-error"
+                    >
+                      <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
+                      {hcpaTax.operationalError} A formula estimate is shown
+                      until live county data is restored.
+                    </p>
+                  )}
                   {/* Homestead-exemption disclosure. Only shown when the
                       $0 estimate is actually being applied (100% VA
                       disability + primary residence). Final eligibility is
@@ -6252,7 +6292,7 @@ export default function Estimate() {
                   `Total DTI: ${fmtPct(calc.dti)}\n` +
                   `Qualification: ${calc.qualifies ? "Likely Qualifies" : "Needs Review"}\n\n` +
                   `View full estimate: ${window.location.href}\n\n` +
-                  `— Havo\nadmin@tateoco.com | (813) 214-8356`
+                  `— Havo\nsales@havofl.com | (813) 214-8356`
                 );
                 window.location.href = `mailto:?subject=${subject}&body=${body}`;
                 setShareDialogOpen(false);

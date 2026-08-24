@@ -8,6 +8,9 @@ export interface MortgageAnalysis {
   monthlyPayment: number;
   principalAndInterest: number;
   escrowAmount: number;
+  /** Current balance held in the borrower's existing escrow account.
+   *  This is distinct from the monthly escrow portion of the payment. */
+  currentEscrowBalance: number | null;
   propertyAddress: string;
   lender: string;
   estimatedRemainingYears: number;
@@ -44,6 +47,7 @@ You must respond with a valid JSON object containing the following fields:
 - monthlyPayment: number (total monthly payment including escrow)
 - principalAndInterest: number (just the P&I portion without escrow)
 - escrowAmount: number (taxes and insurance portion)
+- currentEscrowBalance: number | null (the CURRENT balance held in the borrower's escrow account, from labels such as "Escrow Balance" or "Current Escrow Balance"; do not use the monthly escrow payment, escrow shortage, or escrow disbursement. Return null if no current balance is printed.)
 - propertyAddress: string (full property address as shown in document)
 - lender: string (the mortgage servicer/lender name)
 - estimatedRemainingYears: number (estimate based on loan balance, rate, and P&I payment)
@@ -77,6 +81,13 @@ Respond with a JSON object only, no additional text.`;
   // Normalize defensively — the model occasionally returns numbers or
   // empty strings even when the spec says string|null.
   parsed.loanNumber = normalizeLoanNumber((parsed as any).loanNumber);
+  {
+    const rawEscrowBalance = (parsed as any).currentEscrowBalance;
+    const n = rawEscrowBalance === null || rawEscrowBalance === undefined || rawEscrowBalance === ""
+      ? NaN
+      : Number(rawEscrowBalance);
+    parsed.currentEscrowBalance = Number.isFinite(n) && n >= 0 ? n : null;
+  }
   return parsed;
 }
 
@@ -87,6 +98,8 @@ export interface ClosingDisclosureAnalysis {
   propertyAddress: string;
   lender: string;
   closingDate: string | null;      // ISO yyyy-mm-dd
+  firstPaymentDate: string | null; // explicit or inferred from prepaid interest
+  prepaidInterestThroughDate: string | null;
   purchasePrice: number;           // "Sale Price" on page 1
   loanAmount: number;              // original note amount
   interestRate: number;            // note rate %, e.g. 6.625
@@ -115,6 +128,8 @@ You must respond with a valid JSON object containing the following fields:
 - propertyAddress: string (the Property address on page 1, full address)
 - lender: string (the Lender name on page 1)
 - closingDate: string | null (the Closing Date on page 1 in ISO format "YYYY-MM-DD"; null if not found)
+- firstPaymentDate: string | null (the first scheduled mortgage-payment due date in ISO format. If not printed directly, infer it from the Prepaid Interest date range: the first payment is generally one month after the prepaid-interest through/end date. Example: prepaid interest through 2026-09-01 means first payment 2026-10-01.)
+- prepaidInterestThroughDate: string | null (the end date shown on the page-2 Prepaid Interest line, ISO "YYYY-MM-DD"; null if absent)
 - purchasePrice: number (the Sale Price on page 1; 0 if this is a refinance CD with no sale price)
 - loanAmount: number (the Loan Amount in Loan Terms — the original note amount)
 - interestRate: number (the note Interest Rate as printed, e.g. 6.625 for 6.625%)
@@ -184,6 +199,21 @@ Respond with a JSON object only, no additional text.`;
   if (parsed.closingDate) {
     const d = new Date(parsed.closingDate);
     if (isNaN(d.getTime()) || d.getTime() > Date.now()) parsed.closingDate = null;
+  }
+  const normalizeIsoDate = (value: unknown): string | null => {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return null;
+    const d = new Date(`${text}T00:00:00Z`);
+    return isNaN(d.getTime()) ? null : text;
+  };
+  parsed.prepaidInterestThroughDate = normalizeIsoDate(
+    (parsed as any).prepaidInterestThroughDate,
+  );
+  parsed.firstPaymentDate = normalizeIsoDate((parsed as any).firstPaymentDate);
+  if (!parsed.firstPaymentDate && parsed.prepaidInterestThroughDate) {
+    const through = new Date(`${parsed.prepaidInterestThroughDate}T00:00:00Z`);
+    through.setUTCMonth(through.getUTCMonth() + 1);
+    parsed.firstPaymentDate = through.toISOString().slice(0, 10);
   }
   if (!parsed.closingDate) {
     throw new Error("Couldn't find the closing date on this document — it's needed to estimate today's balance. Please upload the Final Closing Disclosure.");

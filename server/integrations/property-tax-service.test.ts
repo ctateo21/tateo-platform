@@ -5,7 +5,10 @@ import {
   isCacheRowValid,
   type PropertyTaxCacheRow,
 } from "./property-tax-cache";
-import { computePinellasAdValorem } from "./property-tax-service";
+import {
+  computePinellasAdValorem,
+  deriveCountyAssessmentBasis,
+} from "./property-tax-service";
 
 const NOW = new Date("2026-08-21T12:00:00.000Z");
 const BILL_MILLS = [
@@ -37,18 +40,18 @@ test("Pinellas live estimate keeps the assessor just-value floor", () => {
   assert.ok(assessorFloor > purchaseOnly);
 });
 
-test("Pinellas effective-rate cache is equivalent only at its sample price", () => {
+test("Pinellas millage cache recomputes at arbitrary prices", () => {
   const purchasePrice = 400_000;
   const homesteadAdValorem = computePinellasAdValorem({
     purchasePrice,
-    justValue: 500_000,
+    justValue: 0,
     isPrimaryResidence: true,
     billMillage: 16.543,
     billMills: BILL_MILLS,
   });
   const nonHomesteadAdValorem = computePinellasAdValorem({
     purchasePrice,
-    justValue: 500_000,
+    justValue: 0,
     isPrimaryResidence: false,
     billMillage: 16.543,
     billMills: BILL_MILLS,
@@ -64,6 +67,13 @@ test("Pinellas effective-rate cache is equivalent only at its sample price", () 
     nonHomesteadAdValoremPct: nonHomesteadAdValorem / purchasePrice,
     samplePrice: purchasePrice,
     totalMillage: 16.543,
+    schoolMillage: 6.293,
+    nonSchoolMillage: 10.25,
+    assessmentRatio: 0.85,
+    homesteadSchoolExemption: 25_000,
+    homesteadNonSchoolExemption: 51_411,
+    parcelSource: "pinellas-pa-arcgis",
+    rateYear: 2025,
     nonAdValoremAmtCents: 35_336,
     nonAdValoremLines: [{ authority: "Fire Assessment", amount: 353.36 }],
     source: "pinellas-bill-live",
@@ -71,9 +81,7 @@ test("Pinellas effective-rate cache is equivalent only at its sample price", () 
   };
 
   assert.equal(
-    isCacheRowValid(row, purchasePrice, NOW, {
-      requireExactSamplePrice: true,
-    }),
+    isCacheRowValid(row, purchasePrice, NOW),
     true,
   );
   assert.equal(
@@ -81,11 +89,66 @@ test("Pinellas effective-rate cache is equivalent only at its sample price", () 
     homesteadAdValorem,
   );
   assert.equal(
-    isCacheRowValid(row, 420_000, NOW, {
-      requireExactSamplePrice: true,
-    }),
-    false,
+    isCacheRowValid(row, 620_000, NOW),
+    true,
   );
-  // The shared ±20% guardrail remains available for truly linear counties.
-  assert.equal(isCacheRowValid(row, 420_000, NOW), true);
+  assert.equal(
+    computeFromCache(row, 620_000, true).adValoremTax,
+    computePinellasAdValorem({
+      purchasePrice: 620_000,
+      justValue: 0,
+      isPrimaryResidence: true,
+      billMillage: 16.543,
+      billMills: BILL_MILLS,
+    }),
+  );
+});
+
+test("shared live purchase basis uses verified county parcel value", () => {
+  assert.deepEqual(
+    deriveCountyAssessmentBasis({
+      county: "lee",
+      purchasePrice: 500_000,
+      justValue: 450_000,
+      assessedValue: 300_000,
+    }),
+    {
+      assessmentRatio: 0.9,
+      homesteadNonSchoolExemption: 50_000,
+      valueBasis: "verified-parcel-value",
+    },
+  );
+});
+
+test("Pinellas assessment basis preserves its 85% estimator floor", () => {
+  assert.equal(
+    deriveCountyAssessmentBasis({
+      county: "pinellas",
+      purchasePrice: 500_000,
+      justValue: 350_000,
+    }).assessmentRatio,
+    0.85,
+  );
+  assert.equal(
+    deriveCountyAssessmentBasis({
+      county: "pinellas",
+      purchasePrice: 500_000,
+      justValue: 600_000,
+    }).assessmentRatio,
+    1.2,
+  );
+});
+
+test("county without a verified value is explicitly formula-based at market value", () => {
+  assert.deepEqual(
+    deriveCountyAssessmentBasis({
+      county: "collier",
+      purchasePrice: 500_000,
+    }),
+    {
+      assessmentRatio: 1,
+      homesteadNonSchoolExemption: 50_000,
+      valueBasis: "formula-assumed-market-value",
+    },
+  );
 });

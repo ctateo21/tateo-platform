@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { FileText } from "lucide-react";
 import type { FeeWorksheet, FeeSection, FeeLine } from "@/lib/fee-worksheet";
 import { money } from "@/lib/fee-worksheet";
+import { PURCHASE_LENDER_INFO } from "@/lib/lender-info";
 
 function LineRow({ line, indent }: { line: FeeLine; indent?: boolean }) {
   return (
@@ -83,6 +84,28 @@ export function FeeWorksheetDialog({
             Your actual rate, payment and costs could be higher. Get an official Loan Estimate before choosing a loan.
           </DialogDescription>
         </DialogHeader>
+
+        <div className="grid gap-3 rounded-md border border-primary/20 bg-primary/5 p-3 text-xs sm:grid-cols-2">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Lender
+            </p>
+            <p className="font-bold text-foreground">{PURCHASE_LENDER_INFO.companyName}</p>
+            <p className="text-muted-foreground">NMLS #{PURCHASE_LENDER_INFO.companyNmls}</p>
+            <p className="mt-1 text-muted-foreground">{PURCHASE_LENDER_INFO.addressLine1}</p>
+            <p className="text-muted-foreground">{PURCHASE_LENDER_INFO.addressLine2}</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Loan Officer
+            </p>
+            <p className="font-bold text-foreground">{PURCHASE_LENDER_INFO.loanOfficerName}</p>
+            <p className="text-muted-foreground">{PURCHASE_LENDER_INFO.loanOfficerTitle}</p>
+            <p className="text-muted-foreground">
+              Individual MLO NMLS #{PURCHASE_LENDER_INFO.loanOfficerNmls}
+            </p>
+          </div>
+        </div>
 
         {/* Summary header — mirrors the top block of a lender worksheet */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5 rounded-md border p-3 text-xs">

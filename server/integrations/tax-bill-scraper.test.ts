@@ -6,12 +6,127 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  buildTaxSysCrawlerInput,
   filterTaxSysAnnualBillPagesForSitus,
+  getNonAdValoremForFolio,
+  getTaxSysHostAndStartUrl,
   parseBillMarkdown,
   parseTaxSysSitusIdentityMarkdown,
+  resolveWebsiteContentCrawlerBuild,
+  taxSysSitusMatches,
+  TESTED_APIFY_WCC_BUILD,
   type TaxSysContractAnnualBill,
   type TaxSysContractPage,
 } from "./tax-bill-scraper";
+
+test("TaxSys county configuration returns the allowlisted host and start URL", () => {
+  const expectedHosts = {
+    hillsborough: "hillsborough.county-taxes.com",
+    pinellas: "pinellas.county-taxes.com",
+    manatee: "manatee.county-taxes.com",
+    pasco: "pasco.county-taxes.com",
+    hernando: "hernando.county-taxes.com",
+    sarasota: "sarasota.county-taxes.com",
+    lee: "lee.county-taxes.com",
+    collier: "collier.county-taxes.com",
+  };
+
+  for (const [county, host] of Object.entries(expectedHosts)) {
+    const { startUrl } = getTaxSysHostAndStartUrl(county, "123 45");
+    assert.equal(new URL(startUrl).host, host);
+    assert.match(startUrl, /123(?:%20|\+)45/);
+  }
+  assert.equal(
+    getTaxSysHostAndStartUrl("pinellas", "123").startUrl,
+    "https://pinellas.county-taxes.com/public/search/property_tax?search_query=123",
+  );
+});
+
+test("TaxSys county configuration rejects unsupported counties", () => {
+  assert.throws(
+    () => getTaxSysHostAndStartUrl("not-a-county", "123"),
+    /Unsupported Tyler TaxSys county/,
+  );
+  assert.throws(
+    () => buildTaxSysCrawlerInput("123", "not-a-county"),
+    /Unsupported Tyler TaxSys county/,
+  );
+});
+
+test("missing APIFY_TOKEN returns an operational unavailable state", async () => {
+  const originalToken = process.env.APIFY_TOKEN;
+  try {
+    delete process.env.APIFY_TOKEN;
+    const result = await getNonAdValoremForFolio(
+      "test-parcel-without-token",
+      "hillsborough",
+    );
+    assert.deepEqual(result, {
+      state: "unavailable",
+      reason: "apify_token_missing",
+    });
+  } finally {
+    if (originalToken === undefined) {
+      delete process.env.APIFY_TOKEN;
+    } else {
+      process.env.APIFY_TOKEN = originalToken;
+    }
+  }
+});
+
+test("Website Content Crawler defaults to the exact tested build", () => {
+  assert.equal(
+    resolveWebsiteContentCrawlerBuild(undefined),
+    TESTED_APIFY_WCC_BUILD,
+  );
+  assert.match(TESTED_APIFY_WCC_BUILD, /^\d+\.\d+\.\d+$/);
+});
+
+test("Website Content Crawler accepts only exact build-number overrides", () => {
+  assert.equal(resolveWebsiteContentCrawlerBuild(" 0.4.12 "), "0.4.12");
+  assert.equal(
+    resolveWebsiteContentCrawlerBuild("version-0"),
+    TESTED_APIFY_WCC_BUILD,
+  );
+  assert.equal(
+    resolveWebsiteContentCrawlerBuild("latest"),
+    TESTED_APIFY_WCC_BUILD,
+  );
+});
+
+test("Pinellas crawler retries iframe shells and visits only the newest bill", () => {
+  const input = buildTaxSysCrawlerInput(
+    "173117942400010010",
+    "pinellas",
+  ) as any;
+
+  assert.deepEqual(input.startUrls, [{
+    url: "https://pinellas.county-taxes.com/public/search/property_tax?search_query=173117942400010010",
+  }]);
+  assert.equal(input.maxCrawlPages, 2);
+  assert.equal(input.maxResults, 2);
+  assert.equal(input.dynamicContentWaitSecs, 10);
+  assert.equal(input.requestTimeoutSecs, 120);
+  assert.equal(input.maxRequestRetries, 3);
+  assert.match(input.pageFunction, /page\.frames\(\)/);
+  assert.match(input.pageFunction, /a\[href\*="\/bills\/"\]/);
+  assert.match(input.pageFunction, /Situs:/);
+  assert.match(input.pageFunction, /Total Ad Valorem Taxes/);
+  assert.doesNotMatch(input.pageFunction, /request\.url/);
+});
+
+test("non-Pinellas crawler keeps the existing generic crawl budget", () => {
+  const input = buildTaxSysCrawlerInput("A123", "hillsborough") as any;
+
+  assert.deepEqual(input.startUrls, [{
+    url: "https://hillsborough.county-taxes.com/public/real_estate/parcels/A123",
+  }]);
+  assert.equal(input.maxCrawlPages, 8);
+  assert.equal(input.maxResults, 8);
+  assert.equal(input.dynamicContentWaitSecs, 90);
+  assert.equal(input.pageFunction, undefined);
+  assert.equal(input.requestTimeoutSecs, undefined);
+});
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -247,5 +362,46 @@ test("TaxSys contract association accepts a matching annual-bill page", () => {
       contractFixtureIdentity,
     ),
     [matchingPage],
+  );
+});
+
+test("TaxSys situs matching normalizes street suffixes but rejects unit or city drift", () => {
+  const expected = {
+    county: "Pinellas",
+    situsAddress: "501 5th Street Unit 4",
+    situsCity: "St. Petersburg, FL 33701",
+  };
+  assert.equal(
+    taxSysSitusMatches(
+      {
+        county: "PINELLAS",
+        situsAddress: "501 5TH ST UNIT 4",
+        situsCity: "ST PETERSBURG",
+      },
+      expected,
+    ),
+    true,
+  );
+  assert.equal(
+    taxSysSitusMatches(
+      {
+        county: "Pinellas",
+        situsAddress: "501 5TH ST UNIT 5",
+        situsCity: "ST PETERSBURG",
+      },
+      expected,
+    ),
+    false,
+  );
+  assert.equal(
+    taxSysSitusMatches(
+      {
+        county: "Pinellas",
+        situsAddress: "501 5TH ST UNIT 4",
+        situsCity: "CLEARWATER",
+      },
+      expected,
+    ),
+    false,
   );
 });

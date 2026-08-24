@@ -84,14 +84,14 @@ export default function Privacy() {
             <h2 className="text-lg font-semibold text-foreground mb-2">Your Rights</h2>
             <p>You have the right to access, correct, or request
             deletion of your personal information. To exercise
-            these rights, contact us at hello@havofl.com. We will
+            these rights, contact us at sales@havofl.com. We will
             respond within 30 days.</p>
           </section>
 
           <section>
             <h2 className="text-lg font-semibold text-foreground mb-2">Contact</h2>
-            <p>Privacy questions: hello@havofl.com or
-            (239) 580-7786.</p>
+            <p>Privacy questions: sales@havofl.com or
+            (813) 214-8356.</p>
           </section>
 
         </div>

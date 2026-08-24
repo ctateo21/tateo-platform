@@ -12,19 +12,172 @@
  * A scrape takes ~2-4 minutes (SPA needs a long dynamic-content wait),
  * so scrapes run in the background: the tax route returns immediately
  * with `pending`, the client re-polls, and the parsed result is cached
- * in non_ad_valorem_cache (keyed by folio) so each parcel is only
+ * in non_ad_valorem_cache (keyed by county + folio) so each parcel is only
  * scraped once per cache window.
  */
 
 import { db } from "../db";
 import { nonAdValoremCache } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { streetAddressMatches } from "./hillsborough-tax";
 
 const CACHE_DAYS = 180;
 const FAILURE_CACHE_MINUTES = 10;
 const APIFY_ACTOR = "apify~website-content-crawler";
+/**
+ * Exact Actor build validated against TaxSys's iframe and pageFunction
+ * behavior. Do not replace this with a moving tag such as `version-0`.
+ *
+ * APIFY_WCC_BUILD can select an exact candidate build for the documented
+ * two-run upgrade rehearsal. Invalid values fail back to this known build.
+ */
+export const TESTED_APIFY_WCC_BUILD = "0.3.94";
 const RUN_TIMEOUT_SECS = 360;
 const POLL_INTERVAL_MS = 15_000;
+const PINELLAS_MAX_CRAWL_PAGES = 2;
+const EXACT_APIFY_BUILD_NUMBER = /^\d+\.\d+\.\d+$/;
+
+export const TAXSYS_COUNTIES = [
+  "hillsborough",
+  "pinellas",
+  "manatee",
+  "pasco",
+  "hernando",
+  "sarasota",
+  "lee",
+  "collier",
+] as const;
+
+export type TaxSysCounty = typeof TAXSYS_COUNTIES[number];
+
+interface TaxSysCountyConfig {
+  host: string;
+  startPath: (account: string) => string;
+}
+
+/**
+ * TaxSys hosts are deliberately allowlisted. Do not derive a host directly
+ * from caller input: this both rejects unsupported providers and prevents an
+ * untrusted county value from becoming part of a crawl URL.
+ */
+const TAXSYS_COUNTY_CONFIG: Record<TaxSysCounty, TaxSysCountyConfig> = {
+  hillsborough: {
+    host: "hillsborough.county-taxes.com",
+    startPath: account => `/public/real_estate/parcels/${encodeURIComponent(account)}`,
+  },
+  pinellas: {
+    host: "pinellas.county-taxes.com",
+    // This legacy search route establishes the SPA session; direct parcel
+    // routes return 404 for Pinellas.
+    startPath: account =>
+      `/public/search/property_tax?search_query=${encodeURIComponent(account)}`,
+  },
+  manatee: {
+    host: "manatee.county-taxes.com",
+    startPath: account => `/public/real_estate/parcels/${encodeURIComponent(account)}`,
+  },
+  pasco: {
+    host: "pasco.county-taxes.com",
+    startPath: account => `/public/real_estate/parcels/${encodeURIComponent(account)}`,
+  },
+  hernando: {
+    host: "hernando.county-taxes.com",
+    startPath: account => `/public/real_estate/parcels/${encodeURIComponent(account)}`,
+  },
+  sarasota: {
+    host: "sarasota.county-taxes.com",
+    startPath: account => `/public/real_estate/parcels/${encodeURIComponent(account)}`,
+  },
+  lee: {
+    host: "lee.county-taxes.com",
+    startPath: account => `/public/real_estate/parcels/${encodeURIComponent(account)}`,
+  },
+  collier: {
+    host: "collier.county-taxes.com",
+    startPath: account => `/public/real_estate/parcels/${encodeURIComponent(account)}`,
+  },
+};
+
+/** Return the validated TaxSys county host and account-summary start URL. */
+export function getTaxSysHostAndStartUrl(
+  county: string,
+  account: string,
+): { host: string; startUrl: string } {
+  const config = TAXSYS_COUNTY_CONFIG[county as TaxSysCounty];
+  if (!config) {
+    throw new RangeError(
+      `Unsupported Tyler TaxSys county: ${JSON.stringify(county)}`,
+    );
+  }
+  return {
+    host: config.host,
+    startUrl: `https://${config.host}${config.startPath(account)}`,
+  };
+}
+
+export function resolveWebsiteContentCrawlerBuild(
+  configuredBuild = process.env.APIFY_WCC_BUILD,
+): string {
+  const candidate = configuredBuild?.trim();
+  if (!candidate) return TESTED_APIFY_WCC_BUILD;
+  if (EXACT_APIFY_BUILD_NUMBER.test(candidate)) return candidate;
+
+  console.warn(
+    `[nav-scrape] ignoring invalid APIFY_WCC_BUILD=${JSON.stringify(candidate)}; ` +
+    `using tested build ${TESTED_APIFY_WCC_BUILD}`,
+  );
+  return TESTED_APIFY_WCC_BUILD;
+}
+
+/**
+ * TaxSys content is rendered inside an iframe. The Website Content Crawler's
+ * normal dynamic-content detection can see the network become idle while the
+ * iframe still contains only the advisory or Loading shell, then report the
+ * request as successful without enqueuing a bill.
+ *
+ * A pageFunction can inspect every Playwright frame before extraction. Throwing
+ * here makes the Actor use its request retry budget instead of accepting an
+ * incomplete page. The current Actor build documents a `request` argument but
+ * does not pass it, so route detection must use page.url().
+ */
+const PINELLAS_PAGE_FUNCTION = `async function pageFunction({ page }) {
+  const isBillPage = /\\/bills\\//i.test(page.url());
+  const deadline = Date.now() + 45000;
+
+  while (Date.now() < deadline) {
+    const frameStates = await Promise.all(page.frames().map(async (frame) => {
+      try {
+        const text = await frame.locator('body').innerText({ timeout: 2000 });
+        const billLinkCount = await frame.locator('a[href*="/bills/"]').count();
+        return { text, billLinkCount };
+      } catch {
+        return { text: '', billLinkCount: 0 };
+      }
+    }));
+
+    if (isBillPage) {
+      const text = frameStates.map((state) => state.text).join('\\n');
+      if (
+        /Bill Details/i.test(text) &&
+        /Situs:/i.test(text) &&
+        /Non-Ad Valorem Assessments/i.test(text) &&
+        /Total Ad Valorem Taxes/i.test(text)
+      ) {
+        return;
+      }
+    } else if (frameStates.some((state) => state.billLinkCount > 0)) {
+      return;
+    }
+
+    await page.waitForTimeout(2000);
+  }
+
+  throw new Error(
+    isBillPage
+      ? 'TaxSys bill content did not become ready'
+      : 'TaxSys bill links did not become ready'
+  );
+}`;
 
 export interface NonAdValoremResult {
   folio: string;
@@ -73,6 +226,30 @@ export interface TaxSysSitusIdentity {
   county: string;
   situsAddress: string;
   situsCity: string;
+}
+
+function normalizedTaxSysCity(value: string): string {
+  return value
+    .toUpperCase()
+    .replace(/\bFL(?:ORIDA)?\b/g, " ")
+    .replace(/\b\d{5}(?:-\d{4})?\b/g, " ")
+    .replace(/[^A-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function taxSysSitusMatches(
+  actual: TaxSysSitusIdentity | null,
+  expected: TaxSysSitusIdentity,
+): boolean {
+  return Boolean(
+    actual &&
+    actual.county.trim().toLowerCase() ===
+      expected.county.trim().toLowerCase() &&
+    streetAddressMatches(expected.situsAddress, actual.situsAddress) &&
+    normalizedTaxSysCity(actual.situsCity) ===
+      normalizedTaxSysCity(expected.situsCity),
+  );
 }
 
 /**
@@ -233,8 +410,53 @@ export interface TaxSysContractPage {
 }
 
 export interface TaxSysContractSnapshot {
+  requestedCrawlerBuild: string;
+  crawlerBuild: string | null;
   newestListedYear: number | null;
   pages: TaxSysContractPage[];
+}
+
+/**
+ * Build the Website Content Crawler input separately so the Pinellas
+ * provider-specific readiness behavior stays testable without starting an
+ * Apify run.
+ */
+export function buildTaxSysCrawlerInput(
+  account: string,
+  county: string
+): Record<string, unknown> {
+  const isPinellas = county === "pinellas";
+  const { startUrl } = getTaxSysHostAndStartUrl(county, account);
+
+  return {
+    startUrls: [{ url: startUrl }],
+    includeUrlGlobs: [{ glob: "**/bills/*" }],
+    // Pinellas only needs the account summary and its first (newest) annual
+    // bill. Crawling every historical bill adds minutes and does not improve
+    // freshness; incomplete newest bills are retried by pageFunction instead.
+    maxCrawlPages: isPinellas ? PINELLAS_MAX_CRAWL_PAGES : 8,
+    maxCrawlDepth: 1,
+    maxResults: isPinellas ? PINELLAS_MAX_CRAWL_PAGES : 8,
+    crawlerType: "playwright:firefox",
+    proxyConfiguration: {
+      useApifyProxy: true,
+      apifyProxyGroups: ["RESIDENTIAL"],
+    },
+    // Pinellas readiness is enforced across iframe contents below. Keep the
+    // Actor's generic network-idle wait short so a quiet Loading shell cannot
+    // consume the full run timeout before the explicit readiness check.
+    dynamicContentWaitSecs: isPinellas ? 10 : 90,
+    ...(isPinellas
+      ? {
+          requestTimeoutSecs: 120,
+          maxRequestRetries: 3,
+          pageFunction: PINELLAS_PAGE_FUNCTION,
+        }
+      : {}),
+    // A main-document waitForSelector cannot see TaxSys's iframe content.
+    expandIframes: true,
+    saveMarkdown: true,
+  };
 }
 
 function toTaxSysContractAnnualBill(
@@ -264,9 +486,7 @@ export function filterTaxSysAnnualBillPagesForSitus(
   return pages.filter(page =>
     page.isBillPage &&
     page.annualBill !== null &&
-    page.situsIdentity?.county === expected.county &&
-    page.situsIdentity.situsAddress === expected.situsAddress &&
-    page.situsIdentity.situsCity === expected.situsCity
+    taxSysSitusMatches(page.situsIdentity, expected)
   );
 }
 
@@ -274,56 +494,45 @@ export function filterTaxSysAnnualBillPagesForSitus(
  *  return the parsed bills found in its dataset. */
 async function runWccScrape(
   account: string,
-  county: string
+  county: string,
+  expectedSitus?: TaxSysSitusIdentity,
 ): Promise<{
+  requestedCrawlerBuild: string;
+  crawlerBuild: string | null;
   bills: ParsedBill[];
   /** Newest "NNNN Annual bill" year listed on the account summary
    *  page — used to detect when the crawl only rendered old bills. */
   newestListedYear: number | null;
   contractPages: TaxSysContractPage[];
 }> {
+  const requestedCrawlerBuild = resolveWebsiteContentCrawlerBuild();
+  // Validate even for diagnostic callers that invoke this path directly.
+  getTaxSysHostAndStartUrl(county, account);
   const empty = {
+    requestedCrawlerBuild,
+    crawlerBuild: null,
     bills: [],
     newestListedYear: null,
     contractPages: [],
   };
   const token = process.env.APIFY_TOKEN;
   if (!token) {
-    console.log("[nav-scrape] APIFY_TOKEN not set — skipping");
+    console.error("[nav-scrape] APIFY_TOKEN is not configured");
     return empty;
   }
 
-  // Pinellas's TaxSys instance 404s on direct /parcels/<account>
-  // URLs; its search endpoint redirects to the account summary, and
-  // the bill links (on county-taxes.net) only load within the same
-  // crawl session. Other counties serve the parcel page directly.
-  const startUrl =
-    county === "pinellas"
-      ? `https://pinellas.county-taxes.com/public/search/property_tax?search_query=${account}`
-      : `https://${county}.county-taxes.com/public/real_estate/parcels/${account}`;
-  const input = {
-    startUrls: [{ url: startUrl }],
-    includeUrlGlobs: [{ glob: "**/bills/*" }],
-    maxCrawlPages: 8,
-    maxCrawlDepth: 1,
-    maxResults: 8,
-    crawlerType: "playwright:firefox",
-    proxyConfiguration: {
-      useApifyProxy: true,
-      apifyProxyGroups: ["RESIDENTIAL"],
-    },
-    dynamicContentWaitSecs: 90,
-    // NOTE: don't use waitForSelector here — the TaxSys content is
-    // inside an iframe, so main-document selectors never match and
-    // every page gets dropped. Rendering is flaky per page; we rely
-    // on merging bills across multiple runs instead (see caller).
-    expandIframes: true,
-    saveMarkdown: true,
-  };
+  const input = buildTaxSysCrawlerInput(account, county);
+  const runParams = new URLSearchParams({
+    token,
+    timeout: String(RUN_TIMEOUT_SECS),
+    memory: "4096",
+    // Apify accepts a build tag or exact build number. Use an exact build
+    // number so a moving Actor tag cannot silently alter TaxSys behavior.
+    build: requestedCrawlerBuild,
+  });
 
   const startResp = await fetch(
-    `https://api.apify.com/v2/acts/${APIFY_ACTOR}/runs?token=${token}` +
-    `&timeout=${RUN_TIMEOUT_SECS}&memory=4096`,
+    `https://api.apify.com/v2/acts/${APIFY_ACTOR}/runs?${runParams}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -333,6 +542,10 @@ async function runWccScrape(
   const startData = await startResp.json();
   const runId = startData?.data?.id;
   const datasetId = startData?.data?.defaultDatasetId;
+  const crawlerBuild =
+    typeof startData?.data?.buildNumber === "string"
+      ? startData.data.buildNumber
+      : null;
   if (!startResp.ok || !runId) {
     console.error(
       "[nav-scrape] Apify run start failed:",
@@ -340,7 +553,18 @@ async function runWccScrape(
     );
     return empty;
   }
-  console.log(`[nav-scrape] Apify run ${runId} started for ${account}`);
+  if (crawlerBuild !== requestedCrawlerBuild) {
+    console.error(
+      `[nav-scrape] Apify run ${runId} started unexpected build ` +
+      `${crawlerBuild ?? "unknown"} (requested ${requestedCrawlerBuild}); ` +
+      "discarding its output",
+    );
+    return empty;
+  }
+  console.log(
+    `[nav-scrape] Apify run ${runId} started for ${account} ` +
+    `(build ${crawlerBuild})`,
+  );
 
   // Poll until the run terminates
   const deadline = Date.now() + (RUN_TIMEOUT_SECS + 60) * 1000;
@@ -373,7 +597,16 @@ async function runWccScrape(
     const isBillPage = /\/bills\//i.test(url);
     const situsIdentity = parseTaxSysSitusIdentityMarkdown(md);
     const bill = parseBillMarkdown(md);
-    if (bill) parsed.push(bill);
+    // Production requests fail closed unless the annual bill page itself
+    // carries the verified parcel's situs. A matching account-summary page
+    // cannot authorize a different or redirected bill page.
+    if (
+      bill &&
+      isBillPage &&
+      (!expectedSitus || taxSysSitusMatches(situsIdentity, expectedSitus))
+    ) {
+      parsed.push(bill);
+    }
     contractPages.push({
       url,
       isBillPage,
@@ -391,6 +624,8 @@ async function runWccScrape(
     }
   }
   return {
+    requestedCrawlerBuild,
+    crawlerBuild,
     bills: parsed,
     newestListedYear,
     contractPages,
@@ -407,19 +642,22 @@ export async function fetchTaxSysContractSnapshot(
 ): Promise<TaxSysContractSnapshot> {
   const result = await runWccScrape(account, county);
   return {
+    requestedCrawlerBuild: result.requestedCrawlerBuild,
+    crawlerBuild: result.crawlerBuild,
     newestListedYear: result.newestListedYear,
     pages: result.contractPages,
   };
 }
 
-/** Background scrape + cache write for one folio.
- *  Works for any Tyler TaxSys county (<county>.county-taxes.com);
+/** Background scrape + cache write for one county-qualified folio.
+ *  Works for each allowlisted Tyler TaxSys county;
  *  Hillsborough account numbers carry an "A" prefix, other counties
  *  use the parcel identifier as-is. */
 async function scrapeAndCache(
   cleanFolio: string,
   county: string = "hillsborough",
-  accountOverride?: string
+  accountOverride?: string,
+  expectedSitus?: TaxSysSitusIdentity,
 ): Promise<void> {
   const account =
     accountOverride ??
@@ -442,7 +680,7 @@ async function scrapeAndCache(
       );
     }
     try {
-      const run = await runWccScrape(account, county);
+      const run = await runWccScrape(account, county, expectedSitus);
       // Merge results across attempts; keep the max listed year seen.
       bills = bills.concat(run.bills);
       if (
@@ -541,7 +779,12 @@ async function scrapeAndCache(
 export type NonAdValoremLookup =
   | { state: "ready"; data: NonAdValoremResult }
   | { state: "pending" }
-  | { state: "unavailable" };
+  | {
+      state: "unavailable";
+      /** An operational reason callers can expose instead of treating this
+       * as an ordinary no-assessment result. */
+      reason: "apify_token_missing" | "cache_error" | "scrape_failed";
+    };
 
 /**
  * Non-blocking lookup of a parcel's non-ad valorem assessments.
@@ -549,23 +792,35 @@ export type NonAdValoremLookup =
  * - Cache miss → kicks off a background Apify scrape (~2-4 min) and
  *   returns "pending"; callers should re-poll.
  * - Recent failure cached → "unavailable" (retry after short TTL).
+ * - Missing Apify credentials → operational "unavailable", never a miss.
  */
 export async function getNonAdValoremForFolio(
   folio: string,
   county: string = "hillsborough",
   accountOverride?: string,
-  options?: { requireAdValoremTotal?: boolean },
+  options?: {
+    requireAdValoremTotal?: boolean;
+    expectedSitus?: TaxSysSitusIdentity;
+  },
 ): Promise<NonAdValoremLookup> {
+  // Validate before any cache or background work. This keeps provider support
+  // explicit rather than letting an arbitrary county become a crawl host.
+  getTaxSysHostAndStartUrl(county, accountOverride ?? folio);
+  if (!process.env.APIFY_TOKEN) {
+    console.error("[nav-scrape] APIFY_TOKEN is not configured");
+    return { state: "unavailable", reason: "apify_token_missing" };
+  }
+
   // Only Hillsborough uses the A-prefixed account format.
   const bareFolio =
     county === "hillsborough" && folio.startsWith("A")
       ? folio.slice(1)
       : folio;
-  // Namespace non-Hillsborough cache keys by county so identical
-  // parcel strings in different counties can never collide.
-  // (Hillsborough stays un-prefixed for existing cache rows.)
-  const cleanFolio =
-    county === "hillsborough" ? bareFolio : `${county}:${bareFolio}`;
+  // Every cache and in-flight key is county-qualified. A parcel string is
+  // not globally unique, including across Hillsborough and another provider.
+  // v2 invalidates rows created before bill-page situs association was
+  // mandatory. Those older rows cannot safely prove parcel-to-bill identity.
+  const cleanFolio = `v2:${county}:${bareFolio}`;
 
   try {
     const rows = await db
@@ -606,14 +861,14 @@ export async function getNonAdValoremForFolio(
         // Recent failed attempt — don't hammer Apify.
         return inFlight.has(cleanFolio)
           ? { state: "pending" }
-          : { state: "unavailable" };
+          : { state: "unavailable", reason: "scrape_failed" };
       }
       // A successful legacy row without ad-valorem dollars falls through and
       // starts one deduplicated refresh for the current-bill endpoint.
     }
   } catch (e: any) {
     console.error("[nav-scrape] cache read failed:", e?.message);
-    return { state: "unavailable" };
+    return { state: "unavailable", reason: "cache_error" };
   }
 
   if (inFlight.has(cleanFolio)) return { state: "pending" };
@@ -625,7 +880,8 @@ export async function getNonAdValoremForFolio(
     cleanFolio,
     county,
     accountOverride ??
-      (county === "hillsborough" ? undefined : bareFolio)
+      (county === "hillsborough" ? `A${bareFolio}` : bareFolio),
+    options?.expectedSitus,
   )
     .catch(e =>
       console.error("[nav-scrape] background scrape failed:", e?.message)

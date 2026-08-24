@@ -47,9 +47,9 @@ export default function Accessibility() {
             an alternative accessible format.</p>
             <p className="mt-3">
               <strong>Email:</strong>{" "}
-              hello@havofl.com<br />
+              sales@havofl.com<br />
               <strong>Phone:</strong>{" "}
-              (239) 580-7786<br />
+              (813) 214-8356<br />
               <strong>Response time:</strong>{" "}
               We respond to accessibility feedback within 5 business
               days.

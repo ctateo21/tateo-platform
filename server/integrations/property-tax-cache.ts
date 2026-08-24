@@ -5,14 +5,17 @@
  * non_ad_valorem_cache stays in Neon/Drizzle.
  *
  * Cache validity rules (tested in property-tax-cache.test.ts):
- *   • Row must have a valid parcel ID (folio or county-specific ID),
- *     a positive sample_price, non-zero percentages, and a non-empty source.
+ *   • Millage rows retain the rate components needed to model a new assessed
+ *     value at any positive purchase price. Legacy percentage rows retain
+ *     their sample-price guard.
  *   • Row must not be expired (expires_at > now).
  *   • Caller's purchase price must be within ±20% of sample_price.
  *   • Any rule failure → cache miss → refresh from live API.
  *
  * Cache recomputation (when valid hit):
- *   annualAdValorem = round(selectedPct × currentPrice)
+ *   complete millage rows: school/non-school taxable assessed value × millage
+ *     (with distinct Florida homestead exemptions)
+ *   legacy rows: round(selectedPct × currentPrice)
  *   annualTotal     = annualAdValorem + nonAdValoremAmtCents/100
  *   (Fixed NAV does NOT scale with price.)
  *
@@ -51,6 +54,13 @@ export interface PropertyTaxCacheRow {
   nonHomesteadAdValoremPct: number;
   samplePrice: number;
   totalMillage: number | null;
+  schoolMillage: number | null;
+  nonSchoolMillage: number | null;
+  assessmentRatio: number | null;
+  homesteadSchoolExemption: number | null;
+  homesteadNonSchoolExemption: number | null;
+  parcelSource: string | null;
+  rateYear: number | null;
   nonAdValoremAmtCents: number;
   nonAdValoremLines: Array<{ authority: string; amount: number }>;
   source: string;
@@ -61,10 +71,11 @@ export interface PropertyTaxCacheRow {
  * Determines whether a cached row is valid for the given purchase price.
  * Returns true only when ALL of:
  *   1. parcelId or folio is non-empty (verified parcel identity)
- *   2. both homestead/non-homestead percentages are > 0
+ *   2. complete millage inputs OR both legacy percentages are > 0
  *   3. source is non-empty
  *   4. row is not expired (expiresAt > now)
- *   5. samplePrice > 0 and purchasePrice within ±20% of samplePrice
+ *   5. for legacy percentage rows, samplePrice > 0 and purchasePrice is
+ *      within ±20% of samplePrice. Complete millage rows are price-independent.
  *
  * Exported for unit testing.
  */
@@ -76,26 +87,30 @@ export function isCacheRowValid(
     | "homesteadAdValoremPct"
     | "nonHomesteadAdValoremPct"
     | "samplePrice"
+    | "schoolMillage"
+    | "nonSchoolMillage"
+    | "assessmentRatio"
+    | "homesteadSchoolExemption"
+    | "homesteadNonSchoolExemption"
+    | "rateYear"
     | "nonAdValoremAmtCents"
     | "source"
     | "expiresAt"
   >,
   purchasePrice: number,
   now: Date = new Date(),
-  options: { requireExactSamplePrice?: boolean } = {},
 ): boolean {
   // Must have verified parcel identity
   const hasParcel = (row.parcelId && row.parcelId.trim()) ||
                     (row.folio && row.folio.trim());
   if (!hasParcel) return false;
-  if (
+  const hasExactMillage = hasCompleteMillageInputs(row);
+  if (!hasExactMillage && (
     !Number.isFinite(row.homesteadAdValoremPct) ||
-    row.homesteadAdValoremPct <= 0
-  ) return false;
-  if (
+    row.homesteadAdValoremPct <= 0 ||
     !Number.isFinite(row.nonHomesteadAdValoremPct) ||
     row.nonHomesteadAdValoremPct <= 0
-  ) return false;
+  )) return false;
   if (
     !Number.isInteger(row.nonAdValoremAmtCents) ||
     row.nonAdValoremAmtCents < 0
@@ -104,21 +119,52 @@ export function isCacheRowValid(
   if (!Number.isFinite(row.expiresAt.getTime()) || row.expiresAt <= now) {
     return false;
   }
-  if (!Number.isFinite(row.samplePrice) || row.samplePrice <= 0) return false;
   if (!Number.isFinite(purchasePrice) || purchasePrice <= 0) return false;
+  // Complete rate components describe the tax formula, not an observation at
+  // sample_price, so they remain valid for every positive purchase price.
+  if (hasExactMillage) return true;
+  if (!Number.isFinite(row.samplePrice) || row.samplePrice <= 0) return false;
 
   const ratio = purchasePrice / row.samplePrice;
   if (ratio < 0.8 || ratio > 1.2) return false;
-  if (
-    options.requireExactSamplePrice &&
-    Math.abs(purchasePrice - row.samplePrice) > 0.005
-  ) return false;
-
   return true;
 }
 
+type MillageInputs = Pick<
+  PropertyTaxCacheRow,
+  | "schoolMillage"
+  | "nonSchoolMillage"
+  | "assessmentRatio"
+  | "homesteadSchoolExemption"
+  | "homesteadNonSchoolExemption"
+  | "rateYear"
+>;
+
+/** True only when a row has every component of the Florida rate formula. */
+function hasCompleteMillageInputs(row: Partial<MillageInputs>): boolean {
+  return (
+    Number.isFinite(row.schoolMillage) &&
+    (row.schoolMillage as number) >= 0 &&
+    Number.isFinite(row.nonSchoolMillage) &&
+    (row.nonSchoolMillage as number) >= 0 &&
+    (row.schoolMillage as number) + (row.nonSchoolMillage as number) > 0 &&
+    Number.isFinite(row.assessmentRatio) &&
+    (row.assessmentRatio as number) > 0 &&
+    Number.isFinite(row.homesteadSchoolExemption) &&
+    (row.homesteadSchoolExemption as number) >= 0 &&
+    Number.isFinite(row.homesteadNonSchoolExemption) &&
+    (row.homesteadNonSchoolExemption as number) >= 0 &&
+    Number.isInteger(row.rateYear) &&
+    (row.rateYear as number) >= 2000
+  );
+}
+
 /**
- * Compute the purchase ad-valorem estimate from cached rates.
+ * Compute the purchase ad-valorem estimate from cached rates. Complete
+ * millage rows use Florida's separate school/non-school homestead exemptions:
+ * school taxable value = assessed value − school exemption; non-school taxable
+ * value = assessed value − non-school exemption. Non-homestead has no
+ * exemption. Legacy percentage rows preserve their original calculation.
  * Fixed NAV does NOT scale with price.
  *
  * Exported for unit testing.
@@ -129,14 +175,29 @@ export function computeFromCache(
     | "homesteadAdValoremPct"
     | "nonHomesteadAdValoremPct"
     | "nonAdValoremAmtCents"
-  >,
+  > & Partial<MillageInputs>,
   purchasePrice: number,
   homestead: boolean
 ): { adValoremTax: number; nonAdValoremTax: number; annualTax: number } {
-  const pct = homestead
-    ? row.homesteadAdValoremPct
-    : row.nonHomesteadAdValoremPct;
-  const adValoremTax = Math.round(purchasePrice * pct);
+  let adValoremTax: number;
+  if (hasCompleteMillageInputs(row)) {
+    const assessedValue = purchasePrice * row.assessmentRatio!;
+    const schoolTaxableValue = homestead
+      ? Math.max(0, assessedValue - row.homesteadSchoolExemption!)
+      : assessedValue;
+    const nonSchoolTaxableValue = homestead
+      ? Math.max(0, assessedValue - row.homesteadNonSchoolExemption!)
+      : assessedValue;
+    adValoremTax = Math.round(
+      (schoolTaxableValue * row.schoolMillage! +
+        nonSchoolTaxableValue * row.nonSchoolMillage!) / 1000,
+    );
+  } else {
+    const pct = homestead
+      ? row.homesteadAdValoremPct
+      : row.nonHomesteadAdValoremPct;
+    adValoremTax = Math.round(purchasePrice * pct);
+  }
   const nonAdValoremTax = Math.round(row.nonAdValoremAmtCents) / 100;
   return { adValoremTax, nonAdValoremTax, annualTax: adValoremTax + nonAdValoremTax };
 }
@@ -153,8 +214,17 @@ function rowFromSupabase(r: Record<string, unknown>): PropertyTaxCacheRow {
     taxDistrict: r.tax_district ? String(r.tax_district) : null,
     homesteadAdValoremPct: parseFloat(String(r.homestead_ad_valorem_pct ?? "0")),
     nonHomesteadAdValoremPct: parseFloat(String(r.non_homestead_ad_valorem_pct ?? "0")),
-    samplePrice: typeof r.sample_price === "number" ? r.sample_price : 0,
+    samplePrice: r.sample_price != null ? Number(r.sample_price) : 0,
     totalMillage: r.total_millage != null ? parseFloat(String(r.total_millage)) : null,
+    schoolMillage: r.school_millage != null ? parseFloat(String(r.school_millage)) : null,
+    nonSchoolMillage: r.non_school_millage != null ? parseFloat(String(r.non_school_millage)) : null,
+    assessmentRatio: r.assessment_ratio != null ? parseFloat(String(r.assessment_ratio)) : null,
+    homesteadSchoolExemption: r.homestead_school_exemption != null
+      ? parseFloat(String(r.homestead_school_exemption)) : null,
+    homesteadNonSchoolExemption: r.homestead_non_school_exemption != null
+      ? parseFloat(String(r.homestead_non_school_exemption)) : null,
+    parcelSource: r.parcel_source != null ? String(r.parcel_source) : null,
+    rateYear: r.rate_year != null ? Number(r.rate_year) : null,
     nonAdValoremAmtCents: typeof r.non_ad_valorem_amt_cents === "number"
       ? r.non_ad_valorem_amt_cents
       : 0,
@@ -202,6 +272,13 @@ export interface WritePropertyTaxCacheParams {
   nonHomesteadAdValoremPct: number;
   samplePrice: number;
   totalMillage?: number | null;
+  schoolMillage?: number | null;
+  nonSchoolMillage?: number | null;
+  assessmentRatio?: number | null;
+  homesteadSchoolExemption?: number | null;
+  homesteadNonSchoolExemption?: number | null;
+  parcelSource?: string | null;
+  rateYear?: number | null;
   nonAdValoremAmtCents: number;
   nonAdValoremLines: Array<{ authority: string; amount: number }>;
   source: string;
@@ -227,6 +304,15 @@ export async function writePropertyTaxCache(
       non_homestead_ad_valorem_pct: String(params.nonHomesteadAdValoremPct),
       sample_price: params.samplePrice,
       total_millage: params.totalMillage != null ? String(params.totalMillage) : null,
+      school_millage: params.schoolMillage != null ? String(params.schoolMillage) : null,
+      non_school_millage: params.nonSchoolMillage != null ? String(params.nonSchoolMillage) : null,
+      assessment_ratio: params.assessmentRatio != null ? String(params.assessmentRatio) : null,
+      homestead_school_exemption: params.homesteadSchoolExemption != null
+        ? String(params.homesteadSchoolExemption) : null,
+      homestead_non_school_exemption: params.homesteadNonSchoolExemption != null
+        ? String(params.homesteadNonSchoolExemption) : null,
+      parcel_source: params.parcelSource ?? null,
+      rate_year: params.rateYear ?? null,
       non_ad_valorem_amt_cents: params.nonAdValoremAmtCents,
       non_ad_valorem_lines: params.nonAdValoremLines,
       source: params.source,

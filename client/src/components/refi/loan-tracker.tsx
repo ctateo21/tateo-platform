@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   Loader2, Receipt, Search,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { calculateRefinance, calculateMonthlyPayment, formatCurrency, amortizeBalance, monthsBetween } from "@/lib/refi-calculations";
+import { calculateRefinance, calculateMonthlyPayment, formatCurrency } from "@/lib/refi-calculations";
 import {
   buildCurrentTaxLookupPatch,
   buildManualPropertyTaxPatch,
@@ -22,6 +22,14 @@ import {
 import { priceLoan } from "@/lib/mortgage-pricing";
 import { PHYSICAL_PROPERTY_TYPE_OPTIONS } from "@/lib/property-type-options";
 import { DtiCheck } from "@/components/refi/dti-check";
+import { RefinanceFeeWorksheetDialog } from "@/components/refi/refinance-fee-worksheet-dialog";
+import {
+  buildRefinanceFeeWorksheet,
+  calculateRefinanceVaFundingFee,
+  VA_SUBSEQUENT_USE_FUNDING_FEE_RATE,
+} from "@/lib/refinance-fee-worksheet";
+import { resolveTrackedLoanBalance } from "@/lib/tracked-loan-balance";
+import { isCdPurchasePriceLocked } from "@/lib/cd-property-value";
 
 export interface MortgageAnalysis {
   loanBalance: number;
@@ -29,6 +37,7 @@ export interface MortgageAnalysis {
   monthlyPayment: number;
   principalAndInterest: number;
   escrowAmount: number;
+  currentEscrowBalance?: number | null;
   propertyAddress: string;
   lender: string;
   estimatedRemainingYears: number;
@@ -53,6 +62,9 @@ export interface TrackedLoan {
   currentRate: number;
   currentPI: number;
   monthlyPayment: number;
+  /** Current balance in the existing servicer escrow account, when
+   *  explicitly extracted from a mortgage statement. */
+  currentEscrowBalance?: number;
   estimatedHomeValue: number;
   estimatedRemainingYears: number;
   addedAt: string;
@@ -67,6 +79,9 @@ export interface TrackedLoan {
    *  `tracked_loans.physical_property_type` via the 2026_05_27 migration. */
   physicalPropertyType?: string;
   loanType?: LoanType;
+  /** VA funding-fee exemption: true = disability/$0 fee; false = 3.3%
+   * subsequent-use fee. Undefined means the borrower has not answered yet. */
+  vaDisability?: boolean;
   loanNumber?: string;
   /** FICO score used by the shared rate engine. Stored once per
    *  tracked loan; defaults to 740 when missing. The refinance page's
@@ -85,6 +100,7 @@ export interface TrackedLoan {
   entryMethod?: "statement" | "closing_disclosure" | "manual" | "free_and_clear";
   /** Origination details (Closing Disclosure / manual entry flows). */
   purchaseDate?: string;
+  firstPaymentDate?: string;
   originalPurchasePrice?: number;
   originalLoanAmount?: number;
   originalRate?: number;
@@ -273,15 +289,21 @@ function PerLoanCreditScore({ loan, onUpdate }: { loan: TrackedLoan; onUpdate: (
 }
 
 function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeValue, financeFees, includeEscrows, monthlyEscrow, onPersistNewLoanAmount, showDtiCheck }: { loan: TrackedLoan; newRate: LiveRate; displayRate: number; homeValue: number; onChangeHomeValue: (v: number) => void; financeFees: boolean; includeEscrows: boolean; monthlyEscrow: number; onPersistNewLoanAmount: (v: number) => void; showDtiCheck?: boolean }) {
+  const usesCdPurchasePrice = isCdPurchasePriceLocked(loan);
   const [editing, setEditing] = useState(false);
+  const [worksheetOpen, setWorksheetOpen] = useState(false);
   const [editInput, setEditInput] = useState(String(Math.round(homeValue)));
 
   const escrowAmount = includeEscrows ? monthlyEscrow * ESCROW_RESERVE_MONTHS : 0;
   // Slider cap must keep the *funded* loan under 75% LTV, accounting for whatever fees are being financed.
   const ltvCap = homeValue * CASH_OUT_MAX_LTV;
-  const maxNewLoan = financeFees
-    ? Math.floor((ltvCap - CLOSING_COST_FIXED - escrowAmount) / (1 + CLOSING_COST_PERCENT / 100))
-    : Math.floor(ltvCap);
+  const vaFeeRate = loan.loanType === "va" && loan.vaDisability === false
+    ? VA_SUBSEQUENT_USE_FUNDING_FEE_RATE
+    : 0;
+  const maxNewLoan = Math.floor(
+    (ltvCap - (financeFees ? CLOSING_COST_FIXED + escrowAmount : 0))
+      / (1 + vaFeeRate + (financeFees ? CLOSING_COST_PERCENT / 100 : 0)),
+  );
   const currentLTV = homeValue > 0 ? loan.loanBalance / homeValue : 1;
   const isLTVTooHigh = currentLTV >= CASH_OUT_MAX_LTV;
   const [newLoanAmount, setNewLoanAmount] = useState(() =>
@@ -293,9 +315,32 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
   const cashOut = Math.max(0, clampedLoan - loan.loanBalance);
   const closingCosts = (clampedLoan * CLOSING_COST_PERCENT) / 100 + CLOSING_COST_FIXED;
   const totalFees = closingCosts + escrowAmount;
-  const finalLoanWithCosts = clampedLoan + (financeFees ? totalFees : 0);
+  const vaFundingFee = calculateRefinanceVaFundingFee(
+    clampedLoan,
+    loan.loanType,
+    loan.vaDisability,
+  );
+  const finalLoanWithCosts = clampedLoan + vaFundingFee + (financeFees ? totalFees : 0);
   const newMonthlyPI = calculateMonthlyPayment(finalLoanWithCosts, displayRate, NEW_TERM_YEARS);
   const newLTV = homeValue > 0 ? (finalLoanWithCosts / homeValue) * 100 : 0;
+  const feeWorksheet = buildRefinanceFeeWorksheet({
+    currentPayoff: loan.loanBalance,
+    baseNewLoanAmount: clampedLoan,
+    finalNewLoanAmount: finalLoanWithCosts,
+    ratePct: displayRate,
+    monthlyPI: newMonthlyPI,
+    monthlyEscrow,
+    escrowReserve: escrowAmount,
+    financeFees,
+    entryMethod: loan.entryMethod,
+    currentEscrowBalance: loan.currentEscrowBalance,
+    homeValue,
+    annualPropertyTax: loan.annualPropertyTax,
+    loanType: loan.loanType,
+    vaDisability: loan.vaDisability,
+    vaFundingFee,
+    creditScore: loan.creditScore,
+  });
 
   function commitEdit() {
     const parsed = parseFloat(editInput.replace(/[^0-9.]/g, ""));
@@ -312,7 +357,11 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
           <p className="text-sm text-red-600">Your current LTV is <strong>{(currentLTV * 100).toFixed(1)}%</strong>, which exceeds the 75% maximum.</p>
           <div className="flex items-start gap-1 mt-2 text-xs text-red-500">
             <Info className="h-3 w-3 mt-0.5 flex-shrink-0" />
-            <span>Home value used: {formatCurrency(homeValue)} (AI estimate). <button className="underline" onClick={() => setEditing(true)}>Edit value</button></span>
+            <span>
+              Home value used: {formatCurrency(homeValue)} (
+              {usesCdPurchasePrice ? "CD sale price — assumed appraised value" : "estimated value"}).{" "}
+              <button className="underline" onClick={() => setEditing(true)}>Edit value</button>
+            </span>
           </div>
           {editing && (
             <div className="flex items-center gap-2 mt-2">
@@ -331,7 +380,9 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
     <div className="space-y-4">
       <div className="flex items-center justify-between p-3 rounded-md border bg-muted/30 flex-wrap gap-2">
         <div className="space-y-0.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Est. Home Value</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {usesCdPurchasePrice ? "Assumed Appraised Value" : "Est. Home Value"}
+          </p>
           {editing ? (
             <div className="flex items-center gap-2">
               <span className="text-sm font-medium">$</span>
@@ -345,7 +396,11 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
               <button onClick={() => { setEditInput(String(Math.round(homeValue))); setEditing(true); }} className="text-muted-foreground hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>
             </div>
           )}
-          <p className="text-xs text-amber-600">AI estimate — edit to use your actual value</p>
+          <p className="text-xs text-amber-600">
+            {usesCdPurchasePrice
+              ? "CD sale price — edit only if the appraised value differs"
+              : "Estimated value — edit to use your actual value"}
+          </p>
         </div>
         <div className="text-right space-y-0.5">
           <p className="text-xs text-muted-foreground">Current LTV</p>
@@ -361,7 +416,17 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
             <p className="font-bold text-2xl">{formatCurrency(finalLoanWithCosts)}</p>
           </div>
           <div className="text-right space-y-1">
-            <div><p className="text-xs text-muted-foreground">Cash you'd receive</p><p className="font-bold text-xl text-green-600">{formatCurrency(cashOut)}</p></div>
+            <div>
+              <p className="text-xs text-muted-foreground">
+                {feeWorksheet.estimatedCashToBorrower > 0 ? "Est. net cash to you" : "Est. cash due at closing"}
+              </p>
+              <p className={`font-bold text-xl ${feeWorksheet.estimatedCashToBorrower > 0 ? "text-green-600" : "text-amber-700"}`}>
+                {formatCurrency(feeWorksheet.estimatedCashToBorrower > 0
+                  ? feeWorksheet.estimatedCashToBorrower
+                  : feeWorksheet.estimatedCashDueAtClosing)}
+              </p>
+              <p className="text-[10px] text-muted-foreground">{formatCurrency(cashOut)} gross before charges</p>
+            </div>
             <div><p className="text-xs text-muted-foreground">Combined LTV</p><p className={`font-semibold text-sm ${newLTV > CASH_OUT_MAX_LTV * 100 ? "text-red-500" : ""}`}>{newLTV.toFixed(1)}%</p></div>
           </div>
         </div>
@@ -382,18 +447,66 @@ function CashOutSection({ loan, newRate, displayRate, homeValue, onChangeHomeVal
           </div>
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Rate</span><span className="font-bold text-lg">{displayRate.toFixed(3)}%</span></div>
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Monthly P&I</span><span className="font-semibold">{formatCurrency(newMonthlyPI)}</span></div>
+          {feeWorksheet.monthlyHousingExpense.mortgageInsurance !== null
+            && feeWorksheet.monthlyHousingExpense.mortgageInsurance > 0 && (
+            <div className="flex justify-between"><span className="text-sm text-muted-foreground">Est. Monthly PMI</span><span className="font-semibold text-amber-700">{formatCurrency(feeWorksheet.monthlyHousingExpense.mortgageInsurance)}</span></div>
+          )}
+          <div className="flex justify-between"><span className="text-sm text-muted-foreground">Funded LTV</span><span className="font-semibold">{feeWorksheet.fundedLtvPct?.toFixed(2) ?? "—"}%</span></div>
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Loan Amount</span><span className="font-semibold">{formatCurrency(finalLoanWithCosts)} <span className="text-xs text-muted-foreground">{financeFees ? "(incl. fees)" : "(fees paid at close)"}</span></span></div>
           <div className="flex justify-between"><span className="text-sm text-muted-foreground">Est. Closing Costs</span><span className="font-semibold">{formatCurrency(closingCosts)}</span></div>
+          {loan.loanType === "va" && (
+            <div className="flex justify-between">
+              <span className="text-sm text-muted-foreground">VA Funding Fee</span>
+              <span className="font-semibold">
+                {loan.vaDisability === undefined ? "Answer required" : formatCurrency(vaFundingFee)}
+              </span>
+            </div>
+          )}
           {includeEscrows && escrowAmount > 0 && (
             <div className="flex justify-between"><span className="text-sm text-muted-foreground">Escrow Reserve ({ESCROW_RESERVE_MONTHS} mo)</span><span className="font-semibold">{formatCurrency(escrowAmount)}</span></div>
           )}
         </div>
       </div>
+      {loan.loanType === "conventional" && feeWorksheet.cashNeededFor80Ltv > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <strong>Funded LTV is {feeWorksheet.fundedLtvPct?.toFixed(2)}%.</strong>{" "}
+          Estimated PMI is {formatCurrency(feeWorksheet.monthlyHousingExpense.mortgageInsurance ?? 0)}/month.
+          Pay at least <strong>{formatCurrency(feeWorksheet.cashNeededFor80Ltv)}</strong> at closing toward costs,
+          escrows, or principal to keep the funded loan at or below 80% LTV.
+        </div>
+      )}
+
+      <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setWorksheetOpen(true)}>
+        <Receipt className="mr-2 h-4 w-4" />
+        View Initial Fees Worksheet
+      </Button>
+      <RefinanceFeeWorksheetDialog
+        open={worksheetOpen}
+        onOpenChange={setWorksheetOpen}
+        worksheet={feeWorksheet}
+        meta={{
+          address: loan.propertyAddress,
+          purpose: "Cash-Out Refinance",
+          currentPayoff: loan.loanBalance,
+          baseNewLoanAmount: clampedLoan,
+          finalNewLoanAmount: finalLoanWithCosts,
+          ratePct: displayRate,
+          monthlyPI: newMonthlyPI,
+          financeFees,
+        }}
+      />
 
       {showDtiCheck && (
         <DtiCheck
-          housingPayment={newMonthlyPI + monthlyEscrow}
-          paymentLabel="new mortgage payment incl. escrow"
+          housingPayment={
+            feeWorksheet.monthlyHousingExpense.totalPiti
+              ?? feeWorksheet.monthlyHousingExpense.knownPaymentSubtotal
+          }
+          paymentLabel={
+            feeWorksheet.monthlyHousingExpense.totalPiti === null
+              ? "known new housing payment before program charges"
+              : "new mortgage PITI"
+          }
         />
       )}
     </div>
@@ -409,10 +522,115 @@ interface TaxLookupState {
   errorMessage?: string;
 }
 
+const AUTO_TAX_REFRESH_MS = 180 * 24 * 60 * 60 * 1000;
+const AUTO_TAX_PENDING_RETRIES = 3;
+const taxLookupRequests = new Map<string, Promise<{ ok: boolean; data: any }>>();
+
+function requestCurrentPropertyTaxBill(address: string) {
+  const key = address.trim().toLowerCase();
+  const existing = taxLookupRequests.get(key);
+  if (existing) return existing;
+  const request = fetch("/api/refinance/property-tax/current", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address }),
+  }).then(async res => ({
+    ok: res.ok,
+    data: await res.json(),
+  })).finally(() => {
+    if (taxLookupRequests.get(key) === request) taxLookupRequests.delete(key);
+  });
+  taxLookupRequests.set(key, request);
+  return request;
+}
+
+function useAutomaticPropertyTaxLookup(
+  loan: TrackedLoan,
+  onUpdate: (u: Partial<TrackedLoan>) => void,
+  sourceRef: MutableRefObject<TrackedLoan["annualPropertyTaxSource"]>,
+  generationRef: MutableRefObject<number>,
+) {
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    const address = loan.propertyAddress?.trim();
+    if (!address || address === "Unknown address") return;
+    // A user's manual value is an explicit lock and is never overwritten.
+    if (loan.annualPropertyTaxSource === "manual") return;
+
+    const queriedAtMs = loan.annualPropertyTaxQueriedAt
+      ? Date.parse(loan.annualPropertyTaxQueriedAt)
+      : Number.NaN;
+    const hasRecentAuthoritativeBill = typeof loan.annualPropertyTax === "number"
+      && Number.isFinite(queriedAtMs)
+      && Date.now() - queriedAtMs < AUTO_TAX_REFRESH_MS;
+    if (hasRecentAuthoritativeBill) return;
+
+    const generation = ++generationRef.current;
+
+    async function lookup(attempt: number) {
+      try {
+        const { ok, data } = await requestCurrentPropertyTaxBill(address);
+        if (generationRef.current !== generation || !ok) return;
+        if (data.state === "ready") {
+          const patch = buildCurrentTaxLookupPatch(data);
+          if (patch && sourceRef.current !== "manual") onUpdate(patch);
+          return;
+        }
+        if (data.state === "pending" && attempt < AUTO_TAX_PENDING_RETRIES) {
+          retryTimerRef.current = setTimeout(
+            () => void lookup(attempt + 1),
+            4_000,
+          );
+        }
+      } catch {
+        // The visible section keeps manual entry and an explicit retry button
+        // available when an automatic lookup cannot complete.
+      }
+    }
+
+    void lookup(0);
+    return () => {
+      if (generationRef.current === generation) generationRef.current += 1;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    };
+    // onUpdate is intentionally omitted because parent renders create a new
+    // callback; lookup identity is the loan/address and persisted tax state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    loan.id,
+    loan.propertyAddress,
+    loan.annualPropertyTax,
+    loan.annualPropertyTaxSource,
+    loan.annualPropertyTaxQueriedAt,
+  ]);
+
+  return {
+    invalidate() {
+      generationRef.current += 1;
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    },
+  };
+}
+
 /** Section shown on every LoanCard with the current owner's property-tax bill.
  *  Clearly labeled as the EXISTING OWNER's bill (not a purchase estimate).
  *  Supports lookup via POST /api/refinance/property-tax/current and manual entry. */
-function PropertyTaxSection({ loan, onUpdate }: { loan: TrackedLoan; onUpdate: (u: Partial<TrackedLoan>) => void }) {
+function PropertyTaxSection({
+  loan,
+  onUpdate,
+  onManualTaxCommit,
+  onCollectorLookupStart,
+  lookupGenerationRef,
+  currentAddressRef,
+}: {
+  loan: TrackedLoan;
+  onUpdate: (u: Partial<TrackedLoan>) => void;
+  onManualTaxCommit: () => void;
+  onCollectorLookupStart: () => void;
+  lookupGenerationRef: MutableRefObject<number>;
+  currentAddressRef: MutableRefObject<string>;
+}) {
   const [lookupState, setLookupState] = useState<TaxLookupState>({ status: "idle" });
   const [manualInput, setManualInput] = useState<string>("");
   const [showManual, setShowManual] = useState(false);
@@ -426,17 +644,17 @@ function PropertyTaxSection({ loan, onUpdate }: { loan: TrackedLoan; onUpdate: (
 
   async function handleLookup() {
     if (!loan.propertyAddress || loan.propertyAddress === "Unknown address") return;
+    const requestedAddress = loan.propertyAddress.trim();
+    onCollectorLookupStart();
+    const requestGeneration = lookupGenerationRef.current;
     setLookupState({ status: "pending", pendingMessage: "Contacting tax collector…" });
     try {
-      const res = await fetch("/api/refinance/property-tax/current", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        // Only send address — never purchase price, originalPurchasePrice,
-        // estimatedHomeValue, or any purchase-estimator data.
-        body: JSON.stringify({ address: loan.propertyAddress }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
+      const { ok, data } = await requestCurrentPropertyTaxBill(requestedAddress);
+      if (
+        lookupGenerationRef.current !== requestGeneration
+        || currentAddressRef.current.trim() !== requestedAddress
+      ) return;
+      if (!ok) {
         setLookupState({ status: "error", errorMessage: data?.error || "Unexpected error from tax lookup." });
         return;
       }
@@ -458,7 +676,10 @@ function PropertyTaxSection({ loan, onUpdate }: { loan: TrackedLoan; onUpdate: (
       } else if (data.state === "unavailable") {
         setLookupState({
           status: "unavailable",
-          unavailableReason: data.reason || "Automatic lookup is not available for this address.",
+          unavailableReason:
+            data.operationalError ||
+            data.reason ||
+            "Automatic lookup is not available for this address.",
         });
         setShowManual(true);
       } else {
@@ -473,6 +694,7 @@ function PropertyTaxSection({ loan, onUpdate }: { loan: TrackedLoan; onUpdate: (
     const n = parseFloat(manualInput.replace(/[^0-9.]/g, ""));
     const patch = buildManualPropertyTaxPatch(n);
     if (!patch) return;
+    onManualTaxCommit();
     onUpdate(patch);
     setShowManual(false);
     setLookupState({ status: "idle" });
@@ -564,7 +786,7 @@ function PropertyTaxSection({ loan, onUpdate }: { loan: TrackedLoan; onUpdate: (
       {/* Clarifying note — always visible */}
       <p className="text-xs text-muted-foreground flex items-start gap-1">
         <Info className="h-3 w-3 shrink-0 mt-0.5" />
-        This is the <strong>current owner's</strong> tax bill, not a purchase estimate. It does not affect payment or refinance calculations.
+        This is the <strong>current owner's actual total tax bill</strong>, not a purchase estimate. Its monthly equivalent is included in the proposed refinance housing payment.
       </p>
 
       {/* Pending feedback */}
@@ -634,6 +856,17 @@ function PropertyTaxSection({ loan, onUpdate }: { loan: TrackedLoan; onUpdate: (
 }
 
 function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore, showDtiCheck }: { loan: TrackedLoan; liveRates: LiveRate[]; onRemove: () => void; onUpdate: (u: Partial<TrackedLoan>) => void; allowPerLoanCreditScore?: boolean; showDtiCheck?: boolean }) {
+  const taxSourceRef = useRef(loan.annualPropertyTaxSource);
+  const taxAddressRef = useRef(loan.propertyAddress);
+  const taxLookupGenerationRef = useRef(0);
+  taxSourceRef.current = loan.annualPropertyTaxSource;
+  taxAddressRef.current = loan.propertyAddress;
+  const automaticTaxLookup = useAutomaticPropertyTaxLookup(
+    loan,
+    onUpdate,
+    taxSourceRef,
+    taxLookupGenerationRef,
+  );
   const [expanded, setExpanded] = useState(false);
   // Free & clear properties have no lien — the only analysis that
   // applies is a 1st-lien cash-out, so that's the only tab we render.
@@ -655,6 +888,8 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
   }, [homeValue]);
   const [propertyType, setPropertyType] = useState<PropertyType>(loan.propertyType);
   const [loanType, setLoanType] = useState<LoanType>(loan.loanType ?? "conventional");
+  const monthlyEscrow = Math.max(0, loan.monthlyPayment - loan.currentPI);
+  const hasExistingEscrow = monthlyEscrow > 0;
   // ── Hydration sync ─────────────────────────────────────────────
   // On a hard refresh of /refinance, the parent (Refinance) initially
   // renders with `getTrackedLoans()` returning [] (auth/cache hasn't
@@ -679,7 +914,10 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loan.propertyType]);
   const [financeFees, setFinanceFees] = useState(loan.financeFees ?? true);
-  const [includeEscrows, setIncludeEscrows] = useState(loan.includeEscrows ?? false);
+  const [includeEscrows, setIncludeEscrows] = useState(
+    loan.includeEscrows ?? hasExistingEscrow,
+  );
+  const [rateTermWorksheetOpen, setRateTermWorksheetOpen] = useState(false);
   // Hydration sync (same rationale as loanType/propertyType above): the
   // card doesn't remount when persisted rows arrive after async hydration,
   // so mirror the persisted refi inputs into local state when the prop
@@ -696,10 +934,21 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loan.financeFees]);
   useEffect(() => {
-    const incoming = loan.includeEscrows ?? false;
+    const incoming = loan.includeEscrows ?? hasExistingEscrow;
     if (incoming !== includeEscrows) setIncludeEscrows(incoming);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loan.includeEscrows]);
+  }, [loan.includeEscrows, hasExistingEscrow]);
+  // Persist first-use defaults so they survive refresh/logout/login. Existing
+  // true or false values are explicit user choices and are never overwritten.
+  useEffect(() => {
+    const defaults: Partial<TrackedLoan> = {};
+    if (loan.financeFees === undefined) defaults.financeFees = true;
+    if (loan.includeEscrows === undefined) {
+      defaults.includeEscrows = hasExistingEscrow;
+    }
+    if (Object.keys(defaults).length > 0) onUpdate(defaults);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loan.id, loan.financeFees, loan.includeEscrows, hasExistingEscrow]);
   function handleTabChange(tab: "rate_term" | "cash_out" | "home_equity") {
     setActiveTab(tab);
     onUpdate({ refiGoal: tab });
@@ -752,6 +1001,9 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
     setLoanType(lt);
     onUpdate({ loanType: lt });
   }
+  function handleVaDisabilityChange(value: boolean) {
+    onUpdate({ vaDisability: value });
+  }
 
   // Pricing now goes through the shared engine in lib/mortgage-pricing.ts
   // so Purchase and Refinance use the same tier formula. Credit score,
@@ -801,10 +1053,11 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
     lastUpdated: new Date().toISOString(),
   };
 
-  const liveMonths = monthsBetween(loan.balanceAsOf ?? loan.addedAt);
-  const currentBalance = liveMonths > 0 && loan.currentPI > 0 ? amortizeBalance(loan.loanBalance, loan.currentRate, loan.currentPI, liveMonths) : loan.loanBalance;
+  const {
+    currentBalance,
+    elapsedPayments: liveMonths,
+  } = resolveTrackedLoanBalance(loan);
 
-  const monthlyEscrow = Math.max(0, loan.monthlyPayment - loan.currentPI);
   const escrowAmount = includeEscrows ? monthlyEscrow * ESCROW_RESERVE_MONTHS : 0;
 
   const delta = getRateDelta(loan.currentRate, adjustedRate);
@@ -823,15 +1076,41 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
     refinanceType: "rate_and_term",
   });
   const rateTermBaseClosingCosts = (currentBalance * CLOSING_COST_PERCENT) / 100 + CLOSING_COST_FIXED;
+  const rateTermVaFundingFee = calculateRefinanceVaFundingFee(
+    currentBalance,
+    loanType,
+    loan.vaDisability,
+  );
   // Re-derive numbers when escrow is rolled in (calculateRefinance doesn't know about escrows)
-  const rateTermNewLoanAmount = currentBalance + (financeFees ? rateTermBaseClosingCosts + escrowAmount : 0);
+  const rateTermNewLoanAmount = currentBalance
+    + rateTermVaFundingFee
+    + (financeFees ? rateTermBaseClosingCosts + escrowAmount : 0);
   const rateTermNewMonthlyPI = calculateMonthlyPayment(rateTermNewLoanAmount, adjustedRate, NEW_TERM_YEARS);
   const rateTermMonthlySavings = rateTerm.monthlyPaymentCurrent - rateTermNewMonthlyPI;
-  const rateTermTotalFees = rateTermBaseClosingCosts + escrowAmount;
+  const rateTermTotalFees = rateTermBaseClosingCosts + escrowAmount + rateTermVaFundingFee;
   const rateTermBreakEven = rateTermMonthlySavings > 0 ? Math.ceil(rateTermTotalFees / rateTermMonthlySavings) : 0;
   // Lifetime net: calculateRefinance already accounts for the financeFees toggle on closing costs.
   // Escrow reserve is an additional out-of-pocket (or financed-principal) cost not modeled there, so subtract it.
-  const rateTermLifetimeNet = rateTerm.totalSavings - escrowAmount;
+  const rateTermLifetimeNet = rateTerm.totalSavings - escrowAmount - rateTermVaFundingFee;
+  const rateTermFeeWorksheet = buildRefinanceFeeWorksheet({
+    currentPayoff: currentBalance,
+    baseNewLoanAmount: currentBalance,
+    finalNewLoanAmount: rateTermNewLoanAmount,
+    ratePct: adjustedRate,
+    monthlyPI: rateTermNewMonthlyPI,
+    monthlyEscrow,
+    escrowReserve: escrowAmount,
+    financeFees,
+    entryMethod: loan.entryMethod,
+    currentEscrowBalance: loan.currentEscrowBalance,
+    homeValue,
+    annualPropertyTax: loan.annualPropertyTax,
+    loanType,
+    vaDisability: loan.vaDisability,
+    vaFundingFee: rateTermVaFundingFee,
+    creditScore: loan.creditScore,
+  });
+  const vaAnswerRequired = loanType === "va" && loan.vaDisability === undefined;
 
   return (
     <Card className="overflow-hidden">
@@ -861,7 +1140,11 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
           </div>
         </div>
 
-        {isFreeClear ? (
+        {vaAnswerRequired ? (
+          <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900">
+            VA disability answer required before calculating the proposed funded loan, P&amp;I, cash-out, or savings.
+          </div>
+        ) : isFreeClear ? (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t">
             <div><p className="text-xs text-muted-foreground">Home Value</p><p className="font-bold">{formatCurrency(homeValue)}</p></div>
             <div><p className="text-xs text-muted-foreground">Liens</p><p className="font-bold">None</p></div>
@@ -872,8 +1155,8 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t">
           <div><p className="text-xs text-muted-foreground">Balance</p><p className="font-bold">{formatCurrency(currentBalance)}</p>{liveMonths > 0 && <p className="text-xs text-muted-foreground">amortized {liveMonths}mo</p>}</div>
           <div><p className="text-xs text-muted-foreground">Current P&I</p><p className="font-bold">{formatCurrency(loan.currentPI)}/mo</p></div>
-          <div><p className="text-xs text-muted-foreground">New P&I (est.)</p><p className={`font-bold ${rateTerm.monthlySavings > 0 ? "text-green-600" : "text-muted-foreground"}`}>{formatCurrency(rateTerm.monthlyPaymentNew)}/mo</p></div>
-          <div><p className="text-xs text-muted-foreground">Monthly Savings</p><p className={`font-bold ${rateTerm.monthlySavings > 0 ? "text-green-600" : "text-red-500"}`}>{rateTerm.monthlySavings > 0 ? "+" : ""}{formatCurrency(rateTerm.monthlySavings)}</p></div>
+          <div><p className="text-xs text-muted-foreground">New P&I (est.)</p><p className={`font-bold ${rateTermMonthlySavings > 0 ? "text-green-600" : "text-muted-foreground"}`}>{formatCurrency(rateTermNewMonthlyPI)}/mo</p></div>
+          <div><p className="text-xs text-muted-foreground">Monthly Savings</p><p className={`font-bold ${rateTermMonthlySavings > 0 ? "text-green-600" : "text-red-500"}`}>{rateTermMonthlySavings > 0 ? "+" : ""}{formatCurrency(rateTermMonthlySavings)}</p></div>
         </div>
         )}
       </div>
@@ -956,6 +1239,39 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
                 VA and FHA are only available for primary residences.
               </p>
             )}
+            {loanType === "va" && (
+              <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 p-3">
+                <p className="text-sm font-medium text-blue-950">Do you have a VA disability?</p>
+                <p className="mb-2 text-xs text-blue-800">
+                  Yes makes the VA funding fee $0. No applies the 3.30% subsequent-use funding fee.
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={loan.vaDisability === true ? "default" : "outline"}
+                    onClick={() => handleVaDisabilityChange(true)}
+                    data-testid={`btn-va-disability-yes-${loan.id}`}
+                  >
+                    Yes — exempt
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={loan.vaDisability === false ? "default" : "outline"}
+                    onClick={() => handleVaDisabilityChange(false)}
+                    data-testid={`btn-va-disability-no-${loan.id}`}
+                  >
+                    No — 3.30%
+                  </Button>
+                </div>
+                {loan.vaDisability === undefined && (
+                  <p className="mt-2 text-xs font-medium text-amber-700">
+                    Select Yes or No to complete the VA loan calculation.
+                  </p>
+                )}
+              </div>
+            )}
             {LOAN_TYPE_NOT_PRICED.includes(loanType) && !pricing.pricingConnected && (
               <p className="text-xs text-amber-600">
                 {LOAN_TYPE_LABELS[loanType]} pricing not fully connected yet — calculations use a conventional-based estimate.
@@ -982,7 +1298,17 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
 
           {/* Current owner's property tax bill — shown for all tracked loans.
               Clearly separate from purchase estimates and escrow math. */}
-          <PropertyTaxSection loan={loan} onUpdate={onUpdate} />
+          <PropertyTaxSection
+            loan={loan}
+            onUpdate={onUpdate}
+            onManualTaxCommit={() => {
+              automaticTaxLookup.invalidate();
+              taxSourceRef.current = "manual";
+            }}
+            onCollectorLookupStart={automaticTaxLookup.invalidate}
+            lookupGenerationRef={taxLookupGenerationRef}
+            currentAddressRef={taxAddressRef}
+          />
 
           {/* Best option banner */}
           {isFreeClear ? (
@@ -1023,9 +1349,14 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
             ))}
           </div>
           )}
+          {vaAnswerRequired && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              Select Yes or No for VA disability above to calculate the funding fee and refinance proposal.
+            </div>
+          )}
 
           {/* Rate & Term */}
-          {!isFreeClear && activeTab === "rate_term" && (
+          {!isFreeClear && !vaAnswerRequired && activeTab === "rate_term" && (
             <div className="space-y-4">
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="rounded-lg border bg-muted/30 p-4 space-y-2">
@@ -1038,7 +1369,20 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">After Refinance ({NEW_TERM_YEARS} yr)</p>
                   <div className="flex justify-between"><span className="text-sm text-muted-foreground">Rate</span><span className="font-bold text-lg text-green-700">{adjustedRate.toFixed(3)}%</span></div>
                   <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Monthly P&I</span><span className="font-semibold">{formatCurrency(rateTermNewMonthlyPI)}</span></div>
+                  {rateTermFeeWorksheet.monthlyHousingExpense.mortgageInsurance !== null
+                    && rateTermFeeWorksheet.monthlyHousingExpense.mortgageInsurance > 0 && (
+                    <div className="flex justify-between"><span className="text-sm text-muted-foreground">Est. Monthly PMI</span><span className="font-semibold text-amber-700">{formatCurrency(rateTermFeeWorksheet.monthlyHousingExpense.mortgageInsurance)}</span></div>
+                  )}
+                  <div className="flex justify-between"><span className="text-sm text-muted-foreground">Funded LTV</span><span className="font-semibold">{rateTermFeeWorksheet.fundedLtvPct?.toFixed(2) ?? "—"}%</span></div>
                   <div className="flex justify-between"><span className="text-sm text-muted-foreground">New Loan Amount</span><span className="font-semibold">{formatCurrency(rateTermNewLoanAmount)}</span></div>
+                  {loanType === "va" && (
+                    <div className="flex justify-between">
+                      <span className="text-sm text-muted-foreground">VA Funding Fee</span>
+                      <span className="font-semibold">
+                        {loan.vaDisability === undefined ? "Answer required" : formatCurrency(rateTermVaFundingFee)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
               <FeeToggles
@@ -1050,6 +1394,15 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
                 baseClosingCosts={rateTermBaseClosingCosts}
                 monthlyEscrow={monthlyEscrow}
               />
+              {loanType === "conventional" && rateTermFeeWorksheet.cashNeededFor80Ltv > 0 && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+                  <strong>Financing costs and escrows raises funded LTV to {rateTermFeeWorksheet.fundedLtvPct?.toFixed(2)}%.</strong>{" "}
+                  Estimated PMI is {formatCurrency(rateTermFeeWorksheet.monthlyHousingExpense.mortgageInsurance ?? 0)}/month.
+                  To stay at or below 80% LTV, pay at least{" "}
+                  <strong>{formatCurrency(rateTermFeeWorksheet.cashNeededFor80Ltv)}</strong> at closing toward costs,
+                  escrows, or principal.
+                </div>
+              )}
               <div className="grid grid-cols-3 gap-3">
                 <div className={`rounded-md p-3 text-center ${rateTermMonthlySavings > 0 ? "bg-green-50 border border-green-200" : "bg-red-50 border border-red-200"}`}>
                   <p className="text-xs text-muted-foreground mb-1">Monthly Savings</p>
@@ -1065,13 +1418,32 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
                 </div>
               </div>
               <p className="text-xs text-muted-foreground">Closing costs est. {formatCurrency(rateTermBaseClosingCosts)}{includeEscrows && escrowAmount > 0 ? ` + ${formatCurrency(escrowAmount)} escrow reserve` : ""} {financeFees ? "(rolled into new loan)" : "(paid at closing)"}. Rates include {rateAdj > 0 ? `+${rateAdj.toFixed(3)}% LLPA for ${PROPERTY_TYPE_LABELS[propertyType].toLowerCase()}.` : "no LLPA adjustment for primary home."}</p>
+              <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={() => setRateTermWorksheetOpen(true)}>
+                <Receipt className="mr-2 h-4 w-4" />
+                View Initial Fees Worksheet
+              </Button>
+              <RefinanceFeeWorksheetDialog
+                open={rateTermWorksheetOpen}
+                onOpenChange={setRateTermWorksheetOpen}
+                worksheet={rateTermFeeWorksheet}
+                meta={{
+                  address: loan.propertyAddress,
+                  purpose: "Rate & Term Refinance",
+                  currentPayoff: currentBalance,
+                  baseNewLoanAmount: currentBalance,
+                  finalNewLoanAmount: rateTermNewLoanAmount,
+                  ratePct: adjustedRate,
+                  monthlyPI: rateTermNewMonthlyPI,
+                  financeFees,
+                }}
+              />
             </div>
           )}
 
           {/* Cash-Out */}
-          {activeTab === "cash_out" && (
+          {!vaAnswerRequired && activeTab === "cash_out" && (
             <div className="space-y-4">
-              <CashOutSection loan={{ ...loan, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} displayRate={adjustedRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} onPersistNewLoanAmount={v => onUpdate({ cashOutNewLoanAmount: v })} showDtiCheck={showDtiCheck} />
+              <CashOutSection loan={{ ...loan, loanType, loanBalance: currentBalance, estimatedHomeValue: homeValue }} newRate={bestRate} displayRate={adjustedRate} homeValue={homeValue} onChangeHomeValue={setHomeValue} financeFees={financeFees} includeEscrows={includeEscrows} monthlyEscrow={monthlyEscrow} onPersistNewLoanAmount={v => onUpdate({ cashOutNewLoanAmount: v })} showDtiCheck={showDtiCheck} />
               <FeeToggles
                 idPrefix={`co-${loan.id}`}
                 financeFees={financeFees}
@@ -1085,7 +1457,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
           )}
 
           {/* Home Equity */}
-          {!isFreeClear && activeTab === "home_equity" && (
+          {!isFreeClear && !vaAnswerRequired && activeTab === "home_equity" && (
             <div className="space-y-4">
               <HomeEquitySection loan={{ ...loan, loanBalance: currentBalance }} heRate={heRate} rateAdjustment={rateAdj} propertyType={propertyType} homeValue={homeValue} onChangeHomeValue={setHomeValue} onPersistProduct={p => onUpdate({ homeEquityProduct: p })} onPersistBorrowAmount={v => onUpdate({ homeEquityBorrowAmount: v })} showDtiCheck={showDtiCheck} />
             </div>
@@ -1097,6 +1469,7 @@ function LoanCard({ loan, liveRates, onRemove, onUpdate, allowPerLoanCreditScore
 }
 
 function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeValue, onChangeHomeValue, onPersistProduct, onPersistBorrowAmount, showDtiCheck }: { loan: TrackedLoan; heRate: number; rateAdjustment: number; propertyType: PropertyType; homeValue: number; onChangeHomeValue: (v: number) => void; onPersistProduct: (p: HeProduct) => void; onPersistBorrowAmount: (v: number) => void; showDtiCheck?: boolean }) {
+  const usesCdPurchasePrice = isCdPurchasePriceLocked(loan);
   const [product, setProduct] = useState<HeProduct>(loan.homeEquityProduct ?? "heloc");
   const [borrowAmount, setBorrowAmount] = useState(
     typeof loan.homeEquityBorrowAmount === "number" && loan.homeEquityBorrowAmount >= 0
@@ -1159,7 +1532,9 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
         </div>
         <div className="flex items-center justify-between p-3 rounded-md border bg-muted/30 flex-wrap gap-2">
           <div className="space-y-0.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Est. Home Value</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {usesCdPurchasePrice ? "Assumed Appraised Value" : "Est. Home Value"}
+            </p>
             {editing ? (
               <div className="flex items-center gap-1">
                 <span className="text-sm">$</span>
@@ -1173,7 +1548,11 @@ function HomeEquitySection({ loan, heRate, rateAdjustment, propertyType, homeVal
                 <button onClick={() => { setEditInput(String(Math.round(homeValue))); setEditing(true); }} className="text-muted-foreground hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>
               </div>
             )}
-            <p className="text-xs text-amber-600">AI estimate · edit to refine</p>
+            <p className="text-xs text-amber-600">
+              {usesCdPurchasePrice
+                ? "CD sale price · edit only if appraisal differs"
+                : "Estimated value · edit to refine"}
+            </p>
           </div>
           <div className="text-right">
             <p className="text-xs text-muted-foreground">Current CLTV</p>

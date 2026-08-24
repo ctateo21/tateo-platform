@@ -6,7 +6,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Upload, FileText, Loader2, CheckCircle2, AlertTriangle, Sparkles, X } from "lucide-react";
 import { formatCurrency } from "@/lib/refi-calculations";
 import { cn } from "@/lib/utils";
-import { monthlyPI, remainingBalance, paymentsMadeSince, remainingYears } from "@/lib/amortization";
+import {
+  monthlyPI,
+  remainingBalance,
+  paymentsMadeFromFirstPaymentDate,
+  paymentsMadeSince,
+  remainingYears,
+} from "@/lib/amortization";
 import type { MortgageAnalysis } from "./loan-tracker";
 import type { TrackedLoan } from "@/lib/auth";
 
@@ -15,6 +21,8 @@ interface ClosingDisclosureAnalysis {
   propertyAddress: string;
   lender: string;
   closingDate: string | null;
+  firstPaymentDate: string | null;
+  prepaidInterestThroughDate: string | null;
   purchasePrice: number;
   loanAmount: number;
   interestRate: number;
@@ -39,7 +47,11 @@ interface ClosingDisclosureAnalyzerProps {
  *  standard amortization schedule. */
 function cdToAnalysis(cd: ClosingDisclosureAnalysis): { analysis: MortgageAnalysis; extras: Partial<TrackedLoan> } {
   const termMonths = cd.loanTermMonths > 0 ? Math.round(cd.loanTermMonths) : 360;
-  const monthsElapsed = cd.closingDate ? paymentsMadeSince(cd.closingDate) : 0;
+  const monthsElapsed = cd.firstPaymentDate
+    ? paymentsMadeFromFirstPaymentDate(cd.firstPaymentDate)
+    : cd.closingDate
+      ? paymentsMadeSince(cd.closingDate)
+      : 0;
   const balance = remainingBalance(cd.loanAmount, cd.interestRate, termMonths, monthsElapsed);
   const pi = cd.principalAndInterest > 0
     ? cd.principalAndInterest
@@ -50,11 +62,11 @@ function cdToAnalysis(cd: ClosingDisclosureAnalysis): { analysis: MortgageAnalys
     monthlyPayment: pi + Math.max(0, cd.escrowAmount || 0),
     principalAndInterest: pi,
     escrowAmount: Math.max(0, cd.escrowAmount || 0),
+    currentEscrowBalance: null,
     propertyAddress: cd.propertyAddress,
     lender: cd.lender,
     estimatedRemainingYears: Math.round(remainingYears(termMonths, monthsElapsed) * 10) / 10,
-    // Best available value from the CD — the auto Zillow pull after
-    // tracking will refresh this with a live estimate.
+    // The CD sale price is the assumed appraised value for refinance LTV.
     estimatedHomeValue: cd.purchasePrice > 0 ? cd.purchasePrice : 0,
     loanNumber: cd.loanNumber,
     confidence: cd.confidence,
@@ -65,6 +77,7 @@ function cdToAnalysis(cd: ClosingDisclosureAnalysis): { analysis: MortgageAnalys
   const extras: Partial<TrackedLoan> = {
     entryMethod: "closing_disclosure",
     purchaseDate: cd.closingDate ?? undefined,
+    firstPaymentDate: cd.firstPaymentDate ?? undefined,
     originalPurchasePrice: cd.purchasePrice > 0 ? cd.purchasePrice : undefined,
     originalLoanAmount: cd.loanAmount > 0 ? cd.loanAmount : undefined,
     originalRate: cd.interestRate > 0 ? cd.interestRate : undefined,
@@ -73,6 +86,7 @@ function cdToAnalysis(cd: ClosingDisclosureAnalysis): { analysis: MortgageAnalys
     // already inside the page-1 Loan Amount, so no fee is re-added here;
     // capturing the program keeps FHA/VA streamline pricing correct.
     loanType: cd.loanType ?? undefined,
+    estimatedHomeValueSource: cd.purchasePrice > 0 ? "statement" : undefined,
     amortizedBalanceCheck: Math.round(balance),
     balanceConfirmed: false,
   };

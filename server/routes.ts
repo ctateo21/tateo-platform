@@ -19,20 +19,15 @@ import {
   serviceCategories
 } from "@shared/schema";
 import { searchProperties, getPropertyDetails, ZillowSearchParams, ZillowProperty } from "./integrations/zillow";
-import { getHillsboroughTax } from "./integrations/hillsborough-tax";
 import { isHillsboroughCountyAddress } from "@shared/hillsborough-county";
-import { getNonAdValoremForFolio } from "./integrations/tax-bill-scraper";
-import {
-  lookupPinellasParcel,
-  lookupManateeParcel,
-  lookupPascoParcel,
-} from "./integrations/county-parcel-lookup";
 import {
   getHillsboroughPurchaseTax,
-  getPinellasPurchaseTax,
-  getManateePurchaseTax,
-  COUNTY_FORMULA_RATES,
+  getCountyPurchaseTax,
 } from "./integrations/property-tax-service";
+import {
+  SUPPORTED_COUNTY_SLUGS,
+  type CountySlug,
+} from "./integrations/parcel-resolver";
 import { currentTaxBillRequestSchema } from "./integrations/current-tax-contract";
 import { fetchGoogleReviews, getMockReviews } from "./integrations/google-reviews";
 import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
@@ -654,8 +649,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.json({ useFallback: true });
         }
 
-        // Try via the general purchase-tax service (reads general cache first,
-        // then legacy HCPA cache, then live HCPA API).
+        // Try via the general purchase-tax service (general cache first,
+        // then the live HCPA API).
         const result = await getHillsboroughPurchaseTax({
           address: params.address,
           purchasePrice: params.purchasePrice,
@@ -674,6 +669,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             millageRate: result.millageRate ?? 0,
             homestead: params.isPrimaryResidence,
             source: result.source,
+            operationalError: result.operationalError,
           });
         }
 
@@ -697,28 +693,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  // ── Property tax for other FL counties ──────────────────────────
-  // Pinellas & Manatee have live PA APIs; Pasco attempts an HTML
-  // lookup; Sarasota, Hernando, Lee, Collier, Polk use a formula
-  // estimate (their PA sites need sessions/ViewState we can't do
-  // reliably server-side yet). Manatee's ArcGIS layer includes all
-  // non-ad valorem amounts directly — no bill scrape needed there.
-
-  // Formula-only rates (used for Pasco, Sarasota, Hernando, Lee, Collier, Polk).
-  // Pinellas and Manatee now use the general purchase-tax service (property-tax-service.ts).
-  // COUNTY_FORMULA_RATES is imported from property-tax-service.
-
-  function calcAdValoremForCounty(
-    purchasePrice: number,
-    homestead: boolean,
-    county: string
-  ): number {
-    const rates = COUNTY_FORMULA_RATES[county];
-    if (!rates) return 0;
-    const pct = homestead ? rates.h : rates.nh;
-    return Math.round(purchasePrice * pct);
-  }
-
+  // All non-Hillsborough counties use one shared resolver → TaxSys bill →
+  // exact millage cache path. Polk resolves parcel identity but remains an
+  // explicitly labeled formula fallback until its Phenix collector is parsed.
   app.post("/api/property-tax/county", async (req, res) => {
     try {
       const schema = z.object({
@@ -728,122 +705,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isPrimaryResidence: z.boolean().default(true),
       });
       const p = schema.parse(req.body);
-      const county = p.county.toLowerCase().trim();
-
-      const adValorem = calcAdValoremForCounty(
-        p.purchasePrice,
-        p.isPrimaryResidence,
-        county
-      );
-      if (!adValorem) {
-        return res.json({ useFallback: true, county });
+      const county = p.county.toLowerCase().trim() as CountySlug;
+      if (!SUPPORTED_COUNTY_SLUGS.includes(county) || county === "hillsborough") {
+        return res.status(400).json({ error: "Unsupported county" });
       }
-
-      const respond = (extra: {
-        nonAdValoremTax: number;
-        nonAdValoremLines: Array<{ authority: string; amount: number }>;
-        nonAdValoremPending: boolean;
-        source: string;
-        adValoremOverride?: number;
-        millageRateOverride?: number;
-      }) => {
-        const adVal = extra.adValoremOverride ?? adValorem;
-        const annualTax = adVal + extra.nonAdValoremTax;
-        return res.json({
-          annualTax,
-          monthlyTax: Math.round((annualTax / 12) * 100) / 100,
-          adValoremTax: adVal,
-          nonAdValoremTax: extra.nonAdValoremTax,
-          nonAdValoremLines: extra.nonAdValoremLines,
-          nonAdValoremPending: extra.nonAdValoremPending,
-          county,
-          millageRate: extra.millageRateOverride ?? 0,
-          taxDistrict: county,
-          homestead: p.isPrimaryResidence,
-          source: extra.source,
-        });
-      };
-
-      // ── Manatee: formula percentages + ArcGIS NAV via general service ──
-      if (county === "manatee") {
-        const result = await getManateePurchaseTax({
-          address: p.address,
-          purchasePrice: p.purchasePrice,
-          isPrimaryResidence: p.isPrimaryResidence,
-        });
-        return respond({
-          nonAdValoremTax: result.nonAdValorem,
-          nonAdValoremLines: result.nonAdValoremLines,
-          nonAdValoremPending: false,
-          source: result.source,
-          adValoremOverride: result.adValorem,
-        });
-      }
-
-      // ── Pinellas: general service (bill millage when ready, formula otherwise) ──
-      if (county === "pinellas") {
-        const result = await getPinellasPurchaseTax({
-          address: p.address,
-          purchasePrice: p.purchasePrice,
-          isPrimaryResidence: p.isPrimaryResidence,
-        });
-        console.log(
-          `[county-tax] pinellas parcel=${result.parcelId ?? "none"}` +
-          ` adVal=$${result.adValorem}` +
-          ` nonAdVal=$${result.nonAdValorem}` +
-          ` pending=${result.nonAdValoremPending}` +
-          ` source=${result.source}`
-        );
-        return respond({
-          nonAdValoremTax: result.nonAdValorem,
-          nonAdValoremLines: result.nonAdValoremLines,
-          nonAdValoremPending: result.nonAdValoremPending,
-          source: result.source,
-          adValoremOverride: result.adValorem,
-          millageRateOverride: result.millageRate ?? undefined,
-        });
-      }
-
-      // ── Pasco: parcel lookup + TaxSys bill scrape ──
-      if (county === "pasco") {
-        const parcelId = await lookupPascoParcel(p.address);
-        if (!parcelId) {
-          console.log(`[county-tax] pasco parcel not found:`, p.address);
-          return respond({
-            nonAdValoremTax: 0,
-            nonAdValoremLines: [],
-            nonAdValoremPending: false,
-            source: "formula-fallback",
-          });
-        }
-        let nonAdValoremTax = 0;
-        let nonAdValoremLines: Array<{ authority: string; amount: number }> = [];
-        let nonAdValoremPending = false;
-        const nav = await getNonAdValoremForFolio(parcelId, county);
-        if (nav.state === "ready") {
-          nonAdValoremTax = Math.round(nav.data.total);
-          nonAdValoremLines = nav.data.lines;
-        } else if (nav.state === "pending") {
-          nonAdValoremPending = true;
-        }
-        return respond({
-          nonAdValoremTax,
-          nonAdValoremLines,
-          nonAdValoremPending,
-          source: nav.state === "ready"
-            ? "pasco-formula-plus-bill-nav"
-            : nav.state === "pending"
-              ? "pasco-formula-nav-pending"
-              : "pasco-formula-fallback",
-        });
-      }
-
-      // ── All other counties: formula only ──
-      return respond({
-        nonAdValoremTax: 0,
-        nonAdValoremLines: [],
-        nonAdValoremPending: false,
-        source: "formula-only",
+      const result = await getCountyPurchaseTax({
+        county,
+        address: p.address,
+        purchasePrice: p.purchasePrice,
+        isPrimaryResidence: p.isPrimaryResidence,
+      });
+      return res.json({
+        annualTax: result.annualTax,
+        monthlyTax: result.monthlyTax,
+        adValoremTax: result.adValoremTax,
+        nonAdValoremTax: result.nonAdValoremTax,
+        nonAdValoremLines: result.nonAdValoremLines ?? [],
+        nonAdValoremPending: result.nonAdValoremPending ?? false,
+        county,
+        parcelId: result.parcelId,
+        millageRate: result.millageRate ?? 0,
+        taxDistrict: result.taxDistrict ?? county,
+        homestead: p.isPrimaryResidence,
+        source: result.source,
+        operationalError: result.operationalError,
       });
     } catch (err: any) {
       console.error("[county-tax] error:", err);
