@@ -5733,6 +5733,40 @@ export default function Estimate() {
                       ].filter(Boolean).join(" · ") || undefined
                     }
                   />
+                  <div className="py-2">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between flex-wrap gap-1">
+                        <span className="text-xs text-muted-foreground">Discount Points (% of Loan Amount)</span>
+                        <Select
+                          value={String(calc.discountPointsPct)}
+                          onValueChange={(v) => {
+                            const next = snapDiscountPoints(parseFloat(v));
+                            setInputs((p) => ({ ...p, discountPointsPct: next }));
+                          }}
+                        >
+                          <SelectTrigger
+                            className="h-7 w-[110px] text-xs"
+                            data-testid="select-discount-points"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DISCOUNT_POINTS_STEPS.map((step) => (
+                              <SelectItem key={step} value={String(step)}>
+                                {step.toFixed(1)}%
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {calc.discountPointsPct > 0 && (
+                        <p className="text-[10px] text-right text-muted-foreground">
+                          {calc.discountPointsPct.toFixed(1)}% of loan ·{" "}
+                          <span className="font-medium text-foreground">{fmt(calc.discountPointsCost)}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
                   {/* APR disclosure (italics per spec). APR is derived
                       in the fee-worksheet model from the note rate plus
                       prepaid finance charges (origination, underwriting,
@@ -5835,6 +5869,36 @@ export default function Estimate() {
                       value={fmt(calc.mortgageInsurance)}
                     />
                   )}
+                  <Separator />
+                  <Row
+                    label="Estimated Closing Costs (Itemized IFW)"
+                    value={fmt(calc.closingCosts)}
+                    sub={
+                      inputs.loanType === "dscr"
+                        ? `Includes DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})`
+                        : calc.dpaExtraPointsCost > 0
+                        ? `Includes 2 discount points (${fmt(calc.dpaExtraPointsCost)}) — DPA 5% silent 2nd`
+                        : undefined
+                    }
+                  />
+                  <div className="py-2">
+                    {renderSellerConcessions()}
+                  </div>
+                  {calc.dpaActive && (
+                    <>
+                      <Row
+                        label="DPA Covers Down Payment"
+                        value={`− ${fmt(calc.dpaDownPaymentCredit)}`}
+                        sub={`${calc.dpaPct}% assistance program`}
+                      />
+                      {calc.dpaClosingCostCredit > 0 && (
+                        <Row
+                          label="DPA Closing-Cost Credit (1.5%)"
+                          value={`− ${fmt(calc.dpaClosingCostCredit)}`}
+                        />
+                      )}
+                    </>
+                  )}
                   {calc.dpaActive && calc.dpaSecondType === "amortizing" && (
                     <Row
                       label="DPA 2nd Mortgage"
@@ -5852,106 +5916,7 @@ export default function Estimate() {
                     <span className="text-sm font-semibold">Total Monthly Payment</span>
                     <span className="text-base font-bold text-primary">{fmt(calc.totalHousing)}</span>
                   </div>
-                  </div>
-
-                  <div className="rounded-lg border bg-muted/20 p-3">
-                    <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
-                      <Home className="h-4 w-4 text-primary" />
-                      Closing Costs &amp; Credits
-                    </h3>
-                  <Row
-                    label="Estimated Closing Costs (Itemized IFW)"
-                    value={fmt(calc.closingCosts)}
-                    sub={
-                      inputs.loanType === "dscr"
-                        ? `Includes DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})`
-                        : calc.dpaExtraPointsCost > 0
-                        ? `Includes 2 discount points (${fmt(calc.dpaExtraPointsCost)}) — DPA 5% silent 2nd`
-                        : undefined
-                    }
-                  />
-                  {/* Seller Concessions — same control as Page 3,
-                      writes the same `inputs.sellerConcessions` field
-                      so the two pages stay synced automatically. Cash
-                      to close updates live via `calc` memo. */}
-                  <div className="py-2">
-                    {renderSellerConcessions()}
-                  </div>
                   <Separator />
-                  {/* Discount Points — buydown control. Sits directly
-                      under Seller Concessions per spec. Cost is added
-                      to closing costs (and therefore cash-to-close)
-                      and the rate reduction is applied AFTER all
-                      existing pricing adjustments. Bank Statement
-                      shows the cost line only (no rate reduction
-                      until a buydown table is added). */}
-                  <div className="py-2">
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between flex-wrap gap-1">
-                        <span className="text-xs text-muted-foreground">Discount Points (% of Loan Amount)</span>
-                        <Select
-                          value={String(calc.discountPointsPct)}
-                          onValueChange={(v) => {
-                            const next = snapDiscountPoints(parseFloat(v));
-                            setInputs((p) => ({ ...p, discountPointsPct: next }));
-                          }}
-                        >
-                          <SelectTrigger
-                            className="h-7 w-[110px] text-xs"
-                            data-testid="select-discount-points"
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {DISCOUNT_POINTS_STEPS.map((step) => (
-                              <SelectItem key={step} value={String(step)}>
-                                {step.toFixed(1)}%
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {calc.discountPointsPct > 0 ? (
-                        // Per spec: surface the dollar cost only.
-                        // The rate-buydown amount is intentionally
-                        // hidden from the user-facing UI — the
-                        // calculation still runs and feeds the
-                        // Mortgage card's Interest Rate row. Bank
-                        // Statement has no published buydown yet, so
-                        // we keep the cost-only note for clarity.
-                        <p className="text-[10px] text-right text-muted-foreground">
-                          {calc.discountPointsPct.toFixed(1)}% of loan ·{" "}
-                          <span className="font-medium text-foreground">{fmt(calc.discountPointsCost)}</span>
-                          {inputs.loanType === "bank_statement" && (
-                            <span className="ml-1 text-amber-600">
-                              (Bank Statement buydown table not yet published — cost applied, rate unchanged.)
-                            </span>
-                          )}
-                        </p>
-                      ) : (
-                        <p className="text-[10px] text-muted-foreground text-right">
-                          Based on loan amount. Buy down your rate by paying points up-front.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <Separator />
-                  {calc.dpaActive && (
-                    <>
-                      <Row
-                        label="DPA Covers Down Payment"
-                        value={`− ${fmt(calc.dpaDownPaymentCredit)}`}
-                        sub={`${calc.dpaPct}% assistance program`}
-                      />
-                      {calc.dpaClosingCostCredit > 0 && (
-                        <Row
-                          label="DPA Closing-Cost Credit (1.5%)"
-                          value={`− ${fmt(calc.dpaClosingCostCredit)}`}
-                        />
-                      )}
-                      <Separator />
-                    </>
-                  )}
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm font-semibold">Estimated Cash to Close</span>
                     <span className="text-base font-bold text-primary">{fmt(calc.cashToClose)}</span>
