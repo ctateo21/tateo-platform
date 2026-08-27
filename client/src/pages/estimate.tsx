@@ -3979,6 +3979,14 @@ export default function Estimate() {
   function fmt(n: number): string {
     return "$" + Math.round(n).toLocaleString();
   }
+  function fmtCents(n: number): string {
+    return n.toLocaleString("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
   function fmtPct(n: number): string {
     return (n * 100).toFixed(1) + "%";
   }
@@ -5922,6 +5930,7 @@ export default function Estimate() {
                   <Row
                     label="Homeowners Insurance"
                     value={`${fmt(calc.monthlyHOIns)}/mo`}
+                    sub={`${fmt(inputs.annualHOIns)}/yr`}
                     onClick={() => insuranceSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                   />
                   <Row label="Flood Insurance" value={`${fmt(calc.monthlyFlood)}/mo`} />
@@ -5978,12 +5987,12 @@ export default function Estimate() {
                   <Separator />
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm font-semibold">Total Monthly Payment</span>
-                    <span className="text-base font-bold text-primary">{fmt(calc.totalHousing)}</span>
+                    <span className="text-base font-bold text-primary">{fmtCents(calc.totalHousing)}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm font-semibold">Estimated Cash to Close</span>
-                    <span className="text-base font-bold text-primary">{fmt(calc.cashToClose)}</span>
+                    <span className="text-base font-bold text-primary">{fmtCents(calc.cashToClose)}</span>
                   </div>
                   {feeWorksheet && (
                     <>
