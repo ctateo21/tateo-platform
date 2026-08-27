@@ -246,7 +246,9 @@ export function buildFeeWorksheet(inp: FeeWorksheetInputs): FeeWorksheet {
       amount: r2(inp.monthlyTax * 3),
     },
   ];
-  const escrowsEnabled = inp.escrowsEnabled !== false;
+  // FHA requires an escrow account. Enforce this in the calculation as
+  // well as the UI so a stale/off client preference can never remove it.
+  const escrowsEnabled = loanType === "fha" || inp.escrowsEnabled !== false;
   const escrowLines: FeeLine[] = escrowsEnabled
     ? [
         {

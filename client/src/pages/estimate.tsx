@@ -6249,6 +6249,7 @@ export default function Estimate() {
         worksheet={feeWorksheet}
         escrowsEnabled={feeWorksheetEscrowsEnabled}
         onEscrowsEnabledChange={setFeeWorksheetEscrowsEnabled}
+        escrowsRequired={inputs.loanType === "fha"}
         meta={
           feeWorksheet
             ? {

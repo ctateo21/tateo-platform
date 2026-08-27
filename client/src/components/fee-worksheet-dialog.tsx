@@ -66,6 +66,7 @@ export function FeeWorksheetDialog({
   meta,
   escrowsEnabled,
   onEscrowsEnabledChange,
+  escrowsRequired,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -73,6 +74,7 @@ export function FeeWorksheetDialog({
   meta: FeeWorksheetMeta | null;
   escrowsEnabled: boolean;
   onEscrowsEnabledChange: (enabled: boolean) => void;
+  escrowsRequired: boolean;
 }) {
   if (!worksheet || !meta) return null;
   const fmt0 = (n: number) =>
@@ -171,24 +173,26 @@ export function FeeWorksheetDialog({
           </div>
           <div className="space-y-3">
             <SectionBlock section={worksheet.govFees} />
-            <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <label htmlFor="purchase-ifw-escrows" className="text-xs font-bold text-foreground">
-                    Include escrow reserves
-                  </label>
-                  <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
-                    Prepaids always apply. Turn this off to remove the three-month insurance and property-tax reserves.
-                  </p>
+            {!escrowsRequired && (
+              <div className="rounded-md border border-primary/20 bg-primary/5 p-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <label htmlFor="purchase-ifw-escrows" className="text-xs font-bold text-foreground">
+                      Include escrow reserves
+                    </label>
+                    <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+                      Prepaids always apply. Turn this off to remove the three-month insurance and property-tax reserves.
+                    </p>
+                  </div>
+                  <Switch
+                    id="purchase-ifw-escrows"
+                    checked={escrowsEnabled}
+                    onCheckedChange={onEscrowsEnabledChange}
+                    data-testid="switch-purchase-ifw-escrows"
+                  />
                 </div>
-                <Switch
-                  id="purchase-ifw-escrows"
-                  checked={escrowsEnabled}
-                  onCheckedChange={onEscrowsEnabledChange}
-                  data-testid="switch-purchase-ifw-escrows"
-                />
               </div>
-            </div>
+            )}
             <SectionBlock section={worksheet.prepaids} />
             <SectionBlock section={worksheet.otherFees} />
           </div>

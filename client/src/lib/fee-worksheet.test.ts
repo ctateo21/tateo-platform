@@ -270,6 +270,23 @@ test("turning escrows off preserves prepaids and removes only three-month reserv
   );
 });
 
+test("FHA always includes escrow reserves even when the toggle preference is off", () => {
+  const fha = buildFeeWorksheet(inputs({ loanType: "fha", escrowsEnabled: false }));
+  const escrowGroup = fha.prepaids.groups?.find(
+    (group) => group.heading === "Initial Escrow Payment at Closing",
+  );
+  assert.ok(escrowGroup, "FHA must always include the initial escrow group");
+  assert.equal(escrowGroup.lines.length, 2);
+  assert.equal(
+    escrowGroup.lines.some((line) => line.label === "Hazard Insurance Reserve"),
+    true,
+  );
+  assert.equal(
+    escrowGroup.lines.some((line) => line.label === "Property Taxes Reserve"),
+    true,
+  );
+});
+
 // ── 5. DSCR origination ─────────────────────────────────────────────
 
 test("DSCR 1% origination: in lender fees AND in prepaid finance charges (raises APR)", () => {
