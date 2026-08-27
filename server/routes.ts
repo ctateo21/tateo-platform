@@ -1015,6 +1015,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return null;
   }
 
+  const liveQuoteAlertRequests = new Map<
+    string,
+    { createdAt: number; delivery: Promise<boolean> }
+  >();
+
+  app.post(
+    "/api/insurance/live-quote-click",
+    async (req, res) => {
+      try {
+        const user = await optionalUser(req);
+        if (!user) {
+          return res.status(401).json({ error: "Sign in required" });
+        }
+        const input = z.object({
+          address: z.string().trim().min(1).max(500),
+        }).parse(req.body);
+        const { data: profile } = supabaseAdmin
+          ? await supabaseAdmin
+              .from("profiles")
+              .select("email,name,phone")
+              .eq("id", user.id)
+              .maybeSingle()
+          : { data: null };
+        const metadata = (user.user_metadata ?? {}) as Record<string, any>;
+        const email = String(profile?.email ?? user.email ?? "").trim();
+        if (!email) {
+          return res.status(422).json({ error: "User email unavailable" });
+        }
+        const name = String(profile?.name ?? metadata.name ?? "").trim();
+        const nameParts = name.split(/\s+/).filter(Boolean);
+        const firstName = nameParts[0] ?? email.split("@")[0] ?? "Havo";
+        const lastName = nameParts.slice(1).join(" ") || "Lead";
+        const alertKey = `${user.id}:${normalizeAddr(input.address)}`;
+        const now = Date.now();
+        for (const [key, request] of liveQuoteAlertRequests) {
+          if (now - request.createdAt > 60_000) {
+            liveQuoteAlertRequests.delete(key);
+          }
+        }
+        const existingRequest = liveQuoteAlertRequests.get(alertKey);
+        if (existingRequest && now - existingRequest.createdAt <= 60_000) {
+          const delivered = await existingRequest.delivery;
+          if (!delivered) {
+            return res.status(503).json({ error: "FUB alert delivery failed" });
+          }
+          return res.json({ delivered: true, deduped: true });
+        }
+
+        const delivery = createFollowUpBossContact({
+          firstName,
+          lastName,
+          email,
+          phone: String(profile?.phone ?? metadata.phone ?? ""),
+          address: input.address,
+          agent: "Christian Tateo",
+          messageHeader: "URGENT: Get a Live Quote clicked — call within 60 seconds",
+          scenarioDetails:
+            `The user clicked Get a Live Quote for ${input.address}. ` +
+            "Please call them within 60 seconds to assist with the insurance quote.",
+        })
+          .then(result => result.ok && !result.skipped)
+          .catch(error => {
+            console.error("[FUB] live-quote delivery failed:", error);
+            return false;
+          });
+        liveQuoteAlertRequests.set(alertKey, { createdAt: now, delivery });
+        const delivered = await delivery;
+        if (!delivered) {
+          liveQuoteAlertRequests.delete(alertKey);
+          return res.status(503).json({ error: "FUB alert delivery failed" });
+        }
+        return res.json({ delivered: true, deduped: false });
+      } catch (error: any) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: "Invalid live-quote request" });
+        }
+        console.error("[FUB] live-quote click alert failed:", error);
+        return res.status(500).json({ error: "Live-quote alert failed" });
+      }
+    },
+  );
+
   app.get(
     "/api/profile/status",
     async (req, res) => {

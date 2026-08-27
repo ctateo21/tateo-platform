@@ -98,6 +98,7 @@ import { useGooglePlaces } from "@/hooks/use-google-places";
 import { scrollToTop } from "@/lib/scroll";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { authedFetch } from "@/lib/authed-fetch";
 import { jsPDF } from "jspdf";
 
 // ─── Calculation helpers ────────────────────────────────────────────────────
@@ -3702,6 +3703,41 @@ export default function Estimate() {
   }, [calcBasis, feeWorksheet, inputs.reserves]);
   const aprPct = feeWorksheet?.aprPct ?? null;
   const [feeWorksheetOpen, setFeeWorksheetOpen] = useState(false);
+  const [openingLiveQuote, setOpeningLiveQuote] = useState(false);
+
+  const handleGetLiveInsuranceQuote = async () => {
+    if (openingLiveQuote) return;
+    setOpeningLiveQuote(true);
+    try {
+      const response = await authedFetch("/api/insurance/live-quote-click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address }),
+        keepalive: true,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || (!result.delivered && !result.deduped)) {
+        throw new Error(
+          response.status === 401
+            ? "Please sign in again before requesting a live quote."
+            : result.error || "The insurance team alert could not be confirmed.",
+        );
+      }
+      setLocation(`/insurance?address=${encodeURIComponent(address)}`);
+    } catch (error) {
+      console.warn("[insurance-live-quote] FUB click alert failed:", error);
+      toast({
+        variant: "destructive",
+        title: "Live quote request not sent",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Please try again so we can alert the insurance team.",
+      });
+    } finally {
+      setOpeningLiveQuote(false);
+    }
+  };
 
   // ── Loan-limit enforcement (2026 limits) ─────────────────────────
   // Watches the BASE loan amount (before financed UFMIP / funding fee,
@@ -6125,7 +6161,10 @@ export default function Estimate() {
               </Card>
 
               {/* ── Full Insurance Panel ── */}
-              <div ref={insuranceSectionRef} className="scroll-mt-6">
+              <div
+                ref={insuranceSectionRef}
+                className="grid scroll-mt-6 grid-cols-1 items-start gap-6 lg:grid-cols-2"
+              >
                 <Card className="border-2 border-primary/20 shadow-md">
                   <CardHeader className="pb-3 bg-primary/5 rounded-t-lg">
                     <CardTitle className="text-base flex items-center gap-2 text-primary">
@@ -6274,6 +6313,71 @@ export default function Estimate() {
 
                     <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
                       Estimates sourced from FL OIR CHOICES filings, 2026. For planning only — not a binding quote.
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card className="border shadow-sm lg:sticky lg:top-6">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      <Shield className="h-4 w-4 text-primary" />
+                      Live Carrier Quotes
+                    </CardTitle>
+                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                      Compare this planning estimate with real-time rates from Florida-appointed carriers.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="rounded-xl border border-primary/15 bg-primary/5 p-4">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Current planning estimate
+                      </p>
+                      <p className="mt-2 font-mono text-3xl font-bold text-primary">
+                        {fmt(insPremiumCalc.mid)}
+                        <span className="ml-1 text-sm font-medium text-muted-foreground">/yr</span>
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {fmt(insPremiumCalc.monthly)}/month midpoint before a carrier reviews the property.
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 text-xs text-muted-foreground">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />
+                        <span>Uses this property address and your saved insurance details.</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />
+                        <span>Returns live carrier pricing when available.</span>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-600" />
+                        <span>Lets the insurance team review coverage and available discounts.</span>
+                      </div>
+                    </div>
+
+                    <Button
+                      type="button"
+                      className="w-full"
+                      onClick={handleGetLiveInsuranceQuote}
+                      disabled={
+                        openingLiveQuote ||
+                        !authUser ||
+                        !address ||
+                        address === "Unknown Address"
+                      }
+                      data-testid="button-get-live-insurance-quote"
+                    >
+                      {openingLiveQuote ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Opening Live Quotes…
+                        </>
+                      ) : (
+                        authUser ? "Get a Live Quote" : "Sign In to Get Live Quotes"
+                      )}
+                    </Button>
+                    <p className="text-center text-[10px] leading-relaxed text-muted-foreground">
+                      A licensed team member will be alerted to call you within 60 seconds.
                     </p>
                   </CardContent>
                 </Card>
