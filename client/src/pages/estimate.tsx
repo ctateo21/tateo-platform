@@ -6134,106 +6134,78 @@ export default function Estimate() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center gap-2">
                     <UserCheck className="h-4 w-4 text-primary" />
-                    Qualification
+                    Can I Afford This Home?
                     {calc.qualifies ? (
                       <Badge className="ml-auto bg-green-100 text-green-700 border border-green-300">
-                        <CheckCircle2 className="h-3 w-3 mr-1" /> Likely Qualifies
+                        <CheckCircle2 className="h-3 w-3 mr-1" /> Looks Within Range
                       </Badge>
                     ) : (
                       <Badge className="ml-auto bg-red-100 text-red-700 border border-red-300">
-                        <XCircle className="h-3 w-3 mr-1" /> Needs Review
+                        <XCircle className="h-3 w-3 mr-1" /> May Be Too High
                       </Badge>
                     )}
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <Row label="Your Monthly Income" value={fmt(inputs.monthlyIncome)} />
-                  {inputs.hasRentalIncome === true && calc.rentalIncomeQualifying > 0 && (
+                <CardContent className="space-y-4">
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {calc.qualifies
+                      ? "Based on the income and debts entered, this home's payment appears to be within a typical lender range."
+                      : "Based on the income and debts entered, this home's payment may be higher than a typical lender would approve."}
+                  </p>
+
+                  <div className="rounded-xl border bg-muted/20 p-4">
+                    <Row label="Monthly income used" value={fmt(calc.qualifyingIncome)} />
+                    <Row label="Estimated home payment" value={fmt(calc.totalHousing)} />
+                    <Row label="Other monthly debts" value={fmt(inputs.monthlyDebts)} />
+                  </div>
+
+                  <div className={`rounded-xl border p-4 ${calc.qualifies ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
+                    <p className={`text-xs font-semibold uppercase tracking-wide ${calc.qualifies ? "text-green-700" : "text-red-700"}`}>
+                      How much income would go toward debt?
+                    </p>
+                    <p className={`mt-1 text-2xl font-bold ${calc.qualifies ? "text-green-800" : "text-red-800"}`}>
+                      About {Math.round(calc.dti)} out of every $100
+                    </p>
+                    <p className={`mt-1 text-xs leading-relaxed ${calc.qualifies ? "text-green-700" : "text-red-700"}`}>
+                      This includes the new home payment and your other monthly debts.
+                    </p>
+                  </div>
+
+                  {!calc.qualifies && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                      <p className="text-sm font-semibold text-amber-900">What may help</p>
+                      <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-amber-800">
+                        <li>• Consider a lower-priced home or reduce monthly debts.</li>
+                        <li>• A larger down payment may lower the monthly payment.</li>
+                        <li>• A loan advisor can check programs that may fit your situation better.</li>
+                      </ul>
+                    </div>
+                  )}
+
+                  <div className="rounded-xl border bg-muted/20 p-4">
+                    <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Savings check
+                    </p>
+                    <Row label="Cash needed upfront" value={fmt(calc.cashToClose)} />
                     <Row
-                      label="Rental Income (75% qualifying)"
-                      value={fmt(calc.rentalIncomeQualifying)}
-                      sub={`of ${fmt(inputs.monthlyRentalIncome)}/mo gross`}
+                      label="Savings left after closing"
+                      value={fmt(calc.availableReserves)}
+                      sub={
+                        calc.availableReserves < calc.requiredReserves
+                          ? `A lender may want about ${fmt(calc.requiredReserves)} left in savings.`
+                          : "This meets the estimated savings cushion."
+                      }
+                      status={
+                        calc.availableReserves >= calc.requiredReserves
+                          ? "green"
+                          : "red"
+                      }
                     />
-                  )}
-                  <Row
-                    label="Total Qualifying Income"
-                    value={fmt(calc.qualifyingIncome)}
-                    status={
-                      calc.qualifyingIncome >= calc.requiredIncome * 1.15 ? "green"
-                      : calc.qualifyingIncome >= calc.requiredIncome ? "yellow"
-                      : "red"
-                    }
-                  />
-                  <Row label="Required Monthly Income" value={fmt(calc.requiredIncome)} />
-                  <Separator />
-                  <Row
-                    label="Housing DTI"
-                    value={fmtPct(calc.housingDTI)}
-                    sub={
-                      calc.housingGreen === Infinity
-                        ? "No limit · New mortgage ÷ qualifying income"
-                        : `Target < ${fmtPct(calc.housingGreen)} · New mortgage ÷ qualifying income`
-                    }
-                    status={
-                      calc.housingGreen === Infinity ? "green"
-                      : calc.housingDTI < calc.housingGreen ? "green"
-                      : "red"
-                    }
-                  />
-                  <Row
-                    label="Total DTI"
-                    value={fmtPct(calc.dti)}
-                    sub={
-                      calc.totalGreen === Infinity
-                        ? "No limit · New mortgage + debts ÷ qualifying income"
-                        : calc.dti >= calc.totalGreen
-                        ? `Exceeds target < ${fmtPct(calc.totalGreen)} — needs review`
-                        : `Target < ${fmtPct(calc.totalGreen)} · New mortgage + debts ÷ qualifying income`
-                    }
-                    status={
-                      calc.totalGreen === Infinity ? "green"
-                      : calc.dti < calc.totalGreen ? "green"
-                      : "red"
-                    }
-                  />
-                  <Separator />
-                  <Row label="Required Reserves (1-3 mo PITI)" value={fmt(calc.requiredReserves)} />
-                  <Row
-                    label="Your Available Reserves"
-                    value={fmt(calc.availableReserves)}
-                    sub={calc.availableReserves < calc.requiredReserves ? `Short ${fmt(calc.requiredReserves - calc.availableReserves)} of required reserves` : undefined}
-                    status={
-                      calc.availableReserves >= calc.requiredReserves * 1.5 ? "green"
-                      : calc.availableReserves >= calc.requiredReserves ? "yellow"
-                      : "red"
-                    }
-                  />
-                  <Separator />
-                  <Row label="Cash Needed to Close" value={fmt(calc.cashToClose)} />
-                  <Row label="Down Payment" value={`${fmt(calc.downPaymentAmt)} (${Number(inputs.downPaymentPct).toFixed(1)}%)`} />
-                  <Row label="Closing Costs Est." value={fmt(calc.closingCosts)} />
+                  </div>
 
-                  {calc.recs.length > 0 && (
-                    <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg space-y-2">
-                      <p className="text-xs font-semibold text-amber-800 flex items-center gap-1 uppercase tracking-wide">
-                        <AlertCircle className="h-3 w-3" /> Recommendations
-                      </p>
-                      {calc.recs.map((rec, i) => (
-                        <p key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
-                          <TrendingUp className="h-3 w-3 mt-0.5 shrink-0" />
-                          {rec}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-
-                  {calc.qualifies && (
-                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-                      <p className="text-xs font-semibold text-green-800 flex items-center gap-1">
-                        <CheckCircle2 className="h-3 w-3" /> Based on the information provided, this buyer likely qualifies for this property.
-                      </p>
-                    </div>
-                  )}
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    This is an estimate, not a loan approval. A lender will review your full application, credit, income, and debts.
+                  </p>
                 </CardContent>
               </Card>
 
