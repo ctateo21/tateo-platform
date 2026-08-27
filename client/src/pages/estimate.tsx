@@ -1735,7 +1735,7 @@ export default function Estimate() {
     row("Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(calc.effectiveDownPaymentPct).toFixed(1)}%)`);
     row("Loan Amount", fmt(calc.loanAmount), inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}` : `LTV ${fmtPct(calc.ltv)}`);
     row(
-      inputs.loanType === "dscr" ? "Estimated Closing Costs (~4%)" : "Estimated Closing Costs (~3%)",
+      "Estimated Closing Costs (Itemized IFW)",
       fmt(calc.closingCosts),
       inputs.loanType === "dscr" ? `Incl. DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})` : undefined,
     );
@@ -3310,7 +3310,7 @@ export default function Estimate() {
 
   // ─── Calculations ──────────────────────────────────────────────────────────
 
-  const calc = useMemo(() => {
+  const calcBasis = useMemo(() => {
     const { purchasePrice, downPaymentPct, loanType, creditScore, interestRate,
       annualTaxes, hoaMonthly, cddAnnual, annualHOIns, annualFloodIns,
       monthlyDebts, monthlyIncome, monthlyRentalIncome, reserves, impactWindows, roofAttachment, swr,
@@ -3549,44 +3549,69 @@ export default function Estimate() {
   }, [inputs]);
 
   // ── Initial Fees Worksheet + APR ─────────────────────────────────
-  // Built from the SAME `calc` memo outputs the payment card shows, so
+  // Built from the same upstream loan/payment outputs the payment card
+  // uses. Its itemized totals then become the final source of truth for
+  // closing costs and cash to close everywhere downstream.
   // the popup worksheet and the APR disclosure can never drift from
   // the numbers on screen. APR = note rate + prepaid finance charges
   // (origination/points, underwriting, processing-type fees, prepaid
   // interest) + the monthly MI stream, solved on the actual payment.
   const [feeWorksheetEscrowsEnabled, setFeeWorksheetEscrowsEnabled] = useState(true);
   const feeWorksheet = useMemo(() => {
-    if (inputs.purchasePrice <= 0 || calc.loanAmount <= 0 || calc.pi <= 0) return null;
+    if (inputs.purchasePrice <= 0 || calcBasis.loanAmount <= 0 || calcBasis.pi <= 0) return null;
     return buildFeeWorksheet({
       purchasePrice: inputs.purchasePrice,
-      baseLoanAmount: calc.baseLoanAmount,
-      loanAmount: calc.loanAmount,
-      ratePct: calc.finalRate,
+      baseLoanAmount: calcBasis.baseLoanAmount,
+      loanAmount: calcBasis.loanAmount,
+      ratePct: calcBasis.finalRate,
       loanType: inputs.loanType,
-      monthlyPI: calc.pi,
-      monthlyTax: calc.monthlyTax,
-      monthlyHOIns: calc.monthlyHOIns,
-      monthlyFlood: calc.monthlyFlood,
-      monthlyMI: calc.mortgageInsurance,
+      monthlyPI: calcBasis.pi,
+      monthlyTax: calcBasis.monthlyTax,
+      monthlyHOIns: calcBasis.monthlyHOIns,
+      monthlyFlood: calcBasis.monthlyFlood,
+      monthlyMI: calcBasis.mortgageInsurance,
       hoaMonthly: inputs.hoaMonthly,
-      monthlyCDD: calc.monthlyCDD,
-      downPaymentAmt: calc.downPaymentAmt,
-      discountPointsCost: calc.discountPointsCost,
-      discountPointsPct: calc.discountPointsPct,
-      dscrOriginationAmount: calc.dscrOriginationAmount,
-      dpaExtraPointsCost: calc.dpaExtraPointsCost,
-      dpaSecondMonthly: calc.dpaSecondMonthly,
+      monthlyCDD: calcBasis.monthlyCDD,
+      downPaymentAmt: calcBasis.downPaymentAmt,
+      discountPointsCost: calcBasis.discountPointsCost,
+      discountPointsPct: calcBasis.discountPointsPct,
+      dscrOriginationAmount: calcBasis.dscrOriginationAmount,
+      dpaExtraPointsCost: calcBasis.dpaExtraPointsCost,
+      dpaSecondMonthly: calcBasis.dpaSecondMonthly,
       // Uncapped — the worksheet caps against its own itemized
       // eligible costs so A−B stays internally consistent.
       sellerCredits: inputs.sellerConcessions ?? 0,
-      dpaDownPaymentCredit: calc.dpaDownPaymentCredit,
-      dpaClosingCostCredit: calc.dpaClosingCostCredit,
+      dpaDownPaymentCredit: calcBasis.dpaDownPaymentCredit,
+      dpaClosingCostCredit: calcBasis.dpaClosingCostCredit,
       requiresElevationCertificate:
         inputs.propertyType === "Single Family Residence" &&
         floodData?.requiresFloodInsurance === true,
       escrowsEnabled: feeWorksheetEscrowsEnabled,
     });
-  }, [inputs, calc, floodData?.requiresFloodInsurance, feeWorksheetEscrowsEnabled]);
+  }, [inputs, calcBasis, floodData?.requiresFloodInsurance, feeWorksheetEscrowsEnabled]);
+
+  const calc = useMemo(() => {
+    if (!feeWorksheet) return calcBasis;
+
+    const cashToClose = Math.round(feeWorksheet.fundsToClose.estimatedCash);
+    const availableReserves = Math.max(0, inputs.reserves - cashToClose);
+    const recs = calcBasis.recs.filter(
+      (rec) => !rec.includes("in cash to close"),
+    );
+    if (inputs.reserves < cashToClose) {
+      recs.push(
+        `You need at least ${fmt(cashToClose)} in cash to close. Consider down payment assistance programs.`,
+      );
+    }
+
+    return {
+      ...calcBasis,
+      closingCosts: feeWorksheet.totalClosingCosts,
+      cashToClose,
+      availableReserves,
+      recs,
+    };
+  }, [calcBasis, feeWorksheet, inputs.reserves]);
   const aprPct = feeWorksheet?.aprPct ?? null;
   const [feeWorksheetOpen, setFeeWorksheetOpen] = useState(false);
 
@@ -5829,7 +5854,7 @@ export default function Estimate() {
                   } />
                   <Separator />
                   <Row
-                    label={inputs.loanType === "dscr" ? "Estimated Closing Costs (~4%)" : "Estimated Closing Costs (~3%)"}
+                    label="Estimated Closing Costs (Itemized IFW)"
                     value={fmt(calc.closingCosts)}
                     sub={
                       inputs.loanType === "dscr"
