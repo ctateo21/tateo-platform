@@ -80,6 +80,7 @@ import {
   DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
   calculateDefaultHomeownersInsurance,
 } from "@/lib/insurance-default";
+import { getDefaultInsurancePolicyType } from "@/lib/insurance-policy-type";
 import {
   buildPropertyTaxRoutePlan,
 } from "@/lib/property-tax-routing";
@@ -100,6 +101,7 @@ import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { authedFetch } from "@/lib/authed-fetch";
 import { jsPDF } from "jspdf";
+import { InsuranceEstimateForm, type InsurancePolicyType, type ResidenceUse, type RentalTerm } from "@/components/insurance/insurance-estimate-form";
 
 // ─── Calculation helpers ────────────────────────────────────────────────────
 
@@ -1361,11 +1363,12 @@ export default function Estimate() {
     setScenarios(prev =>
       prev.map(s => s.id === activeScenarioId ? { ...s, savedInputs: inputs } : s)
     );
+    const targetInputs = target.savedInputs ?? inputsForAddress(target.address);
+    resetInsuranceQuestionnaire(targetInputs);
     setActive(targetId);
     skipNextAddressSyncRef.current = true;
     setLocation(`/estimate?address=${encodeURIComponent(target.address)}`);
-    if (target.savedInputs) setInputs(target.savedInputs);
-    else setInputs(inputsForAddress(target.address));
+    setInputs(targetInputs);
   }
 
   function removeScenario(id: string, e: React.MouseEvent) {
@@ -1392,11 +1395,12 @@ export default function Estimate() {
     delete baselineByIdRef.current[id];
     if (id === activeScenarioId) {
       const next = remaining[Math.max(0, idx - 1)];
+      const nextInputs = next.savedInputs ?? inputsForAddress(next.address);
+      resetInsuranceQuestionnaire(nextInputs);
       setActive(next.id);
       skipNextAddressSyncRef.current = true;
       setLocation(`/estimate?address=${encodeURIComponent(next.address)}`);
-      if (next.savedInputs) setInputs(next.savedInputs);
-      else setInputs(inputsForAddress(next.address));
+      setInputs(nextInputs);
     }
   }
 
@@ -1435,6 +1439,10 @@ export default function Estimate() {
     const dup = scenarios.find(s => s.address.trim().toLowerCase() === dupKey);
     if (dup) {
       toast({ title: "Already added", description: "Switching to that property." });
+      const targetInputs =
+        dup.savedInputs ?? inputsForAddress(dup.address);
+      resetInsuranceQuestionnaire(targetInputs);
+      setInputs(targetInputs);
       setActive(dup.id);
       skipNextAddressSyncRef.current = true;
       setLocation(`/estimate?address=${encodeURIComponent(dup.address)}${fromDashboard ? "&from=dashboard" : ""}`);
@@ -1473,6 +1481,7 @@ export default function Estimate() {
         baselineInputs: { ...carriedInputs },
       },
     ]);
+    resetInsuranceQuestionnaire(carriedInputs);
     setActive(newId);
     // Persist a DRAFT purchase scenario row to Supabase immediately on
     // address-add for authenticated users. Without this, the only save
@@ -2632,6 +2641,29 @@ export default function Estimate() {
   const [insConstIdx, setInsConstIdx] = useState(0);
   const [insYearIdx, setInsYearIdx] = useState(1);
   const [insClaimsIdx, setInsClaimsIdx] = useState(0);
+  // The detailed questionnaire is intentionally controlled here. Its values
+  // translate into this route's established premium engine below; QuoteRUSH
+  // and purchase-scenario persistence remain owned by this page.
+  const [insurancePolicyType, setInsurancePolicyType] = useState<InsurancePolicyType>(() =>
+    getDefaultInsurancePolicyType({
+      occupancyType: inputs.occupancy,
+      propertyType: inputs.propertyType,
+    }) ?? "HO3",
+  );
+  const insurancePolicyTouchedRef = useRef(false);
+  const [insuranceNewPurchase, setInsuranceNewPurchase] = useState<boolean | null>(true);
+  const [insurancePurchaseDate, setInsurancePurchaseDate] = useState("");
+  const [insuranceResidenceUse, setInsuranceResidenceUse] = useState<ResidenceUse>("primary");
+  const [insuranceRentalTerm, setInsuranceRentalTerm] = useState<RentalTerm>("");
+  const [insuranceRoofYear, setInsuranceRoofYear] = useState(new Date().getFullYear() - 10);
+  const [insuranceRoofShape, setInsuranceRoofShape] = useState(2);
+  const [insuranceSWR, setInsuranceSWR] = useState(1);
+  const [insuranceYearBuilt, setInsuranceYearBuilt] = useState(1995);
+  const [insuranceAopDeductible, setInsuranceAopDeductible] = useState(2500);
+  const [insuranceRebuild, setInsuranceRebuild] = useState(() =>
+    Math.min(1_500_000, Math.max(150_000, inputs.purchasePrice)),
+  );
+  const insuranceRebuildTouchedRef = useRef(false);
 
   // Tracks whether the user has actively engaged the regional
   // insurance simulator (region/roof/wind/hurricane-deductible/
@@ -2642,6 +2674,35 @@ export default function Estimate() {
   // monthly-payment / cash-to-close calc.
   const userTouchedInsuranceSimRef = useRef(false);
   const markInsuranceSimTouched = () => { userTouchedInsuranceSimRef.current = true; };
+  function resetInsuranceQuestionnaire(nextInputs: Inputs) {
+    insurancePolicyTouchedRef.current = false;
+    insuranceRebuildTouchedRef.current = false;
+    userTouchedInsuranceSimRef.current = false;
+    setInsurancePolicyType(
+      getDefaultInsurancePolicyType({
+        occupancyType: nextInputs.occupancy,
+        propertyType: nextInputs.propertyType,
+      }) ?? "HO3",
+    );
+    setInsuranceNewPurchase(true);
+    setInsurancePurchaseDate("");
+    setInsuranceResidenceUse(nextInputs.occupancy);
+    setInsuranceRentalTerm("");
+    setInsuranceRebuild(
+      Math.min(1_500_000, Math.max(150_000, nextInputs.purchasePrice)),
+    );
+    setInsuranceRoofYear(new Date().getFullYear() - 10);
+    setInsuranceRoofShape(2);
+    setInsuranceSWR(1);
+    setInsuranceYearBuilt(1995);
+    setInsuranceAopDeductible(2500);
+    setInsRoofIdx(1);
+    setInsWindIdx(1);
+    setInsHurrIdx(0);
+    setInsConstIdx(0);
+    setInsYearIdx(1);
+    setInsClaimsIdx(0);
+  }
 
   // Auto-detect region whenever address changes (does NOT count as
   // a user interaction — it's driven by the address field).
@@ -2650,13 +2711,29 @@ export default function Estimate() {
       setInsRegionKey(getInsRegionFromAddress(address));
     }
   }, [address]);
+  useEffect(() => {
+    if (!insuranceRebuildTouchedRef.current) {
+      setInsuranceRebuild(
+        Math.min(1_500_000, Math.max(150_000, inputs.purchasePrice)),
+      );
+    }
+  }, [inputs.purchasePrice]);
+  useEffect(() => {
+    if (insurancePolicyTouchedRef.current) return;
+    const nextPolicy = getDefaultInsurancePolicyType({
+      occupancyType: inputs.occupancy,
+      propertyType: inputs.propertyType,
+    });
+    if (nextPolicy) setInsurancePolicyType(nextPolicy);
+    setInsuranceResidenceUse(inputs.occupancy);
+  }, [inputs.occupancy, inputs.propertyType]);
 
   // Calculate insurance premium from the engine. Baseline midpoint
   // is 0.75% × purchase price × factor adjustments (spec:
   // insurance-default-075-percent). The regional table notes are
   // still shown for context but no longer drive the baseline rate.
   const insPremiumCalc = useMemo(() => {
-    const rebuild = inputs.purchasePrice;
+    const rebuild = insuranceRebuild;
     const rawAdj = INS_ROOF_ADJ[insRoofIdx] * INS_WIND_ADJ[insWindIdx] * INS_HURR_ADJ[insHurrIdx]
               * INS_CONST_ADJ[insConstIdx] * INS_YEAR_ADJ[insYearIdx] * INS_CLAIM_ADJ[insClaimsIdx];
     // Normalize so default-factor product = 1.0 → midpoint == 0.75% × price.
@@ -2672,10 +2749,10 @@ export default function Estimate() {
       mid:   Math.round(rebuild * midRate),
       high:  Math.round(rebuild * highRate),
       monthly: Math.round(rebuild * midRate / 12),
-      hurrDeductible: Math.round(rebuild * [0.02, 0.03, 0.05][insHurrIdx]),
-      hurrPct: [2, 3, 5][insHurrIdx],
+      hurrDeductible: Math.round(rebuild * [0.02, 0.05, 0.10][insHurrIdx]),
+      hurrPct: [2, 5, 10][insHurrIdx],
     };
-  }, [inputs.purchasePrice, insRoofIdx, insWindIdx, insHurrIdx, insConstIdx, insYearIdx, insClaimsIdx]);
+  }, [insuranceRebuild, insRoofIdx, insWindIdx, insHurrIdx, insConstIdx, insYearIdx, insClaimsIdx]);
 
   // Wire insurance midpoint into annualHOIns — only after the user
   // has actively engaged the simulator. Before that we keep the
@@ -6163,7 +6240,7 @@ export default function Estimate() {
               {/* ── Full Insurance Panel ── */}
               <div
                 ref={insuranceSectionRef}
-                className="grid scroll-mt-6 grid-cols-1 items-start gap-6 lg:grid-cols-2"
+                className="grid scroll-mt-6 grid-cols-1 items-start gap-6"
               >
                 <Card className="border-2 border-primary/20 shadow-md">
                   <CardHeader className="pb-3 bg-primary/5 rounded-t-lg">
@@ -6179,144 +6256,50 @@ export default function Estimate() {
                     </p>
                   </CardHeader>
                   <CardContent className="pt-4">
-
-                    {/* Premium hero */}
-                    <div className="bg-primary rounded-xl p-4 text-white mb-5">
-                      <div className="text-[10px] font-semibold text-white/60 uppercase tracking-widest mb-1">Estimated Annual Premium — {INS_REGIONS[insRegionKey].name}</div>
-                      <div className="grid grid-cols-3 gap-2 mt-2">
-                        <div className="bg-white/10 rounded-lg p-3 border border-white/10">
-                          <div className="text-[9px] font-medium text-white/50 uppercase tracking-wide mb-1">Low</div>
-                          <div className="text-sm font-bold font-mono">{fmt(insPremiumCalc.low)}</div>
-                          <div className="text-[9px] text-white/40 mt-0.5">{(insPremiumCalc.low / inputs.purchasePrice * 100).toFixed(2)}% of price</div>
-                        </div>
-                        <div className="bg-white/20 rounded-lg p-3 border border-white/30 ring-1 ring-white/30">
-                          <div className="text-[9px] font-medium text-white/70 uppercase tracking-wide mb-1">Midpoint</div>
-                          <div className="text-base font-bold font-mono text-yellow-300">{fmt(insPremiumCalc.mid)}</div>
-                          <div className="text-[9px] text-yellow-300/70 mt-0.5">{(insPremiumCalc.mid / inputs.purchasePrice * 100).toFixed(2)}% of price</div>
-                        </div>
-                        <div className="bg-white/10 rounded-lg p-3 border border-white/10">
-                          <div className="text-[9px] font-medium text-white/50 uppercase tracking-wide mb-1">High</div>
-                          <div className="text-sm font-bold font-mono">{fmt(insPremiumCalc.high)}</div>
-                          <div className="text-[9px] text-white/40 mt-0.5">{(insPremiumCalc.high / inputs.purchasePrice * 100).toFixed(2)}% of price</div>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 mt-2">
-                        <div className="bg-white/10 rounded-lg p-2.5 border border-white/10">
-                          <div className="text-[9px] text-white/50 uppercase tracking-wide">Monthly (midpoint)</div>
-                          <div className="text-sm font-bold font-mono">{fmt(insPremiumCalc.monthly)}/mo</div>
-                        </div>
-                        <div className="bg-white/10 rounded-lg p-2.5 border border-white/10">
-                          <div className="text-[9px] text-white/50 uppercase tracking-wide">Hurricane Deductible ({insPremiumCalc.hurrPct}%)</div>
-                          <div className="text-sm font-bold font-mono">{fmt(insPremiumCalc.hurrDeductible)}</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Controls */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                      {/* Region */}
-                      <div className="sm:col-span-2 space-y-1">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Region / Risk Tier</label>
-                        <select
-                          value={insRegionKey}
-                          onChange={e => { markInsuranceSimTouched(); setInsRegionKey(e.target.value as InsRegionKey); }}
-                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        >
-                          {(Object.entries(INS_REGIONS) as [InsRegionKey, typeof INS_REGIONS[InsRegionKey]][]).map(([key, r]) => (
-                            <option key={key} value={key}>{r.name} — {r.counties}</option>
-                          ))}
-                        </select>
-                        <p className="text-xs text-muted-foreground leading-relaxed pt-1">{INS_REGIONS[insRegionKey].note}</p>
-                      </div>
-
-                      {/* Roof Age */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Roof Age</label>
-                        <select value={insRoofIdx} onChange={e => { markInsuranceSimTouched(); setInsRoofIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
-                          <option value={0}>Under 5 years</option>
-                          <option value={1}>5–14 years — standard</option>
-                          <option value={2}>15–20 years</option>
-                          <option value={3}>20+ years</option>
-                        </select>
-                      </div>
-
-                      {/* Wind Mitigation */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Wind Mitigation</label>
-                        <select value={insWindIdx} onChange={e => { markInsuranceSimTouched(); setInsWindIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
-                          <option value={0}>No inspection / no features</option>
-                          <option value={1}>Basic inspection — standard</option>
-                          <option value={2}>Full mitigation: hip roof, shutters, SWR</option>
-                        </select>
-                      </div>
-
-                      {/* Hurricane Deductible */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Hurricane Deductible</label>
-                        <select value={insHurrIdx} onChange={e => { markInsuranceSimTouched(); setInsHurrIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
-                          <option value={0}>2% of dwelling — standard</option>
-                          <option value={1}>3% of dwelling</option>
-                          <option value={2}>5% of dwelling</option>
-                        </select>
-                      </div>
-
-                      {/* Construction */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Construction Type</label>
-                        <select value={insConstIdx} onChange={e => { markInsuranceSimTouched(); setInsConstIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
-                          <option value={0}>Concrete block / CBS — preferred</option>
-                          <option value={1}>Mixed / unknown — standard</option>
-                          <option value={2}>Frame construction</option>
-                        </select>
-                      </div>
-
-                      {/* Year Built */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Year Built</label>
-                        <select value={insYearIdx} onChange={e => { markInsuranceSimTouched(); setInsYearIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
-                          <option value={0}>2002 or newer — Florida Building Code</option>
-                          <option value={1}>1990–2001 — standard</option>
-                          <option value={2}>1970–1989</option>
-                          <option value={3}>Pre-1970</option>
-                        </select>
-                      </div>
-
-                      {/* Claims */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Claims History (5 yrs)</label>
-                        <select value={insClaimsIdx} onChange={e => { markInsuranceSimTouched(); setInsClaimsIdx(Number(e.target.value)); }} className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20">
-                          <option value={0}>No claims — clean history</option>
-                          <option value={1}>1 claim filed</option>
-                          <option value={2}>2 claims filed</option>
-                          <option value={3}>3+ claims</option>
-                        </select>
-                      </div>
-
-                    </div>
-
-                    {/* Flood warning */}
-                    <div className="flex gap-2.5 bg-amber-50 border border-amber-200 rounded-lg p-3 mt-4">
-                      <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                      <p className="text-xs text-amber-900 leading-relaxed">
-                        <strong>Flood insurance not included.</strong> Properties in AE/VE flood zones require a separate NFIP or private policy — typically $800–$3,500+/year. Check FEMA's flood map for this address.
-                      </p>
-                    </div>
-
-                    {/* Region insight */}
-                    <div className="flex gap-2.5 bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
-                      <Info className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
-                      <p className="text-xs text-blue-900 leading-relaxed">
-                        <strong>Risk tier: {INS_REGIONS[insRegionKey].tier}.</strong> {INS_REGIONS[insRegionKey].note}
-                      </p>
-                    </div>
-
-                    <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
-                      Estimates sourced from FL OIR CHOICES filings, 2026. For planning only — not a binding quote.
-                    </p>
+                    <InsuranceEstimateForm
+                      policyType={insurancePolicyType}
+                      onPolicyTypeChange={(value) => {
+                        insurancePolicyTouchedRef.current = true;
+                        setInsurancePolicyType(value);
+                      }}
+                      policyTypeNote="QuoteRUSH policy defaults are applied automatically when this selection changes."
+                      newPurchase={insuranceNewPurchase}
+                      onNewPurchaseChange={(value) => { setInsuranceNewPurchase(value); setInsurancePurchaseDate(""); }}
+                      purchaseDate={insurancePurchaseDate}
+                      onPurchaseDateChange={setInsurancePurchaseDate}
+                      residenceUse={insuranceResidenceUse}
+                      onResidenceUseChange={(value) => { setInsuranceResidenceUse(value); if (value !== "investment") setInsuranceRentalTerm(""); }}
+                      rentalTerm={insuranceRentalTerm}
+                      onRentalTermChange={setInsuranceRentalTerm}
+                      rebuild={insuranceRebuild}
+                      onRebuildChange={(value) => {
+                        markInsuranceSimTouched();
+                        insuranceRebuildTouchedRef.current = true;
+                        setInsuranceRebuild(value);
+                      }}
+                      roofYear={insuranceRoofYear}
+                      onRoofYearChange={(value) => { markInsuranceSimTouched(); setInsuranceRoofYear(value); const age = new Date().getFullYear() - value; setInsRoofIdx(age < 5 ? 0 : age <= 14 ? 1 : age <= 20 ? 2 : 3); }}
+                      openingProtection={insWindIdx === 2 ? 1 : 0}
+                      onOpeningProtectionChange={(value) => { markInsuranceSimTouched(); setInsWindIdx(value === 1 ? 2 : 0); }}
+                      roofShape={insuranceRoofShape}
+                      onRoofShapeChange={(value) => { markInsuranceSimTouched(); setInsuranceRoofShape(value); setInsWindIdx(value === 0 && insuranceSWR === 2 ? 2 : 1); }}
+                      swr={insuranceSWR}
+                      onSwrChange={(value) => { markInsuranceSimTouched(); setInsuranceSWR(value); setInsWindIdx(insuranceRoofShape === 0 && value === 2 ? 2 : 1); }}
+                      hurricaneDeductible={insHurrIdx}
+                      onHurricaneDeductibleChange={(value) => { markInsuranceSimTouched(); setInsHurrIdx(value); }}
+                      construction={insConstIdx}
+                      onConstructionChange={(value) => { markInsuranceSimTouched(); setInsConstIdx(value); }}
+                      yearBuilt={insuranceYearBuilt}
+                      onYearBuiltChange={(value) => { markInsuranceSimTouched(); setInsuranceYearBuilt(value); setInsYearIdx(value >= 2002 ? 0 : value >= 1990 ? 1 : value >= 1970 ? 2 : 3); }}
+                      aopDeductible={insuranceAopDeductible}
+                      onAopDeductibleChange={setInsuranceAopDeductible}
+                      floodZone={floodData?.zone}
+                      floodZoneSource={floodData?.zone ? "FEMA" : undefined}
+                      annualPremium={insPremiumCalc.mid}
+                    />
                   </CardContent>
                 </Card>
-                <Card className="border shadow-sm lg:sticky lg:top-6">
+                <Card className="border shadow-sm">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-center gap-2 text-base">
                       <Shield className="h-4 w-4 text-primary" />

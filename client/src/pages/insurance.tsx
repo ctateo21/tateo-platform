@@ -45,6 +45,7 @@ import {
   type QuoteRushResidenceUse,
   type QuoteRushRentalTerm,
 } from "@shared/quoterush-property-defaults";
+import { InsuranceEstimateForm } from "@/components/insurance/insurance-estimate-form";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
@@ -2105,289 +2106,43 @@ export default function InsuranceDashboard() {
                 </p>
               </CardHeader>
               <CardContent className="space-y-5">
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
-                    Policy Type
-                    {policyTypeSource === "default_rule" && policyType && (
-                      <span className="ml-2 normal-case tracking-normal text-[10px] font-medium text-muted-foreground/80">
-                        auto-defaulted
-                      </span>
-                    )}
-                    {policyTypeSource === "manual" && (
-                      <span className="ml-2 normal-case tracking-normal text-[10px] font-medium text-primary">
-                        manual
-                      </span>
-                    )}
-                  </label>
-                  <select
-                    value={policyType}
-                    onChange={e => {
-                      const v = e.target.value as InsurancePolicyType | "";
-                      setPolicyType(v);
-                      setPolicyTypeSource(v ? "manual" : null);
-                    }}
-                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    data-testid="select-policy-type"
-                  >
-                    <option value="">— select —</option>
-                    {(["HO3", "HO6", "DP3"] as InsurancePolicyType[]).map(k => (
-                      <option key={k} value={k}>{INSURANCE_POLICY_TYPE_LABELS[k]}</option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-muted-foreground/80">
-                    QuoteRUSH policy defaults are applied automatically when this selection changes.
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
-                      Is this a new purchase?
-                    </label>
-                    <select
-                      value={
-                        newPurchase === null ? "" : newPurchase ? "yes" : "no"
-                      }
-                      onChange={event => {
-                        const next = event.target.value;
-                        setNewPurchase(
-                          next === "yes" ? true : next === "no" ? false : null,
-                        );
-                        setPurchaseDate("");
-                      }}
-                      data-testid="select-new-purchase"
-                      className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                    >
-                      <option value="">— select —</option>
-                      <option value="yes">Yes</option>
-                      <option value="no">No</option>
-                    </select>
-                  </div>
-
-                  {newPurchase !== null && (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
-                        {newPurchase
-                          ? "Expected closing date"
-                          : "Date home was purchased"}
-                      </label>
-                      <input
-                        type="date"
-                        value={purchaseDate}
-                        onChange={event => setPurchaseDate(event.target.value)}
-                        data-testid="input-purchase-date"
-                        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {policyType === "HO6" && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
-                        Residence use
-                      </label>
-                      <select
-                        value={ho6ResidenceUse}
-                        onChange={event => {
-                          const next = event.target.value as QuoteRushResidenceUse | "";
-                          setHo6ResidenceUse(next);
-                          if (next !== "investment") setHo6RentalTerm("");
-                        }}
-                        data-testid="select-ho6-residence-use"
-                        className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      >
-                        <option value="">— select —</option>
-                        <option value="primary">Primary residence</option>
-                        <option value="secondary">Secondary residence</option>
-                        <option value="investment">Investment property</option>
-                      </select>
-                    </div>
-
-                    {ho6ResidenceUse === "investment" && (
-                      <div className="space-y-1.5">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">
-                          Rental term
-                        </label>
-                        <select
-                          value={ho6RentalTerm}
-                          onChange={event =>
-                            setHo6RentalTerm(
-                              event.target.value as QuoteRushRentalTerm | "",
-                            )
-                          }
-                          data-testid="select-ho6-rental-term"
-                          className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                        >
-                          <option value="">— select —</option>
-                          <option value="annual">Annual</option>
-                          <option value="monthly">Monthly</option>
-                          <option value="weekly">Week and under</option>
-                        </select>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {policyType && (
-                  <div className="rounded-lg border border-primary/15 bg-primary/5 p-3 text-xs leading-relaxed text-foreground">
-                    <strong>QuoteRUSH defaults:</strong>{" "}
-                    {policyType === "HO3"
-                      ? "Primary residence"
-                      : policyType === "DP3"
-                        ? "Investment property"
-                        : ho6ResidenceUse
-                          ? `${ho6ResidenceUse[0].toUpperCase()}${ho6ResidenceUse.slice(1)} residence`
-                          : "Choose the residence use above"}
-                    {policyType === "HO6" && ho6ResidenceUse === "investment"
-                      ? `, ${
-                          ho6RentalTerm === "weekly"
-                            ? "Weekly"
-                            : ho6RentalTerm
-                              ? `${ho6RentalTerm[0].toUpperCase()}${ho6RentalTerm.slice(1)}`
-                              : "rental term required"
-                        } rental term`
-                      : ""}
-                    , 9 months or more occupied, and a purchase price of{" "}
-                    {fmt(rebuild * (policyType === "HO6" ? 2 : 1))}.
-                  </div>
-                )}
-
-                <SliderRow
-                  label="Estimated Rebuild / Replacement Cost (Coverage A)"
-                  value={rebuild}
-                  onChange={setRebuild}
-                  min={150000} max={1500000} step={25000}
+                <InsuranceEstimateForm
+                  policyType={policyType}
+                  onPolicyTypeChange={(value) => {
+                    setPolicyType(value);
+                    setPolicyTypeSource(value ? "manual" : null);
+                  }}
+                  policyTypeNote={policyTypeSource === "manual" ? "Manual selection." : policyType ? "Auto-defaulted from this property's details." : "QuoteRUSH policy defaults are applied automatically when this selection changes."}
+                  newPurchase={newPurchase}
+                  onNewPurchaseChange={(value) => { setNewPurchase(value); setPurchaseDate(""); }}
+                  purchaseDate={purchaseDate}
+                  onPurchaseDateChange={setPurchaseDate}
+                  residenceUse={ho6ResidenceUse}
+                  onResidenceUseChange={(value) => { setHo6ResidenceUse(value); if (value !== "investment") setHo6RentalTerm(""); }}
+                  rentalTerm={ho6RentalTerm}
+                  onRentalTermChange={setHo6RentalTerm}
+                  rebuild={rebuild}
+                  onRebuildChange={setRebuild}
+                  roofYear={roofYear}
+                  onRoofYearChange={setRoofYear}
+                  openingProtection={openingProtectionIdx}
+                  onOpeningProtectionChange={setOpeningProtectionIdx}
+                  roofShape={roofShapeIdx}
+                  onRoofShapeChange={setRoofShapeIdx}
+                  swr={swrIdx}
+                  onSwrChange={setSwrIdx}
+                  hurricaneDeductible={hurrIdx}
+                  onHurricaneDeductibleChange={setHurrIdx}
+                  construction={constIdx}
+                  onConstructionChange={setConstIdx}
+                  yearBuilt={yearBuilt}
+                  onYearBuiltChange={setYearBuilt}
+                  aopDeductible={aopDeductible}
+                  onAopDeductibleChange={setAopDeductible}
+                  floodZone={floodZone}
+                  floodZoneSource={floodZoneSource === "fema" ? "FEMA" : floodZoneSource}
+                  annualPremium={calc.mid}
                 />
-
-                <Separator />
-
-                <YearInputRow
-                  label="What year was the roof installed?"
-                  value={roofYear}
-                  onChange={setRoofYear}
-                  testId="input-roof-year"
-                />
-
-                <SelectRow
-                  label="Hurricane impact-rated doors and windows or shutters?"
-                  value={openingProtectionIdx}
-                  onChange={setOpeningProtectionIdx}
-                  options={[
-                    { value: 0, label: "No" },
-                    { value: 1, label: "Yes" },
-                  ]}
-                />
-
-                <SelectRow
-                  label="What type of roof do you have?"
-                  value={roofShapeIdx}
-                  onChange={setRoofShapeIdx}
-                  options={[
-                    { value: 0, label: "Hip roof" },
-                    { value: 1, label: "Flat roof" },
-                    { value: 2, label: "Other / unsure" },
-                  ]}
-                />
-
-                <SelectRow
-                  label="Second Water Resistance Layer (SWR)?"
-                  value={swrIdx}
-                  onChange={setSwrIdx}
-                  options={[
-                    { value: 2, label: "Yes" },
-                    { value: 0, label: "No" },
-                    { value: 1, label: "Unsure" },
-                  ]}
-                />
-
-                <SelectRow
-                  label="Hurricane Deductible"
-                  value={hurrIdx}
-                  onChange={setHurrIdx}
-                  options={[
-                    { value: 0, label: "2% of dwelling — standard" },
-                    { value: 1, label: "5% of dwelling — max allowed for most loans" },
-                    { value: 2, label: "10% of dwelling" },
-                  ]}
-                />
-
-                <SelectRow
-                  label="Construction Type"
-                  value={constIdx}
-                  onChange={setConstIdx}
-                  options={[
-                    { value: 0, label: "Concrete Block" },
-                    { value: 2, label: "Frame" },
-                    { value: 1, label: "Mix" },
-                  ]}
-                />
-
-                <YearInputRow
-                  label="What year was the home built?"
-                  value={yearBuilt}
-                  onChange={setYearBuilt}
-                  testId="input-year-built"
-                />
-
-                <SelectRow
-                  label="AOP Deductible (all other perils)"
-                  value={aopDeductible}
-                  onChange={setAopDeductible}
-                  options={[
-                    { value: 500, label: "$500" },
-                    { value: 1000, label: "$1,000" },
-                    { value: 2500, label: "$2,500" },
-                    { value: 5000, label: "$5,000 — max allowed for most loans" },
-                    { value: 10000, label: "$10,000" },
-                  ]}
-                />
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide block">Flood Zone</label>
-                  <div
-                    data-testid="text-flood-zone"
-                    className="w-full text-sm border border-border rounded-lg px-3 py-2 bg-muted/40 text-muted-foreground"
-                  >
-                    {floodZone || "—"}
-                    {floodZone && floodZoneSource ? (
-                      <span className="ml-2 text-xs text-muted-foreground/70">({floodZoneSource === "fema" ? "FEMA" : floodZoneSource})</span>
-                    ) : null}
-                  </div>
-                  <p className="text-xs text-muted-foreground/70">
-                    Auto-detected for this address from the{" "}
-                    <a
-                      href="https://msc.fema.gov/portal/search"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-primary underline underline-offset-2 hover:text-primary/80"
-                    >
-                      FEMA flood map
-                    </a>.
-                  </p>
-                </div>
-
-                <div className="rounded-2xl bg-primary p-6 text-white shadow-lg">
-                  <div className="text-xs font-semibold text-white/65 uppercase tracking-widest">
-                    Estimated Annual Premium
-                  </div>
-                  <div
-                    className="mt-2 text-4xl font-bold font-mono"
-                    data-testid="estimated-annual-premium"
-                  >
-                    {fmt(calc.mid)}
-                  </div>
-                  <p className="mt-2 text-xs text-white/65">
-                    Midpoint planning estimate based on the answers above.
-                  </p>
-                </div>
-
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
-                  <strong>Estimate assumption:</strong> This estimate assumes no insurance claims
-                  have been filed in the past five years.
-                </div>
               </CardContent>
             </Card>
 
