@@ -3778,6 +3778,19 @@ export default function Estimate() {
       recs,
     };
   }, [calcBasis, feeWorksheet, inputs.reserves]);
+  const qualificationLoanLabel =
+    inputs.loanType === "conventional" ? "Conventional"
+    : inputs.loanType === "jumbo" ? "Jumbo"
+    : inputs.loanType === "fha" ? "FHA"
+    : inputs.loanType === "va" ? "VA"
+    : inputs.loanType === "usda" ? "USDA"
+    : inputs.loanType === "dscr" ? "DSCR"
+    : "Bank Statement";
+  const housingRatioWithinMax =
+    calc.maxHousingDti === Infinity || calc.housingDTI <= calc.maxHousingDti;
+  const totalRatioWithinMax =
+    calc.maxTotalDti === Infinity || calc.dti <= calc.maxTotalDti;
+  const withinLoanRatioLimits = housingRatioWithinMax && totalRatioWithinMax;
   const aprPct = feeWorksheet?.aprPct ?? null;
   const [feeWorksheetOpen, setFeeWorksheetOpen] = useState(false);
   const [openingLiveQuote, setOpeningLiveQuote] = useState(false);
@@ -6130,48 +6143,80 @@ export default function Estimate() {
               </Card>
 
               {/* Qualification Section */}
-              <Card className={`border-2 ${calc.qualifies ? "border-green-200" : "border-red-200"}`}>
+              <Card className={`border-2 ${withinLoanRatioLimits ? "border-green-200" : "border-red-200"}`}>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center gap-2">
                     <UserCheck className="h-4 w-4 text-primary" />
                     Can I Afford This Home?
-                    {calc.qualifies ? (
+                    {withinLoanRatioLimits ? (
                       <Badge className="ml-auto bg-green-100 text-green-700 border border-green-300">
-                        <CheckCircle2 className="h-3 w-3 mr-1" /> Looks Within Range
+                        <CheckCircle2 className="h-3 w-3 mr-1" /> Within Loan Limits
                       </Badge>
                     ) : (
                       <Badge className="ml-auto bg-red-100 text-red-700 border border-red-300">
-                        <XCircle className="h-3 w-3 mr-1" /> May Be Too High
+                        <XCircle className="h-3 w-3 mr-1" /> Above Loan Limits
                       </Badge>
                     )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm leading-relaxed text-muted-foreground">
-                    {calc.qualifies
-                      ? "Based on the income and debts entered, this home's payment appears to be within a typical lender range."
-                      : "Based on the income and debts entered, this home's payment may be higher than a typical lender would approve."}
+                    These two ratios show how the new home payment and your other debts compare with the income entered.
                   </p>
 
-                  <div className="rounded-xl border bg-muted/20 p-4">
-                    <Row label="Monthly income used" value={fmt(calc.qualifyingIncome)} />
-                    <Row label="Estimated home payment" value={fmt(calc.totalHousing)} />
-                    <Row label="Other monthly debts" value={fmt(inputs.monthlyDebts)} />
+                  <div className={`rounded-xl border p-4 ${housingRatioWithinMax ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className={`text-sm font-semibold ${housingRatioWithinMax ? "text-green-900" : "text-red-900"}`}>
+                          Housing-to-Income (HTI)
+                        </p>
+                        <p className={`mt-0.5 text-xs ${housingRatioWithinMax ? "text-green-700" : "text-red-700"}`}>
+                          New home payment ÷ monthly income
+                        </p>
+                      </div>
+                      <p className={`text-2xl font-bold ${housingRatioWithinMax ? "text-green-800" : "text-red-800"}`}>
+                        {fmtPct(calc.housingDTI)}
+                      </p>
+                    </div>
+                    <p className={`mt-3 text-xs font-medium ${housingRatioWithinMax ? "text-green-800" : "text-red-800"}`}>
+                      {fmt(calc.totalHousing)} ÷ {fmt(calc.qualifyingIncome)} = {fmtPct(calc.housingDTI)}
+                    </p>
+                    <p className={`mt-1 text-xs leading-relaxed ${housingRatioWithinMax ? "text-green-700" : "text-red-700"}`}>
+                      {calc.maxHousingDti === Infinity
+                        ? `${qualificationLoanLabel} does not use a fixed HTI maximum in this estimate.`
+                        : housingRatioWithinMax
+                          ? `${qualificationLoanLabel} maximum: ${fmtPct(calc.maxHousingDti)}. You are ${fmtPct(calc.maxHousingDti - calc.housingDTI)} below the maximum.`
+                          : `${qualificationLoanLabel} maximum: ${fmtPct(calc.maxHousingDti)}. You are ${fmtPct(calc.housingDTI - calc.maxHousingDti)} above the maximum.`}
+                    </p>
                   </div>
 
-                  <div className={`rounded-xl border p-4 ${calc.qualifies ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
-                    <p className={`text-xs font-semibold uppercase tracking-wide ${calc.qualifies ? "text-green-700" : "text-red-700"}`}>
-                      How much income would go toward debt?
+                  <div className={`rounded-xl border p-4 ${totalRatioWithinMax ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className={`text-sm font-semibold ${totalRatioWithinMax ? "text-green-900" : "text-red-900"}`}>
+                          Debt-to-Income (DTI)
+                        </p>
+                        <p className={`mt-0.5 text-xs ${totalRatioWithinMax ? "text-green-700" : "text-red-700"}`}>
+                          Home payment + other debts ÷ monthly income
+                        </p>
+                      </div>
+                      <p className={`text-2xl font-bold ${totalRatioWithinMax ? "text-green-800" : "text-red-800"}`}>
+                        {fmtPct(calc.dti)}
+                      </p>
+                    </div>
+                    <p className={`mt-3 text-xs font-medium ${totalRatioWithinMax ? "text-green-800" : "text-red-800"}`}>
+                      ({fmt(calc.totalHousing)} + {fmt(calc.totalMonthlyDebts)}) ÷ {fmt(calc.qualifyingIncome)} = {fmtPct(calc.dti)}
                     </p>
-                    <p className={`mt-1 text-2xl font-bold ${calc.qualifies ? "text-green-800" : "text-red-800"}`}>
-                      About {Math.round(calc.dti)} out of every $100
-                    </p>
-                    <p className={`mt-1 text-xs leading-relaxed ${calc.qualifies ? "text-green-700" : "text-red-700"}`}>
-                      This includes the new home payment and your other monthly debts.
+                    <p className={`mt-1 text-xs leading-relaxed ${totalRatioWithinMax ? "text-green-700" : "text-red-700"}`}>
+                      {calc.maxTotalDti === Infinity
+                        ? `${qualificationLoanLabel} does not use a fixed DTI maximum in this estimate.`
+                        : totalRatioWithinMax
+                          ? `${qualificationLoanLabel} maximum: ${fmtPct(calc.maxTotalDti)}. You are ${fmtPct(calc.maxTotalDti - calc.dti)} below the maximum.`
+                          : `${qualificationLoanLabel} maximum: ${fmtPct(calc.maxTotalDti)}. You are ${fmtPct(calc.dti - calc.maxTotalDti)} above the maximum.`}
                     </p>
                   </div>
 
-                  {!calc.qualifies && (
+                  {!withinLoanRatioLimits && (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
                       <p className="text-sm font-semibold text-amber-900">What may help</p>
                       <ul className="mt-2 space-y-1.5 text-xs leading-relaxed text-amber-800">
