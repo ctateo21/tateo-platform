@@ -3276,11 +3276,14 @@ export default function Estimate() {
   function renderDownPayment() {
     const price = inputs.purchasePrice;
     if (dpaSelectionComplete) {
+      const dpaAmount = Math.round(price * 0.035);
       return (
         <div className="flex items-center justify-between gap-3 px-2 py-2" data-testid="dpa-down-payment-covered-re">
-          <span className="text-xs text-muted-foreground">Down Payment</span>
+          <span className="text-xs text-muted-foreground">
+            Down Payment ({fmt(dpaAmount)} · 3.50%)
+          </span>
           <span className="text-xs font-semibold text-foreground">
-            3.50% / {fmt(Math.round(price * 0.035))}
+            Fully covered by DPA
           </span>
         </div>
       );
@@ -3294,7 +3297,9 @@ export default function Estimate() {
     const maxAmt = Math.max(minAmt, Math.floor(price * (MAX_DOWN_PAYMENT_PCT / 100)));
     return (
       <div className="flex items-center justify-between gap-3 px-2 py-2">
-        <span className="text-xs text-muted-foreground">Down Payment</span>
+        <span className="text-xs text-muted-foreground">
+          Down Payment ({fmt(dpAmt)} · {Number(inputs.downPaymentPct).toFixed(2)}%)
+        </span>
         <div className="flex items-center gap-2">
           <div className="inline-flex shrink-0 overflow-hidden rounded border border-border text-[10px] leading-none">
             <button
@@ -3964,6 +3969,10 @@ export default function Estimate() {
     // their edits silently failed to persist. The "same" check above still
     // prevents redundant writes when nothing actually changed.
     isAuthenticated, address, inputs,
+    // Re-run once when a logged-in buyer reaches Page 4 so a completed
+    // purchase-with-loan estimate is persisted even if the final navigation
+    // did not itself change an input.
+    step === 4,
     calc.totalHousing, calc.cashToClose, calc.dti, calc.qualifies,
   ]);
 
@@ -5676,21 +5685,6 @@ export default function Estimate() {
                     <CardTitle className="text-base flex items-center gap-2 text-primary">
                       <Building2 className="h-4 w-4" />
                       Purchase &amp; Mortgage Summary
-                      {/* Pop-up: full Initial Fees Worksheet / loan
-                          estimate, itemized like a lender IFW. */}
-                      {feeWorksheet && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="h-6 px-2 text-[11px] font-medium gap-1"
-                          onClick={() => setFeeWorksheetOpen(true)}
-                          data-testid="button-fee-worksheet"
-                        >
-                          <FileDown className="h-3 w-3" />
-                          Fee Worksheet
-                        </Button>
-                      )}
                     </CardTitle>
                     <div className="flex items-center gap-2">
                       <Label className="text-xs text-muted-foreground whitespace-nowrap">Loan Type</Label>
@@ -5991,6 +5985,24 @@ export default function Estimate() {
                     <span className="text-sm font-semibold">Estimated Cash to Close</span>
                     <span className="text-base font-bold text-primary">{fmt(calc.cashToClose)}</span>
                   </div>
+                  {feeWorksheet && (
+                    <>
+                      <Separator />
+                      <div className="flex justify-end px-2 py-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1.5 px-3 text-xs font-medium"
+                          onClick={() => setFeeWorksheetOpen(true)}
+                          data-testid="button-fee-worksheet"
+                        >
+                          <FileDown className="h-3.5 w-3.5" />
+                          Initial Fees Worksheet
+                        </Button>
+                      </div>
+                    </>
+                  )}
                   </div>
                 </CardContent>
               </Card>
