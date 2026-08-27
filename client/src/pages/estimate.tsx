@@ -715,6 +715,7 @@ interface SliderInputProps {
   suffix?: string;
   disabled?: boolean;
   decimals?: number;
+  compact?: boolean;
 }
 
 function formatWithCommas(n: number, decimals = 0): string {
@@ -722,7 +723,7 @@ function formatWithCommas(n: number, decimals = 0): string {
   return Math.round(n).toLocaleString("en-US");
 }
 
-function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffix, disabled, decimals = 0 }: SliderInputProps) {
+function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffix, disabled, decimals = 0, compact = false }: SliderInputProps) {
   const [text, setText] = useState(formatWithCommas(value, decimals));
   const isFocused = useRef(false);
 
@@ -766,6 +767,31 @@ function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffi
     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
   }
 
+  const valueInput = (
+    <div className="flex items-center gap-0.5 bg-muted rounded-md px-2 py-1 min-w-[88px] md:justify-end">
+      {prefix && <span className="text-xs text-muted-foreground">{prefix}</span>}
+      <input
+        className="w-full bg-transparent text-xs font-semibold text-right text-foreground outline-none min-w-0"
+        value={text}
+        onFocus={handleFocus}
+        onBlur={handleBlur}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        inputMode="decimal"
+        disabled={disabled}
+      />
+      {suffix && <span className="text-xs text-muted-foreground ml-0.5">{suffix}</span>}
+    </div>
+  );
+
+  if (compact) {
+    return (
+      <div className={`w-[132px] ${disabled ? "opacity-40 pointer-events-none" : ""}`}>
+        {valueInput}
+      </div>
+    );
+  }
+
   // Standard slider layout (global spec): label on its own row,
   // then a 3fr/1fr grid below with the slider on the left and the
   // editable value pill on the right. Caller can pass label="" to
@@ -787,20 +813,7 @@ function SliderInput({ label, value, onChange, min, max, step = 1, prefix, suffi
           onValueChange={([v]) => onChange(v)}
           disabled={disabled}
         />
-        <div className="flex items-center gap-0.5 bg-muted rounded-md px-2 py-1 min-w-[88px] md:justify-end">
-          {prefix && <span className="text-xs text-muted-foreground">{prefix}</span>}
-          <input
-            className="w-full bg-transparent text-xs font-semibold text-right text-foreground outline-none min-w-0"
-            value={text}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            inputMode="decimal"
-            disabled={disabled}
-          />
-          {suffix && <span className="text-xs text-muted-foreground ml-0.5">{suffix}</span>}
-        </div>
+        {valueInput}
       </div>
     </div>
   );
@@ -3194,16 +3207,11 @@ export default function Estimate() {
     const price = inputs.purchasePrice;
     if (dpaSelectionComplete) {
       return (
-        <div className="space-y-1" data-testid="dpa-down-payment-covered-re">
-          <span className="text-xs text-muted-foreground">
-            Down Payment
-            <span className="ml-1.5 text-foreground/80 font-medium">
-              3.50% / {fmt(Math.round(price * 0.035))}
-            </span>
+        <div className="flex items-center justify-between gap-3 px-2 py-2" data-testid="dpa-down-payment-covered-re">
+          <span className="text-xs text-muted-foreground">Down Payment</span>
+          <span className="text-xs font-semibold text-foreground">
+            3.50% / {fmt(Math.round(price * 0.035))}
           </span>
-          <p className="text-[10px] text-emerald-700 font-medium leading-tight">
-            Fully covered by your Down Payment Assistance program.
-          </p>
         </div>
       );
     }
@@ -3214,17 +3222,11 @@ export default function Estimate() {
       Math.round(price * (inputs.downPaymentPct / 100));
     const minAmt = price > 0 ? Math.round(price * (minDown / 100)) : 0;
     const maxAmt = Math.max(minAmt, Math.floor(price * (MAX_DOWN_PAYMENT_PCT / 100)));
-    const loanAmt = Math.max(0, price - dpAmt);
     return (
-      <div className="space-y-1">
-        <div className="flex items-center justify-between flex-wrap gap-1">
-          <span className="text-xs text-muted-foreground">
-            Down Payment
-            <span className="ml-1.5 text-foreground/80 font-medium">
-              {Number(inputs.downPaymentPct).toFixed(2)}% / {fmt(dpAmt)}
-            </span>
-          </span>
-          <div className="inline-flex rounded border border-border overflow-hidden text-[10px] leading-none">
+      <div className="flex items-center justify-between gap-3 px-2 py-2">
+        <span className="text-xs text-muted-foreground">Down Payment</span>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex shrink-0 overflow-hidden rounded border border-border text-[10px] leading-none">
             <button
               type="button"
               data-testid="dp-mode-percent-re"
@@ -3248,35 +3250,33 @@ export default function Estimate() {
               aria-pressed={mode === "amount"}
             >$</button>
           </div>
+          {mode === "percent" ? (
+            <SliderInput
+              label=""
+              value={Number(Number(inputs.downPaymentPct).toFixed(2))}
+              onChange={(v) => setDownPayment(v)}
+              min={minDown}
+              max={MAX_DOWN_PAYMENT_PCT}
+              step={0.25}
+              suffix="%"
+              decimals={2}
+              disabled={price <= 0}
+              compact
+            />
+          ) : (
+            <SliderInput
+              label=""
+              value={dpAmt}
+              onChange={(v) => setDownPaymentDollars(v)}
+              min={minAmt}
+              max={maxAmt}
+              step={500}
+              prefix="$"
+              disabled={price <= 0}
+              compact
+            />
+          )}
         </div>
-        {mode === "percent" ? (
-          <SliderInput
-            label=""
-            value={Number(Number(inputs.downPaymentPct).toFixed(2))}
-            onChange={(v) => setDownPayment(v)}
-            min={minDown}
-            max={MAX_DOWN_PAYMENT_PCT}
-            step={0.25}
-            suffix="%"
-            decimals={2}
-            disabled={price <= 0}
-          />
-        ) : (
-          <SliderInput
-            label=""
-            value={dpAmt}
-            onChange={(v) => setDownPaymentDollars(v)}
-            min={minAmt}
-            max={maxAmt}
-            step={500}
-            prefix="$"
-            disabled={price <= 0}
-          />
-        )}
-        <p className="text-[10px] text-muted-foreground text-right">
-          Loan Amount: <span className="font-semibold text-foreground">{fmt(loanAmt)}</span>
-          <span className="ml-1 opacity-70">(price − down payment)</span>
-        </p>
       </div>
     );
   }
@@ -5685,9 +5685,27 @@ export default function Estimate() {
                   <div className="rounded-lg border bg-muted/20 p-3">
                     <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
                       <Building2 className="h-4 w-4 text-primary" />
-                      Monthly Mortgage
+                      Purchase &amp; Loan
                     </h3>
-                  <Row label="Principal & Interest" value={fmt(calc.pi)} sub="30 yr fixed" />
+                  <div className="flex items-center justify-between gap-3 px-2 py-2">
+                    <span className="text-xs text-muted-foreground">Purchase Price</span>
+                    <SliderInput
+                      label=""
+                      value={inputs.purchasePrice}
+                      onChange={handlePurchasePriceChange}
+                      min={50000}
+                      max={3000000}
+                      step={5000}
+                      prefix="$"
+                      compact
+                    />
+                  </div>
+                  <Separator />
+                  {renderDownPayment()}
+                  <Separator />
+                  <Row label="Loan Amount" value={fmt(calc.loanAmount)} />
+                  <Separator />
+                  <Row label="Principal & Interest" value={fmt(calc.pi)} />
                   {/* Interest Rate disclosure under P&I. Single source
                       of truth: the rate already used by `calc.pi`.
                       - No discount points → show the priced base rate
@@ -5839,40 +5857,8 @@ export default function Estimate() {
                   <div className="rounded-lg border bg-muted/20 p-3">
                     <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
                       <Home className="h-4 w-4 text-primary" />
-                      Purchase &amp; Closing
+                      Closing Costs &amp; Credits
                     </h3>
-                  <div className="py-2">
-                    <SliderInput
-                      label="Purchase Price"
-                      value={inputs.purchasePrice}
-                      onChange={handlePurchasePriceChange}
-                      min={50000}
-                      max={3000000}
-                      step={5000}
-                      prefix="$"
-                    />
-                    <p className="mt-1 text-[10px] text-muted-foreground">
-                      Keeps your {inputs.downPaymentPct.toFixed(2)}% down payment and updates the loan, taxes, insurance, and closing estimate.
-                    </p>
-                  </div>
-                  <Separator />
-                  {/* Down Payment — interactive Percentage / Dollar Amount
-                      toggle + slider, matching the Seller Concessions
-                      control style further down this card. Writes the
-                      same canonical inputs the rest of the page (and
-                      Page 3 / Loan Details) reads from, so every
-                      dependent calc (loan amount, P&I, PMI/MIP, cash
-                      to close, DTI, qualification) updates live. */}
-                  <div className="py-2">
-                    {renderDownPayment()}
-                  </div>
-                  <Separator />
-                  <Row label="Loan Amount" value={fmt(calc.loanAmount)} sub={
-                    inputs.loanType === "fha" ? `includes 1.75% financing fee (${fmt(calc.fhaUFMIP)}) · LTV ${fmtPct(calc.ltv)}`
-                    : inputs.loanType === "va" && calc.vaFundingFeeAmt > 0 ? `includes ${inputs.vaLoanUse === "second" ? "3.30" : "2.15"}% funding fee (${fmt(calc.vaFundingFeeAmt)}) · LTV ${fmtPct(calc.ltv)}`
-                    : `LTV ${fmtPct(calc.ltv)}`
-                  } />
-                  <Separator />
                   <Row
                     label="Estimated Closing Costs (Itemized IFW)"
                     value={fmt(calc.closingCosts)}
