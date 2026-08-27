@@ -3090,7 +3090,7 @@ export default function Estimate() {
    *  dollar field, so they stay synced automatically and the value
    *  auto-saves with the rest of the inputs. Caps come from
    *  `getMaxSellerConcessions` and are enforced on every write. */
-  function renderSellerConcessions() {
+  function renderSellerConcessions(compact = false) {
     const maxConcessions = getMaxSellerConcessions(inputs.loanType, inputs.occupancy, inputs.downPaymentPct, inputs.purchasePrice);
     const price = inputs.purchasePrice;
     const pct = price > 0 ? (inputs.sellerConcessions / price) * 100 : 0;
@@ -3109,6 +3109,76 @@ export default function Estimate() {
       set("sellerConcessions", Math.min(Math.max(0, newAmt), Math.round(maxConcessions)));
     };
     const atCap = isLoanAllowed && maxConcessions > 0 && inputs.sellerConcessions >= Math.round(maxConcessions);
+    if (compact) {
+      return (
+        <div>
+          <div className="flex items-center justify-between gap-3 px-2 py-2">
+            <span className="text-xs text-muted-foreground">Seller Concessions</span>
+            <div className="flex items-center gap-2">
+              <div className="inline-flex shrink-0 overflow-hidden rounded border border-border text-[10px] leading-none">
+                <button
+                  type="button"
+                  onClick={() => setMode("percent")}
+                  disabled={!isLoanAllowed}
+                  className={`px-2 py-1 transition-colors ${
+                    mode === "percent"
+                      ? "bg-primary text-primary-foreground font-semibold"
+                      : "bg-background text-muted-foreground hover:text-foreground"
+                  } ${!isLoanAllowed ? "opacity-50 cursor-not-allowed" : ""}`}
+                  aria-pressed={mode === "percent"}
+                >
+                  %
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("amount")}
+                  disabled={!isLoanAllowed}
+                  className={`px-2 py-1 border-l border-border transition-colors ${
+                    mode === "amount"
+                      ? "bg-primary text-primary-foreground font-semibold"
+                      : "bg-background text-muted-foreground hover:text-foreground"
+                  } ${!isLoanAllowed ? "opacity-50 cursor-not-allowed" : ""}`}
+                  aria-pressed={mode === "amount"}
+                >
+                  $
+                </button>
+              </div>
+              {mode === "percent" ? (
+                <SliderInput
+                  label=""
+                  value={Number(pct.toFixed(2))}
+                  onChange={setFromPct}
+                  min={0}
+                  max={Math.max(0, Number(maxPct.toFixed(2)))}
+                  step={0.25}
+                  suffix="%"
+                  decimals={2}
+                  disabled={!isLoanAllowed || price <= 0}
+                  compact
+                />
+              ) : (
+                <SliderInput
+                  label=""
+                  value={inputs.sellerConcessions}
+                  onChange={setFromAmount}
+                  min={0}
+                  max={Math.round(maxConcessions)}
+                  step={500}
+                  prefix="$"
+                  disabled={!isLoanAllowed}
+                  compact
+                />
+              )}
+            </div>
+          </div>
+          <p className={`px-2 text-right text-[10px] ${isLoanAllowed ? "text-muted-foreground" : "text-red-600"}`}>
+            {isLoanAllowed
+              ? `Maximum ${maxPct.toFixed(2)}% (${fmt(maxConcessions)}) for this loan; reduces estimated cash to close.`
+              : `Seller concessions are not allowed for this ${inputs.occupancy} ${inputs.loanType.toUpperCase()} loan.`}
+          </p>
+        </div>
+      );
+    }
     return (
       <div className="space-y-1">
         <div className="flex items-center justify-between flex-wrap gap-1">
@@ -5882,7 +5952,7 @@ export default function Estimate() {
                     }
                   />
                   <div className="py-2">
-                    {renderSellerConcessions()}
+                    {renderSellerConcessions(true)}
                   </div>
                   {calc.dpaActive && (
                     <>
