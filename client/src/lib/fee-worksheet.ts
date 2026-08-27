@@ -60,6 +60,8 @@ export interface FeeWorksheetInputs {
   occupancy?: string;
   /** Purchase-only gate supplied by the purchase flow. */
   requiresElevationCertificate?: boolean;
+  /** Defaults to true. When false, prepaids remain but escrow reserves are omitted. */
+  escrowsEnabled?: boolean;
 }
 
 export interface FeeWorksheet {
@@ -244,18 +246,21 @@ export function buildFeeWorksheet(inp: FeeWorksheetInputs): FeeWorksheet {
       amount: r2(inp.monthlyTax * 3),
     },
   ];
-  const escrowLines: FeeLine[] = [
-    {
-      label: "Hazard Insurance Reserve",
-      note: `3 Months @ ${money(inp.monthlyHOIns)}`,
-      amount: r2(inp.monthlyHOIns * 3),
-    },
-    {
-      label: "Property Taxes Reserve",
-      note: `3 Months @ ${money(inp.monthlyTax)}`,
-      amount: r2(inp.monthlyTax * 3),
-    },
-  ];
+  const escrowsEnabled = inp.escrowsEnabled !== false;
+  const escrowLines: FeeLine[] = escrowsEnabled
+    ? [
+        {
+          label: "Hazard Insurance Reserve",
+          note: `3 Months @ ${money(inp.monthlyHOIns)}`,
+          amount: r2(inp.monthlyHOIns * 3),
+        },
+        {
+          label: "Property Taxes Reserve",
+          note: `3 Months @ ${money(inp.monthlyTax)}`,
+          amount: r2(inp.monthlyTax * 3),
+        },
+      ]
+    : [];
   const prepaidsSubtotal = r2(
     [...prepaidLines, ...escrowLines].reduce((s, l) => s + l.amount, 0),
   );
@@ -264,7 +269,9 @@ export function buildFeeWorksheet(inp: FeeWorksheetInputs): FeeWorksheet {
     lines: [],
     groups: [
       { heading: "Prepaids", lines: prepaidLines },
-      { heading: "Initial Escrow Payment at Closing", lines: escrowLines },
+      ...(escrowsEnabled
+        ? [{ heading: "Initial Escrow Payment at Closing", lines: escrowLines }]
+        : []),
     ],
     subtotal: prepaidsSubtotal,
   };

@@ -235,6 +235,41 @@ test("Section H adds an elevation certificate only when purchase flow requires i
   );
 });
 
+test("turning escrows off preserves prepaids and removes only three-month reserves", () => {
+  const withEscrows = buildFeeWorksheet(inputs({ escrowsEnabled: true }));
+  const withoutEscrows = buildFeeWorksheet(inputs({ escrowsEnabled: false }));
+  const reserveTotal = Math.round(
+    (baseInputs.monthlyHOIns * 3 + baseInputs.monthlyTax * 3) * 100,
+  ) / 100;
+
+  const prepaidsGroup = (ws: FeeWorksheet) =>
+    ws.prepaids.groups?.find((group) => group.heading === "Prepaids");
+  assert.deepEqual(prepaidsGroup(withoutEscrows), prepaidsGroup(withEscrows));
+  assert.equal(
+    withoutEscrows.prepaids.groups?.some(
+      (group) => group.heading === "Initial Escrow Payment at Closing",
+    ),
+    false,
+  );
+  const currencyDifference = (withValue: number, withoutValue: number) =>
+    Math.round((withValue - withoutValue) * 100) / 100;
+  assert.equal(
+    currencyDifference(withEscrows.prepaids.subtotal, withoutEscrows.prepaids.subtotal),
+    reserveTotal,
+  );
+  assert.equal(
+    currencyDifference(withEscrows.totalClosingCosts, withoutEscrows.totalClosingCosts),
+    reserveTotal,
+  );
+  assert.equal(
+    currencyDifference(
+      withEscrows.fundsToClose.fundsFromBorrower,
+      withoutEscrows.fundsToClose.fundsFromBorrower,
+    ),
+    reserveTotal,
+  );
+});
+
 // ── 5. DSCR origination ─────────────────────────────────────────────
 
 test("DSCR 1% origination: in lender fees AND in prepaid finance charges (raises APR)", () => {

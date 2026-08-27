@@ -3554,6 +3554,7 @@ export default function Estimate() {
   // the numbers on screen. APR = note rate + prepaid finance charges
   // (origination/points, underwriting, processing-type fees, prepaid
   // interest) + the monthly MI stream, solved on the actual payment.
+  const [feeWorksheetEscrowsEnabled, setFeeWorksheetEscrowsEnabled] = useState(true);
   const feeWorksheet = useMemo(() => {
     if (inputs.purchasePrice <= 0 || calc.loanAmount <= 0 || calc.pi <= 0) return null;
     return buildFeeWorksheet({
@@ -3583,8 +3584,9 @@ export default function Estimate() {
       requiresElevationCertificate:
         inputs.propertyType === "Single Family Residence" &&
         floodData?.requiresFloodInsurance === true,
+      escrowsEnabled: feeWorksheetEscrowsEnabled,
     });
-  }, [inputs, calc, floodData?.requiresFloodInsurance]);
+  }, [inputs, calc, floodData?.requiresFloodInsurance, feeWorksheetEscrowsEnabled]);
   const aprPct = feeWorksheet?.aprPct ?? null;
   const [feeWorksheetOpen, setFeeWorksheetOpen] = useState(false);
 
@@ -6245,6 +6247,8 @@ export default function Estimate() {
         open={feeWorksheetOpen}
         onOpenChange={setFeeWorksheetOpen}
         worksheet={feeWorksheet}
+        escrowsEnabled={feeWorksheetEscrowsEnabled}
+        onEscrowsEnabledChange={setFeeWorksheetEscrowsEnabled}
         meta={
           feeWorksheet
             ? {
