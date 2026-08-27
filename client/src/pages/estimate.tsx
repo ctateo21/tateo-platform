@@ -2706,22 +2706,12 @@ export default function Estimate() {
     });
   }, [inputs.purchasePrice]);
 
-  // Re-derive the non-canonical down-payment field whenever the
-  // purchase price changes. The user's chosen mode is the source of
-  // truth: in "amount" mode we hold the dollar amount steady and
-  // recompute pct; in "percent" mode we hold the pct steady and
-  // recompute the dollar amount. This keeps Page 4 self-consistent
-  // when the user edits price after picking a down-payment mode.
+  // Purchase-price changes always preserve the selected down-payment
+  // percentage. The dollar amount changes with the price even when the
+  // control is currently displaying dollar mode.
   useEffect(() => {
     setInputs((p) => {
       if (p.purchasePrice <= 0) return p;
-      if (p.downPaymentMode === "amount" && p.downPaymentAmount != null) {
-        const maxAmt = Math.floor(p.purchasePrice * (MAX_DOWN_PAYMENT_PCT / 100));
-        const clampedAmt = Math.max(0, Math.min(p.downPaymentAmount, maxAmt));
-        const newPct = Math.round((clampedAmt / p.purchasePrice) * 10000) / 100;
-        if (clampedAmt === p.downPaymentAmount && newPct === p.downPaymentPct) return p;
-        return { ...p, downPaymentAmount: clampedAmt, downPaymentPct: newPct };
-      }
       const newAmt = Math.round(p.purchasePrice * (p.downPaymentPct / 100));
       if (newAmt === p.downPaymentAmount) return p;
       return { ...p, downPaymentAmount: newAmt };
@@ -3051,6 +3041,29 @@ export default function Estimate() {
           ? p.downPaymentAmount
           : Math.round(p.purchasePrice * (p.downPaymentPct / 100));
       return { ...p, downPaymentMode: mode, downPaymentAmount: amt };
+    });
+  }
+
+  function handlePurchasePriceChange(value: number) {
+    setInputs((p) => {
+      const previousPrice = p.purchasePrice;
+      const annualHOIns =
+        previousPrice > 0 && p.annualHOIns > 0
+          ? Math.round(p.annualHOIns * (value / previousPrice))
+          : calculateDefaultHomeownersInsurance(value).annualInsurance;
+      return {
+        ...p,
+        purchasePrice: value,
+        purchasePriceSource: "user",
+        downPaymentAmount: Math.round(value * (p.downPaymentPct / 100)),
+        annualTaxes: computePropertyTax(
+          address,
+          value,
+          p.occupancy,
+          p.vaDisabilityRating100,
+        ),
+        annualHOIns,
+      };
     });
   }
 
@@ -4842,12 +4855,7 @@ export default function Estimate() {
                   <SliderInput
                     label="Purchase Price"
                     value={inputs.purchasePrice}
-                    onChange={(v) => setInputs((p) => ({
-                      ...p,
-                      purchasePrice: v,
-                      purchasePriceSource: "user",
-                      annualTaxes: computePropertyTax(address, v, p.occupancy, p.vaDisabilityRating100),
-                    }))}
+                    onChange={handlePurchasePriceChange}
                     min={50000} max={3000000} step={5000}
                     prefix="$"
                   />
@@ -5582,7 +5590,7 @@ export default function Estimate() {
                 />
               )}
 
-              {/* Mortgage Section */}
+              {/* Combined purchase and mortgage summary */}
               <Card>
                 <CardHeader className="pb-2">
                   {/* Title + loan-type selector. Mirrors the Page 3
@@ -5597,7 +5605,7 @@ export default function Estimate() {
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <CardTitle className="text-base flex items-center gap-2 text-primary">
                       <Building2 className="h-4 w-4" />
-                      Mortgage
+                      Purchase &amp; Mortgage Summary
                       {/* Pop-up: full Initial Fees Worksheet / loan
                           estimate, itemized like a lender IFW. */}
                       {feeWorksheet && (
@@ -5673,7 +5681,12 @@ export default function Estimate() {
                     </div>
                   </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <Building2 className="h-4 w-4 text-primary" />
+                      Monthly Mortgage
+                    </h3>
                   <Row label="Principal & Interest" value={fmt(calc.pi)} sub="30 yr fixed" />
                   {/* Interest Rate disclosure under P&I. Single source
                       of truth: the rate already used by `calc.pi`.
@@ -5821,20 +5834,27 @@ export default function Estimate() {
                     <span className="text-sm font-semibold">Total Monthly Payment</span>
                     <span className="text-base font-bold text-primary">{fmt(calc.totalHousing)}</span>
                   </div>
+                  </div>
 
-                </CardContent>
-              </Card>
-
-              {/* Real Estate Section */}
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-base flex items-center gap-2 text-primary">
-                    <Home className="h-4 w-4" />
-                    Real Estate
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Row label="Purchase Price" value={fmt(inputs.purchasePrice)} />
+                  <div className="rounded-lg border bg-muted/20 p-3">
+                    <h3 className="mb-1 flex items-center gap-2 text-sm font-semibold text-foreground">
+                      <Home className="h-4 w-4 text-primary" />
+                      Purchase &amp; Closing
+                    </h3>
+                  <div className="py-2">
+                    <SliderInput
+                      label="Purchase Price"
+                      value={inputs.purchasePrice}
+                      onChange={handlePurchasePriceChange}
+                      min={50000}
+                      max={3000000}
+                      step={5000}
+                      prefix="$"
+                    />
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      Keeps your {inputs.downPaymentPct.toFixed(2)}% down payment and updates the loan, taxes, insurance, and closing estimate.
+                    </p>
+                  </div>
                   <Separator />
                   {/* Down Payment — interactive Percentage / Dollar Amount
                       toggle + slider, matching the Seller Concessions
@@ -5949,6 +5969,7 @@ export default function Estimate() {
                   <div className="flex justify-between items-center py-2">
                     <span className="text-sm font-semibold">Estimated Cash to Close</span>
                     <span className="text-base font-bold text-primary">{fmt(calc.cashToClose)}</span>
+                  </div>
                   </div>
                 </CardContent>
               </Card>
