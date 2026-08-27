@@ -48,7 +48,7 @@ function inputs(overrides: Partial<FeeWorksheetInputs> = {}): FeeWorksheetInputs
 }
 
 function allLines(ws: FeeWorksheet) {
-  const sections = [ws.lenderFees, ws.thirdPartyFees, ws.govFees, ws.prepaids, ws.monthlyHousing];
+  const sections = [ws.lenderFees, ws.thirdPartyFees, ws.govFees, ws.prepaids, ws.otherFees, ws.monthlyHousing];
   return sections.flatMap(s => [...s.lines, ...(s.groups ?? []).flatMap(g => g.lines)]);
 }
 
@@ -90,12 +90,13 @@ test("lender fixture: section subtotals and closing-cost totals are pinned", () 
   assert.equal(ws.thirdPartyFees.subtotal, 4179.78);
   assert.equal(ws.govFees.subtotal, 2061.05);
   assert.equal(ws.prepaids.subtotal, 7522.05);
-  assert.equal(ws.totalClosingCosts, 15012.88);
+  assert.equal(ws.otherFees.subtotal, 2090);
+  assert.equal(ws.totalClosingCosts, 17102.88);
   assert.equal(ws.prepaidFinanceCharges, 2231.3);
   // Internal consistency: sections must sum to the total.
   assert.equal(
     ws.totalClosingCosts,
-    Math.round((ws.lenderFees.subtotal + ws.thirdPartyFees.subtotal + ws.govFees.subtotal + ws.prepaids.subtotal) * 100) / 100,
+    Math.round((ws.lenderFees.subtotal + ws.thirdPartyFees.subtotal + ws.govFees.subtotal + ws.prepaids.subtotal + ws.otherFees.subtotal) * 100) / 100,
   );
 });
 
@@ -110,9 +111,9 @@ test("lender fixture: Florida statutory taxes (doc stamps + intangible)", () => 
 test("lender fixture: funds to close A − B arithmetic holds", () => {
   const ws = buildFeeWorksheet(inputs());
   const f = ws.fundsToClose;
-  assert.equal(f.fundsFromBorrower, 24912.88); // down payment 9,900 + closing costs 15,012.88
+  assert.equal(f.fundsFromBorrower, 27002.88); // down payment 9,900 + closing costs 17,102.88
   assert.equal(f.totalCredits, 9900); // seller credits, uncapped here (below eligible costs)
-  assert.equal(f.estimatedCash, 15012.88);
+  assert.equal(f.estimatedCash, 17102.88);
   assert.equal(f.estimatedCash, Math.round((f.fundsFromBorrower - f.totalCredits) * 100) / 100);
 });
 
@@ -207,6 +208,33 @@ test("VA financed funding fee: statutory taxes computed on the TOTAL financed am
   assert.ok(ws.aprPct > 6.25);
 });
 
+test("Section H includes the standard purchase other fees", () => {
+  const ws = buildFeeWorksheet(inputs());
+  assert.deepEqual(
+    ws.otherFees.lines.map((line) => [line.label, line.amount]),
+    [
+      ["Transaction Fee", 995],
+      ["Survey", 495],
+      ["Home Inspection", 600],
+    ],
+  );
+  assert.equal(ws.otherFees.subtotal, 2090);
+});
+
+test("Section H adds an elevation certificate only when purchase flow requires it", () => {
+  const required = buildFeeWorksheet(inputs({ requiresElevationCertificate: true }));
+  const notRequired = buildFeeWorksheet(inputs({ requiresElevationCertificate: false }));
+  assert.equal(findLine(required, "Elevation Certificate")?.amount, 795);
+  assert.equal(required.otherFees.subtotal, 2885);
+  assert.equal(findLine(notRequired, "Elevation Certificate"), undefined);
+  assert.equal(notRequired.otherFees.subtotal, 2090);
+  assert.equal(required.totalClosingCosts - notRequired.totalClosingCosts, 795);
+  assert.equal(
+    required.fundsToClose.fundsFromBorrower - notRequired.fundsToClose.fundsFromBorrower,
+    795,
+  );
+});
+
 // ── 5. DSCR origination ─────────────────────────────────────────────
 
 test("DSCR 1% origination: in lender fees AND in prepaid finance charges (raises APR)", () => {
@@ -226,7 +254,7 @@ test("DSCR 1% origination: in lender fees AND in prepaid finance charges (raises
 test("seller credits are capped at the worksheet's eligible closing costs", () => {
   const ws = buildFeeWorksheet(inputs({ sellerCredits: 1_000_000 }));
   const eligible = Math.round(
-    (ws.lenderFees.subtotal + ws.thirdPartyFees.subtotal + ws.govFees.subtotal + ws.prepaids.subtotal) * 100,
+    (ws.lenderFees.subtotal + ws.thirdPartyFees.subtotal + ws.govFees.subtotal + ws.prepaids.subtotal + ws.otherFees.subtotal) * 100,
   ) / 100;
   const applied = ws.fundsToClose.credits.find(c => c.label === "Seller Credits")!.amount;
   assert.equal(applied, eligible); // capped, never the raw 1,000,000

@@ -3580,8 +3580,11 @@ export default function Estimate() {
       sellerCredits: inputs.sellerConcessions ?? 0,
       dpaDownPaymentCredit: calc.dpaDownPaymentCredit,
       dpaClosingCostCredit: calc.dpaClosingCostCredit,
+      requiresElevationCertificate:
+        inputs.propertyType === "Single Family Residence" &&
+        floodData?.requiresFloodInsurance === true,
     });
-  }, [inputs, calc]);
+  }, [inputs, calc, floodData?.requiresFloodInsurance]);
   const aprPct = feeWorksheet?.aprPct ?? null;
   const [feeWorksheetOpen, setFeeWorksheetOpen] = useState(false);
 

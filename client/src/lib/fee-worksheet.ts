@@ -58,6 +58,8 @@ export interface FeeWorksheetInputs {
   dpaClosingCostCredit: number;
   creditScore?: number;
   occupancy?: string;
+  /** Purchase-only gate supplied by the purchase flow. */
+  requiresElevationCertificate?: boolean;
 }
 
 export interface FeeWorksheet {
@@ -65,6 +67,7 @@ export interface FeeWorksheet {
   thirdPartyFees: FeeSection;
   govFees: FeeSection;
   prepaids: FeeSection;
+  otherFees: FeeSection;
   monthlyHousing: FeeSection;
   totalMonthly: number;
   fundsToClose: {
@@ -266,6 +269,25 @@ export function buildFeeWorksheet(inp: FeeWorksheetInputs): FeeWorksheet {
     subtotal: prepaidsSubtotal,
   };
 
+  // ── Section H / Other ────────────────────────────────────────────
+  // These are purchase-transaction estimates, not prepaid finance
+  // charges. The elevation certificate is needed only when the purchase
+  // flow confirms both a detached single-family home and a FEMA flood
+  // zone that requires flood insurance.
+  const otherLines: FeeLine[] = [
+    { label: "Transaction Fee", amount: 995 },
+    { label: "Survey", amount: 495 },
+    ...(inp.requiresElevationCertificate
+      ? [{ label: "Elevation Certificate", amount: 795 }]
+      : []),
+    { label: "Home Inspection", amount: 600 },
+  ];
+  const otherFees: FeeSection = {
+    title: "Section H — Other",
+    lines: otherLines,
+    subtotal: r2(otherLines.reduce((sum, line) => sum + line.amount, 0)),
+  };
+
   // ── Monthly housing expense ──────────────────────────────────────
   const dpaSecondMonthly = inp.dpaSecondMonthly ?? 0;
   const monthlyLines: FeeLine[] = [
@@ -294,6 +316,7 @@ export function buildFeeWorksheet(inp: FeeWorksheetInputs): FeeWorksheet {
     { label: "Third Party Fees", amount: thirdPartyFees.subtotal },
     { label: "Taxes and Other Government Fees", amount: govFees.subtotal },
     { label: "Prepaids and Initial Escrow", amount: prepaidsSubtotal },
+    { label: "Section H — Other", amount: otherFees.subtotal },
   ];
   const fundsFromBorrower = r2(fundsLines.reduce((s, l) => s + l.amount, 0));
   // Cap seller concessions against THIS worksheet's eligible closing
@@ -302,7 +325,8 @@ export function buildFeeWorksheet(inp: FeeWorksheetInputs): FeeWorksheet {
   // against the itemized basis so A−B stays internally consistent.
   const worksheetEligibleCosts = r2(
     lenderFees.subtotal + thirdPartySubtotal +
-    govLines.reduce((s, l) => s + l.amount, 0) + prepaidsSubtotal,
+    govLines.reduce((s, l) => s + l.amount, 0) +
+    prepaidsSubtotal + otherFees.subtotal,
   );
   const sellerCreditsApplied = r2(Math.min(inp.sellerCredits, worksheetEligibleCosts));
   const credits: FeeLine[] = [
@@ -318,7 +342,8 @@ export function buildFeeWorksheet(inp: FeeWorksheetInputs): FeeWorksheet {
   const estimatedCash = r2(Math.max(0, fundsFromBorrower - totalCredits));
 
   const totalClosingCosts = r2(
-    lenderFees.subtotal + thirdPartyFees.subtotal + govFees.subtotal + prepaidsSubtotal,
+    lenderFees.subtotal + thirdPartyFees.subtotal + govFees.subtotal +
+    prepaidsSubtotal + otherFees.subtotal,
   );
 
   // ── APR ──────────────────────────────────────────────────────────
@@ -351,7 +376,7 @@ export function buildFeeWorksheet(inp: FeeWorksheetInputs): FeeWorksheet {
   });
 
   return {
-    lenderFees, thirdPartyFees, govFees, prepaids, monthlyHousing,
+    lenderFees, thirdPartyFees, govFees, prepaids, otherFees, monthlyHousing,
     totalMonthly,
     fundsToClose: { lines: fundsLines, fundsFromBorrower, credits, totalCredits, estimatedCash },
     totalClosingCosts,

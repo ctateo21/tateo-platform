@@ -9,7 +9,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
-import { FileText } from "lucide-react";
+import { CalendarClock, FileText } from "lucide-react";
 import type { FeeWorksheet, FeeSection, FeeLine } from "@/lib/fee-worksheet";
 import { money } from "@/lib/fee-worksheet";
 import { PURCHASE_LENDER_INFO } from "@/lib/lender-info";
@@ -72,6 +72,20 @@ export function FeeWorksheetDialog({
   if (!worksheet || !meta) return null;
   const fmt0 = (n: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+  const earnestMoneyEstimate = Math.round(meta.purchasePrice * 0.01);
+  const inspectionFee =
+    worksheet.otherFees.lines.find((line) => line.label === "Home Inspection")?.amount ?? 600;
+  const appraisalFee =
+    worksheet.thirdPartyFees.groups
+      ?.flatMap((group) => group.lines)
+      .find((line) => line.label === "Appraisal Fee")?.amount ?? 595;
+  const isVaLoan = /\bVA\b/i.test(meta.loanTypeLabel);
+  const estimatedPaidBeforeClosing =
+    earnestMoneyEstimate + inspectionFee + (isVaLoan ? 0 : appraisalFee);
+  const estimatedClosingDayRemainder = Math.max(
+    0,
+    worksheet.fundsToClose.estimatedCash - estimatedPaidBeforeClosing,
+  );
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-fee-worksheet">
@@ -156,6 +170,8 @@ export function FeeWorksheetDialog({
           </div>
         </div>
 
+        <SectionBlock section={worksheet.otherFees} />
+
         <div className="grid sm:grid-cols-2 gap-3">
           {/* Monthly housing expense */}
           <div className="rounded-md border p-3">
@@ -195,6 +211,71 @@ export function FeeWorksheetDialog({
               <span className="text-xs font-bold">Estimated Cash from Borrower (A − B)</span>
               <span className="text-sm font-bold tabular-nums text-primary">{money(worksheet.fundsToClose.estimatedCash)}</span>
             </div>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-primary/20 bg-primary/5 p-4">
+          <div className="mb-3 flex items-start gap-2">
+            <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+            <div>
+              <h4 className="text-sm font-bold text-primary">When You May Need Money During the Transaction</h4>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                Buying a home usually requires several smaller payments before closing—not one surprise payment at the end.
+                The timing and actual amounts depend on your contract and service providers.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-3 border-l-2 border-primary/20 pl-4">
+            <div>
+              <p className="text-xs font-bold">1. Within 3 days of going under contract</p>
+              <p className="text-xs text-foreground">
+                Earnest Money Deposit (estimated at 1%): <strong>{money(earnestMoneyEstimate)}</strong>
+              </p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                An EMD is required to secure the contract regardless of the negotiated amount. It is not an extra fee—it is
+                credited toward your down payment and closing costs.
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-bold">2. During the first 7 days</p>
+              <p className="text-xs text-foreground">
+                Home inspection: typically $500–$1,000 based on the home’s size; this estimate uses <strong>{money(inspectionFee)}</strong>.
+              </p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                This is usually paid directly to the inspector and is already included in Section H above, so it reduces the
+                amount still needed at closing rather than adding to it.
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-bold">3. After the inspection period</p>
+              <p className="text-xs text-foreground">
+                Appraisal: approximately <strong>{money(appraisalFee)}</strong>
+              </p>
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
+                {isVaLoan
+                  ? "For this VA loan estimate, the appraisal is not shown as an upfront payment. VA covers it initially and the borrower pays it back as part of the transaction."
+                  : "This is commonly paid when the appraisal is ordered and is already included in the Third Party Fees above."}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-bold">4. Closing day or the day before</p>
+              <div className="mt-1 flex items-baseline justify-between gap-3 rounded border bg-background/80 px-3 py-2">
+                <span className="text-xs font-semibold">Estimated remaining amount due</span>
+                <span className="text-sm font-bold tabular-nums text-primary">{money(estimatedClosingDayRemainder)}</span>
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                This is the estimated cash from borrower above, less the estimated 1% EMD and costs typically paid earlier.
+                Transaction, survey, title, prepaid, escrow, and any applicable elevation-certificate costs are reflected in
+                the worksheet and are generally settled from the remaining funds.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded border bg-background/70 p-3 text-[11px] leading-relaxed text-muted-foreground">
+            <strong className="text-foreground">Plan ahead:</strong> keep funds available from contract through closing.
+            Before sending money, confirm the exact amount, deadline, and wiring instructions with your lender, title company,
+            or closing agent. Never rely on emailed wiring changes without independently verifying them.
           </div>
         </div>
 
