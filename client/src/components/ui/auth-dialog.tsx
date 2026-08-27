@@ -31,9 +31,21 @@ interface AuthDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   defaultTab?: "signin" | "register";
+  /** Called after auth succeeds and the in-memory session is ready. Useful
+   *  for replaying a protected action without racing the dialog close. */
+  onAuthenticated?: () => void;
+  /** Most registrations go to the dashboard. Protected inline actions stay
+   *  on the current page so their queued action can finish. */
+  redirectAfterRegister?: boolean;
 }
 
-export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }: AuthDialogProps) {
+export default function AuthDialog({
+  open,
+  onOpenChange,
+  defaultTab = "signin",
+  onAuthenticated,
+  redirectAfterRegister = true,
+}: AuthDialogProps) {
   const { refresh } = useAuth();
   const [, setLocation] = useLocation();
 
@@ -91,6 +103,7 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     setSiLoading(false);
     if (!result.ok) { setSiError(result.error || "Login failed."); return; }
     refresh();
+    onAuthenticated?.();
     handleOpenChange(false);
     // reset
     setSiEmail(""); setSiPassword("");
@@ -124,12 +137,13 @@ export default function AuthDialog({ open, onOpenChange, defaultTab = "signin" }
     if (!result.ok) { setRegError(result.error || "Registration failed."); return; }
     posthog.capture("account_created");
     refresh();
+    onAuthenticated?.();
     handleOpenChange(false);
     // reset
     setRegName(""); setRegEmail(""); setRegPhone(""); setRegDateOfBirth(""); setRegPassword(""); setRegConfirm("");
     // Free access — no payment step. Drop the new user straight into their
     // dashboard so they can start running quotes right away.
-    setLocation("/dashboard");
+    if (redirectAfterRegister) setLocation("/dashboard");
   }
 
   async function handleForgot(e: React.FormEvent) {

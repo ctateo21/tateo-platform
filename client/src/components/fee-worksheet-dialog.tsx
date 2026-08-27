@@ -1,6 +1,7 @@
 // Initial Fees Worksheet popup — modeled on a lender "Initial Fees
 // Worksheet / Loan Estimate". Rendered from the shared fee-worksheet
 // model so every figure stays in lockstep with the estimate page calc.
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,10 +11,18 @@ import {
 } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { CalendarClock, FileText } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { CalendarClock, Download, FileText, Loader2, Save, Share2 } from "lucide-react";
 import type { FeeWorksheet, FeeSection, FeeLine } from "@/lib/fee-worksheet";
 import { money } from "@/lib/fee-worksheet";
-import { PURCHASE_LENDER_INFO } from "@/lib/lender-info";
+import {
+  resolvePurchaseLenderInfo,
+  type PurchaseLenderInfo,
+} from "@/lib/lender-info";
+import { useAuth } from "@/context/auth-context";
+import { useToast } from "@/hooks/use-toast";
+import AuthDialog from "@/components/ui/auth-dialog";
+import { getSession } from "@/lib/auth";
 
 function LineRow({ line, indent }: { line: FeeLine; indent?: boolean }) {
   return (
@@ -59,6 +68,26 @@ export interface FeeWorksheetMeta {
   occupancyLabel?: string;
 }
 
+export type IfwActivityAction = "save" | "download" | "share";
+
+interface PendingIfwAction {
+  action: IfwActivityAction;
+  save?: () => void | Promise<void>;
+  createPdfFile?: (lenderInfo: PurchaseLenderInfo) => File | null;
+  notify?: (action: IfwActivityAction) => void | Promise<void>;
+}
+
+function downloadFile(file: File): void {
+  const url = URL.createObjectURL(file);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = file.name;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
 export function FeeWorksheetDialog({
   open,
   onOpenChange,
@@ -67,6 +96,10 @@ export function FeeWorksheetDialog({
   escrowsEnabled,
   onEscrowsEnabledChange,
   escrowsRequired,
+  lenderInfo,
+  onSave,
+  createPdfFile,
+  onActivity,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -75,7 +108,112 @@ export function FeeWorksheetDialog({
   escrowsEnabled: boolean;
   onEscrowsEnabledChange: (enabled: boolean) => void;
   escrowsRequired: boolean;
+  lenderInfo: PurchaseLenderInfo;
+  onSave?: () => void | Promise<void>;
+  createPdfFile?: (lenderInfo: PurchaseLenderInfo) => File | null;
+  onActivity?: (action: IfwActivityAction) => void | Promise<void>;
 }) {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [authOpen, setAuthOpen] = useState(false);
+  const [workingAction, setWorkingAction] = useState<IfwActivityAction | null>(null);
+  const pendingActionRef = useRef<PendingIfwAction | null>(null);
+
+  const runAction = async (
+    pending: PendingIfwAction,
+    currentLenderInfo: PurchaseLenderInfo,
+  ) => {
+    setWorkingAction(pending.action);
+    try {
+      if (pending.action === "save") {
+        await pending.save?.();
+        void pending.notify?.("save");
+        toast({
+          title: "IFW saved",
+          description: "This purchase scenario is saved to your dashboard.",
+        });
+        return;
+      }
+
+      const file = pending.createPdfFile?.(currentLenderInfo);
+      if (!file) throw new Error("Add a property address and loan details before creating the IFW.");
+
+      if (pending.action === "download") {
+        downloadFile(file);
+        void pending.notify?.("download");
+        toast({
+          title: "IFW downloaded",
+          description: "Your Initial Fees Worksheet PDF is ready.",
+        });
+        return;
+      }
+
+      const shareData = {
+        files: [file],
+        title: "Initial Fees Worksheet",
+        text: meta?.address ? `Initial Fees Worksheet for ${meta.address}` : "Initial Fees Worksheet",
+      };
+      if (
+        typeof navigator.share === "function" &&
+        (typeof navigator.canShare !== "function" || navigator.canShare(shareData))
+      ) {
+        try {
+          await navigator.share(shareData);
+          void pending.notify?.("share");
+          return;
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") return;
+          // Browsers can expose Web Share but reject it after an async sign-in
+          // because the original user gesture expired. Preserve the selected
+          // action by falling back to a downloaded attachment.
+          if (!(error instanceof DOMException && error.name === "NotAllowedError")) throw error;
+        }
+      }
+
+      downloadFile(file);
+      void pending.notify?.("share");
+      toast({
+        title: "IFW downloaded for sharing",
+        description: "Direct file sharing is not available in this browser. Attach the downloaded PDF to your message.",
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      toast({
+        title: `${pending.action === "save" ? "Save" : pending.action === "share" ? "Share" : "Download"} failed`,
+        description: error instanceof Error ? error.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setWorkingAction(null);
+    }
+  };
+
+  const handleAction = (action: IfwActivityAction) => {
+    const pending: PendingIfwAction = {
+      action,
+      save: onSave,
+      createPdfFile,
+      notify: onActivity,
+    };
+    if (!user) {
+      pendingActionRef.current = pending;
+      setAuthOpen(true);
+      return;
+    }
+    void runAction(pending, lenderInfo);
+  };
+
+  useEffect(() => {
+    if (!user || !pendingActionRef.current) return;
+    const pending = pendingActionRef.current;
+    pendingActionRef.current = null;
+    setAuthOpen(false);
+    void runAction(pending, resolvePurchaseLenderInfo(user));
+    // Run only when authentication changes; the pending object snapshots
+    // the exact IFW callbacks from the guest's click.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
   if (!worksheet || !meta) return null;
   const fmt0 = (n: number) =>
     new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
@@ -94,8 +232,9 @@ export function FeeWorksheetDialog({
     worksheet.fundsToClose.estimatedCash - estimatedPaidBeforeClosing,
   );
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-fee-worksheet">
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" data-testid="dialog-fee-worksheet">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-primary">
             <FileText className="h-5 w-5" />
@@ -111,19 +250,19 @@ export function FeeWorksheetDialog({
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Lender
             </p>
-            <p className="font-bold text-foreground">{PURCHASE_LENDER_INFO.companyName}</p>
-            <p className="text-muted-foreground">NMLS #{PURCHASE_LENDER_INFO.companyNmls}</p>
-            <p className="mt-1 text-muted-foreground">{PURCHASE_LENDER_INFO.addressLine1}</p>
-            <p className="text-muted-foreground">{PURCHASE_LENDER_INFO.addressLine2}</p>
+            <p className="font-bold text-foreground">{lenderInfo.companyName}</p>
+            <p className="text-muted-foreground">NMLS #{lenderInfo.companyNmls}</p>
+            <p className="mt-1 text-muted-foreground">{lenderInfo.addressLine1}</p>
+            <p className="text-muted-foreground">{lenderInfo.addressLine2}</p>
           </div>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
               Loan Officer
             </p>
-            <p className="font-bold text-foreground">{PURCHASE_LENDER_INFO.loanOfficerName}</p>
-            <p className="text-muted-foreground">{PURCHASE_LENDER_INFO.loanOfficerTitle}</p>
+            <p className="font-bold text-foreground">{lenderInfo.loanOfficerName}</p>
+            <p className="text-muted-foreground">{lenderInfo.loanOfficerTitle}</p>
             <p className="text-muted-foreground">
-              Individual MLO NMLS #{PURCHASE_LENDER_INFO.loanOfficerNmls}
+              Individual MLO NMLS #{lenderInfo.loanOfficerNmls}
             </p>
           </div>
         </div>
@@ -316,7 +455,61 @@ export function FeeWorksheetDialog({
           plus the interest rate itself. Until you lock your rate, APR and terms are subject to change or may not be
           available at commitment or closing.
         </p>
-      </DialogContent>
-    </Dialog>
+
+        <div className="sticky bottom-0 -mx-6 -mb-6 border-t bg-background/95 px-6 py-4 backdrop-blur">
+          <p className="mb-3 text-center text-[11px] text-muted-foreground">
+            An account is required to save, download, or share this worksheet.
+          </p>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={workingAction !== null}
+              onClick={() => handleAction("save")}
+              data-testid="button-ifw-save"
+            >
+              {workingAction === "save" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Save IFW
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={workingAction !== null}
+              onClick={() => handleAction("download")}
+              data-testid="button-ifw-download"
+            >
+              {workingAction === "download" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Download PDF
+            </Button>
+            <Button
+              className="gap-2"
+              disabled={workingAction !== null}
+              onClick={() => handleAction("share")}
+              data-testid="button-ifw-share"
+            >
+              {workingAction === "share" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />}
+              Share IFW
+            </Button>
+          </div>
+        </div>
+        </DialogContent>
+      </Dialog>
+      <AuthDialog
+        open={authOpen}
+        onOpenChange={(next) => {
+          if (!next && !getSession()) pendingActionRef.current = null;
+          setAuthOpen(next);
+        }}
+        onAuthenticated={() => {
+          const pending = pendingActionRef.current;
+          const sessionUser = getSession();
+          if (!pending || !sessionUser) return;
+          pendingActionRef.current = null;
+          void runAction(pending, resolvePurchaseLenderInfo(sessionUser));
+        }}
+        redirectAfterRegister={false}
+        defaultTab="register"
+      />
+    </>
   );
 }

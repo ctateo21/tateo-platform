@@ -2020,6 +2020,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "Christian Tateo": 1,
     "Omar Andujar":    2,
     "Kyle Schweinitz": 5,
+    "Alex Szabo":      6,
+    "Sandor Szabo":    6,
+    "Sandor “Alex” Szabo": 6,
     "Team":            1,
   };
 
@@ -2221,6 +2224,152 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     return { ok: noteAdded, noteAdded, personId, skipped: false, error: noteError };
   }
+
+  // IFW actions are product analytics/agent-notification events rather than
+  // worksheet persistence. Keep the submitted context deliberately small: a
+  // client must never be able to nominate the user or agent for an event.
+  const ifwActivitySchema = z.object({
+    action: z.enum(["save", "download", "share"]),
+    address: z.string().trim().min(1).max(500),
+    summary: z.object({
+      price: z.number().finite().nonnegative().max(100_000_000).optional(),
+      downPayment: z.number().finite().nonnegative().max(100_000_000).optional(),
+      loanAmount: z.number().finite().nonnegative().max(100_000_000).optional(),
+      monthlyPayment: z.number().finite().nonnegative().max(1_000_000).optional(),
+      cashToClose: z.number().finite().nonnegative().max(100_000_000).optional(),
+      notes: z.string().trim().min(1).max(280).optional(),
+    }).strict().optional(),
+  });
+
+  const ifwActivityHits = new Map<string, number[]>();
+  const ifwActivitySeen = new Map<string, number>();
+  const IFW_ACTIVITY_WINDOW_MS = 60_000;
+  const IFW_ACTIVITY_MAX_PER_MINUTE = 12;
+
+  function ifwActivityRateLimited(userId: string, now: number): boolean {
+    const recentHits = (ifwActivityHits.get(userId) ?? []).filter(
+      hit => now - hit < IFW_ACTIVITY_WINDOW_MS,
+    );
+    if (recentHits.length >= IFW_ACTIVITY_MAX_PER_MINUTE) {
+      ifwActivityHits.set(userId, recentHits);
+      return true;
+    }
+    recentHits.push(now);
+    ifwActivityHits.set(userId, recentHits);
+    return false;
+  }
+
+  function formatIfwSummary(
+    summary: z.infer<typeof ifwActivitySchema>["summary"],
+  ): string {
+    if (!summary) return "";
+    const currency = (value: number) =>
+      value.toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+      });
+    const lines = [
+      summary.price !== undefined && `Price: ${currency(summary.price)}`,
+      summary.downPayment !== undefined &&
+        `Down payment: ${currency(summary.downPayment)}`,
+      summary.loanAmount !== undefined &&
+        `Loan amount: ${currency(summary.loanAmount)}`,
+      summary.monthlyPayment !== undefined &&
+        `Monthly payment: ${currency(summary.monthlyPayment)}`,
+      summary.cashToClose !== undefined &&
+        `Cash to close: ${currency(summary.cashToClose)}`,
+      summary.notes && `Notes: ${summary.notes}`,
+    ].filter((line): line is string => Boolean(line));
+    return lines.join("\n");
+  }
+
+  // POST /api/ifw/activity
+  // Records save/download/share intent for the authenticated user's assigned
+  // agent. FUB is intentionally best-effort so an outage cannot break a
+  // worksheet action in the browser.
+  app.post("/api/ifw/activity", async (req, res) => {
+    try {
+      const user = await optionalUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "Sign in required" });
+      }
+
+      const input = ifwActivitySchema.parse(req.body);
+      const now = Date.now();
+      const addressKey = normalizeAddr(input.address);
+      const dedupeKey = `${user.id}:${input.action}:${addressKey}`;
+
+      // Check duplicates before consuming the per-user budget. This makes
+      // double-clicks safe without punishing the signed-in user.
+      const seenAt = ifwActivitySeen.get(dedupeKey);
+      if (seenAt && now - seenAt < IFW_ACTIVITY_WINDOW_MS) {
+        return res.json({ ok: true, deduped: true });
+      }
+      if (ifwActivityRateLimited(user.id, now)) {
+        return res.status(429).json({
+          error: "Too many worksheet actions. Please wait a moment.",
+        });
+      }
+
+      ifwActivitySeen.set(dedupeKey, now);
+      for (const [key, timestamp] of ifwActivitySeen) {
+        if (now - timestamp >= IFW_ACTIVITY_WINDOW_MS) ifwActivitySeen.delete(key);
+      }
+
+      // Identity and the account's saved agent choice come from the verified
+      // auth record/profile, never from this request body. Validate the saved
+      // choice against the server's FUB allowlist before routing.
+      const { data: profile } = supabaseAdmin
+        ? await supabaseAdmin
+            .from("profiles")
+            .select("name,phone,agent")
+            .eq("id", user.id)
+            .maybeSingle()
+        : { data: null };
+      const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
+      const email = String(user.email ?? "").trim();
+      const name = String(profile?.name ?? metadata.name ?? "").trim();
+      const nameParts = name.split(/\s+/).filter(Boolean);
+      const savedAgent = String(profile?.agent ?? metadata.agent ?? "").trim();
+      const assignedAgent = Object.prototype.hasOwnProperty.call(FUB_AGENT_IDS, savedAgent)
+        ? savedAgent
+        : "Team";
+      const actionLabel: Record<z.infer<typeof ifwActivitySchema>["action"], string> = {
+        save: "saved",
+        download: "downloaded",
+        share: "shared",
+      };
+      const summary = formatIfwSummary(input.summary);
+
+      if (email) {
+        createFollowUpBossContact({
+          firstName: nameParts[0] ?? email.split("@")[0] ?? "Havo",
+          lastName: nameParts.slice(1).join(" ") || "Lead",
+          email,
+          phone: String(profile?.phone ?? metadata.phone ?? ""),
+          address: input.address,
+          agent: assignedAgent,
+          messageHeader: `Customer ${actionLabel[input.action]} an IFW worksheet`,
+          scenarioDetails:
+            `The customer ${actionLabel[input.action]} their IFW worksheet for ${input.address}.` +
+            (summary ? `\nWorksheet summary:\n${summary}` : ""),
+        }).catch(error =>
+          console.error("[FUB] IFW activity delivery failed:", error?.message ?? error),
+        );
+      } else {
+        console.warn("[FUB] IFW activity skipped: verified user has no email");
+      }
+
+      return res.json({ ok: true, deduped: false });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid worksheet activity" });
+      }
+      console.error("[IFW] activity processing failed:", error);
+      return res.status(500).json({ error: "Worksheet activity could not be recorded" });
+    }
+  });
 
   // Simple per-IP rate limiter for the notify endpoint (max 10/min per IP)
   const _notifyHits = new Map<string, number[]>();

@@ -4,7 +4,15 @@ import { buildScenarioFileName } from "@/lib/scenario-pdf";
 import { estimateAnnualTax, getCountyTaxLink, getCountyName } from "@/lib/county-tax-estimator";
 import { getConventionalAmiRateDiscount } from "@/lib/ami-discount";
 import { buildFeeWorksheet, money as feeMoney, type FeeSection } from "@/lib/fee-worksheet";
-import { PURCHASE_LENDER_INFO } from "@/lib/lender-info";
+import {
+  resolvePurchaseLenderInfo,
+  type PurchaseLenderInfo,
+} from "@/lib/lender-info";
+import {
+  buildInitialFeesWorksheetFileName,
+  createInitialFeesWorksheetPdfBlob,
+  type InitialFeesWorksheetPdfMeta,
+} from "@/lib/ifw-pdf";
 import { checkLoanLimit, canDowngradeFromJumbo, CONFORMING_LOAN_LIMIT_2026, FHA_FLOOR_LIMIT_2026 } from "@/lib/loan-limits";
 import { FeeWorksheetDialog } from "@/components/fee-worksheet-dialog";
 import { useQuery } from "@tanstack/react-query";
@@ -44,7 +52,6 @@ import {
   Shield,
   UserCheck,
   ArrowLeft,
-  Share2,
   Save,
   TrendingUp,
   TrendingDown,
@@ -56,7 +63,6 @@ import {
   MapPin,
   Plus,
   X,
-  Mail,
   FileDown,
   Info,
   AlertTriangle,
@@ -942,6 +948,10 @@ export default function Estimate() {
   // which is what caused the lead-capture dialog (with "Who are you working
   // with?") to re-appear when adding a new property estimate.
   const { user: authUser } = useAuth();
+  const purchaseLenderInfo = useMemo(
+    () => resolvePurchaseLenderInfo(authUser),
+    [authUser?.email, authUser?.name],
+  );
   // Local-only flag for guests who completed the lead-capture flow but did
   // not create a real account. Persisted across reloads via localStorage.
   const [leadUnlocked, setLeadUnlocked] = useState(() =>
@@ -1620,7 +1630,6 @@ export default function Estimate() {
     posthog.capture("scenario_calculated", { type: "purchase" });
   }, [step, activeScenarioId]);
   const [answersOpen, setAnswersOpen] = useState(false);
-  const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   function generateEstimatePDF() {
     const doc = new jsPDF({ unit: "pt", format: "letter" });
@@ -1866,19 +1875,19 @@ export default function Estimate() {
       doc.setFontSize(9);
       doc.setFont("helvetica", "bold");
       doc.setTextColor(30, 30, 30);
-      doc.text(PURCHASE_LENDER_INFO.companyName, margin, y + 6);
-      doc.text(PURCHASE_LENDER_INFO.loanOfficerName, W / 2, y + 6);
+      doc.text(purchaseLenderInfo.companyName, margin, y + 6);
+      doc.text(purchaseLenderInfo.loanOfficerName, W / 2, y + 6);
       y += 12;
       doc.setFontSize(8);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(90, 90, 90);
-      doc.text(`Company NMLS #${PURCHASE_LENDER_INFO.companyNmls}`, margin, y + 6);
-      doc.text(PURCHASE_LENDER_INFO.loanOfficerTitle, W / 2, y + 6);
+      doc.text(`Company NMLS #${purchaseLenderInfo.companyNmls}`, margin, y + 6);
+      doc.text(purchaseLenderInfo.loanOfficerTitle, W / 2, y + 6);
       y += 11;
-      doc.text(PURCHASE_LENDER_INFO.addressLine1, margin, y + 6);
-      doc.text(`Individual MLO NMLS #${PURCHASE_LENDER_INFO.loanOfficerNmls}`, W / 2, y + 6);
+      doc.text(purchaseLenderInfo.addressLine1, margin, y + 6);
+      doc.text(`Individual MLO NMLS #${purchaseLenderInfo.loanOfficerNmls}`, W / 2, y + 6);
       y += 11;
-      doc.text(PURCHASE_LENDER_INFO.addressLine2, margin, y + 6);
+      doc.text(purchaseLenderInfo.addressLine2, margin, y + 6);
       y += 16;
       doc.setFontSize(8.5);
       doc.setFont("helvetica", "italic");
@@ -3792,8 +3801,148 @@ export default function Estimate() {
     calc.maxTotalDti === Infinity || calc.dti <= calc.maxTotalDti;
   const withinLoanRatioLimits = housingRatioWithinMax && totalRatioWithinMax;
   const aprPct = feeWorksheet?.aprPct ?? null;
+  const feeWorksheetMeta = useMemo<InitialFeesWorksheetPdfMeta | null>(() => {
+    if (!feeWorksheet) return null;
+    return {
+      address: address && address !== "Unknown Address" ? address : undefined,
+      purchasePrice: inputs.purchasePrice,
+      loanAmount: calc.loanAmount,
+      loanTypeLabel:
+        inputs.loanType === "conventional" ? "Conventional"
+        : inputs.loanType === "jumbo" ? "Jumbo"
+        : inputs.loanType === "fha" ? "FHA"
+        : inputs.loanType === "va" ? "VA"
+        : inputs.loanType === "usda" ? "USDA"
+        : inputs.loanType === "dscr" ? "DSCR"
+        : inputs.loanType.toUpperCase(),
+      ratePct: calc.finalRate,
+      aprPct: feeWorksheet.aprPct,
+      occupancyLabel:
+        inputs.occupancy === "primary" ? "Primary Residence"
+        : inputs.occupancy === "secondary" ? "Second Home"
+        : inputs.occupancy === "investment" ? "Investment"
+        : undefined,
+    };
+  }, [address, calc.finalRate, calc.loanAmount, feeWorksheet, inputs.loanType, inputs.occupancy, inputs.purchasePrice]);
+  const currentPurchaseScenarioSnapshot = useMemo(() => ({
+    address,
+    price: inputs.purchasePrice,
+    monthlyPayment: Math.round(calc.totalHousing),
+    cashToClose: Math.round(calc.cashToClose),
+    dti: calc.dti,
+    qualifies: calc.qualifies,
+    downPaymentPct: inputs.downPaymentPct,
+    downPaymentMode: inputs.downPaymentMode ?? "percent",
+    downPaymentAmount:
+      inputs.downPaymentAmount ??
+      Math.round(inputs.purchasePrice * (inputs.downPaymentPct / 100)),
+    interestRate: inputs.interestRate,
+    loanType: inputs.loanType,
+    propertyType: inputs.propertyType,
+    propertyTypeSource: inputs.propertyTypeSource,
+    occupancyType: inputs.occupancy,
+    monthlyIncome: inputs.monthlyIncome,
+    monthlyIncomeSource: inputs.monthlyIncomeSource ?? "default",
+    monthlyDebts: inputs.monthlyDebts,
+    creditScore: inputs.creditScore,
+    reserves: inputs.reserves,
+    isVeteran: inputs.isVeteran,
+    vaDisability: inputs.vaDisability,
+    vaDisabilityRating100: inputs.vaDisabilityRating100,
+    vaLoanUse: inputs.vaLoanUse,
+    hasMortgage: inputs.hasMortgage,
+    currentLoanFHA: inputs.currentLoanFHA,
+    hasRentalIncome: inputs.hasRentalIncome,
+    monthlyRentalIncome: inputs.monthlyRentalIncome,
+    rentalType: inputs.rentalType,
+    sellerConcessions: inputs.sellerConcessions,
+    sellerConcessionsMode: inputs.sellerConcessionsMode ?? "percent",
+    annualTaxes: inputs.annualTaxes,
+    annualHOIns: inputs.annualHOIns,
+    annualFloodIns: inputs.annualFloodIns,
+    hoaMonthly: inputs.hoaMonthly,
+    cddAnnual: inputs.cddAnnual,
+    impactWindows: inputs.impactWindows,
+    roofAttachment: inputs.roofAttachment,
+    swr: inputs.swr,
+    userAnswerSources: inputs.userAnswerSources,
+    hasDeferredStudentLoans: inputs.hasDeferredStudentLoans ?? false,
+    deferredStudentLoanBalance: inputs.deferredStudentLoanBalance ?? 0,
+    discountPointsPct: calc.discountPointsPct,
+    discountPointsCost: calc.discountPointsCost,
+    discountPointsRateReduction: calc.discountPointsRateReduction,
+    rateBeforeDiscountPoints: calc.rateBeforeDiscountPoints,
+    rateAfterDiscountPoints: calc.rateAfterDiscountPoints,
+  }), [address, calc, inputs]);
   const [feeWorksheetOpen, setFeeWorksheetOpen] = useState(false);
   const [openingLiveQuote, setOpeningLiveQuote] = useState(false);
+
+  function createIfwPdfFile(lenderInfo: PurchaseLenderInfo): File | null {
+    if (!feeWorksheet || !feeWorksheetMeta?.address) return null;
+    const blob = createInitialFeesWorksheetPdfBlob({
+      worksheet: feeWorksheet,
+      meta: feeWorksheetMeta,
+      lenderInfo,
+    });
+    return new File(
+      [blob],
+      buildInitialFeesWorksheetFileName(feeWorksheetMeta.address),
+      { type: "application/pdf" },
+    );
+  }
+
+  function saveCurrentIfwScenario(): void {
+    if (!getSession()) throw new Error("Please sign in before saving this worksheet.");
+    if (!address || address === "Unknown Address") throw new Error("Add a property address before saving this worksheet.");
+    const existing = getPurchaseScenarios();
+    const key = address.trim().toLowerCase();
+    const index = existing.findIndex((scenario) => scenario.address.trim().toLowerCase() === key);
+    const now = new Date().toISOString();
+    if (index >= 0) {
+      const updated = [...existing];
+      updated[index] = {
+        ...updated[index],
+        ...currentPurchaseScenarioSnapshot,
+        savedAt: updated[index].savedAt || now,
+      };
+      savePurchaseScenarios(updated);
+    } else {
+      savePurchaseScenarios([
+        ...existing,
+        {
+          id: activeScenarioIdRef.current || `sc_${Date.now()}`,
+          savedAt: now,
+          ...currentPurchaseScenarioSnapshot,
+        },
+      ]);
+    }
+    posthog.capture("scenario_saved", { type: "purchase", source: "ifw" });
+  }
+
+  function notifyIfwActivity(action: "save" | "download" | "share"): void {
+    if (!feeWorksheet || !feeWorksheetMeta?.address) return;
+    void authedFetch("/api/ifw/activity", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({
+        action,
+        address: feeWorksheetMeta.address,
+        summary: {
+          price: feeWorksheetMeta.purchasePrice,
+          downPayment: calc.downPaymentAmt,
+          loanAmount: feeWorksheetMeta.loanAmount,
+          monthlyPayment: feeWorksheet.totalMonthly,
+          cashToClose: feeWorksheet.fundsToClose.estimatedCash,
+          notes: `${feeWorksheetMeta.loanTypeLabel} at ${feeWorksheetMeta.ratePct.toFixed(3)}% (APR ${feeWorksheetMeta.aprPct.toFixed(3)}%)`,
+        },
+      }),
+    }).then((response) => {
+      if (!response.ok) console.warn("[ifw-activity] notification failed:", response.status);
+    }).catch((error) => {
+      console.warn("[ifw-activity] notification failed:", error);
+    });
+  }
 
   const handleGetLiveInsuranceQuote = async () => {
     if (openingLiveQuote) return;
@@ -3903,74 +4052,7 @@ export default function Estimate() {
         const existing = getPurchaseScenarios();
         const key = address.trim().toLowerCase();
         const idx = existing.findIndex(s => s.address.trim().toLowerCase() === key);
-        const next = {
-          address,
-          price: inputs.purchasePrice,
-          monthlyPayment: Math.round(calc.totalHousing),
-          cashToClose: Math.round(calc.cashToClose),
-          dti: calc.dti,
-          qualifies: calc.qualifies,
-          downPaymentPct: inputs.downPaymentPct,
-          downPaymentMode: inputs.downPaymentMode ?? "percent",
-          downPaymentAmount:
-            inputs.downPaymentAmount ??
-            Math.round(inputs.purchasePrice * (inputs.downPaymentPct / 100)),
-          interestRate: inputs.interestRate,
-          loanType: inputs.loanType,
-          propertyType: inputs.propertyType,
-          propertyTypeSource: inputs.propertyTypeSource,
-          // Phase 2: persist the user-picked Occupancy / Property Use so
-          // the Insurance auto-default rule can pick DP3 for Investment
-          // purchases (and HO3 for Primary/Secondary). Stored on
-          // purchase_scenarios.occupancy_type via the 2026_05_27 migration.
-          occupancyType: inputs.occupancy,
-          // Borrower monthly income + provenance. Persisted via the
-          // 2026_05_28 migration. The source flag is what keeps a
-          // user's manual entry from being clobbered by the county
-          // AMI default on refresh / login / address change.
-          monthlyIncome: inputs.monthlyIncome,
-          monthlyIncomeSource: inputs.monthlyIncomeSource ?? "default",
-          // ── 2026_05_28 comprehensive borrower-answer write ──
-          // Every user-edited field on Pages 1-4 round-trips here.
-          monthlyDebts: inputs.monthlyDebts,
-          creditScore: inputs.creditScore,
-          reserves: inputs.reserves,
-          isVeteran: inputs.isVeteran,
-          vaDisability: inputs.vaDisability,
-          vaDisabilityRating100: inputs.vaDisabilityRating100,
-          vaLoanUse: inputs.vaLoanUse,
-          hasMortgage: inputs.hasMortgage,
-          currentLoanFHA: inputs.currentLoanFHA,
-          hasRentalIncome: inputs.hasRentalIncome,
-          monthlyRentalIncome: inputs.monthlyRentalIncome,
-          rentalType: inputs.rentalType,
-          sellerConcessions: inputs.sellerConcessions,
-          sellerConcessionsMode: inputs.sellerConcessionsMode ?? "percent",
-          annualTaxes: inputs.annualTaxes,
-          annualHOIns: inputs.annualHOIns,
-          annualFloodIns: inputs.annualFloodIns,
-          hoaMonthly: inputs.hoaMonthly,
-          cddAnnual: inputs.cddAnnual,
-          impactWindows: inputs.impactWindows,
-          roofAttachment: inputs.roofAttachment,
-          swr: inputs.swr,
-          userAnswerSources: inputs.userAnswerSources,
-          hasDeferredStudentLoans: inputs.hasDeferredStudentLoans ?? false,
-          deferredStudentLoanBalance: inputs.deferredStudentLoanBalance ?? 0,
-          // Discount Points: persist the user's slider position so
-          // it restores on refresh/login, plus a snapshot of the
-          // derived cost / rate reduction / before/after rate for
-          // read-only consumers (e.g. dashboard). The derived
-          // snapshot is never read back to drive the runtime calc
-          // (see `inputsForAddress` — it restores `discountPointsPct`
-          // only) so loan-type or loan-amount changes can't double-
-          // count.
-          discountPointsPct: calc.discountPointsPct,
-          discountPointsCost: calc.discountPointsCost,
-          discountPointsRateReduction: calc.discountPointsRateReduction,
-          rateBeforeDiscountPoints: calc.rateBeforeDiscountPoints,
-          rateAfterDiscountPoints: calc.rateAfterDiscountPoints,
-        };
+        const next = currentPurchaseScenarioSnapshot;
         if (idx >= 0) {
           // Only write if something actually changed (avoid noisy storage writes)
           const cur = existing[idx];
@@ -4100,6 +4182,7 @@ export default function Estimate() {
     // did not itself change an input.
     step === 4,
     calc.totalHousing, calc.cashToClose, calc.dti, calc.qualifies,
+    currentPurchaseScenarioSnapshot,
   ]);
 
   function fmt(n: number): string {
@@ -6439,79 +6522,15 @@ export default function Estimate() {
         open={feeWorksheetOpen}
         onOpenChange={setFeeWorksheetOpen}
         worksheet={feeWorksheet}
+        lenderInfo={purchaseLenderInfo}
         escrowsEnabled={feeWorksheetEscrowsEnabled}
         onEscrowsEnabledChange={setFeeWorksheetEscrowsEnabled}
         escrowsRequired={inputs.loanType === "fha"}
-        meta={
-          feeWorksheet
-            ? {
-                address: address && address !== "Unknown Address" ? address : undefined,
-                purchasePrice: inputs.purchasePrice,
-                loanAmount: calc.loanAmount,
-                loanTypeLabel:
-                  inputs.loanType === "conventional" ? "Conventional"
-                  : inputs.loanType === "jumbo" ? "Jumbo"
-                  : inputs.loanType === "fha" ? "FHA"
-                  : inputs.loanType === "va" ? "VA"
-                  : inputs.loanType === "usda" ? "USDA"
-                  : inputs.loanType === "dscr" ? "DSCR"
-                  : inputs.loanType.toUpperCase(),
-                ratePct: calc.finalRate,
-                aprPct: feeWorksheet.aprPct,
-                occupancyLabel:
-                  inputs.occupancy === "primary" ? "Primary Residence"
-                  : inputs.occupancy === "secondary" ? "Second Home"
-                  : inputs.occupancy === "investment" ? "Investment"
-                  : undefined,
-              }
-            : null
-        }
+        meta={feeWorksheetMeta}
+        onSave={saveCurrentIfwScenario}
+        createPdfFile={createIfwPdfFile}
+        onActivity={notifyIfwActivity}
       />
-
-      <Dialog open={shareDialogOpen} onOpenChange={setShareDialogOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Share2 className="h-4 w-4 text-primary" /> Share Estimate
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-muted-foreground mb-4">
-            Share this estimate by email or download a PDF summary.
-          </p>
-          <div className="flex flex-col gap-3">
-            <Button
-              className="w-full gap-2"
-              variant="outline"
-              onClick={() => {
-                const subject = encodeURIComponent(`Home Cost Estimate — ${address}`);
-                const body = encodeURIComponent(
-                  `Hi,\n\nHere is your Home Cost & Qualification Estimate from Havo for:\n${address}\n\n` +
-                  `Monthly Payment: ${fmt(calc.totalHousing)}\n` +
-                  `Interest Rate: ${calc.finalRate.toFixed(3)}%${aprPct !== null ? ` (Est. APR ${aprPct.toFixed(3)}%)` : ""}\n` +
-                  `Cash to Close: ${fmt(calc.cashToClose)}\n` +
-                  `Total DTI: ${fmtPct(calc.dti)}\n` +
-                  `Qualification: ${calc.qualifies ? "Likely Qualifies" : "Needs Review"}\n\n` +
-                  `View full estimate: ${window.location.href}\n\n` +
-                  `— Havo\nsales@havofl.com | (813) 214-8356`
-                );
-                window.location.href = `mailto:?subject=${subject}&body=${body}`;
-                setShareDialogOpen(false);
-              }}
-            >
-              <Mail className="h-4 w-4" /> Send via Email
-            </Button>
-            <Button
-              className="w-full gap-2"
-              onClick={() => {
-                generateEstimatePDF();
-                setShareDialogOpen(false);
-              }}
-            >
-              <FileDown className="h-4 w-4" /> Download PDF Summary
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <LeadCaptureDialog
         open={leadDialogOpen}

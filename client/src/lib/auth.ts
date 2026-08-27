@@ -90,6 +90,7 @@ export const AGENTS = [
   { id: "christian", name: "Christian Tateo", initials: "CT" },
   { id: "omar",      name: "Omar Andujar",    initials: "OA" },
   { id: "kyle",      name: "Kyle Schweinitz", initials: "KS" },
+  { id: "alex",      name: "Sandor “Alex” Szabo", initials: "AS" },
   { id: "team",      name: "Team",            initials: "TM", isTeam: true },
 ] as const;
 
