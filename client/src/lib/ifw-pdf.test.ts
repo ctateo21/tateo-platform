@@ -7,7 +7,7 @@ import {
 } from "./ifw-pdf";
 import { resolvePurchaseLenderInfo } from "./lender-info";
 
-const worksheet = buildFeeWorksheet({
+const worksheetInputs = {
   purchasePrice: 330_000,
   baseLoanAmount: 320_100,
   loanAmount: 320_100,
@@ -28,7 +28,9 @@ const worksheet = buildFeeWorksheet({
   sellerCredits: 9_900,
   dpaDownPaymentCredit: 0,
   dpaClosingCostCredit: 0,
-});
+} as const;
+
+const worksheet = buildFeeWorksheet(worksheetInputs);
 
 test("IFW PDF includes the resolved loan officer identity and NMLS", () => {
   const doc = createInitialFeesWorksheetPdf({
@@ -59,5 +61,33 @@ test("IFW PDF filenames are recognizable and address-specific", () => {
   assert.equal(
     buildInitialFeesWorksheetFileName("123 Main St, Tampa, FL"),
     "initial-fees-worksheet-123-main-st-tampa-fl.pdf",
+  );
+});
+
+test("IFW PDF itemizes discount points included in its APR", () => {
+  const pointsWorksheet = buildFeeWorksheet({
+    ...worksheetInputs,
+    discountPointsCost: 3_201,
+    discountPointsPct: 1,
+  });
+  const doc = createInitialFeesWorksheetPdf({
+    worksheet: pointsWorksheet,
+    meta: {
+      address: "123 Main St, Tampa, FL",
+      purchasePrice: 330_000,
+      loanAmount: 320_100,
+      loanTypeLabel: "Conventional",
+      ratePct: 6.624,
+      aprPct: pointsWorksheet.aprPct,
+    },
+    lenderInfo: resolvePurchaseLenderInfo({ email: "omar@tateoco.com" }),
+  });
+  const output = doc.output();
+
+  assert.ok(output.includes("(1.000% of Loan Amount \\(Points\\))"));
+  assert.match(output, /\$3,201.00/);
+  assert.match(
+    output,
+    new RegExp(`APR ${pointsWorksheet.aprPct.toFixed(3)}% - includes applicable fees`),
   );
 });

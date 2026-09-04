@@ -17,6 +17,11 @@ import {
   type FeeWorksheetInputs,
   type FeeWorksheet,
 } from "./fee-worksheet";
+import {
+  calculateDiscountPointsCost,
+  getDiscountPointsRateReduction,
+  type DiscountPointsLoanType,
+} from "./discount-points";
 
 // ── helpers ─────────────────────────────────────────────────────────
 
@@ -66,6 +71,15 @@ function assertFiniteWorksheet(ws: FeeWorksheet) {
   ]) {
     assert.ok(Number.isFinite(n), `non-finite worksheet total (${n})`);
   }
+}
+
+function monthlyPI(loanAmount: number, annualRatePct: number, months = 360): number {
+  const monthlyRate = annualRatePct / 100 / 12;
+  return loanAmount * monthlyRate / (1 - Math.pow(1 + monthlyRate, -months));
+}
+
+function moneyDelta(withAmount: number, withoutAmount: number): number {
+  return Math.round((withAmount - withoutAmount) * 100) / 100;
 }
 
 // ── 1. Lender-worksheet fixture (quote #16391610) ───────────────────
@@ -299,6 +313,96 @@ test("DSCR 1% origination: in lender fees AND in prepaid finance charges (raises
   assert.equal(withOrig.lenderFees.subtotal, without.lenderFees.subtotal + orig);
   assert.equal(withOrig.prepaidFinanceCharges, Math.round((without.prepaidFinanceCharges + orig) * 100) / 100);
   assert.ok(withOrig.aprPct > without.aprPct, "origination must increase APR");
+});
+
+test("ordinary points are included exactly once in fees, cash-to-close, and APR", () => {
+  const fractionalLoanAmount = 320_123.45;
+  const fractionalInputs = {
+    baseLoanAmount: fractionalLoanAmount,
+    loanAmount: fractionalLoanAmount,
+    monthlyPI: monthlyPI(fractionalLoanAmount, baseInputs.ratePct),
+  };
+  const pointsCost = calculateDiscountPointsCost(fractionalLoanAmount, 1);
+  const without = buildFeeWorksheet(inputs(fractionalInputs));
+  const withPoints = buildFeeWorksheet(inputs({
+    ...fractionalInputs,
+    discountPointsPct: 1,
+    discountPointsCost: pointsCost,
+  }));
+
+  assert.equal(findLine(withPoints, "1.000% of Loan Amount (Points)")?.amount, pointsCost);
+  assert.equal(moneyDelta(withPoints.lenderFees.subtotal, without.lenderFees.subtotal), pointsCost);
+  assert.equal(moneyDelta(withPoints.totalClosingCosts, without.totalClosingCosts), pointsCost);
+  assert.equal(
+    moneyDelta(
+      withPoints.fundsToClose.fundsFromBorrower,
+      without.fundsToClose.fundsFromBorrower,
+    ),
+    pointsCost,
+  );
+  assert.equal(
+    moneyDelta(
+      withPoints.fundsToClose.estimatedCash,
+      without.fundsToClose.estimatedCash,
+    ),
+    pointsCost,
+  );
+  assert.equal(
+    moneyDelta(
+      withPoints.prepaidFinanceCharges,
+      without.prepaidFinanceCharges,
+    ),
+    pointsCost,
+  );
+  assert.ok(withPoints.aprPct > without.aprPct);
+});
+
+test("actual buydowns increase APR spread even when the lower rate reduces absolute APR", () => {
+  const loanTypes: DiscountPointsLoanType[] = [
+    "conventional",
+    "jumbo",
+    "fha",
+    "va",
+    "usda",
+    "dscr",
+    "bank_statement",
+  ];
+
+  for (const loanType of loanTypes) {
+    const baseRate = 6.624;
+    const reduction = getDiscountPointsRateReduction(1, loanType);
+    const boughtRate = baseRate - reduction;
+    const common = {
+      loanType,
+      monthlyMI: 0,
+      dscrOriginationAmount: loanType === "dscr" ? 3_201 : 0,
+    };
+    const without = buildFeeWorksheet(inputs({
+      ...common,
+      ratePct: baseRate,
+      monthlyPI: monthlyPI(baseInputs.loanAmount, baseRate),
+    }));
+    const withPoints = buildFeeWorksheet(inputs({
+      ...common,
+      ratePct: boughtRate,
+      monthlyPI: monthlyPI(baseInputs.loanAmount, boughtRate),
+      discountPointsPct: 1,
+      discountPointsCost: calculateDiscountPointsCost(baseInputs.baseLoanAmount, 1),
+    }));
+
+    assert.ok(
+      withPoints.aprPct - boughtRate > without.aprPct - baseRate,
+      `${loanType}: points must increase APR spread above note rate`,
+    );
+    if (loanType === "bank_statement") {
+      assert.ok(withPoints.aprPct > without.aprPct, "same-rate points must raise absolute APR");
+    } else {
+      assert.ok(
+        withPoints.aprPct < without.aprPct,
+        `${loanType}: configured rate buydown can reduce absolute APR`,
+      );
+    }
+  }
 });
 
 // ── 6. Seller-credit capping ────────────────────────────────────────

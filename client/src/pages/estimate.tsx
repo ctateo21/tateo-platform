@@ -6,6 +6,12 @@ import { getConventionalAmiRateDiscount } from "@/lib/ami-discount";
 import { buildFeeWorksheet, money as feeMoney, type FeeSection } from "@/lib/fee-worksheet";
 import { formatAprParenthetical } from "@/lib/apr-disclosure";
 import {
+  calculateDiscountPointsCost,
+  DISCOUNT_POINTS_STEPS,
+  getDiscountPointsRateReduction,
+  snapDiscountPoints,
+} from "@/lib/discount-points";
+import {
   resolvePurchaseLenderInfo,
   type PurchaseLenderInfo,
 } from "@/lib/lender-info";
@@ -385,75 +391,6 @@ interface Inputs {
   dpaSecondType?: "amortizing" | "silent" | null;
 }
 
-/** Allowed discount-point slider steps (% of base loan amount). */
-const DISCOUNT_POINTS_STEPS = [0, 0.5, 1, 1.5, 2, 2.5, 3] as const;
-const DISCOUNT_POINTS_MAX = 3;
-
-/** Rate buydown table (percentage-point reduction off the priced
- *  base rate) for the Conventional pricing group. Used by:
- *   - Conventional
- *   - DSCR
- *  Keys are stringified `discountPointsPct` for exact dictionary
- *  lookup; off-grid values are snapped to the nearest step before
- *  lookup so we never index a missing entry. */
-const DISCOUNT_BUYDOWN_CONVENTIONAL: Record<string, number> = {
-  "0": 0,
-  "0.5": 0.240,
-  "1": 0.340,
-  "1.5": 0.420,
-  "2": 0.500,
-  "2.5": 0.710,
-  "3": 0.810,
-};
-
-/** Rate buydown table for the FHA / VA / USDA pricing group. */
-const DISCOUNT_BUYDOWN_FHA: Record<string, number> = {
-  "0": 0,
-  "0.5": 0.094,
-  "1": 0.184,
-  "1.5": 0.264,
-  "2": 0.364,
-  "2.5": 0.478,
-  "3": 0.562,
-};
-
-/** Snap an arbitrary user input to the nearest valid 0.5 step,
- *  clamped to [0, DISCOUNT_POINTS_MAX]. NaN / non-finite values
- *  collapse to 0. */
-function snapDiscountPoints(raw: number): number {
-  if (!Number.isFinite(raw)) return 0;
-  const clamped = Math.max(0, Math.min(DISCOUNT_POINTS_MAX, raw));
-  return Math.round(clamped * 2) / 2;
-}
-
-/** Look up the rate-reduction (percentage points) for the given
- *  buydown + loan type. Conventional + DSCR share the Conventional
- *  table; FHA / VA / USDA share the FHA table. Bank Statement has
- *  no published buydown table yet → 0 reduction (cost still
- *  applies). See `DISCOUNT_BUYDOWN_CONVENTIONAL` / `_FHA` above. */
-function getDiscountPointsRateReduction(
-  pct: number,
-  loanType: "conventional" | "jumbo" | "fha" | "va" | "usda" | "dscr" | "bank_statement",
-): number {
-  const snapped = snapDiscountPoints(pct);
-  const key = String(snapped);
-  switch (loanType) {
-    case "conventional":
-    case "jumbo": // Jumbo prices like Conventional for now
-    case "dscr":
-      return DISCOUNT_BUYDOWN_CONVENTIONAL[key] ?? 0;
-    case "fha":
-    case "va":
-    case "usda":
-      return DISCOUNT_BUYDOWN_FHA[key] ?? 0;
-    case "bank_statement":
-    default:
-      // No published Bank Statement buydown yet. Add a third entry
-      // (e.g. DISCOUNT_BUYDOWN_BANK_STATEMENT) here when pricing
-      // is provided and switch on it above.
-      return 0;
-  }
-}
 
 /** Lender-side DTI assumption for deferred student loans. Conventional
  *  (and Bank Statement, when it uses DTI) assumes 1% of the deferred
@@ -3574,8 +3511,9 @@ export default function Estimate() {
     // negative rate.
     const rateAfterDiscountPoints =
       Math.max(0, Math.round((rateBeforeDiscountPoints - discountPointsRateReduction) * 1000) / 1000);
-    const discountPointsCost = Math.round(
-      baseLoanAmount * (discountPointsPctSnapped / 100),
+    const discountPointsCost = calculateDiscountPointsCost(
+      baseLoanAmount,
+      discountPointsPctSnapped,
     );
     // Final first-mortgage rate = bought-down rate + DPA rate
     // adjustment (0 when no DPA). Used for P&I so monthly payment /
@@ -3779,7 +3717,8 @@ export default function Estimate() {
   const calc = useMemo(() => {
     if (!feeWorksheet) return calcBasis;
 
-    const cashToClose = Math.round(feeWorksheet.fundsToClose.estimatedCash);
+    const cashToClose =
+      Math.round(feeWorksheet.fundsToClose.estimatedCash * 100) / 100;
     const availableReserves = Math.max(0, inputs.reserves - cashToClose);
     const recs = calcBasis.recs.filter(
       (rec) => !rec.includes("in cash to close"),
@@ -3839,7 +3778,7 @@ export default function Estimate() {
     address,
     price: inputs.purchasePrice,
     monthlyPayment: Math.round(calc.totalHousing),
-    cashToClose: Math.round(calc.cashToClose),
+    cashToClose: Math.round(calc.cashToClose * 100) / 100,
     dti: calc.dti,
     qualifies: calc.qualifies,
     downPaymentPct: inputs.downPaymentPct,
