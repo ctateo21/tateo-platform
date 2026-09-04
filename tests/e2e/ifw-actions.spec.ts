@@ -113,6 +113,11 @@ async function openGuestIfw(page: Page): Promise<void> {
   await page.getByRole("button", { name: /See My Estimate/ }).click();
   await page.getByRole("button", { name: /Initial Fees Worksheet/ }).click();
   await expect(page.getByTestId("dialog-fee-worksheet")).toBeVisible();
+  const rateDisclosure = page
+    .getByTestId("dialog-fee-worksheet")
+    .locator("em")
+    .filter({ hasText: /^\(APR \d+\.\d{3}% - includes applicable fees\)$/ });
+  await expect(rateDisclosure).toHaveCount(1);
 }
 
 test("guest IFW download signs in, resumes once, and uses the signed-in officer", async ({

@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import type { FeeLine, FeeSection, FeeWorksheet } from "./fee-worksheet";
 import type { PurchaseLenderInfo } from "./lender-info";
+import { formatAprParenthetical } from "./apr-disclosure";
 
 export interface InitialFeesWorksheetPdfMeta {
   address?: string;
@@ -98,12 +99,17 @@ export function createInitialFeesWorksheetPdf({
       y += 17;
     }
   };
-  const textRow = (label: string, value: string) => {
+  const textRow = (label: string, value: string, italicLabelSuffix?: string) => {
     ensure(18);
     doc.setFontSize(8.5);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(70, 70, 70);
     doc.text(label, margin + 4, y + 10);
+    if (italicLabelSuffix) {
+      const suffixX = margin + 4 + doc.getTextWidth(label + " ");
+      doc.setFont("helvetica", "italic");
+      doc.text(italicLabelSuffix, suffixX, y + 10);
+    }
     doc.setFont("helvetica", "bold");
     doc.setTextColor(25, 25, 25);
     doc.text(value, width - margin - 4, y + 10, { align: "right" });
@@ -198,10 +204,14 @@ export function createInitialFeesWorksheetPdf({
     ["Purchase Price", currency(meta.purchasePrice)],
     ["Loan Amount", currency(meta.loanAmount)],
     ["Product", `30 Year ${meta.loanTypeLabel} Fixed`],
-    ["Rate / Estimated APR", `${meta.ratePct.toFixed(3)}% / ${meta.aprPct.toFixed(3)}%`],
   ];
   if (meta.occupancyLabel) summaryRows.push(["Occupancy", meta.occupancyLabel]);
   summaryRows.forEach(([label, value]) => textRow(label, value));
+  textRow(
+    "Interest Rate",
+    `${meta.ratePct.toFixed(3)}%`,
+    formatAprParenthetical(meta.aprPct),
+  );
   y += 8;
 
   renderSection(worksheet.lenderFees);

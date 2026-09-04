@@ -47,6 +47,11 @@ test("IFW PDF includes the resolved loan officer identity and NMLS", () => {
 
   assert.match(output, /Omar Andujar/);
   assert.match(output, /1806169/);
+  assert.match(
+    output,
+    new RegExp(`APR ${worksheet.aprPct.toFixed(3)}% - includes applicable fees`),
+  );
+  assert.doesNotMatch(output, /Rate \/ Estimated APR/);
   assert.ok(doc.getNumberOfPages() >= 2);
 });
 

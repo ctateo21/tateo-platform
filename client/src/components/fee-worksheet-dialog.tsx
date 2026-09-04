@@ -23,6 +23,7 @@ import { useAuth } from "@/context/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import AuthDialog from "@/components/ui/auth-dialog";
 import { getSession } from "@/lib/auth";
+import { formatAprParenthetical } from "@/lib/apr-disclosure";
 
 function LineRow({ line, indent }: { line: FeeLine; indent?: boolean }) {
   return (
@@ -286,9 +287,12 @@ export function FeeWorksheetDialog({
             <p className="font-semibold">30 Year {meta.loanTypeLabel} Fixed</p>
           </div>
           <div>
-            <p className="text-muted-foreground text-[10px] uppercase tracking-wide">Rate / APR</p>
+            <p className="text-muted-foreground text-[10px] uppercase tracking-wide">
+              Interest Rate{" "}
+              <em className="normal-case">{formatAprParenthetical(meta.aprPct)}</em>
+            </p>
             <p className="font-semibold tabular-nums">
-              {meta.ratePct.toFixed(3)}% / <em>{meta.aprPct.toFixed(3)}%</em>
+              {meta.ratePct.toFixed(3)}%
             </p>
           </div>
           {meta.occupancyLabel && (

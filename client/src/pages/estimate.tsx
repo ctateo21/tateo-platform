@@ -1,9 +1,10 @@
-import { useMemo, useState, useRef, useEffect, useCallback } from "react";
+import { useMemo, useState, useRef, useEffect, useCallback, type ReactNode } from "react";
 import ScenarioActions from "@/components/scenario-actions";
 import { buildScenarioFileName } from "@/lib/scenario-pdf";
 import { estimateAnnualTax, getCountyTaxLink, getCountyName } from "@/lib/county-tax-estimator";
 import { getConventionalAmiRateDiscount } from "@/lib/ami-discount";
 import { buildFeeWorksheet, money as feeMoney, type FeeSection } from "@/lib/fee-worksheet";
+import { formatAprParenthetical } from "@/lib/apr-disclosure";
 import {
   resolvePurchaseLenderInfo,
   type PurchaseLenderInfo,
@@ -1738,26 +1739,33 @@ export default function Estimate() {
     const half = (W - margin * 2) / 2 - 6;
     const leftX = margin;
     const rightX = margin + half + 6;
-    const paramRows: [string, string][] = [
-      ["Purchase Price", fmt(inputs.purchasePrice)],
-      ["Loan Type", inputs.loanType.toUpperCase()],
-      ["Down Payment", `${fmt(calc.downPaymentAmt)} (${Number(calc.effectiveDownPaymentPct).toFixed(1)}%)`],
-      ["Interest Rate", `${calc.finalRate.toFixed(3)}%`],
-      ...(aprPct !== null ? [["Est. APR", `${aprPct.toFixed(3)}%`] as [string, string]] : []),
-      ["Occupancy", inputs.occupancy.charAt(0).toUpperCase() + inputs.occupancy.slice(1)],
-      ["Credit Score", String(inputs.creditScore)],
+    const paramRows: Array<{ label: string; value: string; italicSuffix?: string }> = [
+      { label: "Purchase Price", value: fmt(inputs.purchasePrice) },
+      { label: "Loan Type", value: inputs.loanType.toUpperCase() },
+      { label: "Down Payment", value: `${fmt(calc.downPaymentAmt)} (${Number(calc.effectiveDownPaymentPct).toFixed(1)}%)` },
+      {
+        label: "Interest Rate",
+        value: `${calc.finalRate.toFixed(3)}%`,
+        italicSuffix: aprPct !== null ? formatAprParenthetical(aprPct) : undefined,
+      },
+      { label: "Occupancy", value: inputs.occupancy.charAt(0).toUpperCase() + inputs.occupancy.slice(1) },
+      { label: "Credit Score", value: String(inputs.creditScore) },
     ];
     const startY = y;
-    paramRows.forEach(([lbl, val], i) => {
+    paramRows.forEach(({ label, value, italicSuffix }, i) => {
       const px = i % 2 === 0 ? leftX : rightX;
       const py = startY + Math.floor(i / 2) * 26;
       doc.setFontSize(8.5);
       doc.setFont("helvetica", "normal");
       doc.setTextColor(100, 100, 100);
-      doc.text(lbl, px + 4, py + 12);
+      doc.text(label, px + 4, py + 12);
+      if (italicSuffix) {
+        doc.setFont("helvetica", "italic");
+        doc.text(italicSuffix, px + 4 + doc.getTextWidth(label + " "), py + 12);
+      }
       doc.setFont("helvetica", "bold");
       doc.setTextColor(30, 30, 30);
-      doc.text(val, px + half - 4, py + 12, { align: "right" });
+      doc.text(value, px + half - 4, py + 12, { align: "right" });
     });
     y = startY + Math.ceil(paramRows.length / 2) * 26 + 8;
 
@@ -1890,16 +1898,19 @@ export default function Estimate() {
       doc.text(purchaseLenderInfo.addressLine2, margin, y + 6);
       y += 16;
       doc.setFontSize(8.5);
-      doc.setFont("helvetica", "italic");
+      doc.setFont("helvetica", "normal");
       doc.setTextColor(110, 110, 110);
-      const aprDisclosure =
-        `Estimated APR: ${feeWorksheet.aprPct.toFixed(3)}% — includes applicable fees ` +
-        `(origination, underwriting, etc.) plus the interest rate itself (${calc.finalRate.toFixed(3)}% note rate).`;
-      doc.splitTextToSize(aprDisclosure, W - margin * 2).forEach((line: string) => {
-        checkPage(14);
-        doc.text(line, margin, y + 10);
-        y += 12;
-      });
+      doc.text("Interest Rate", margin, y + 10);
+      doc.setFont("helvetica", "italic");
+      doc.text(
+        formatAprParenthetical(feeWorksheet.aprPct),
+        margin + doc.getTextWidth("Interest Rate "),
+        y + 10,
+      );
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(30, 30, 30);
+      doc.text(`${calc.finalRate.toFixed(3)}%`, W - margin, y + 10, { align: "right" });
+      y += 12;
       y += 10;
 
       renderFeeSection(feeWorksheet.lenderFees);
@@ -4200,7 +4211,7 @@ export default function Estimate() {
     return (n * 100).toFixed(1) + "%";
   }
 
-  function Row({ label, value, sub, status, link, onClick }: { label: string; value: string; sub?: string; status?: "green" | "yellow" | "red"; link?: { url: string; label: string }; onClick?: () => void }) {
+  function Row({ label, value, sub, status, link, onClick }: { label: ReactNode; value: string; sub?: string; status?: "green" | "yellow" | "red"; link?: { url: string; label: string }; onClick?: () => void }) {
     const bg = status === "green" ? "bg-green-50" : status === "yellow" ? "bg-yellow-50" : status === "red" ? "bg-red-50" : "";
     const labelColor = status === "green" ? "text-green-800" : status === "yellow" ? "text-yellow-800" : status === "red" ? "text-red-800" : "text-muted-foreground";
     const valueColor = status === "green" ? "text-green-700 font-bold" : status === "yellow" ? "text-yellow-700 font-bold" : status === "red" ? "text-red-700 font-bold" : "font-semibold";
@@ -4232,7 +4243,7 @@ export default function Estimate() {
     );
   }
 
-  function SummaryRow({ label, value, onEdit, sub }: { label: string; value: string; onEdit: () => void; sub?: string }) {
+  function SummaryRow({ label, value, onEdit, sub }: { label: ReactNode; value: string; onEdit: () => void; sub?: string }) {
     return (
       <div className="py-1.5 border-b border-border/30 last:border-0">
         <div className="flex justify-between items-center gap-2">
@@ -5501,7 +5512,10 @@ export default function Estimate() {
 
                   <div className="space-y-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-xs text-muted-foreground">Interest Rate</span>
+                      <span className="text-xs text-muted-foreground">
+                        Interest Rate{" "}
+                        {aprPct !== null && <em>{formatAprParenthetical(aprPct)}</em>}
+                      </span>
                       {liveRates && (
                         <span className="text-[10px] font-semibold bg-green-100 text-green-700 rounded px-1 py-0.5 leading-none">LIVE</span>
                       )}
@@ -5524,13 +5538,6 @@ export default function Estimate() {
                       suffix="%"
                       decimals={3}
                     />
-                    {/* APR disclosure (italics per spec) — rate plus
-                        applicable fees, from the fee-worksheet model. */}
-                    {aprPct !== null && (
-                      <p className="text-[11px] italic text-muted-foreground" data-testid="text-apr-page3">
-                        APR: <span className="font-semibold">{aprPct.toFixed(3)}%</span> — includes applicable fees (origination, underwriting, etc.) plus the interest rate itself
-                      </p>
-                    )}
                     {calc.dpaActive && (
                       <p className="text-[11px] text-amber-700 font-medium pt-1" data-testid="note-dpa-rate-bump">
                         DPA rate adjustment: +{calc.dpaRateBump.toFixed(2)}% → final rate {calc.finalRate.toFixed(3)}%
@@ -5813,7 +5820,12 @@ export default function Estimate() {
                             <SummaryRow label="CDD" value={`${fmt(inputs.cddAnnual)}/yr`} onEdit={() => setEditingPage(3)} />
                           )}
                           <SummaryRow
-                            label="Interest Rate"
+                            label={
+                              <>
+                                Interest Rate{" "}
+                                {aprPct !== null && <em>{formatAprParenthetical(aprPct)}</em>}
+                              </>
+                            }
                             value={`${calc.finalRate.toFixed(3)}%`}
                             sub={calc.dpaActive ? `Includes +${calc.dpaRateBump.toFixed(2)}% DPA adjustment` : undefined}
                             onEdit={() => setEditingPage(3)}
@@ -6001,7 +6013,12 @@ export default function Estimate() {
                         discount-point changes update this row
                         instantly — no stale state. */}
                   <Row
-                    label="Interest Rate"
+                    label={
+                      <>
+                        Interest Rate{" "}
+                        {aprPct !== null && <em>{formatAprParenthetical(aprPct)}</em>}
+                      </>
+                    }
                     value={`${calc.finalRate.toFixed(3)}%`}
                     sub={
                       [
@@ -6048,20 +6065,6 @@ export default function Estimate() {
                       )}
                     </div>
                   </div>
-                  {/* APR disclosure (italics per spec). APR is derived
-                      in the fee-worksheet model from the note rate plus
-                      prepaid finance charges (origination, underwriting,
-                      processing-type fees, prepaid interest) and the
-                      monthly MI stream — so it always tracks the exact
-                      loan the card shows. */}
-                  {aprPct !== null && (
-                    <p
-                      className="text-[11px] italic text-muted-foreground -mt-1 mb-1 px-1"
-                      data-testid="text-apr"
-                    >
-                      APR: <span className="font-semibold">{aprPct.toFixed(3)}%</span> — includes applicable fees (origination, underwriting, etc.) plus the interest rate itself
-                    </p>
-                  )}
                   {/* Per spec the explicit "Base Rate Before Points"
                       and "Discount Point Buydown" rows are hidden
                       from the user-facing UI. The buydown
