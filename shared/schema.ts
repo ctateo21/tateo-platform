@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, json, jsonb, date, timestamp, varchar, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, json, jsonb, date, timestamp, varchar, unique, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -76,6 +76,25 @@ export const privateUserProfiles = pgTable("private_user_profiles", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// Short-lived claims for IFW save/download/share notifications. Keeping these
+// in Neon makes dedupe and per-user throttling shared by every server instance.
+export const ifwActivityClaims = pgTable(
+  "ifw_activity_claims",
+  {
+    dedupeKey: text("dedupe_key").primaryKey(),
+    userId: text("user_id").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+  },
+  table => ({
+    userCreatedAtIdx: index("ifw_activity_claims_user_created_at_idx").on(
+      table.userId,
+      table.createdAt,
+    ),
+    expiresAtIdx: index("ifw_activity_claims_expires_at_idx").on(table.expiresAt),
+  }),
+);
 
 // Schema for user input validation
 export const insertUserSchema = createInsertSchema(users)

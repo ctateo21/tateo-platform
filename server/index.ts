@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startMarketAnalysisScheduler } from "./integrations/market-analysis-scheduler";
+import { startIfwActivityClaimCleanup } from "./integrations/ifw-activity-claims";
 
 const app = express();
 app.use(express.json());
@@ -70,5 +71,11 @@ app.use((req, res, next) => {
     log(`serving on port ${port}`);
     // Boot the weekly Market Analysis precompute scheduler (Friday 8 AM ET).
     startMarketAnalysisScheduler();
+    startIfwActivityClaimCleanup({
+      onError: error => console.warn(
+        "[IFW] expired activity claim cleanup failed:",
+        error instanceof Error ? error.message : error,
+      ),
+    });
   });
 })();

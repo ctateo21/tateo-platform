@@ -69,6 +69,10 @@ import {
   LEADERBOARD_VIEWERS,
   type Period,
 } from "./integrations/fub-leaderboard";
+import {
+  createIfwActivityClaimHandler,
+  ifwActivityClaimStore,
+} from "./integrations/ifw-activity-claims";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // API routes
@@ -2241,23 +2245,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }).strict().optional(),
   });
 
-  const ifwActivityHits = new Map<string, number[]>();
-  const ifwActivitySeen = new Map<string, number>();
   const IFW_ACTIVITY_WINDOW_MS = 60_000;
   const IFW_ACTIVITY_MAX_PER_MINUTE = 12;
-
-  function ifwActivityRateLimited(userId: string, now: number): boolean {
-    const recentHits = (ifwActivityHits.get(userId) ?? []).filter(
-      hit => now - hit < IFW_ACTIVITY_WINDOW_MS,
-    );
-    if (recentHits.length >= IFW_ACTIVITY_MAX_PER_MINUTE) {
-      ifwActivityHits.set(userId, recentHits);
-      return true;
-    }
-    recentHits.push(now);
-    ifwActivityHits.set(userId, recentHits);
-    return false;
-  }
+  const claimIfwActivity = createIfwActivityClaimHandler(ifwActivityClaimStore, {
+    windowMs: IFW_ACTIVITY_WINDOW_MS,
+    maxPerWindow: IFW_ACTIVITY_MAX_PER_MINUTE,
+    onUnavailable: error => {
+      console.error(
+        "[IFW] notification claim storage unavailable; continuing:",
+        error instanceof Error ? error.message : error,
+      );
+    },
+  });
 
   function formatIfwSummary(
     summary: z.infer<typeof ifwActivitySchema>["summary"],
@@ -2296,25 +2295,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const input = ifwActivitySchema.parse(req.body);
-      const now = Date.now();
       const addressKey = normalizeAddr(input.address);
       const dedupeKey = `${user.id}:${input.action}:${addressKey}`;
 
-      // Check duplicates before consuming the per-user budget. This makes
-      // double-clicks safe without punishing the signed-in user.
-      const seenAt = ifwActivitySeen.get(dedupeKey);
-      if (seenAt && now - seenAt < IFW_ACTIVITY_WINDOW_MS) {
+      // The atomic persistent claim shares duplicate and rate-limit state
+      // across restarts/instances. Storage is best-effort: an outage must not
+      // block the worksheet action in the browser.
+      const claim = await claimIfwActivity({ userId: user.id, dedupeKey });
+      if (claim === "duplicate") {
         return res.json({ ok: true, deduped: true });
       }
-      if (ifwActivityRateLimited(user.id, now)) {
+      if (claim === "rate_limited") {
         return res.status(429).json({
           error: "Too many worksheet actions. Please wait a moment.",
         });
-      }
-
-      ifwActivitySeen.set(dedupeKey, now);
-      for (const [key, timestamp] of ifwActivitySeen) {
-        if (now - timestamp >= IFW_ACTIVITY_WINDOW_MS) ifwActivitySeen.delete(key);
       }
 
       // Identity and the account's saved agent choice come from the verified
