@@ -12,6 +12,7 @@ import {
   nextTaxRefreshBoundary,
   type PropertyTaxCacheRow,
 } from "./property-tax-cache";
+import { PURCHASE_TAX_LOW_ASSESSMENT_RATIO } from "@shared/property-tax-policy";
 
 // ── nextTaxRefreshBoundary ────────────────────────────────────────
 
@@ -178,13 +179,28 @@ test("complete millage row is valid at every positive purchase price", () => {
     samplePrice: 0,
     schoolMillage: 5.5,
     nonSchoolMillage: 12,
-    assessmentRatio: 1,
+    assessmentRatio: PURCHASE_TAX_LOW_ASSESSMENT_RATIO,
     homesteadSchoolExemption: 25_000,
     homesteadNonSchoolExemption: 51_411,
     rateYear: 2026,
   };
   assert.equal(isCacheRowValid(row, 1, NOW), true);
   assert.equal(isCacheRowValid(row, 10_000_000, NOW), true);
+});
+
+test("complete millage row with a stale non-low-end ratio is rejected", () => {
+  const row = {
+    ...baseRow(),
+    homesteadAdValoremPct: 0,
+    nonHomesteadAdValoremPct: 0,
+    schoolMillage: 5.5,
+    nonSchoolMillage: 12,
+    assessmentRatio: 1,
+    homesteadSchoolExemption: 25_000,
+    homesteadNonSchoolExemption: 51_411,
+    rateYear: 2026,
+  };
+  assert.equal(isCacheRowValid(row, 400_000, NOW), false);
 });
 
 test("incomplete millage does not bypass legacy sample-price guard", () => {
@@ -260,20 +276,19 @@ test("computeFromCache: exact millage applies Florida homestead exemptions separ
     nonAdValoremAmtCents: 0,
     schoolMillage: 5,
     nonSchoolMillage: 10,
-    assessmentRatio: 1,
+    assessmentRatio: PURCHASE_TAX_LOW_ASSESSMENT_RATIO,
     homesteadSchoolExemption: 25_000,
     homesteadNonSchoolExemption: 51_411,
     rateYear: 2026,
   };
   const homestead = computeFromCache(row, 400_000, true);
   const nonHomestead = computeFromCache(row, 400_000, false);
-  // (375k × 5 + 348,589 × 10) / 1,000 = $5,361.
-  assert.equal(homestead.adValoremTax, 5_361);
-  // (400k × (5 + 10)) / 1,000 = $6,000.
-  assert.equal(nonHomestead.adValoremTax, 6_000);
+  // $400k price → $340k low-end assessment.
+  assert.equal(homestead.adValoremTax, 4_461);
+  assert.equal(nonHomestead.adValoremTax, 5_100);
 });
 
-test("computeFromCache: exact millage honors assessment ratio at arbitrary price", () => {
+test("computeFromCache: exact millage enforces the low end at arbitrary price", () => {
   const row = {
     homesteadAdValoremPct: 0,
     nonHomesteadAdValoremPct: 0,
@@ -285,8 +300,8 @@ test("computeFromCache: exact millage honors assessment ratio at arbitrary price
     homesteadNonSchoolExemption: 51_411,
     rateYear: 2026,
   };
-  // $600k price → $540k assessed; non-homestead has no exemption.
-  assert.equal(computeFromCache(row, 600_000, false).adValoremTax, 6_480);
+  // $600k price → $510k low-end assessed; a stale 0.9 row cannot raise it.
+  assert.equal(computeFromCache(row, 600_000, false).adValoremTax, 6_120);
 });
 
 test("computeFromCache phases in the additional exemption above $50k", () => {
@@ -296,13 +311,13 @@ test("computeFromCache phases in the additional exemption above $50k", () => {
     nonAdValoremAmtCents: 0,
     schoolMillage: 0,
     nonSchoolMillage: 10,
-    assessmentRatio: 1,
+    assessmentRatio: PURCHASE_TAX_LOW_ASSESSMENT_RATIO,
     homesteadSchoolExemption: 25_000,
     homesteadNonSchoolExemption: 51_411,
     rateYear: 2026,
   };
-  // At $60k assessed, only $10k of the indexed additional exemption has
-  // phased in: $25k first exemption + $10k additional = $35k total.
+  // At $51k low-end assessed value, $1k of the indexed additional exemption
+  // has phased in, leaving $25k taxable after the first exemption.
   assert.equal(computeFromCache(row, 60_000, true).adValoremTax, 250);
 });
 

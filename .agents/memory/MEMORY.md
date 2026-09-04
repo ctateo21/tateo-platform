@@ -23,3 +23,4 @@
 - [Refinance financing defaults](refinance-financing-defaults.md) — escrow-bearing loans default to financing both closing costs and the new escrow reserve; preserve saved choices.
 - [Refinance VA funding fee](refinance-va-funding-fee.md) — require disability Yes/No; exempt=$0, non-exempt=3.3% subsequent-use financed into the note.
 - [Refinance escrow-refund estimate](refinance-escrow-refund.md) — prefer statement balance; CD/manual fallback is 2 monthly escrow payments; never include it in guaranteed cash figures.
+- [DPA program-points APR allocation](dpa-program-points-apr.md) — 5% silent-second program points belong once to first-lien finance charges, never the second lien.

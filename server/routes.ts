@@ -28,6 +28,11 @@ import {
   SUPPORTED_COUNTY_SLUGS,
   type CountySlug,
 } from "./integrations/parcel-resolver";
+import {
+  resolvePropertyCharacteristics,
+  resolveQuoteRushCharacteristicValues,
+  toPublicPropertyCharacteristics,
+} from "./integrations/property-characteristics";
 import { currentTaxBillRequestSchema } from "./integrations/current-tax-contract";
 import { fetchGoogleReviews, getMockReviews } from "./integrations/google-reviews";
 import { fetchZillowProperty, derivePolicyType, buildNormalizedPropertyKey, type PropertyScenario } from "./integrations/apify-zillow";
@@ -38,7 +43,7 @@ import {
   insuranceQuoteCache,
   privateUserProfiles,
 } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { and, eq, lte, or } from "drizzle-orm";
 import {
   createSubscriptionCheckout,
   retrieveCheckoutSession,
@@ -769,11 +774,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // ── QuoteRUSH shared, address-keyed quote cache ──────────────────
-  // Quotes are shared by property address (not per user): the first
-  // search of an address pays the QuoteRUSH cost and results are cached
-  // in the insurance_quote_cache table for 30 days, so anyone searching
-  // the same address within that window gets the cached result for free.
+  // ── QuoteRUSH shared address + policy quote cache ────────────────
+  // Quotes are shared by normalized property address and policy type (not
+  // per user) for 30 days.
 
   // Normalizes an address into a stable cache key (lowercased, single
   // spaces, punctuation stripped, capped at 200 chars).
@@ -784,6 +787,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .replace(/\s+/g, " ")
       .replace(/[,\.#]+/g, "")
       .slice(0, 200);
+  }
+
+  function topThreePositiveQuotes(
+    quotes: (typeof insuranceQuoteCache.$inferSelect)["quotes"],
+  ) {
+    return (quotes ?? [])
+      .filter(quote => Number(quote.annualPremium) > 0)
+      .sort((a, b) => a.annualPremium - b.annualPremium)
+      .slice(0, 3)
+      .map((quote, index) => ({ ...quote, rank: index + 1 }));
+  }
+
+  function publicConsumerPropertyAnswers(
+    snapshot: unknown,
+  ): Record<string, unknown> {
+    const source =
+      snapshot && typeof snapshot === "object"
+        ? snapshot as Record<string, unknown>
+        : {};
+    const safeKeys = [
+      "coverageA",
+      "policyType",
+      "yearBuilt",
+      "roofYear",
+      "openingProtection",
+      "roofShape",
+      "secondaryWaterResistance",
+      "constIdx",
+      "hurrIdx",
+      "aopDeductible",
+      "floodZone",
+      "sqFt",
+      "propertyCharacteristicLocks",
+    ] as const;
+    return Object.fromEntries(
+      safeKeys
+        .filter(key => source[key] !== undefined)
+        .map(key => [key, source[key]]),
+    );
   }
 
   const qrCountyCache = new Map<
@@ -991,17 +1033,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
-  // Since quote-polling routes are unauthenticated (auto-trigger runs
-  // before/without a session), we still guard against enumerating
-  // arbitrary QuoteRUSH agency LeadIds by only serving LeadIds that
-  // exist in our own cache table (i.e. leads Havo actually created).
-  async function qrLeadIsKnown(leadId: number): Promise<boolean> {
+  // Quote polling is authenticated and must bind a lead to the exact shared
+  // cache identity supplied by the caller before QuoteRUSH is contacted.
+  async function findQuoteCacheLead(
+    leadId: number,
+    address: string,
+    policyType: "HO3" | "HO6" | "DP3",
+  ) {
     const rows = await db
       .select({ id: insuranceQuoteCache.id })
       .from(insuranceQuoteCache)
-      .where(eq(insuranceQuoteCache.leadId, leadId))
+      .where(and(
+        eq(insuranceQuoteCache.leadId, leadId),
+        eq(insuranceQuoteCache.addressNormalized, normalizeAddr(address)),
+        eq(insuranceQuoteCache.policyType, policyType),
+      ))
       .limit(1);
-    return rows.length > 0;
+    return rows[0];
   }
 
   // Extracts the Supabase user from an optional Bearer token. Returns
@@ -1018,6 +1066,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch {}
     return null;
   }
+
+  app.get("/api/insurance/property-characteristics", async (req, res) => {
+    const user = await optionalUser(req);
+    if (!user) return res.status(401).json({ error: "Sign in required" });
+    const address = String(req.query.address ?? "").trim();
+    if (!address) return res.status(400).json({ error: "address required" });
+    const countyName = await resolveCountyForAddress(address);
+    const county = countyName.toLowerCase() as CountySlug;
+    if (!SUPPORTED_COUNTY_SLUGS.includes(county)) {
+      return res.status(422).json({
+        error: "We couldn't verify a supported county for this property address.",
+      });
+    }
+    try {
+      const profile = await resolvePropertyCharacteristics(county, address);
+      return res.json(toPublicPropertyCharacteristics(profile));
+    } catch (error: any) {
+      console.error("[property-characteristics] endpoint failed:", error?.message);
+      return res.status(502).json({
+        error: "Property characteristics could not be resolved.",
+      });
+    }
+  });
 
   const liveQuoteAlertRequests = new Map<
     string,
@@ -1183,6 +1254,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     async (req, res) => {
       try {
         const address = String(req.query.address ?? "");
+        const policyType = z
+          .enum(["HO3", "HO6", "DP3"])
+          .default("HO3")
+          .parse(req.query.policyType);
         if (!address) {
           return res
             .status(400)
@@ -1192,7 +1267,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const rows = await db
           .select()
           .from(insuranceQuoteCache)
-          .where(eq(insuranceQuoteCache.addressNormalized, norm))
+          .where(and(
+            eq(insuranceQuoteCache.addressNormalized, norm),
+            eq(insuranceQuoteCache.policyType, policyType),
+          ))
           .limit(1);
 
         if (!rows.length) {
@@ -1208,9 +1286,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
           expired,
           status: row.status,
           leadId: row.leadId,
-          quotes: row.quotes ?? [],
+          quotes: topThreePositiveQuotes(row.quotes),
           quoteCounter: row.quoteCounter ?? 0,
           coverageA: row.coverageA ?? 0,
+          propertyDataSnapshot: row.propertyDataSnapshot ?? {},
+          propertyDataProvenance: row.propertyDataProvenance ?? {},
+          agencyDefaultSnapshot: row.agencyDefaultSnapshot ?? {},
+          consumerPropertyAnswers:
+            publicConsumerPropertyAnswers(row.consumerPropertyAnswers),
+          quoteProfileVersion: row.quoteProfileVersion,
+          assumptions: row.assumptions ?? [],
           triggeredAt: row.triggeredAt,
           expiresAt: row.expiresAt,
         });
@@ -1264,13 +1349,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const { request: b, propertyDefaults } =
           prepareQuoteRushStartRequest(req.body);
         const norm = normalizeAddr(b.address);
+        const cacheIdentity = and(
+          eq(insuranceQuoteCache.addressNormalized, norm),
+          eq(insuranceQuoteCache.policyType, b.policyType),
+        );
         const now = new Date();
 
         // ── Shared cache check ──────────────────────────────────────
         const existing = await db
           .select()
           .from(insuranceQuoteCache)
-          .where(eq(insuranceQuoteCache.addressNormalized, norm))
+          .where(cacheIdentity)
           .limit(1);
 
         if (existing.length > 0) {
@@ -1287,9 +1376,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             return res.json({
               leadId: row.leadId,
               fromCache: true,
-              quotes: row.quotes,
+              quotes: topThreePositiveQuotes(row.quotes),
               quoteCounter: row.quoteCounter,
               expiresAt: row.expiresAt,
+              propertyDataSnapshot: row.propertyDataSnapshot ?? {},
+              propertyDataProvenance: row.propertyDataProvenance ?? {},
+              agencyDefaultSnapshot: row.agencyDefaultSnapshot ?? {},
+              consumerPropertyAnswers:
+                publicConsumerPropertyAnswers(row.consumerPropertyAnswers),
+              quoteProfileVersion: row.quoteProfileVersion,
+              assumptions: row.assumptions ?? [],
             });
           }
 
@@ -1310,7 +1406,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Expired or errored — drop it and re-run.
           await db
             .delete(insuranceQuoteCache)
-            .where(eq(insuranceQuoteCache.addressNormalized, norm));
+            .where(and(
+              cacheIdentity,
+              or(
+                lte(insuranceQuoteCache.expiresAt, now),
+                eq(insuranceQuoteCache.status, "error"),
+              ),
+            ));
         }
 
         // Keep these mappings in lockstep with the deductible choices in
@@ -1349,8 +1451,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const lastName =
           nameParts.slice(1).join(" ") || "Lead";
 
-        // Atomically claim the address slot. `address_normalized` is
-        // UNIQUE, so onConflictDoNothing lets exactly one concurrent
+        // Atomically claim the address + policy slot. Its composite unique
+        // constraint means onConflictDoNothing lets exactly one concurrent
         // request win the insert; the loser gets 0 rows back and returns
         // the pending state instead of firing a second (paid) submission.
         const expiresAt = new Date();
@@ -1368,18 +1470,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 quoteCounter: 0,
                 coverageA: b.coverageA,
                 policyType: b.policyType,
+                agencyDefaultSnapshot: {
+                  usageType: propertyDefaults.usageType,
+                  rentalTerm: propertyDefaults.rentalTerm,
+                  monthsOccupied: propertyDefaults.monthsOccupied,
+                  newPurchase: propertyDefaults.newPurchase,
+                  purchasePrice: propertyDefaults.purchasePrice,
+                  hurricaneDeductible: HURR_MAP[b.hurrIdx] ?? "2%",
+                  aopDeductible: AOP_MAP[b.aopDeductible] ?? "$2,500",
+                  lossAssessment: b.policyType === "HO6" ? "$2,000" : undefined,
+                },
+                consumerPropertyAnswers: {
+                  coverageA: b.coverageA,
+                  policyType: b.policyType,
+                  yearBuilt: b.yearBuilt,
+                  roofYear: b.roofYear,
+                  openingProtection: b.openingProtection,
+                  roofShape: b.roofShape,
+                  secondaryWaterResistance: b.secondaryWaterResistance,
+                  constIdx: b.constIdx,
+                  hurrIdx: b.hurrIdx,
+                  aopDeductible: b.aopDeductible,
+                  floodZone: b.floodZone,
+                  sqFt: b.sqFt,
+                  propertyCharacteristicLocks: b.propertyCharacteristicLocks,
+                },
+                quoteProfileVersion: `${b.policyType}-v2`,
                 triggeredAt: new Date(),
                 expiresAt,
               })
               .onConflictDoNothing({
-                target: insuranceQuoteCache.addressNormalized,
+                target: [
+                  insuranceQuoteCache.addressNormalized,
+                  insuranceQuoteCache.policyType,
+                ],
               })
               .returning({ id: insuranceQuoteCache.id }),
           async () => {
             const rows = await db
               .select()
               .from(insuranceQuoteCache)
-              .where(eq(insuranceQuoteCache.addressNormalized, norm))
+              .where(cacheIdentity)
               .limit(1);
             return rows[0];
           },
@@ -1399,16 +1530,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Only the winner performs trusted geocoding. Concurrent losers have
         // already returned the pending row above and will poll for its leadId.
         const county = await resolveCountyForAddress(b.address);
-        if (!county) {
+        const countySlug = county.toLowerCase() as CountySlug;
+        if (!county || !SUPPORTED_COUNTY_SLUGS.includes(countySlug)) {
           await db
             .update(insuranceQuoteCache)
             .set({ status: "error" })
-            .where(eq(insuranceQuoteCache.addressNormalized, norm));
+            .where(cacheIdentity);
           return res.status(422).json({
             error:
               "We couldn't verify the county for this property address.",
           });
         }
+
+        // This happens only after the paid cache claim succeeds. Profile data
+        // supplements absent/unknown request values; a manual browser lock
+        // (or an older caller's explicit non-empty value) always wins.
+        let characteristics = null;
+        try {
+          characteristics = await resolvePropertyCharacteristics(
+            countySlug,
+            b.address,
+          );
+        } catch (error: any) {
+          console.error("[qr-start] property characteristics failed:", error?.message);
+        }
+        const characteristicValues = resolveQuoteRushCharacteristicValues(
+          b,
+          characteristics,
+        );
+        const propertyInputs = resolveQuoteRushPropertyInputs({
+          ...b,
+          ...(characteristicValues.yearBuilt != null
+            ? { yearBuilt: characteristicValues.yearBuilt } : {}),
+          constIdx: characteristicValues.constIdx,
+        });
 
         const params: QuoteRushParams = {
           streetAddress,
@@ -1422,9 +1577,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             HURR_MAP[b.hurrIdx] ?? "2%",
           aopDeductible:
             AOP_MAP[b.aopDeductible] ?? "$2,500",
-          priorClaims: b.claimsIdx,
-          floodZone: b.floodZone,
-          sqFt: b.sqFt,
+          priorClaims: b.claimRecords.length,
+          claimRecords: b.claimRecords,
+          ...(typeof b.hasMortgage === "boolean"
+            ? { hasMortgage: b.hasMortgage }
+            : {}),
+          floodZone: characteristicValues.floodZone,
+          sqFt: characteristicValues.sqFt,
           usageType: propertyDefaults.usageType,
           rentalTerm: propertyDefaults.rentalTerm,
           monthsOccupied: propertyDefaults.monthsOccupied,
@@ -1436,16 +1595,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
           dateOfBirth,
           email: userEmail,
           phone: userPhone,
-          ...resolveQuoteRushPropertyInputs(b),
+          ...propertyInputs,
         };
+
+        // Store only non-PII quote assumptions/context. In particular, do
+        // not copy params: it contains the applicant's DOB and contact data.
+        await db
+          .update(insuranceQuoteCache)
+          .set({
+            propertyDataSnapshot: {
+              county,
+              floodZone: params.floodZone,
+              sqFt: params.sqFt,
+              yearBuilt: params.yearBuilt,
+              roofYear: params.roofYear,
+              constructionType: params.constructionType,
+              masonryConstruction: params.masonryConstruction,
+              frameConstruction: params.frameConstruction,
+            },
+            propertyDataProvenance: {
+              propertyCharacteristics: characteristics?.buildingDataSource ?? null,
+              floodData: characteristics?.floodDataSource ?? null,
+              characteristicsFromCache: Boolean(characteristics?.fromCache),
+              manualLocks: b.propertyCharacteristicLocks ?? {},
+            },
+            agencyDefaultSnapshot: {
+              usageType: params.usageType,
+              rentalTerm: params.rentalTerm,
+              monthsOccupied: params.monthsOccupied,
+              newPurchase: params.newPurchase,
+              purchaseDate: params.purchaseDate,
+              purchasePrice: params.purchasePrice,
+              hurricaneDeductible: params.hurrDeductible,
+              aopDeductible: params.aopDeductible,
+              ...(params.policyType === "HO6" ? { lossAssessment: "$2,000" } : {}),
+            },
+            assumptions: [
+              "Quotes are shared for this normalized address and policy type for 30 days.",
+              "Only the three lowest positive carrier premiums are retained.",
+              ...(characteristics?.fromCache
+                ? ["Property characteristics were loaded from the shared property cache."]
+                : []),
+            ],
+          })
+          .where(cacheIdentity);
 
         const result = await importAndSubmit(params);
 
-        if (!result.submitted || !result.leadId) {
+        if (!result.leadId) {
           await db
             .update(insuranceQuoteCache)
             .set({ status: "error" })
-            .where(eq(insuranceQuoteCache.addressNormalized, norm));
+            .where(cacheIdentity);
           return res.status(500).json({
             error:
               result.error ??
@@ -1453,11 +1654,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         }
 
-        // Store the leadId on the cache row.
+        // Once QuoteRUSH has created a lead, preserve that identity even if
+        // SubmitQuoteRequest returns an error or times out. Re-importing would
+        // risk a duplicate paid submission; callers should keep polling or
+        // have an agent reconcile this existing lead instead.
         await db
           .update(insuranceQuoteCache)
           .set({ leadId: result.leadId })
-          .where(eq(insuranceQuoteCache.addressNormalized, norm));
+          .where(cacheIdentity);
+
+        if (!result.submitted) {
+          return res.status(202).json({
+            leadId: result.leadId,
+            status: "pending",
+            warning:
+              "QuoteRUSH created the lead, but submission could not be confirmed. The existing lead will be checked without creating another.",
+          });
+        }
 
         // Notify FUB (non-blocking) only when we know who the user is.
         if (userEmail) {
@@ -1499,16 +1712,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/insurance/qr-quotes",
     async (req, res) => {
       try {
+        if (!(await optionalUser(req))) {
+          return res.status(401).json({ error: "Sign in required" });
+        }
         const schema = z.object({
           leadId: z.number().int().positive(),
-          address: z.string().optional(),
+          address: z.string().min(5),
+          policyType: z.enum(["HO3", "HO6", "DP3"]),
         });
-        const { leadId } = schema.parse(req.body);
+        const { leadId, address, policyType } = schema.parse(req.body);
 
-        if (!(await qrLeadIsKnown(leadId))) {
+        if (!(await findQuoteCacheLead(leadId, address, policyType))) {
           return res
             .status(404)
-            .json({ error: "Unknown lead" });
+            .json({ error: "Unknown quote cache entry" });
         }
 
         const result = await getQuotes(leadId);
@@ -1524,14 +1741,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .update(insuranceQuoteCache)
             .set({
               status: "success",
-              quotes: result.quotes as any,
+              quotes: topThreePositiveQuotes(result.quotes as any),
               quoteCounter: result.quoteCounter,
               completedAt: new Date(),
             })
-            .where(eq(insuranceQuoteCache.leadId, leadId));
+            .where(and(
+              eq(insuranceQuoteCache.leadId, leadId),
+              eq(insuranceQuoteCache.addressNormalized, normalizeAddr(address)),
+              eq(insuranceQuoteCache.policyType, policyType),
+            ));
         }
 
-        res.json(result);
+        res.json({
+          ...result,
+          quotes: topThreePositiveQuotes(result.quotes as any),
+        });
       } catch (err: any) {
         console.error("[qr-quotes] error:", err);
         res.status(500).json({
@@ -1552,16 +1776,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/insurance/qr-refresh",
     async (req, res) => {
       try {
+        if (!(await optionalUser(req))) {
+          return res.status(401).json({ error: "Sign in required" });
+        }
         const schema = z.object({
           leadId: z.number().int().positive(),
-          address: z.string().optional(),
+          address: z.string().min(5),
+          policyType: z.enum(["HO3", "HO6", "DP3"]),
         });
-        const { leadId } = schema.parse(req.body);
+        const { leadId, address, policyType } = schema.parse(req.body);
 
-        if (!(await qrLeadIsKnown(leadId))) {
+        if (!(await findQuoteCacheLead(leadId, address, policyType))) {
           return res
             .status(404)
-            .json({ error: "Unknown lead" });
+            .json({ error: "Unknown quote cache entry" });
         }
 
         const result = await getQuotes(leadId);
@@ -1573,14 +1801,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .update(insuranceQuoteCache)
             .set({
               status: "success",
-              quotes: result.quotes as any,
+              quotes: topThreePositiveQuotes(result.quotes as any),
               quoteCounter: result.quoteCounter,
               completedAt: new Date(),
             })
-            .where(eq(insuranceQuoteCache.leadId, leadId));
+            .where(and(
+              eq(insuranceQuoteCache.leadId, leadId),
+              eq(insuranceQuoteCache.addressNormalized, normalizeAddr(address)),
+              eq(insuranceQuoteCache.policyType, policyType),
+            ));
         }
 
-        res.json(result);
+        res.json({
+          ...result,
+          quotes: topThreePositiveQuotes(result.quotes as any),
+        });
       } catch (err: any) {
         console.error("[qr-refresh] error:", err);
         res.status(500).json({

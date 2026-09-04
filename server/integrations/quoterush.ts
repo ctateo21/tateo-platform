@@ -30,6 +30,7 @@ export interface QuoteRushParams {
   hurrDeductible: string;
   aopDeductible: string;
   priorClaims: number;
+  claimRecords: QuoteRushClaimRecord[];
   floodZone: string;
   sqFt: number;
   windMitForm: boolean;
@@ -47,6 +48,16 @@ export interface QuoteRushParams {
   dateOfBirth: string;
   email: string;
   phone: string;
+  hasMortgage?: boolean;
+}
+
+export interface QuoteRushClaimRecord {
+  lossDate: string;
+  /** The applicant's description of the loss type or cause. */
+  claimDetail: string;
+  amount: number;
+  priorResidence: boolean;
+  paid: boolean;
 }
 
 export interface QuoteRushQuote {
@@ -104,6 +115,16 @@ export function buildImporterPayload(
   p: QuoteRushParams,
   assignedEmail: string
 ): Record<string, any> {
+  if (
+    !Number.isInteger(p.priorClaims) ||
+    p.priorClaims < 0 ||
+    p.priorClaims > 3 ||
+    p.claimRecords.length !== p.priorClaims
+  ) {
+    throw new Error(
+      "Prior claim details must be confirmed before submitting to QuoteRUSH.",
+    );
+  }
   const formTypeMap: Record<string, string> = {
     HO3: "HO-3: Home Owners Policy",
     HO6: "HO-6: Condo Unit Owners Policy",
@@ -112,11 +133,6 @@ export function buildImporterPayload(
   const formType =
     formTypeMap[p.policyType] ||
     "HO-3: Home Owners Policy";
-  const includeFlood =
-    !!p.floodZone &&
-    p.floodZone !== "X" &&
-    p.floodZone !== "";
-
   const payload: Record<string, any> = {
     Client: {
       NameFirst: p.firstName || "Havo",
@@ -145,7 +161,9 @@ export function buildImporterPayload(
       LeadStatus: "New Lead",
       Lob_Home: true,
       Lob_Auto: false,
-      Lob_Flood: includeFlood,
+      // FEMA flood-zone enrichment is property context only. A separate
+      // flood quote must be explicitly requested and is never synthesized.
+      Lob_Flood: false,
     },
     HO: {
       FormType: formType,
@@ -160,7 +178,7 @@ export function buildImporterPayload(
       UsageType: p.usageType || "Primary",
       MonthsOccupied: p.monthsOccupied,
       ...(p.rentalTerm ? { RentalTerm: p.rentalTerm } : {}),
-      YearBuilt: String(p.yearBuilt || 1995),
+      YearBuilt: String(p.yearBuilt),
       PolicyEffectiveDate: (() => {
         const d = new Date();
         d.setDate(d.getDate() + 30);
@@ -172,20 +190,19 @@ export function buildImporterPayload(
           d.getFullYear()
         );
       })(),
-      SquareFeet:
-        p.sqFt > 0 ? String(p.sqFt) : "1800",
+      // Do not fabricate a square-footage value. Carrier data is only useful
+      // when it is supplied by the user or a verified property source.
+      ...(p.sqFt > 0 ? { SquareFeet: String(Math.round(p.sqFt)) } : {}),
       ConstructionType: p.constructionType ||
         "Masonry",
       Construction:
         p.constructionType === "Mixed"
-          ? [p.masonryConstruction, p.frameConstruction]
-              .filter(Boolean)
-              .join(" / ") || "Mixed"
+          ? p.masonryConstruction || "Mixed"
           : p.masonryConstruction ||
-            p.frameConstruction ||
             p.constructionType ||
             "Concrete Block",
-      FrameConstruction: p.frameConstruction || "",
+      // Do not send exterior-finish labels (for example Stucco) as a
+      // structural framing subtype.
       MasonryConstruction:
         p.masonryConstruction || "",
       FoundationType: "Slab",
@@ -194,25 +211,23 @@ export function buildImporterPayload(
       UpdateRoofYear: String(p.roofYear),
       UpdateRoofType: "Full",
       CoverageA: String(p.coverageA),
-      CoverageB: String(
-        Math.round(p.coverageA * 0.02)
-      ),
-      CoverageBPercent: "2%",
-      CoverageC: String(
-        Math.round(p.coverageA * 0.25)
-      ),
+      ...(p.policyType === "HO6"
+        ? {}
+        : {
+            CoverageB: String(Math.round(p.coverageA * 0.02)),
+            CoverageBPercent: "2%",
+          }),
+      CoverageC: String(Math.round(p.coverageA * 0.25)),
       CoverageCPercent: "25%",
-      CoverageD: String(
-        Math.round(p.coverageA * 0.10)
-      ),
+      CoverageD: String(Math.round(p.coverageA * 0.10)),
       CoverageDPercent: "10%",
       CoverageE: "$300,000",
-      CoverageF: "$5,000",
+      CoverageF: p.policyType === "HO6" ? "$2,000" : "$5,000",
       AllOtherPerilsDeductible: p.aopDeductible,
       HurricaneDeductible: p.hurrDeductible,
       WindHailDeductible: p.hurrDeductible,
-      FloodZone: p.floodZone || "X",
-      FloodPolicy: includeFlood,
+      ...(p.floodZone ? { FloodZone: p.floodZone } : {}),
+      FloodPolicy: false,
       CurrentlyInsured: "Yes",
       AnyLapses: "No",
       CurrentCarrier: "Unknown",
@@ -226,7 +241,9 @@ export function buildImporterPayload(
       FireAlarm: "None",
       FireHydrant: "Within 1000 Feet",
       FireStation: "Within 5 Miles",
-      Mortgage: "No",
+      ...(typeof p.hasMortgage === "boolean"
+        ? { Mortgage: p.hasMortgage ? "Yes" : "No" }
+        : {}),
       EPolicy: true,
       WaterBackup: true,
       WaterBackupAmount: "$10,000",
@@ -236,33 +253,14 @@ export function buildImporterPayload(
       IncreaseReplacementCostOnDwelling: true,
     },
   };
-
-  if (includeFlood) {
-    payload.Flood = {
-      FloodZone: p.floodZone,
-      BuildingCoverage: String(p.coverageA),
-      ContentsCoverage: "100000",
-      FloodDeductible: "$1,250",
-      PolicyType: "Preferred Risk (PRP)",
-      FloodCarrier: "Wright Flood",
-      CarrierType: "NFIP",
-    };
-  }
-
-  if (p.priorClaims > 0) {
-    const currentYear = new Date().getFullYear();
-    payload.Claims = Array.from(
-      { length: Math.min(p.priorClaims, 3) },
-      (_, i) => ({
-        ClaimDetail: "Water Damage",
-        Date: `01/01/${currentYear - (i + 2)}`,
-        Amount: "5000",
-        ActOfGod: false,
-        CatastrophicLoss: false,
-        PriorResidence: false,
-        Paid: true,
-      })
-    );
+  if (p.claimRecords.length > 0) {
+    payload.Claims = p.claimRecords.map((claim) => ({
+      ClaimDetail: claim.claimDetail,
+      Date: formatDateOfBirth(claim.lossDate),
+      Amount: String(Math.round(claim.amount)),
+      PriorResidence: claim.priorResidence,
+      Paid: claim.paid,
+    }));
   }
 
   return payload;
@@ -373,7 +371,7 @@ export async function importAndSubmit(
       "[quoterush] property data enrichment:",
       propData
     );
-    if (propData.sqFt > 0)
+    if (params.sqFt <= 0 && propData.sqFt > 0)
       params.sqFt = propData.sqFt;
     // Preserve the user's explicit building year and construction answer.
     // Enrichment remains useful for square footage when it was not supplied,
@@ -465,23 +463,36 @@ export async function importAndSubmit(
   console.log("[quoterush] LeadId:", leadId);
 
   // Step D: Submit quote request (triggers QuoteBot)
-  const submitRes = await fetch(
-    "https://api.quoterush.com/SubmitQuoteRequest",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        EndpointKey: ENDPOINT_KEY,
-        Agency: AGENCY,
-        LeadId: leadId,
-        LOB: "Home",
-        Submitter: ASSIGNED_EMAIL,
-      }),
-    }
-  );
-  const submitText = await submitRes.text();
+  let submitRes: Response;
+  let submitText: string;
+  try {
+    submitRes = await fetch(
+      "https://api.quoterush.com/SubmitQuoteRequest",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          EndpointKey: ENDPOINT_KEY,
+          Agency: AGENCY,
+          LeadId: leadId,
+          LOB: "Home",
+          Submitter: ASSIGNED_EMAIL,
+        }),
+      }
+    );
+    submitText = await submitRes.text();
+  } catch (error) {
+    console.error(
+      "[quoterush] SubmitQuoteRequest status could not be confirmed",
+    );
+    return {
+      leadId,
+      submitted: false,
+      error: "Quote submission status could not be confirmed",
+    };
+  }
   console.log(
     "[quoterush] SubmitQuoteRequest:", submitText
   );
@@ -580,6 +591,7 @@ export async function getQuotes(
         (a: QuoteRushQuote, b: QuoteRushQuote) =>
           a.annualPremium - b.annualPremium
       )
+      .slice(0, 3)
       .map(
         (q: QuoteRushQuote, i: number) => ({
           ...q, rank: i + 1,

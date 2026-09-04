@@ -1,6 +1,6 @@
 ---
 name: QuoteRUSH live carrier quoting
-description: How Havo's live insurance quoting talks to QuoteRUSH — manual-only trigger, secret-name mismatch, DB-backed shared-address cache, lead authz, and the lost-race flow.
+description: How Havo's live insurance quoting talks to QuoteRUSH — manual trigger, address+policy cache, property provenance, lead authz, privacy, and duplicate-spend protection.
 ---
 
 # QuoteRUSH integration
@@ -38,23 +38,27 @@ Tateo agent email when unset).
 **Why:** if a future change "follows the spec literally" it will read
 empty env vars and silently fail with "QuoteRUSH env vars not set".
 
-## Shared address-keyed cache (supersedes per-user lead map)
-Quotes are cached in the `insurance_quote_cache` Postgres table (Neon
-`db`, not Supabase) keyed by `addressNormalized` (which is `.unique()`),
-NOT per user. The cache is **shared across all users** with a 30-day
-TTL — the first searcher of an address pays; everyone else reads the
-cached top-3 free. This replaced the old in-process `Map<leadId,
-userId>` IDOR guard entirely.
-**Authz now:** IDOR is prevented by `qrLeadIsKnown()` which checks the
-leadId exists in the cache table before serving GetQuotes. A raw
-enumerated leadId that isn't in the table is rejected.
-**Cache-poisoning rule (critical):** qr-quotes and qr-refresh MUST
-persist results with `WHERE insuranceQuoteCache.leadId = leadId` — never
-a caller-supplied address. A known leadId is bound to exactly one row;
-trusting the caller's `address` would let a valid leadId overwrite a
-different address's cached quotes.
-**Why:** the poisoning vector and the shared-cache switch were both
-found/added during code review.
+## Shared address + policy cache
+Paid quotes are shared for 30 days by normalized property address plus
+policy type (HO3/HO6/DP3), not by user and not by address alone. The first
+searcher pays; later searchers receive only the three lowest positive
+carrier results and the original non-private property/default context.
+
+**Privacy rule:** shared snapshots may contain property facts, provenance,
+coverage/default assumptions, and manual-lock flags. They must never contain
+DOB, identity/contact data, user IDs, claim history/count/details, or reusable
+personal underwriting data.
+
+**Authorization rule:** polling and refresh require authentication and must
+bind lead ID, normalized address, and policy type before any QuoteRUSH call or
+cache write. Never authorize on an enumerable lead ID alone.
+
+**Why:** address-only identity mixed policy forms; unbound lead polling enabled
+enumeration/cache poisoning; applicant-specific fields are unsafe to share.
+
+**How to apply:** keep the Neon composite uniqueness constraint, client cache
+key, server lookup, atomic claim, polling request, and update predicate in
+lockstep whenever the cache identity changes.
 
 ## Concurrent claim race + lost-race client flow
 qr-start claims the cache row atomically via `onConflictDoNothing`.
@@ -68,6 +72,11 @@ qr-start handler) funnels into `pollCacheForLead(addr)` which polls
 qr-cache every 5s (24-attempt cap) until a leadId/success appears, then
 hands off to `startPolling`. Treat `{status:"pending"}` as pending, not
 error. `qrWaitRef` holds that timer and is cleared on address change.
+
+If QuoteRUSH has already created a lead but submit status is ambiguous (HTTP
+error, timeout, or connection reset), preserve that lead and keep the cache
+pending for reconciliation/polling. Never mark it retryable and re-import,
+because the first submit may have succeeded and a retry can duplicate spend.
 
 ## Poll-until-stable (fixes "only 1 carrier")
 Client GetQuotes polling waits for **3 consecutive stable polls**
@@ -87,11 +96,32 @@ legacy bucket defaults. Values the UI does not collect must be disclosed
 as carrier assumptions that need confirmation.
 **Why:** the general estimate collects exact details, and grouped or
 enriched substitutes can materially change a carrier result while the
-address-only cache preserves that first result for 30 days.
+address+policy cache preserves that first result for 30 days.
 **How to apply:** keep exact fields first-priority at the quote boundary;
 use enrichment only for missing ancillary data such as square footage,
 and retain the shared cache/race protections rather than re-quoting when
 answers change.
+
+## Property characteristics and no-fabrication boundary
+Automated factual precedence is manual confirmation → county/parcel →
+QuoteRUSH property data → FEMA/government → Zillow/Havo cache → disclosed
+agency default. A manual lock always wins.
+
+The shared property-characteristics cache lives in Supabase with a one-year
+TTL; the paid quote cache lives in Neon. Hillsborough and Collier intentionally
+cache null county-building data because no reliable source is available.
+
+Never fabricate square footage, unknown FEMA zone X, claim records, a flood
+policy, mortgage status, or framing subtype. Stucco is an exterior finish, not
+a framing value. Unknown values are omitted or explicitly collected. Claims
+are user-owned/private and require complete actual details before submission.
+
+**Why:** invented rating inputs can materially misprice a quote and are then
+amplified by the 30-day shared cache.
+
+**How to apply:** verified enrichment may fill only missing unlocked values;
+cache/public responses must preserve provenance without exposing private
+underwriting answers.
 
 ## QuoteRUSH Apply Defaults is emulated in the importer
 

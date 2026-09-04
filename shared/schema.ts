@@ -474,16 +474,15 @@ export const insertQuestionnaireResponseSchema = createInsertSchema(questionnair
 export type InsertQuestionnaireResponse = z.infer<typeof insertQuestionnaireResponseSchema>;
 export type QuestionnaireResponse = typeof questionnaireResponses.$inferSelect;
 
-// Shared, address-keyed cache of QuoteRUSH live carrier quotes. The first
-// user to search an address pays the QuoteRUSH cost; everyone searching the
-// same address within 30 days shares the cached result (no duplicate cost).
+// Shared address + policy-type cache of QuoteRUSH live carrier quotes. The
+// first user to search that combination pays the QuoteRUSH cost; everyone
+// searching it within 30 days shares the cached result (no duplicate cost).
 export const insuranceQuoteCache = pgTable(
   "insurance_quote_cache",
   {
     id: serial("id").primaryKey(),
     addressNormalized: text("address_normalized")
-      .notNull()
-      .unique(),
+      .notNull(),
     addressDisplay: text("address_display")
       .notNull(),
     leadId: integer("lead_id"),
@@ -507,14 +506,43 @@ export const insuranceQuoteCache = pgTable(
       .default(0),
     coverageA: integer("coverage_a").default(0),
     policyType: text("policy_type")
+      .notNull()
       .default("HO3"),
+    // Quote inputs and their sources only. These JSON snapshots must never
+    // contain applicant identity/contact data or DOB.
+    propertyDataSnapshot: jsonb("property_data_snapshot")
+      .$type<Record<string, unknown>>()
+      .default({}),
+    propertyDataProvenance: jsonb("property_data_provenance")
+      .$type<Record<string, unknown>>()
+      .default({}),
+    agencyDefaultSnapshot: jsonb("agency_default_snapshot")
+      .$type<Record<string, unknown>>()
+      .default({}),
+    consumerPropertyAnswers: jsonb("consumer_property_answers")
+      .$type<Record<string, unknown>>()
+      .default({}),
+    quoteProfileVersion: text("quote_profile_version")
+      .notNull()
+      .default("legacy-v1"),
+    assumptions: jsonb("assumptions")
+      .$type<string[]>()
+      .default([]),
     triggeredAt: timestamp("triggered_at")
       .defaultNow()
       .notNull(),
     completedAt: timestamp("completed_at"),
     expiresAt: timestamp("expires_at")
       .notNull(),
-  }
+  },
+  table => ({
+    addressPolicyUnique: unique(
+      "insurance_quote_cache_address_policy_unique",
+    ).on(table.addressNormalized, table.policyType),
+    expiresAtIdx: index("insurance_quote_cache_expires_at_idx").on(
+      table.expiresAt,
+    ),
+  }),
 );
 
 export type InsuranceQuoteCache =

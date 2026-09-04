@@ -25,7 +25,7 @@ import { createOrUpdateSellerScenarioFromRefinance } from "@/lib/seller-from-ref
 import { useAuth } from "@/context/auth-context";
 import PropertyLookupDialog, { type LookedUpProperty } from "@/components/property-lookup-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { posthog } from "@/lib/posthog";
+import { trackEvent } from "@/lib/posthog";
 import { mergeStatementRefresh } from "@/lib/refinance-statement-refresh";
 
 const MAX_TRACKED_LOANS = 10;
@@ -292,7 +292,7 @@ export default function Refinance() {
     const key = (analysis.propertyAddress || "").trim().toLowerCase();
     if (key && !phRefinanceCalcFiredRef.current.has(key)) {
       phRefinanceCalcFiredRef.current.add(key);
-      posthog.capture("scenario_calculated", { type: "refinance" });
+      trackEvent("scenario_calculated", { type: "refinance" });
     }
   };
 
@@ -381,7 +381,7 @@ export default function Refinance() {
       toast({ title: "Loan saved to your refinance dashboard." });
       // Notify the assigned agent (non-blocking, fire-and-forget).
       notifyNewScenario("Refinance", newLoan.propertyAddress, "Saved a refinance scenario");
-      posthog.capture("scenario_saved", { type: "refinance" });
+      trackEvent("scenario_saved", { type: "refinance" });
     } catch (e: any) {
       toast({
         title: "Couldn't save your loan",

@@ -27,7 +27,7 @@ import {
 } from "@/lib/auth";
 import { notifyNewScenario } from "@/lib/notify-scenario";
 import { normalizePropertyKey } from "@/lib/property-key";
-import { posthog } from "@/lib/posthog";
+import { trackEvent } from "@/lib/posthog";
 import { applySellerSalePriceToRefinance } from "@/lib/refinance-from-seller";
 import { resolveSellerMortgagePayoff } from "@/lib/seller-mortgage-payoff";
 import {
@@ -497,7 +497,7 @@ export default function SellerEstimatePage() {
         // New scenario only (idx < 0 fires once): notify the assigned
         // agent (non-blocking, fire-and-forget).
         if (idx < 0) notifyNewScenario("Seller Estimate", stamped.address, "Saved a seller estimate scenario");
-        posthog.capture("scenario_saved", { type: "seller" });
+        trackEvent("scenario_saved", { type: "seller" });
         // Seller → refinance value mirroring used to live here; it is now
         // handled globally by the Phase 1 cross-tab sync helper
         // (`syncPropertyValueAcrossTabs`) which fires from the diff-watcher
@@ -724,7 +724,7 @@ export default function SellerEstimatePage() {
     if (!scenario.id || !(sale > 0)) return;
     if (phSellerCalcFiredRef.current.has(scenario.id)) return;
     phSellerCalcFiredRef.current.add(scenario.id);
-    posthog.capture("scenario_calculated", { type: "seller" });
+    trackEvent("scenario_calculated", { type: "seller" });
   }, [scenario.id, sale]);
 
   const sliderMax = Math.max(2_000_000, Math.round((sale || 500_000) * 2));

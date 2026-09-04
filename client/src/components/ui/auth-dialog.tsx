@@ -14,7 +14,7 @@ import {
   register,
   requestPasswordReset,
 } from "@/lib/auth";
-import { posthog } from "@/lib/posthog";
+import { trackEvent } from "@/lib/posthog";
 import { useAuth } from "@/context/auth-context";
 
 // Default agent assigned to every newly-registered user. Routed to
@@ -102,6 +102,7 @@ export default function AuthDialog({
     const result = await login(siEmail, siPassword);
     setSiLoading(false);
     if (!result.ok) { setSiError(result.error || "Login failed."); return; }
+    trackEvent("account_signed_in");
     refresh();
     onAuthenticated?.();
     handleOpenChange(false);
@@ -135,7 +136,7 @@ export default function AuthDialog({
     });
     setRegLoading(false);
     if (!result.ok) { setRegError(result.error || "Registration failed."); return; }
-    posthog.capture("account_created");
+    trackEvent("account_created");
     refresh();
     onAuthenticated?.();
     handleOpenChange(false);

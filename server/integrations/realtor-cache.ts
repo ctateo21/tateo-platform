@@ -43,7 +43,9 @@ function buildCacheKey(args: {
   radius: number;
   weekOf: string;
 }): string {
-  return `realtor:v1:${args.zip}:${args.propertyType}:${args.radius}:${args.weekOf}`;
+  // v2 invalidates v1 "empty" rows created before flat actor address fields
+  // were normalized. This permits one fresh scrape in the current cycle.
+  return `realtor:v2:${args.zip}:${args.propertyType}:${args.radius}:${args.weekOf}`;
 }
 
 function emptyResult(): RealtorScrapeResult {
@@ -76,7 +78,7 @@ export async function getOrFetchRealtorComps(args: {
     return {
       ...emptyResult(),
       source: "missing",
-      cacheKey: `realtor:v1::${propertyType}:${radius}:${cycle.weekOfStr}`,
+      cacheKey: `realtor:v2::${propertyType}:${radius}:${cycle.weekOfStr}`,
       weekOf: cycle.weekOfStr,
     };
   }

@@ -33,12 +33,14 @@ export function resolveQuoteRushPropertyInputs(
         ? {
             constructionType: "Frame",
             masonryConstruction: "",
-            frameConstruction: "Stucco",
+            // Stucco is an exterior finish, not a structural framing type.
+            // Leave the QuoteRUSH subtype blank until a verified value exists.
+            frameConstruction: "",
           }
         : {
             constructionType: "Mixed",
             masonryConstruction: "Concrete Block",
-            frameConstruction: "Stucco",
+            frameConstruction: "",
           };
 
   const wind =

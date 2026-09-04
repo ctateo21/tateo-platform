@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import {
   buildImporterPayload,
+  getQuotes,
   importAndSubmit,
   type QuoteRushParams,
 } from "./quoterush";
@@ -27,6 +28,7 @@ const params: QuoteRushParams = {
   hurrDeductible: "5%",
   aopDeductible: "$1,000",
   priorClaims: 0,
+  claimRecords: [],
   floodZone: "X",
   sqFt: 2_100,
   windMitForm: true,
@@ -75,9 +77,9 @@ test("importer payload retains exact property answers, mixed construction, and b
       roofShape: "Hip",
       swr: "Yes",
       constructionType: "Mixed",
-      construction: "Concrete Block / Stucco",
+      construction: "Concrete Block",
       masonry: "Concrete Block",
-      frame: "Stucco",
+      frame: undefined,
       hurricane: "5%",
       windHail: "5%",
       aop: "$1,000",
@@ -184,7 +186,8 @@ test("quote-start rejects incomplete property details before a cache claim can r
     constIdx: 1,
     windIdx: 1,
     hurrIdx: 1,
-    claimsIdx: 0,
+    hasClaims: false,
+    claimRecords: [],
     newPurchase: true,
     purchaseDate: "2026-09-30",
   };
@@ -247,6 +250,60 @@ test("quote-start route prepares property details before claiming the paid-quote
   assert.notEqual(paidSubmission, -1);
   assert.ok(preparation < cacheClaim);
   assert.ok(cacheClaim < paidSubmission);
+  const preserveLead = routeSource.indexOf(
+    ".set({ leadId: result.leadId })",
+  );
+  const ambiguousSubmit = routeSource.indexOf(
+    "if (!result.submitted)",
+  );
+  assert.ok(preserveLead > paidSubmission);
+  assert.ok(ambiguousSubmit > preserveLead);
+  assert.match(
+    routeSource.slice(ambiguousSubmit),
+    /status\(202\)[\s\S]*existing lead/,
+  );
+});
+
+test("quote polling requires authenticated, address-and-policy-bound cache access", () => {
+  const routesSource = readFileSync(
+    new URL("../routes.ts", import.meta.url),
+    "utf8",
+  );
+  for (const route of ["/api/insurance/qr-quotes", "/api/insurance/qr-refresh"]) {
+    const start = routesSource.indexOf(`"${route}"`);
+    const end = routesSource.indexOf("\n  );", start);
+    const source = routesSource.slice(start, end);
+    assert.ok(start >= 0);
+    assert.ok(source.indexOf("optionalUser(req)") < source.indexOf("getQuotes(leadId)"));
+    assert.match(source, /address: z\.string\(\)\.min\(5\)/);
+    assert.match(source, /policyType: z\.enum\(\["HO3", "HO6", "DP3"\]\)/);
+    assert.ok(
+      source.indexOf("findQuoteCacheLead(leadId, address, policyType)") <
+        source.indexOf("getQuotes(leadId)"),
+    );
+  }
+});
+
+test("quote cache snapshots are explicitly non-PII", () => {
+  const routesSource = readFileSync(
+    new URL("../routes.ts", import.meta.url),
+    "utf8",
+  );
+  const snapshotStart = routesSource.indexOf("propertyDataSnapshot: {");
+  const snapshotEnd = routesSource.indexOf("const result = await importAndSubmit", snapshotStart);
+  const snapshotSource = routesSource.slice(snapshotStart, snapshotEnd);
+  assert.ok(snapshotStart >= 0);
+  assert.doesNotMatch(
+    snapshotSource,
+    /\b(?:dateOfBirth|firstName|lastName|email|phone|userId)\b/,
+  );
+  assert.match(snapshotSource, /propertyDataProvenance:/);
+  assert.match(snapshotSource, /agencyDefaultSnapshot:/);
+  assert.match(snapshotSource, /assumptions:/);
+  assert.doesNotMatch(
+    snapshotSource,
+    /hasClaims|claimsCount|priorClaims/,
+  );
 });
 
 test("quote-start resolves normalized HO3, HO6, and DP3 defaults before cache access", () => {
@@ -256,7 +313,8 @@ test("quote-start resolves normalized HO3, HO6, and DP3 defaults before cache ac
     constIdx: 1,
     windIdx: 1,
     hurrIdx: 1,
-    claimsIdx: 0,
+    hasClaims: false,
+    claimRecords: [],
     newPurchase: true,
     purchaseDate: "2026-09-30",
   };
@@ -339,7 +397,17 @@ test("property enrichment can supplement square footage but cannot overwrite exp
     assert.equal(payload.HO.SquareFeet, "2600");
     assert.equal(payload.HO.YearBuilt, "2007");
     assert.equal(payload.HO.ConstructionType, "Mixed");
-    assert.equal(payload.HO.Construction, "Concrete Block / Stucco");
+    assert.equal(payload.HO.Construction, "Concrete Block");
+    assert.equal("FrameConstruction" in payload.HO, false);
+
+    await importAndSubmit({ ...params, sqFt: 2_100 });
+    const importers = calls.filter(({ url }) => url.includes("importer.quoterush.com"));
+    const explicitSquareFeetPayload = JSON.parse(String(importers.at(-1)!.body));
+    assert.equal(
+      explicitSquareFeetPayload.HO.SquareFeet,
+      "2100",
+      "late QuoteRUSH property enrichment must not replace a trusted square-foot value",
+    );
   } finally {
     globalThis.fetch = previousFetch;
     for (const [key, value] of Object.entries({
@@ -352,6 +420,166 @@ test("property enrichment can supplement square footage but cannot overwrite exp
       else process.env[key] = value;
     }
   }
+});
+
+test("submit transport failure preserves the imported lead for reconciliation", async () => {
+  const previousFetch = globalThis.fetch;
+  const oldEnv = {
+    webId: process.env.QUOTERUSH_WEBID,
+    password: process.env.QUOTERUSH_WEBID_PASSWORD,
+    key: process.env.QUOTERUSH_ENDPOINT_KEY,
+    agency: process.env.QUOTERUSH_AGENCY_ID,
+  };
+  Object.assign(process.env, {
+    QUOTERUSH_WEBID: "test-web-id",
+    QUOTERUSH_WEBID_PASSWORD: "test-password",
+    QUOTERUSH_ENDPOINT_KEY: "test-key",
+    QUOTERUSH_AGENCY_ID: "test-agency",
+  });
+  globalThis.fetch = (async (url) => {
+    if (String(url).includes("GetPropertyData")) {
+      return new Response(JSON.stringify({}));
+    }
+    if (String(url).includes("importer.quoterush.com")) {
+      return new Response(JSON.stringify({ LeadId: 654 }));
+    }
+    throw new TypeError("simulated connection reset");
+  }) as typeof fetch;
+
+  try {
+    assert.deepEqual(
+      await importAndSubmit(params),
+      {
+        leadId: 654,
+        submitted: false,
+        error: "Quote submission status could not be confirmed",
+      },
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+    for (const [key, value] of Object.entries({
+      QUOTERUSH_WEBID: oldEnv.webId,
+      QUOTERUSH_WEBID_PASSWORD: oldEnv.password,
+      QUOTERUSH_ENDPOINT_KEY: oldEnv.key,
+      QUOTERUSH_AGENCY_ID: oldEnv.agency,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
+test("import payload omits square footage when no trusted value is available", () => {
+  const payload = buildImporterPayload({ ...params, sqFt: 0 }, "agent@example.com");
+  assert.equal("SquareFeet" in payload.HO, false);
+});
+
+test("import payload never fabricates prior claim details", () => {
+  assert.throws(
+    () =>
+      buildImporterPayload(
+        { ...params, priorClaims: 1 },
+        "agent@example.com",
+      ),
+    /claim details must be confirmed/i,
+  );
+});
+
+test("import payload maps only completed applicant claim records", () => {
+  const payload = buildImporterPayload({
+    ...params,
+    priorClaims: 1,
+    claimRecords: [{
+      lossDate: "2024-06-01",
+      claimDetail: "Water damage from a supply line",
+      amount: 12_500,
+      paid: false,
+      priorResidence: true,
+    }],
+  }, "agent@example.com");
+  assert.equal(payload.HO.Claims, "Yes");
+  assert.deepEqual(payload.Claims, [{
+    ClaimDetail: "Water damage from a supply line",
+    Date: "06/01/2024",
+    Amount: "12500",
+    PriorResidence: true,
+    Paid: false,
+  }]);
+  assert.equal("ActOfGod" in payload.Claims[0], false);
+  assert.equal("CatastrophicLoss" in payload.Claims[0], false);
+  assert.throws(
+    () => buildImporterPayload({ ...params, priorClaims: 1, claimRecords: [] }, "agent@example.com"),
+    /claim details must be confirmed/i,
+  );
+});
+
+test("HO6 keeps C/D/E, uses $2,000 medical, and omits Coverage B", () => {
+  const payload = buildImporterPayload(
+    { ...params, policyType: "HO6", coverageA: 212_500 },
+    "agent@example.com",
+  );
+  assert.equal(payload.HO.CoverageA, "212500");
+  assert.equal(payload.HO.CoverageF, "$2,000");
+  assert.equal("CoverageB" in payload.HO, false);
+  assert.equal("CoverageBPercent" in payload.HO, false);
+  assert.equal(payload.HO.CoverageC, "53125");
+  assert.equal(payload.HO.CoverageD, "21250");
+  assert.equal(payload.HO.CoverageE, "$300,000");
+  assert.equal("LossAssessment" in payload.HO, false);
+});
+
+test("quote-start requires a matching complete claim answer", () => {
+  const base = {
+    address: "123 Palm Way, Tampa, FL 33602", coverageA: 425_000,
+    constIdx: 1, windIdx: 1, hurrIdx: 1, newPurchase: true,
+    purchaseDate: "2026-09-30", hasClaims: true, claimRecords: [],
+  };
+  assert.throws(() => prepareQuoteRushStartRequest(base), /claim/i);
+  assert.throws(() => prepareQuoteRushStartRequest({
+    ...base, claimRecords: [{
+      lossDate: "2024-06-01", claimDetail: "Wind", amount: 0,
+      paid: true, priorResidence: false,
+    }],
+  }), /amount/i);
+  assert.doesNotThrow(() => prepareQuoteRushStartRequest({
+    ...base, hasClaims: false, claimRecords: [], hasMortgage: false,
+  }));
+});
+
+test("FEMA zone does not synthesize a separate flood policy", () => {
+  const payload = buildImporterPayload(
+    { ...params, floodZone: "AE" },
+    "agent@example.com",
+  );
+  assert.equal(payload.Client.Lob_Flood, false);
+  assert.equal(payload.HO.FloodZone, "AE");
+  assert.equal(payload.HO.FloodPolicy, false);
+  assert.equal("Flood" in payload, false);
+});
+
+test("unknown flood zone is omitted instead of fabricated as X", () => {
+  const payload = buildImporterPayload(
+    { ...params, floodZone: "" },
+    "agent@example.com",
+  );
+  assert.equal("FloodZone" in payload.HO, false);
+});
+
+test("mortgage is omitted unless Havo has a derived answer", () => {
+  const unknown = buildImporterPayload(params, "agent@example.com");
+  assert.equal("Mortgage" in unknown.HO, false);
+
+  const financed = buildImporterPayload(
+    { ...params, hasMortgage: true },
+    "agent@example.com",
+  );
+  assert.equal(financed.HO.Mortgage, "Yes");
+
+  const freeAndClear = buildImporterPayload(
+    { ...params, hasMortgage: false },
+    "agent@example.com",
+  );
+  assert.equal(freeAndClear.HO.Mortgage, "No");
 });
 
 test("legacy index callers retain the intentional bucket fallback only when exact years are absent", () => {
@@ -372,6 +600,7 @@ test("legacy index callers retain the intentional bucket fallback only when exac
   assert.equal(exact.secondaryWaterResistance, "Unknown");
   assert.equal(exact.roofShape, "Flat");
   assert.equal(exact.constructionType, "Mixed");
+  assert.equal(exact.frameConstruction, "");
 
   const legacy = resolveQuoteRushPropertyInputs({
     yearIdx: 2,
@@ -412,4 +641,104 @@ test("concurrent address claims allow only one paid submission", async () => {
     claimed: false,
     row: { leadId: null, status: "pending" },
   });
+});
+
+test("same address and policy race allows only one paid submission", async () => {
+  const claimedIdentities = new Set<string>();
+  let paidSubmissions = 0;
+  const identity = "123 palm way tampa fl 33602|HO6";
+
+  const attempt = async () => {
+    const claim = await claimQuoteRushAddress(
+      async () => {
+        await new Promise(resolve => setTimeout(resolve, 5));
+        if (claimedIdentities.has(identity)) return [];
+        claimedIdentities.add(identity);
+        return [{ id: 1 }];
+      },
+      async () => ({ leadId: null, status: "pending" }),
+    );
+    if (claim.claimed) paidSubmissions++;
+    return claim;
+  };
+
+  const claims = await Promise.all([attempt(), attempt()]);
+  assert.equal(paidSubmissions, 1);
+  assert.equal(claims.filter(claim => claim.claimed).length, 1);
+});
+
+test("same address with different policy types has independent claims", async () => {
+  const claimedIdentities = new Set<string>();
+  let paidSubmissions = 0;
+
+  const attempt = async (policyType: "HO3" | "HO6") => {
+    const identity = `123 palm way tampa fl 33602|${policyType}`;
+    const claim = await claimQuoteRushAddress(
+      async () => {
+        if (claimedIdentities.has(identity)) return [];
+        claimedIdentities.add(identity);
+        return [{ id: claimedIdentities.size }];
+      },
+      async () => ({ leadId: null, status: "pending" }),
+    );
+    if (claim.claimed) paidSubmissions++;
+  };
+
+  await Promise.all([attempt("HO3"), attempt("HO6")]);
+  assert.equal(paidSubmissions, 2);
+  assert.deepEqual(
+    [...claimedIdentities].sort(),
+    [
+      "123 palm way tampa fl 33602|HO3",
+      "123 palm way tampa fl 33602|HO6",
+    ],
+  );
+});
+
+test("QuoteRUSH returns only the three cheapest positive carrier results", async () => {
+  const previousFetch = globalThis.fetch;
+  const previousEndpointKey = process.env.QUOTERUSH_ENDPOINT_KEY;
+  const previousAgency = process.env.QUOTERUSH_AGENCY_ID;
+  process.env.QUOTERUSH_ENDPOINT_KEY = "test-key";
+  process.env.QUOTERUSH_AGENCY_ID = "test-agency";
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    QuoteCounter: 5,
+    Quotes: [
+      { SiteName: "Expensive", Premium: "5000" },
+      { SiteName: "Cheapest", Premium: "1000" },
+      { SiteName: "Invalid", Premium: "0" },
+      { SiteName: "Third", Premium: "3000" },
+      { SiteName: "Second", Premium: "2000" },
+      { SiteName: "Fourth", Premium: "4000" },
+    ],
+  }))) as typeof fetch;
+
+  try {
+    const result = await getQuotes(123);
+    assert.equal(result.quoteCounter, 5);
+    assert.deepEqual(
+      result.quotes.map(quote => ({
+        carrier: quote.siteName,
+        premium: quote.annualPremium,
+        rank: quote.rank,
+      })),
+      [
+        { carrier: "Cheapest", premium: 1000, rank: 1 },
+        { carrier: "Second", premium: 2000, rank: 2 },
+        { carrier: "Third", premium: 3000, rank: 3 },
+      ],
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousEndpointKey === undefined) {
+      delete process.env.QUOTERUSH_ENDPOINT_KEY;
+    } else {
+      process.env.QUOTERUSH_ENDPOINT_KEY = previousEndpointKey;
+    }
+    if (previousAgency === undefined) {
+      delete process.env.QUOTERUSH_AGENCY_ID;
+    } else {
+      process.env.QUOTERUSH_AGENCY_ID = previousAgency;
+    }
+  }
 });

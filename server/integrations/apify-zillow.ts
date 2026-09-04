@@ -170,6 +170,7 @@ const SUFFIX_MAP: Record<string, string> = {
   drive: "dr", dr: "dr",
   boulevard: "blvd", blvd: "blvd", boulvd: "blvd",
   lane: "ln", ln: "ln",
+  circle: "cir", cir: "cir",
   way: "way", wy: "way",
   court: "ct", ct: "ct",
   place: "pl", pl: "pl",
@@ -206,7 +207,7 @@ function normalizeStreetName(s: string): string {
     .map((tok, i) => {
       const mapped = SUFFIX_MAP[tok];
       if (mapped == null) return tok;
-      // Suffixes (st/ave/rd/dr/blvd/ln/way/ct/pl) canonicalize anywhere.
+      // Suffixes (st/ave/rd/dr/blvd/ln/cir/way/ct/pl) canonicalize anywhere.
       // Directionals only canonicalize at the first or last position.
       if (DIRECTIONAL_SET.has(tok)) {
         const isEdge = i === 0 || i === tokens.length - 1;
@@ -349,6 +350,27 @@ interface MatchDecision {
   mismatched: string[];
 }
 
+function actorInvalidReason(row: any): string | null {
+  if (!row || typeof row !== "object") return null;
+  const explicitlyInvalid =
+    row.isValid === false ||
+    row.valid === false ||
+    String(row.status ?? "").toLowerCase() === "invalid";
+  const reason = [
+    row.invalidReason,
+    row.invalid_reason,
+    row.errorMessage,
+    row.error_message,
+    row.error,
+    row.reason,
+  ].find((value) => typeof value === "string" && value.trim());
+  return explicitlyInvalid && typeof reason === "string"
+    ? reason.trim()
+    : explicitlyInvalid
+      ? "actor marked row invalid"
+      : null;
+}
+
 /**
  * Decide whether a Zillow row is the same property the caller asked for.
  *
@@ -359,6 +381,16 @@ interface MatchDecision {
  * as a mismatch — this keeps the matcher tolerant of sparse rows.
  */
 function decideAddressMatch(googleParsed: ParsedAddr, row: any): MatchDecision {
+  const invalidReason = actorInvalidReason(row);
+  if (invalidReason) {
+    return {
+      accept: false,
+      reason: `actor invalid: ${invalidReason}`,
+      cityMismatch: false,
+      matched: [],
+      mismatched: [],
+    };
+  }
   const zillow = parseAddressFromRow(row);
   const matched: string[] = [];
   const mismatched: string[] = [];
@@ -399,6 +431,11 @@ function decideAddressMatch(googleParsed: ParsedAddr, row: any): MatchDecision {
     matched,
     mismatched,
   };
+}
+
+/** Exposed for regression tests and diagnostics without making an Apify call. */
+export function evaluateZillowAddressMatch(address: string, row: unknown): MatchDecision {
+  return decideAddressMatch(parseAddressString(address), row);
 }
 
 /** Re-cased "St Petersburg" → "St Petersburg" (Title Case) for display. */
@@ -906,11 +943,15 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
 
   // Walk a list of rows and return the first one our matcher accepts.
   // Logs every per-row decision so a mistaken acceptance can be traced.
+  const rejectedReasons: string[] = [];
   const pickAcceptable = (rows: unknown[], attemptLabel: string): { row: any; decision: MatchDecision } | null => {
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       const decision = decideAddressMatch(googleParsed, row);
       if (decision.accept) return { row, decision };
+      const detail = `${attemptLabel} row ${i + 1}: ${decision.reason}`;
+      rejectedReasons.push(detail);
+      console.warn("[zillow-validate] rejected", detail);
     }
     return null;
   };
@@ -963,7 +1004,10 @@ export async function fetchZillowProperty(addressOrUrl: string): Promise<Propert
   }
 
   if (!picked) {
-    throw new Error("No Zillow results found for that address");
+    const detail = rejectedReasons.length
+      ? ` (${Array.from(new Set(rejectedReasons)).join("; ")})`
+      : "";
+    throw new Error(`No Zillow results found for that address${detail}`);
   }
 
 

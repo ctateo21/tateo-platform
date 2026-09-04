@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import AuthDialog from "@/components/ui/auth-dialog";
 import { useAuth } from "@/context/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { trackEvent } from "@/lib/posthog";
 import {
   downloadScenarioPdf,
   type ScenarioPdfContent,
@@ -123,7 +124,7 @@ export default function ScenarioActions({
     }
   }
 
-  function runGenericPdf(getFn: () => ScenarioPdfContent | null) {
+  function runGenericPdf(getFn: () => ScenarioPdfContent | null): boolean {
     let content: ScenarioPdfContent | null = null;
     try {
       content = getFn();
@@ -136,9 +137,10 @@ export default function ScenarioActions({
         description: "Add a property address to generate a PDF summary.",
         variant: "destructive",
       });
-      return;
+      return false;
     }
     downloadScenarioPdf({ scenarioType, ...content });
+    return true;
   }
 
   // Run the PDF export. A page may supply a custom generator
@@ -155,11 +157,11 @@ export default function ScenarioActions({
       if (custom) {
         custom();
       } else if (getFn) {
-        runGenericPdf(getFn);
-        return;
+        if (!runGenericPdf(getFn)) return;
       } else {
         return;
       }
+      trackEvent("scenario_pdf_downloaded", { type: scenarioType });
       toast({
         title: "PDF downloaded",
         description: `Your ${FLOW_LABEL[scenarioType]} summary is ready to share.`,
@@ -187,6 +189,7 @@ export default function ScenarioActions({
     const copy = async () => {
       try {
         await navigator.clipboard.writeText(url);
+        trackEvent("scenario_shared", { type: scenarioType });
         toast({
           title: "Link copied",
           description: "Share the URL with anyone to show this scenario.",

@@ -33,14 +33,29 @@ export interface InsuranceEstimateFormProps {
   onConstructionChange: (value: number) => void;
   yearBuilt: number;
   onYearBuiltChange: (value: number) => void;
+  squareFeet?: number;
+  onSquareFeetChange?: (value: number) => void;
+  propertyCharacteristicsNote?: string;
   aopDeductible: number;
   onAopDeductibleChange: (value: number) => void;
   floodZone?: string;
   floodZoneSource?: string;
+  onFloodZoneChange?: (value: string) => void;
+  hasClaims?: boolean | null;
+  onHasClaimsChange?: (value: boolean | null) => void;
+  claimRecords?: Array<{
+    lossDate: string; claimDetail: string; amount: number | "";
+    paid: boolean | null; priorResidence: boolean | null;
+  }>;
+  onClaimRecordsChange?: (records: NonNullable<InsuranceEstimateFormProps["claimRecords"]>) => void;
   annualPremium: number;
 }
 
 const CURRENT_YEAR = new Date().getFullYear();
+const CLAIM_DATE_MAX = new Date().toISOString().slice(0, 10);
+const claimDateMin = new Date();
+claimDateMin.setFullYear(claimDateMin.getFullYear() - 5);
+const CLAIM_DATE_MIN = claimDateMin.toISOString().slice(0, 10);
 const fieldClass =
   "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20";
 const labelClass =
@@ -174,6 +189,8 @@ function RebuildField({
 }
 
 export function InsuranceEstimateForm(props: InsuranceEstimateFormProps) {
+  const claimRecords = props.claimRecords ?? [];
+  const updateClaimRecords = props.onClaimRecordsChange ?? (() => {});
   const policyNote = props.policyTypeNote ?? "";
   return (
     <div className="space-y-5">
@@ -196,6 +213,47 @@ export function InsuranceEstimateForm(props: InsuranceEstimateFormProps) {
           <p className="text-xs text-muted-foreground/80">{policyNote}</p>
         )}
       </div>
+      {props.hasClaims !== undefined &&
+      props.onHasClaimsChange &&
+      props.onClaimRecordsChange ? (
+      <div className="space-y-2 rounded-lg border border-border p-3">
+        <label className={labelClass}>Any insurance claims in the past five years?</label>
+        <select
+          value={props.hasClaims === null ? "" : props.hasClaims ? "yes" : "no"}
+          onChange={(e) => props.onHasClaimsChange?.(
+            e.target.value === "yes" ? true : e.target.value === "no" ? false : null,
+          )}
+          className={fieldClass}
+          data-testid="select-prior-claims"
+        >
+          <option value="">— select —</option><option value="no">No</option><option value="yes">Yes</option>
+        </select>
+        {props.hasClaims && claimRecords.map((claim, index) => (
+          <div key={index} className="grid grid-cols-2 gap-2 rounded border border-border/70 p-2">
+            <input type="date" min={CLAIM_DATE_MIN} max={CLAIM_DATE_MAX} value={claim.lossDate} aria-label={`Claim ${index + 1} loss date`}
+              onChange={(e) => updateClaimRecords(claimRecords.map((r, i) => i === index ? {...r, lossDate: e.target.value} : r))} className={fieldClass} />
+            <input value={claim.claimDetail} placeholder="Type / cause" aria-label={`Claim ${index + 1} type or cause`}
+              onChange={(e) => updateClaimRecords(claimRecords.map((r, i) => i === index ? {...r, claimDetail: e.target.value} : r))} className={fieldClass} />
+            <input type="number" min="1" value={claim.amount} placeholder="Amount paid / incurred" aria-label={`Claim ${index + 1} amount`}
+              onChange={(e) => updateClaimRecords(claimRecords.map((r, i) => i === index ? {...r, amount: e.target.value ? Number(e.target.value) : ""} : r))} className={fieldClass} />
+            <select value={claim.paid === null ? "" : `${claim.paid}`} aria-label={`Claim ${index + 1} paid status`}
+              onChange={(e) => updateClaimRecords(claimRecords.map((r, i) => i === index ? {...r, paid: e.target.value === "true"} : r))} className={fieldClass}>
+              <option value="">— paid status —</option><option value="true">Paid</option><option value="false">Unpaid</option>
+            </select>
+            <select value={claim.priorResidence === null ? "" : `${claim.priorResidence}`} aria-label={`Claim ${index + 1} residence`}
+              onChange={(e) => updateClaimRecords(claimRecords.map((r, i) => i === index ? {...r, priorResidence: e.target.value === "true"} : r))} className={fieldClass}>
+              <option value="">— residence —</option><option value="false">Current residence</option><option value="true">Prior residence</option>
+            </select>
+            <button type="button" className="text-xs text-primary" onClick={() => updateClaimRecords(claimRecords.filter((_, i) => i !== index))}>Remove</button>
+          </div>
+        ))}
+        {props.hasClaims && claimRecords.length < 3 && (
+          <button type="button" className="text-xs font-medium text-primary" onClick={() => updateClaimRecords([...claimRecords, { lossDate: "", claimDetail: "", amount: "", paid: null, priorResidence: null }])}>
+            + Add claim
+          </button>
+        )}
+      </div>
+      ) : null}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <label className={labelClass}>Is this a new purchase?</label>
@@ -358,6 +416,29 @@ export function InsuranceEstimateForm(props: InsuranceEstimateFormProps) {
         onChange={props.onYearBuiltChange}
         testId="input-year-built"
       />
+      <div className="space-y-1.5">
+        <label className={labelClass}>Living area (square feet)</label>
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          value={props.squareFeet || ""}
+          placeholder="Enter if known"
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            props.onSquareFeetChange?.(
+              Number.isFinite(next) && next > 0 ? Math.round(next) : 0,
+            );
+          }}
+          data-testid="input-square-feet"
+          className={fieldClass}
+        />
+        {props.propertyCharacteristicsNote && (
+          <p className="text-xs text-muted-foreground/70">
+            {props.propertyCharacteristicsNote}
+          </p>
+        )}
+      </div>
       <SelectField
         label="AOP Deductible (all other perils)"
         value={props.aopDeductible}
@@ -372,17 +453,18 @@ export function InsuranceEstimateForm(props: InsuranceEstimateFormProps) {
       />
       <div className="space-y-1.5">
         <label className={labelClass}>Flood Zone</label>
-        <div
+        <input
+          value={props.floodZone ?? ""}
+          onChange={(e) => props.onFloodZoneChange?.(e.target.value.toUpperCase())}
+          placeholder="Unknown"
           data-testid="text-flood-zone"
           className="w-full rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground"
-        >
-          {props.floodZone || "—"}
-          {props.floodZoneSource && (
-            <span className="ml-2 text-xs text-muted-foreground/70">
-              ({props.floodZoneSource})
-            </span>
-          )}
-        </div>
+        />
+        {props.floodZoneSource && (
+          <p className="text-xs text-muted-foreground/70">
+            {props.floodZoneSource}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground/70">
           Auto-detected for this address from the{" "}
           <a
@@ -409,10 +491,6 @@ export function InsuranceEstimateForm(props: InsuranceEstimateFormProps) {
         <p className="mt-2 text-xs text-white/65">
           Midpoint planning estimate based on the answers above.
         </p>
-      </div>
-      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
-        <strong>Estimate assumption:</strong> This estimate assumes no insurance
-        claims have been filed in the past five years.
       </div>
     </div>
   );

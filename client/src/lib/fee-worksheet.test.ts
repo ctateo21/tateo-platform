@@ -186,15 +186,42 @@ test("FHA DPA amortizing 2nd: 'Other Financing P&I' appears and is in the monthl
   assert.equal(findCredit(ws, "DPA Closing Cost Credit"), 6_000);
 });
 
-test("FHA DPA silent 2nd: 2-point charge is its own lender-fee line and raises the subtotal", () => {
+test("FHA DPA silent 2nd: first-lien program points are charged and included in first-lien APR exactly once", () => {
   const extra = Math.round(386_000 * 0.02 * 100) / 100; // 7,720
-  const ws = buildFeeWorksheet(inputs({ ...fhaBase, dpaExtraPointsCost: extra }));
-  const line = ws.lenderFees.lines.find(l => l.label.includes("DPA Program Points"));
+  const withoutProgramPoints = buildFeeWorksheet(inputs({ ...fhaBase }));
+  const withProgramPoints = buildFeeWorksheet(inputs({ ...fhaBase, dpaExtraPointsCost: extra }));
+  const line = withProgramPoints.lenderFees.lines.find(l => l.label.includes("DPA Program Points"));
   assert.ok(line, "silent-2nd DPA points must be a separate lender-fee line");
   assert.equal(line!.amount, extra);
-  assert.equal(ws.lenderFees.subtotal, 1250 + extra);
-  // No amortizing 2nd → no extra monthly line
-  assert.equal(ws.monthlyHousing.lines.some(l => l.label.includes("DPA 2nd")), false);
+  assert.equal(withProgramPoints.lenderFees.subtotal, 1250 + extra);
+  assert.equal(
+    Math.round(
+      (withProgramPoints.fundsToClose.fundsFromBorrower - withoutProgramPoints.fundsToClose.fundsFromBorrower) * 100,
+    ) / 100,
+    extra,
+    "borrower funds must include the program points exactly once",
+  );
+  assert.equal(
+    Math.round(
+      (withProgramPoints.fundsToClose.estimatedCash - withoutProgramPoints.fundsToClose.estimatedCash) * 100,
+    ) / 100,
+    extra,
+    "cash to close must include the program points exactly once",
+  );
+  assert.equal(
+    withProgramPoints.prepaidFinanceCharges - withoutProgramPoints.prepaidFinanceCharges,
+    extra,
+    "the first-lien prepaid finance charge must include the program points exactly once",
+  );
+  assert.ok(
+    withProgramPoints.aprPct > withoutProgramPoints.aprPct,
+    `first-lien APR ${withProgramPoints.aprPct} must exceed ${withoutProgramPoints.aprPct} when program points are charged`,
+  );
+  assert.equal(
+    withProgramPoints.monthlyHousing.lines.some(l => l.label.includes("DPA 2nd")),
+    false,
+    "the silent second must receive neither a monthly charge nor a duplicate allocation",
+  );
 });
 
 test("FHA <10% down: life-of-loan MIP makes APR higher than an identical loan with MI ending early", () => {

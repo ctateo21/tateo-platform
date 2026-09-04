@@ -286,12 +286,12 @@ export function FeeWorksheetDialog({
             <p className="text-muted-foreground text-[10px] uppercase tracking-wide">Product</p>
             <p className="font-semibold">30 Year {meta.loanTypeLabel} Fixed</p>
           </div>
-          <div>
+          <div data-testid="worksheet-rate-disclosure">
             <p className="text-muted-foreground text-[10px] uppercase tracking-wide">
               Interest Rate{" "}
               <em className="normal-case">{formatAprParenthetical(meta.aprPct)}</em>
             </p>
-            <p className="font-semibold tabular-nums">
+            <p className="font-semibold tabular-nums" data-testid="worksheet-rate-disclosure-value">
               {meta.ratePct.toFixed(3)}%
             </p>
           </div>

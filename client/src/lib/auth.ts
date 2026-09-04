@@ -5,7 +5,7 @@ import {
   type BulkAddress,
 } from "./insurance-from-property";
 import { normalizePropertyKey } from "./property-key";
-import { posthog } from "./posthog";
+import { trackEvent } from "./posthog";
 import {
   syncPropertyValueAcrossTabs,
   isPropertyValueSyncInFlight,
@@ -2347,7 +2347,7 @@ function persistPurchaseScenarios(s: PurchaseScenario[]) {
         for (const id of newIds) {
           if (_phPurchaseSavedFired.has(id)) continue;
           _phPurchaseSavedFired.add(id);
-          try { posthog.capture("scenario_saved", { type: "purchase" }); } catch {}
+          trackEvent("scenario_saved", { type: "purchase" });
         }
       }
     } else {

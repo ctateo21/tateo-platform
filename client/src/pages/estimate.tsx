@@ -87,7 +87,7 @@ import {
   Carousel, CarouselContent, CarouselItem, CarouselPrevious, CarouselNext,
 } from "@/components/ui/carousel";
 import { getSession, getPurchaseScenarios, savePurchaseScenarios } from "@/lib/auth";
-import { posthog } from "@/lib/posthog";
+import { trackEvent } from "@/lib/posthog";
 import { getStoredReferralSource } from "@/components/referral-source-dialog";
 import {
   DEFAULT_HOMEOWNERS_INSURANCE_PERCENT,
@@ -1514,7 +1514,7 @@ export default function Estimate() {
         }),
       }).catch(err => console.warn("Failed to notify agent of new scenario:", err));
     }
-    posthog.capture("scenario_saved", { type: "purchase" });
+    trackEvent("scenario_saved", { type: "purchase" });
   }
 
   // Share dialog.
@@ -1565,7 +1565,7 @@ export default function Estimate() {
     if (step !== 4 || !activeScenarioId) return;
     if (phPurchaseCalcFiredRef.current.has(activeScenarioId)) return;
     phPurchaseCalcFiredRef.current.add(activeScenarioId);
-    posthog.capture("scenario_calculated", { type: "purchase" });
+    trackEvent("scenario_calculated", { type: "purchase" });
   }, [step, activeScenarioId]);
   const [answersOpen, setAnswersOpen] = useState(false);
 
@@ -3554,9 +3554,10 @@ export default function Estimate() {
     // origination charge — the two are separate line items per
     // spec — and is derived from `inputs.discountPointsPct` only,
     // so re-renders / loan-type flips never double-count.
-    // 5% DPA + silent 2nd: lender charges 2 discount points (2% of
-    // the base loan amount) in cash to close. This is a cost only —
-    // it does NOT buy the rate down.
+    // 5% DPA + silent 2nd: the first-mortgage lender charges 2 program
+    // points (2% of the base loan amount) in cash to close. This does
+    // NOT buy the rate down, but is a first-lien prepaid finance charge
+    // included once in that loan's APR under 12 CFR 1026.4(a), (b)(3).
     const dpaExtraPointsCost = dpaExtraPointsPct > 0
       ? Math.round(baseLoanAmount * (dpaExtraPointsPct / 100))
       : 0;
@@ -3678,8 +3679,9 @@ export default function Estimate() {
   // closing costs and cash to close everywhere downstream.
   // the popup worksheet and the APR disclosure can never drift from
   // the numbers on screen. APR = note rate + prepaid finance charges
-  // (origination/points, underwriting, processing-type fees, prepaid
-  // interest) + the monthly MI stream, solved on the actual payment.
+  // (origination/points, including first-lien DPA program points,
+  // underwriting, processing-type fees, prepaid interest) + the
+  // monthly MI stream, solved on the actual payment.
   const [feeWorksheetEscrowsEnabled, setFeeWorksheetEscrowsEnabled] = useState(true);
   const feeWorksheet = useMemo(() => {
     if (inputs.purchasePrice <= 0 || calcBasis.loanAmount <= 0 || calcBasis.pi <= 0) return null;
@@ -3866,7 +3868,7 @@ export default function Estimate() {
         },
       ]);
     }
-    posthog.capture("scenario_saved", { type: "purchase", source: "ifw" });
+    trackEvent("scenario_saved", { type: "purchase", source: "ifw" });
   }
 
   function notifyIfwActivity(action: "save" | "download" | "share"): void {
@@ -4150,7 +4152,7 @@ export default function Estimate() {
     return (n * 100).toFixed(1) + "%";
   }
 
-  function Row({ label, value, sub, status, link, onClick }: { label: ReactNode; value: string; sub?: string; status?: "green" | "yellow" | "red"; link?: { url: string; label: string }; onClick?: () => void }) {
+  function Row({ label, value, sub, status, link, onClick, testId }: { label: ReactNode; value: string; sub?: string; status?: "green" | "yellow" | "red"; link?: { url: string; label: string }; onClick?: () => void; testId?: string }) {
     const bg = status === "green" ? "bg-green-50" : status === "yellow" ? "bg-yellow-50" : status === "red" ? "bg-red-50" : "";
     const labelColor = status === "green" ? "text-green-800" : status === "yellow" ? "text-yellow-800" : status === "red" ? "text-red-800" : "text-muted-foreground";
     const valueColor = status === "green" ? "text-green-700 font-bold" : status === "yellow" ? "text-yellow-700 font-bold" : status === "red" ? "text-red-700 font-bold" : "font-semibold";
@@ -4159,8 +4161,9 @@ export default function Estimate() {
       <div
         className={`flex justify-between items-center py-2 px-2 rounded-md transition-colors ${bg} ${onClick ? "cursor-pointer hover:bg-primary/5 group" : ""}`}
         onClick={onClick}
+        data-testid={testId}
       >
-        <span className={`text-sm ${labelColor} flex items-center gap-1.5`}>
+        <span className={`min-w-0 text-sm ${labelColor} flex flex-wrap items-center gap-x-1.5 gap-y-0`}>
           {label}
           {onClick && <ChevronDown className="h-3 w-3 opacity-0 group-hover:opacity-60 transition-opacity" />}
           {link && (
@@ -4174,7 +4177,7 @@ export default function Estimate() {
             </a>
           )}
         </span>
-        <span className={`text-sm text-right ${valueColor}`}>
+        <span className={`shrink-0 text-sm text-right ${valueColor}`} data-testid={testId ? `${testId}-value` : undefined}>
           {value}
           {sub && <span className={`block text-xs font-normal ${subColor}`}>{sub}</span>}
         </span>
@@ -4182,13 +4185,13 @@ export default function Estimate() {
     );
   }
 
-  function SummaryRow({ label, value, onEdit, sub }: { label: ReactNode; value: string; onEdit: () => void; sub?: string }) {
+  function SummaryRow({ label, value, onEdit, sub, testId }: { label: ReactNode; value: string; onEdit: () => void; sub?: string; testId?: string }) {
     return (
-      <div className="py-1.5 border-b border-border/30 last:border-0">
+      <div className="py-1.5 border-b border-border/30 last:border-0" data-testid={testId}>
         <div className="flex justify-between items-center gap-2">
-          <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+          <span className="min-w-0 text-xs text-muted-foreground">{label}</span>
           <div className="flex items-center gap-1.5 min-w-0">
-            <span className="text-xs font-medium text-right truncate">{value}</span>
+            <span className="shrink-0 text-xs font-medium text-right" data-testid={testId ? `${testId}-value` : undefined}>{value}</span>
             <button onClick={onEdit} className="text-primary/50 hover:text-primary transition-colors shrink-0" title="Edit">
               <Pencil className="h-2.5 w-2.5" />
             </button>
@@ -5449,7 +5452,7 @@ export default function Estimate() {
 
                   {renderSellerConcessions()}
 
-                  <div className="space-y-1">
+                  <div className="space-y-1" data-testid="editable-rate-disclosure">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span className="text-xs text-muted-foreground">
                         Interest Rate{" "}
@@ -5709,7 +5712,7 @@ export default function Estimate() {
                           <SummaryRow
                             label="Address"
                             value={address && address !== "Unknown Address" ? address : "—"}
-                            onEdit={() => setEditingPage(3)}
+                             onEdit={() => setEditingPage(3)}
                           />
                           <SummaryRow label="Purchase Price" value={fmt(inputs.purchasePrice)} onEdit={() => setEditingPage(3)} />
                           <SummaryRow label="Property Type" value={inputs.propertyType ?? "Single Family Residence"} onEdit={() => setEditingPage(3)} />
@@ -5768,6 +5771,7 @@ export default function Estimate() {
                             value={`${calc.finalRate.toFixed(3)}%`}
                             sub={calc.dpaActive ? `Includes +${calc.dpaRateBump.toFixed(2)}% DPA adjustment` : undefined}
                             onEdit={() => setEditingPage(3)}
+                             testId="purchase-summary-rate-disclosure"
                           />
                           <SummaryRow label="Loan Term" value="30 yr fixed" onEdit={() => setEditingPage(3)} />
                         </div>
@@ -5959,6 +5963,7 @@ export default function Estimate() {
                       </>
                     }
                     value={`${calc.finalRate.toFixed(3)}%`}
+                     testId="payment-card-rate-disclosure"
                     sub={
                       [
                         calc.discountPointsPct > 0
@@ -6101,7 +6106,7 @@ export default function Estimate() {
                       inputs.loanType === "dscr"
                         ? `Includes DSCR Origination Charge 1.00% (${fmt(calc.dscrOriginationAmount)})`
                         : calc.dpaExtraPointsCost > 0
-                        ? `Includes 2 discount points (${fmt(calc.dpaExtraPointsCost)}) — DPA 5% silent 2nd`
+                        ? `Includes 2 program points (${fmt(calc.dpaExtraPointsCost)}) — DPA 5% silent 2nd; included in first-mortgage APR`
                         : undefined
                     }
                   />
@@ -6132,7 +6137,7 @@ export default function Estimate() {
                   )}
                   {calc.dpaActive && calc.dpaSecondType === "silent" && (
                     <p className="text-[11px] text-muted-foreground px-1 py-1" data-testid="note-dpa-silent-second">
-                      Silent 2nd of {fmt(calc.dpaAmount)}: no monthly payment. You must keep the home 10 years — if you refinance, the full amount is owed back.
+                      Silent 2nd of {fmt(calc.dpaAmount)}: no monthly payment and no program-points charge allocated to this lien. The 2 program points are included once in the first-mortgage APR. You must keep the home 10 years — if you refinance, the full amount is owed back.
                     </p>
                   )}
                   <Separator />

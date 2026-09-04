@@ -25,7 +25,7 @@ import {
 } from "@/lib/auth";
 import { notifyNewScenario } from "@/lib/notify-scenario";
 import { normalizePropertyKey } from "@/lib/property-key";
-import { posthog } from "@/lib/posthog";
+import { trackEvent } from "@/lib/posthog";
 import { estimateAnnualTax } from "@/lib/county-tax-estimator";
 import { calculateDefaultHomeownersInsurance } from "@/lib/insurance-default";
 import { apiRequest } from "@/lib/queryClient";
@@ -317,7 +317,7 @@ export default function CashBuyPage() {
         // New scenario only (idx < 0 fires once): notify the assigned
         // agent (non-blocking, fire-and-forget).
         if (idx < 0) notifyNewScenario("Cash Buy", stamped.address, "Saved a cash buy scenario");
-        posthog.capture("scenario_saved", { type: "cash_buy" });
+        trackEvent("scenario_saved", { type: "cash_buy" });
         if (isMountedRef.current) {
           setSaveStatus("saved");
           window.setTimeout(() => {
@@ -712,7 +712,7 @@ export default function CashBuyPage() {
     if (!scenario.id || !(price > 0)) return;
     if (phCashBuyCalcFiredRef.current.has(scenario.id)) return;
     phCashBuyCalcFiredRef.current.add(scenario.id);
-    posthog.capture("scenario_calculated", { type: "cash_buy" });
+    trackEvent("scenario_calculated", { type: "cash_buy" });
   }, [scenario.id, price]);
   const sliderMax = Math.max(2_000_000, Math.round((price || 500_000) * 2));
   const closingMax = Math.max(50_000, Math.round((price || 500_000) * 0.06));

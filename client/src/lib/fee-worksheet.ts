@@ -46,7 +46,10 @@ export interface FeeWorksheetInputs {
   discountPointsPct: number;
   /** DSCR 1% origination charge */
   dscrOriginationAmount: number;
-  /** DPA 5% silent-second extra 2 points (cash) */
+  /**
+   * DPA 5% silent-second program points charged by the first-mortgage
+   * lender (cash and first-lien prepaid finance charge).
+   */
   dpaExtraPointsCost: number;
   /** DPA amortizing 2nd-lien monthly payment (0 when none/silent) */
   dpaSecondMonthly?: number;
@@ -142,8 +145,9 @@ export function buildFeeWorksheet(inp: FeeWorksheetInputs): FeeWorksheet {
   // ── Lender fees ──────────────────────────────────────────────────
   const underwritingFee = 1250;
   // Keep the user-selected discount-point buydown and the DPA 5%
-  // silent-second 2-point charge as SEPARATE line items so the points
-  // percentage label always matches its amount.
+  // silent-second program-points charge as SEPARATE line items so the
+  // percentage label always matches its amount. The latter is not a
+  // rate-buydown charge.
   const pointsAmt = r2(inp.discountPointsCost);
   const dpaPointsAmt = r2(inp.dpaExtraPointsCost);
   const originationAmt = r2(inp.dscrOriginationAmount);
@@ -356,11 +360,16 @@ export function buildFeeWorksheet(inp: FeeWorksheetInputs): FeeWorksheet {
   );
 
   // ── APR ──────────────────────────────────────────────────────────
-  // Prepaid finance charges (TILA): points/origination, underwriting,
-  // MERS, tax service, prepaid interest. Appraisal / credit report /
-  // title / recording / transfer taxes are excluded.
+  // Prepaid finance charges (TILA): first-lien points/origination,
+  // underwriting, MERS, tax service, and prepaid interest. Under
+  // 12 CFR 1026.4(a) and (b)(3), the DPA program points are included
+  // here because the first-mortgage lender separately imposes them as
+  // a condition of the first-lien credit used with the 5% silent-second
+  // option. They are not also assigned to the no-payment second lien.
+  // Appraisal / credit report / title / recording / transfer taxes are
+  // excluded.
   const prepaidFinanceCharges = r2(
-    pointsAmt + originationAmt + underwritingFee + 24.95 + 85 + prepaidInterest,
+    pointsAmt + dpaPointsAmt + originationAmt + underwritingFee + 24.95 + 85 + prepaidInterest,
   );
   // Monthly-MI duration: FHA <10% down = life of loan; FHA ≥10% = 132
   // months; conventional PMI ≈ months until the balance amortizes to

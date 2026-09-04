@@ -28,3 +28,17 @@ Do not assume the `sha` returned by `/git/trees/main?recursive=1` is safe to reu
 **Why:** the branch-name tree lookup returned the branch commit SHA in `sha`, causing a false concurrent-change check even though `main` had not moved.
 
 **How to apply:** GET the branch ref for the parent commit SHA, GET `/git/commits/{parent}`, use `commit.tree.sha` for recursive comparison and `base_tree`, then update the ref with `force: false`.
+
+## Fallback when connector/API ref updates are blocked
+If the installed connector cannot see the target private repository, or a configured publishing credential can create Git objects but cannot update the branch ref through the Git Data API, use an authenticated temporary clone and a normal non-force Git push.
+
+**Why:** Repository permissions can differ between connector proxy calls, Git Data API operations, and the Git transport. A credential that failed with a misleading API 404 successfully performed a standard fast-forward push.
+
+**How to apply:** Clone the current remote branch into `/tmp`, copy only the intended task files into that clone, commit there, and push without force. This preserves remote-only history and avoids merging Replit checkpoint commits into GitHub.
+
+## Canonical GitHub repository
+Use `ctateo21/Havo-ai` as the canonical GitHub repository.
+
+**Why:** GitHub permanently redirects the older `ctateo21/tateo-platform` location after the repository move.
+
+**How to apply:** Use the canonical URL for future API calls, temporary clones, commit links, and repository syncs so permission errors and redirect ambiguity are easier to diagnose.

@@ -24,7 +24,8 @@
  *   lines, upserts without losing verified rates/parcel.
  *
  * Pinellas:
- *   Writes complete live percentages only when bill millage is ready.
+ *   Applies live bill millage to the shared 85%-of-price low-end basis and
+ *   writes complete rate components only when bill millage is ready.
  *   Otherwise returns explicit pinellas-formula-fallback label and does
  *   NOT cache as a live row.
  *
@@ -61,9 +62,12 @@ import {
   type CountySlug,
 } from "./parcel-resolver";
 import { getPolkPhenixTaxBill } from "./polk-phenix-tax";
+import { PURCHASE_TAX_LOW_ASSESSMENT_RATIO } from "@shared/property-tax-policy";
 
 // ── Formula percentages used when live millage is unavailable ─────
-// 2025 effective county tax rates as share of purchase price.
+// 2025 effective county tax rates as share of purchase price. These rates
+// already represent the selected low-end estimate; do not apply the shared
+// 85% purchase-assessment ratio to them a second time.
 export const COUNTY_FORMULA_RATES: Record<string, { h: number; nh: number }> = {
   pinellas: { h: 0.01517, nh: 0.0185 },
   pasco: { h: 0.0141, nh: 0.0172 },
@@ -86,42 +90,16 @@ export function deriveCountyAssessmentBasis(params: {
 }): {
   assessmentRatio: number;
   homesteadNonSchoolExemption: number;
-  valueBasis: "verified-parcel-value" | "formula-assumed-market-value";
+  valueBasis: "low-end-purchase-value";
 } {
-  const observedValue =
-    Number.isFinite(params.justValue) && (params.justValue ?? 0) > 0
-      ? params.justValue!
-      : null;
-  const observedRatio =
-    observedValue && params.purchasePrice > 0
-      ? observedValue / params.purchasePrice
-      : null;
-  const saneObservedRatio =
-    observedRatio != null && observedRatio >= 0.7 && observedRatio <= 2
-      ? observedRatio
-      : null;
-  if (observedRatio != null && saneObservedRatio == null) {
-    console.warn(
-      `[property-tax] rejected ${params.county} just-value ratio ` +
-      `${observedRatio.toFixed(4)} outside 0.7–2.0`,
-    );
-  }
-
-  // Pinellas's public estimator uses the larger of 85% of purchase price or
-  // current just value. The ratio captures that verified basis at cache time,
-  // as required by the arbitrary-price cache contract.
-  const assessmentRatio =
-    params.county === "pinellas"
-      ? Math.max(0.85, saneObservedRatio ?? 0.85)
-      : saneObservedRatio ?? 1;
-
   return {
-    assessmentRatio,
+    // Current-owner just and assessed values do not determine a new buyer's
+    // reassessed value. Havo intentionally chooses the low end of the county
+    // estimator range for every supported purchase estimate.
+    assessmentRatio: PURCHASE_TAX_LOW_ASSESSMENT_RATIO,
     homesteadNonSchoolExemption:
       totalNonSchoolHomesteadExemptionForYear(params.rateYear),
-    valueBasis: saneObservedRatio
-      ? "verified-parcel-value"
-      : "formula-assumed-market-value",
+    valueBasis: "low-end-purchase-value",
   };
 }
 
@@ -279,9 +257,12 @@ export async function getHillsboroughPurchaseTax(params: {
 
   // Derive both homestead and non-homestead percentages at samplePrice=purchasePrice.
   const samplePrice = purchasePrice;
+  const homesteadNonSchoolExemption =
+    totalNonSchoolHomesteadExemptionForYear(now.getUTCFullYear());
   const hAdValorem = calcAdValorem(
     samplePrice, true,
-    taxData.schoolTaxRate, taxData.nonschoolTaxRate, taxData.totalTaxRate
+    taxData.schoolTaxRate, taxData.nonschoolTaxRate, taxData.totalTaxRate,
+    homesteadNonSchoolExemption,
   );
   const nhAdValorem = calcAdValorem(
     samplePrice, false,
@@ -332,7 +313,7 @@ export async function getHillsboroughPurchaseTax(params: {
       totalMillage: taxData.totalTaxRate,
       schoolMillage: taxData.schoolTaxRate,
       nonSchoolMillage: taxData.nonschoolTaxRate,
-      assessmentRatio: 0.85,
+      assessmentRatio: PURCHASE_TAX_LOW_ASSESSMENT_RATIO,
       homesteadSchoolExemption: 25_000,
       homesteadNonSchoolExemption:
         totalNonSchoolHomesteadExemptionForYear(now.getUTCFullYear()),
@@ -374,14 +355,16 @@ export function computePinellasAdValorem(params: {
   isPrimaryResidence: boolean;
   billMillage: number;
   billMills: Array<{ authority: string; mills: number }> | null;
+  rateYear: number;
 }): number {
   const SCHOOL_MILLS = 6.293;
   const SCHOOL_EXEMPTION = 25_000;
-  const NON_SCHOOL_EXEMPTION = 51_411;
-  const estimatedJustValue = Math.max(
-    0.85 * params.purchasePrice,
-    params.justValue,
-  );
+  const NON_SCHOOL_EXEMPTION =
+    totalNonSchoolHomesteadExemptionForYear(params.rateYear);
+  // The current parcel's just value must not raise the projected purchase
+  // estimate above the product-selected low end of the county range.
+  const estimatedJustValue =
+    PURCHASE_TAX_LOW_ASSESSMENT_RATIO * params.purchasePrice;
   const schoolTaxable = params.isPrimaryResidence
     ? Math.max(estimatedJustValue - SCHOOL_EXEMPTION, 0)
     : estimatedJustValue;
@@ -390,12 +373,18 @@ export function computePinellasAdValorem(params: {
     : estimatedJustValue;
 
   if (params.billMills?.length) {
-    return params.billMills.reduce((sum, line) => {
-      const taxable = /SCHOOL/i.test(line.authority)
-        ? schoolTaxable
-        : nonSchoolTaxable;
-      return sum + Math.round((taxable * line.mills) / 1000);
-    }, 0);
+    const schoolMills = params.billMills
+      .filter((line) => /SCHOOL/i.test(line.authority))
+      .reduce((sum, line) => sum + line.mills, 0);
+    const nonSchoolMills = params.billMills
+      .filter((line) => !/SCHOOL/i.test(line.authority))
+      .reduce((sum, line) => sum + line.mills, 0);
+    return Math.round(
+      (
+        schoolTaxable * schoolMills +
+        nonSchoolTaxable * nonSchoolMills
+      ) / 1000,
+    );
   }
 
   const nonSchoolMills = Math.max(params.billMillage - SCHOOL_MILLS, 0);
@@ -509,6 +498,7 @@ export async function getPinellasPurchaseTax(params: {
       isPrimaryResidence,
       billMillage,
       billMills,
+      rateYear: billYear ?? now.getUTCFullYear(),
     });
 
     // Derive both pcts at sample_price and write live cache.
@@ -518,6 +508,7 @@ export async function getPinellasPurchaseTax(params: {
       isPrimaryResidence: true,
       billMillage,
       billMills,
+      rateYear: billYear ?? now.getUTCFullYear(),
     });
     const nhAdValorem = computePinellasAdValorem({
       purchasePrice,
@@ -525,6 +516,7 @@ export async function getPinellasPurchaseTax(params: {
       isPrimaryResidence: false,
       billMillage,
       billMills,
+      rateYear: billYear ?? now.getUTCFullYear(),
     });
 
     const hPct = purchasePrice > 0 ? hAdValorem / purchasePrice : 0;
@@ -550,7 +542,7 @@ export async function getPinellasPurchaseTax(params: {
         totalMillage: billMillage,
         schoolMillage,
         nonSchoolMillage,
-        assessmentRatio: 0.85,
+        assessmentRatio: PURCHASE_TAX_LOW_ASSESSMENT_RATIO,
         homesteadSchoolExemption: 25_000,
         homesteadNonSchoolExemption:
           totalNonSchoolHomesteadExemptionForYear(
@@ -774,9 +766,8 @@ export async function getCountyPurchaseTax(params: {
   );
   const homestead = computeFromCache(formulaRow, purchasePrice, true);
   const nonHomestead = computeFromCache(formulaRow, purchasePrice, false);
-  const source = valueBasis === "verified-parcel-value"
-    ? `${county}-bill-live-observed-value-situs-v2`
-    : `${county}-bill-live-value-formula-situs-v2`;
+  const source =
+    `${county}-bill-live-${valueBasis}-situs-v2`;
 
   await writePropertyTaxCache({
     county,

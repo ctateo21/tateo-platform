@@ -13,6 +13,8 @@ import {
   isHillsboroughCountyAddress,
   normalizeHillsboroughAddressKey,
 } from "@shared/hillsborough-county";
+import { PURCHASE_TAX_LOW_ASSESSMENT_RATIO } from "@shared/property-tax-policy";
+import { totalNonSchoolHomesteadExemptionForYear } from "./property-tax-cache";
 
 export { isHillsboroughCountyAddress };
 
@@ -352,10 +354,12 @@ export function calcAdValorem(
   homestead: boolean,
   schoolRate: number,
   nonSchoolRate: number,
-  totalRate: number
+  totalRate: number,
+  nonSchoolHomesteadExemption = 50_000,
 ): number {
   // HCPA low estimate: 85% of purchase price
-  const taxableBase = purchasePrice * 0.85;
+  const taxableBase =
+    purchasePrice * PURCHASE_TAX_LOW_ASSESSMENT_RATIO;
 
   if (!homestead) {
     return Math.round(
@@ -365,24 +369,26 @@ export function calcAdValorem(
 
   // Homestead exemption:
   //   $25k off ALL taxes (school + non-school)
-  //   $25k more off NON-SCHOOL only
-  //   (for value between $50k and $75k)
+  //   the indexed second exemption phases in above $50k and applies to
+  //   NON-SCHOOL taxes only
   const schoolTaxable = Math.max(
     0, taxableBase - 25_000
   );
   const schoolTax =
     schoolTaxable * (schoolRate / 1000);
 
-  let nonSchoolTaxable: number;
-  if (taxableBase < 50_000) {
-    nonSchoolTaxable = Math.max(
-      0, taxableBase - 25_000
-    );
-  } else {
-    nonSchoolTaxable = Math.max(
-      0, taxableBase - 50_000
-    );
-  }
+  const maxAdditionalExemption = Math.max(
+    0,
+    nonSchoolHomesteadExemption - 25_000,
+  );
+  const additionalExemption = Math.max(
+    0,
+    Math.min(taxableBase - 50_000, maxAdditionalExemption),
+  );
+  const nonSchoolTaxable = Math.max(
+    0,
+    taxableBase - 25_000 - additionalExemption,
+  );
   const nonSchoolTax =
     nonSchoolTaxable * (nonSchoolRate / 1000);
 
@@ -396,6 +402,7 @@ function taxResultFromRates(params: {
   folio: string | null;
   taxData: HCPATaxData;
   source: HCPATaxResult["source"];
+  rateYear: number;
 }): HCPATaxResult {
   const adValorem = calcAdValorem(
     params.purchasePrice,
@@ -403,6 +410,7 @@ function taxResultFromRates(params: {
     params.taxData.schoolTaxRate,
     params.taxData.nonschoolTaxRate,
     params.taxData.totalTaxRate,
+    totalNonSchoolHomesteadExemptionForYear(params.rateYear),
   );
   const nonAdValorem = Math.round(
     params.taxData.nonAdValoremTaxes ?? 0,
@@ -465,6 +473,7 @@ export async function getHillsboroughTax(params: {
         assessedValue: 0,
       },
       source: "hcpa-cache",
+      rateYear: new Date(now).getUTCFullYear(),
     });
     console.log("[hcpa-tax] cache hit");
     return result;
@@ -504,6 +513,7 @@ export async function getHillsboroughTax(params: {
     folio,
     taxData,
     source: "hcpa-api",
+    rateYear: new Date(now).getUTCFullYear(),
   });
 
   console.log(

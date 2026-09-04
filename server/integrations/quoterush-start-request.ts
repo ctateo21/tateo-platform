@@ -5,6 +5,30 @@ import {
   type QuoteRushPropertyDefaults,
 } from "@shared/quoterush-property-defaults";
 
+function isClaimDateWithinFiveYears(value: string): boolean {
+  if (!isValidQuoteRushDate(value)) return false;
+  const date = new Date(`${value}T12:00:00Z`);
+  if (Number.isNaN(date.getTime())) return false;
+  const today = new Date();
+  const oldest = new Date(Date.UTC(
+    today.getUTCFullYear() - 5,
+    today.getUTCMonth(),
+    today.getUTCDate(),
+    0,
+    0,
+    0,
+  ));
+  const latest = new Date(Date.UTC(
+    today.getUTCFullYear(),
+    today.getUTCMonth(),
+    today.getUTCDate(),
+    23,
+    59,
+    59,
+  ));
+  return date >= oldest && date <= latest;
+}
+
 const quoteRushStartSchema = z.object({
   address: z.string().min(5),
   coverageA: z.number().positive(),
@@ -21,10 +45,28 @@ const quoteRushStartSchema = z.object({
   constIdx: z.number().int().min(0).max(2),
   windIdx: z.number().int().min(0).max(2),
   hurrIdx: z.number().int().min(0).max(2),
-  claimsIdx: z.number().int().min(0).max(3),
+  hasClaims: z.boolean(),
+  claimRecords: z.array(z.object({
+    lossDate: z.string().refine(isClaimDateWithinFiveYears, {
+      message: "Claim loss date must be within the past five years.",
+    }),
+    claimDetail: z.string().trim().min(1).max(250),
+    amount: z.number().positive(),
+    paid: z.boolean(),
+    priorResidence: z.boolean(),
+  })).max(3),
+  hasMortgage: z.boolean().optional(),
   aopDeductible: z.number().default(2500),
-  floodZone: z.string().default("X"),
+  floodZone: z.string().default(""),
   sqFt: z.number().default(0),
+  // The browser reports a lock only after a person has edited an auto-filled
+  // characteristic. Absent locks preserve backward-compatible explicit input.
+  propertyCharacteristicLocks: z.object({
+    floodZone: z.boolean().optional(),
+    yearBuilt: z.boolean().optional(),
+    squareFeet: z.boolean().optional(),
+    construction: z.boolean().optional(),
+  }).optional(),
   newPurchase: z.boolean(),
   purchaseDate: z.string().refine(isValidQuoteRushDate, {
     message: "A valid purchase or closing date is required.",
@@ -32,6 +74,20 @@ const quoteRushStartSchema = z.object({
   usageType: z.enum(["primary", "secondary", "investment"]).optional(),
   rentalTerm: z.enum(["annual", "monthly", "weekly"]).optional(),
 }).superRefine((value, ctx) => {
+  if (value.hasClaims && value.claimRecords.length === 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["claimRecords"],
+      message: "Enter between one and three claim details.",
+    });
+  }
+  if (!value.hasClaims && value.claimRecords.length > 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["claimRecords"],
+      message: "Remove claim details or answer yes to prior claims.",
+    });
+  }
   if (value.policyType !== "HO6") return;
   if (!value.usageType) {
     ctx.addIssue({

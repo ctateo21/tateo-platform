@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   clearQRCache,
   getQRCache,
+  setQRCache,
   setAutoQuoteAccessTokenProviderForTests,
   triggerAutoQuote,
   type AutoQuoteOptions,
@@ -27,6 +28,8 @@ const options: AutoQuoteOptions = {
   constIdx: 1,
   hurrIdx: 1,
   aopDeductible: 1000,
+  hasClaims: false,
+  claimRecords: [],
 };
 
 test("cached and concurrent triggers do not start another paid quote", async () => {
@@ -151,6 +154,59 @@ test("a shared server-cache hit prevents a paid quote start", async () => {
   } finally {
     clearQRCache(options.address);
     globalThis.fetch = previousFetch;
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: previousStorage,
+    });
+  }
+});
+
+test("local cache separates the same address by policy type", () => {
+  const previousStorage = globalThis.localStorage;
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: new MemoryStorage(),
+  });
+
+  try {
+    setQRCache(options.address, {
+      policyType: "HO3",
+      status: "success",
+      leadId: 301,
+    }, "HO3");
+    setQRCache(options.address, {
+      policyType: "HO6",
+      status: "success",
+      leadId: 601,
+    }, "HO6");
+
+    assert.equal(getQRCache(options.address, "HO3")?.leadId, 301);
+    assert.equal(getQRCache(options.address, "HO6")?.leadId, 601);
+    assert.equal(getQRCache(options.address, "DP3"), null);
+  } finally {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: previousStorage,
+    });
+  }
+});
+
+test("expired local cache entries are evicted per address and policy", () => {
+  const previousStorage = globalThis.localStorage;
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: new MemoryStorage(),
+  });
+
+  try {
+    setQRCache(options.address, {
+      policyType: "DP3",
+      status: "success",
+      leadId: 303,
+      expiresAt: new Date(Date.now() - 1_000).toISOString(),
+    }, "DP3");
+    assert.equal(getQRCache(options.address, "DP3"), null);
+  } finally {
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,
       value: previousStorage,

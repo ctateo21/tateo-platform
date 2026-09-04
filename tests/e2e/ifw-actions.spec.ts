@@ -120,6 +120,111 @@ async function openGuestIfw(page: Page): Promise<void> {
   await expect(rateDisclosure).toHaveCount(1);
 }
 
+async function expectRateDisclosureFits(
+  page: Page,
+  testId: string,
+): Promise<void> {
+  const row = page.getByTestId(testId);
+  const disclosure = row.locator("em");
+  const value = row.locator(
+    `[data-testid="${testId}-value"], input`,
+  ).first();
+
+  await expect(row).toBeVisible();
+  await expect(disclosure).toBeVisible();
+  await expect(disclosure).toHaveText(
+    /^\(APR \d+\.\d{3}% - includes applicable fees\)$/,
+  );
+  await expect(value).toBeVisible();
+
+  const geometry = await row.evaluate((element, valueTestId) => {
+    const disclosureElement = element.querySelector("em");
+    const valueElement =
+      element.querySelector(`[data-testid="${valueTestId}"]`) ??
+      element.querySelector("input");
+    if (!disclosureElement || !valueElement) return null;
+
+    const rowRect = element.getBoundingClientRect();
+    const disclosureRect = disclosureElement.getBoundingClientRect();
+    const valueRect = valueElement.getBoundingClientRect();
+    const isClippedByAncestor = (target: Element): boolean => {
+      const targetRect = target.getBoundingClientRect();
+      let ancestor = target.parentElement;
+      while (ancestor && ancestor !== document.body) {
+        const style = getComputedStyle(ancestor);
+        const clipsX = ["auto", "hidden", "scroll", "clip"].includes(
+          style.overflowX,
+        );
+        const clipsY = ["auto", "hidden", "scroll", "clip"].includes(
+          style.overflowY,
+        );
+        if (clipsX || clipsY) {
+          const ancestorRect = ancestor.getBoundingClientRect();
+          if (
+            (clipsX &&
+              (targetRect.left < ancestorRect.left - 1 ||
+                targetRect.right > ancestorRect.right + 1)) ||
+            (clipsY &&
+              (targetRect.top < ancestorRect.top - 1 ||
+                targetRect.bottom > ancestorRect.bottom + 1))
+          ) {
+            return true;
+          }
+        }
+        ancestor = ancestor.parentElement;
+      }
+      return false;
+    };
+    return {
+      disclosureInside:
+        disclosureRect.left >= rowRect.left - 1 &&
+        disclosureRect.right <= rowRect.right + 1 &&
+        disclosureRect.top >= rowRect.top - 1 &&
+        disclosureRect.bottom <= rowRect.bottom + 1,
+      valueInside:
+        valueRect.left >= rowRect.left - 1 &&
+        valueRect.right <= rowRect.right + 1,
+      overlap:
+        disclosureRect.left < valueRect.right &&
+        disclosureRect.right > valueRect.left &&
+        disclosureRect.top < valueRect.bottom &&
+        disclosureRect.bottom > valueRect.top,
+      clipped:
+        isClippedByAncestor(disclosureElement) ||
+        isClippedByAncestor(valueElement),
+    };
+  }, `${testId}-value`);
+
+  expect(geometry).not.toBeNull();
+  expect(geometry).toEqual({
+    disclosureInside: true,
+    valueInside: true,
+    overlap: false,
+    clipped: false,
+  });
+}
+
+test("rate and APR disclosures remain readable at phone width", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(
+    `/estimate?address=${encodeURIComponent("123 Main St, Tampa, FL 33602")}`,
+  );
+  await page.getByRole("button", { name: /^Next/ }).click();
+  await page.getByRole("button", { name: /^Next/ }).click();
+
+  await expectRateDisclosureFits(page, "editable-rate-disclosure");
+  await page.getByRole("button", { name: /See My Estimate/ }).click();
+  await page.getByRole("button", { name: /Review Your Answers/ }).click();
+  await expectRateDisclosureFits(page, "purchase-summary-rate-disclosure");
+  await expectRateDisclosureFits(page, "payment-card-rate-disclosure");
+
+  await page.getByRole("button", { name: /Initial Fees Worksheet/ }).click();
+  await expect(page.getByTestId("dialog-fee-worksheet")).toBeVisible();
+  await expectRateDisclosureFits(page, "worksheet-rate-disclosure");
+});
+
 test("guest IFW download signs in, resumes once, and uses the signed-in officer", async ({
   page,
 }) => {

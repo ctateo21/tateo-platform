@@ -118,6 +118,15 @@ function formatAddress(row: any): string | null {
   // Try a flat string first.
   const flat = pickString(row?.address, row?.full_address, row?.formatted_address, row?.location?.address?.line);
   if (flat) return flat;
+  // memo23/realtor-search-cheerio currently also emits the address as
+  // top-level fields rather than under location/address_obj.
+  const flatParts = [
+    pickString(row?.address_line),
+    pickString(row?.address_city),
+    pickString(row?.address_state_code),
+    pickString(row?.address_postal_code),
+  ].filter(Boolean);
+  if (flatParts.length) return flatParts.join(", ");
   // Otherwise piece together a structured address.
   const a = row?.location?.address ?? row?.address_obj ?? {};
   const line = pickString(a?.line, a?.street, a?.address_line);
@@ -128,7 +137,10 @@ function formatAddress(row: any): string | null {
   return parts.length ? parts.join(", ") : null;
 }
 
-function normalize(row: any, fallbackStatus: "active" | "pending" | "sold"): ListingCompInput | null {
+export function normalizeRealtorRow(
+  row: any,
+  fallbackStatus: "active" | "pending" | "sold",
+): ListingCompInput | null {
   if (!row || typeof row !== "object") return null;
 
   const desc = row.description ?? row.property ?? {};
@@ -185,9 +197,9 @@ export async function scrapeRealtorCompsForListing(args: {
       runActor(searchUrlForZip(zip, "sold"),    Math.min(cap, 10)).catch((e) => { console.warn("[market-data] realtor sold scrape failed:", e?.message); return [] as unknown[]; }),
     ]);
 
-    for (const r of activeRows)  { const n = normalize(r, "active");  if (n) result.active.push(n); }
-    for (const r of pendingRows) { const n = normalize(r, "pending"); if (n) result.pending.push(n); }
-    for (const r of soldRows)    { const n = normalize(r, "sold");    if (n) result.sold.push(n); }
+    for (const r of activeRows)  { const n = normalizeRealtorRow(r, "active");  if (n) result.active.push(n); }
+    for (const r of pendingRows) { const n = normalizeRealtorRow(r, "pending"); if (n) result.pending.push(n); }
+    for (const r of soldRows)    { const n = normalizeRealtorRow(r, "sold");    if (n) result.sold.push(n); }
 
     result.total = result.active.length + result.pending.length + result.sold.length;
     result.ok = result.total > 0;

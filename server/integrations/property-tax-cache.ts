@@ -6,15 +6,16 @@
  *
  * Cache validity rules (tested in property-tax-cache.test.ts):
  *   • Millage rows retain the rate components needed to model a new assessed
- *     value at any positive purchase price. Legacy percentage rows retain
- *     their sample-price guard.
+ *     value at any positive purchase price and must use the shared low-end
+ *     purchase-assessment ratio. Legacy percentage rows retain their
+ *     sample-price guard.
  *   • Row must not be expired (expires_at > now).
  *   • Caller's purchase price must be within ±20% of sample_price.
  *   • Any rule failure → cache miss → refresh from live API.
  *
  * Cache recomputation (when valid hit):
  *   complete millage rows: school/non-school taxable assessed value × millage
- *     (with distinct Florida homestead exemptions)
+ *     at the shared low-end basis (with distinct Florida exemptions)
  *   legacy rows: round(selectedPct × currentPrice)
  *   annualTotal     = annualAdValorem + nonAdValoremAmtCents/100
  *   (Fixed NAV does NOT scale with price.)
@@ -24,6 +25,7 @@
  */
 
 import { supabaseAdmin } from "../supabase";
+import { PURCHASE_TAX_LOW_ASSESSMENT_RATIO } from "@shared/property-tax-policy";
 
 // ── Expiry helpers ────────────────────────────────────────────────
 
@@ -105,6 +107,14 @@ export function isCacheRowValid(
                     (row.folio && row.folio.trim());
   if (!hasParcel) return false;
   const hasExactMillage = hasCompleteMillageInputs(row);
+  if (
+    hasExactMillage &&
+    Math.abs(
+      row.assessmentRatio! - PURCHASE_TAX_LOW_ASSESSMENT_RATIO,
+    ) > Number.EPSILON
+  ) {
+    return false;
+  }
   if (!hasExactMillage && (
     !Number.isFinite(row.homesteadAdValoremPct) ||
     row.homesteadAdValoremPct <= 0 ||
@@ -215,7 +225,11 @@ export function computeFromCache(
 ): { adValoremTax: number; nonAdValoremTax: number; annualTax: number } {
   let adValoremTax: number;
   if (hasCompleteMillageInputs(row)) {
-    const assessedValue = purchasePrice * row.assessmentRatio!;
+    // Exact-millage purchase estimates always use Havo's selected low end.
+    // isCacheRowValid rejects stale rows with a different persisted ratio;
+    // using the policy constant here also protects unvalidated callers.
+    const assessedValue =
+      purchasePrice * PURCHASE_TAX_LOW_ASSESSMENT_RATIO;
     const schoolTaxableValue = homestead
       ? Math.max(0, assessedValue - row.homesteadSchoolExemption!)
       : assessedValue;

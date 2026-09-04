@@ -38,7 +38,7 @@ import { normalizePropertyKey } from "@/lib/property-key";
 import { fetchFloodZone } from "@/lib/flood-zone";
 import { useGooglePlaces } from "@/hooks/use-google-places";
 import LeadCaptureDialog from "@/components/ui/lead-capture-dialog";
-import { posthog } from "@/lib/posthog";
+import { trackEvent } from "@/lib/posthog";
 import { useToast } from "@/hooks/use-toast";
 import {
   resolveQuoteRushPropertyDefaults,
@@ -152,6 +152,16 @@ function isSamePropertyAddress(
   const sa = (a ?? "").trim().toLowerCase();
   const sb = (b ?? "").trim().toLowerCase();
   return !!sa && sa === sb;
+}
+
+function deriveMortgageForAddress(address: string): boolean | undefined {
+  const purchase = getPurchaseScenarios().find(p => isSamePropertyAddress(p.address, address));
+  if (purchase) return true;
+  const cash = getCashBuyScenarios().find(c => isSamePropertyAddress(c.address, address));
+  if (cash) return false;
+  const loan = getTrackedLoans().find(l => isSamePropertyAddress(l.propertyAddress, address));
+  if (!loan) return undefined;
+  return !(loan.freeAndClear || loan.entryMethod === "free_and_clear" || loan.loanBalance <= 0);
 }
 
 function getKnownPropertyValueForAddress(address: string): number {
@@ -619,13 +629,26 @@ export default function InsuranceDashboard() {
   const [constIdx, setConstIdx]   = useState(initialFactors.cons);
   const [roofYear, setRoofYear] = useState(initialFactors.roofYear);
   const [yearBuilt, setYearBuilt] = useState(initialFactors.yearBuilt);
+  const [squareFeet, setSquareFeet] = useState(0);
+  const [propertyCharacteristicsNote, setPropertyCharacteristicsNote] =
+    useState("");
+  const propertyCharacteristicLocksRef = useRef({
+    floodZone: false,
+    yearBuilt: false,
+    squareFeet: false,
+    construction: false,
+  });
   const [openingProtectionIdx, setOpeningProtectionIdx] = useState(initialFactors.openingProtection);
   const [roofShapeIdx, setRoofShapeIdx] = useState(initialFactors.roofShape);
   const [swrIdx, setSwrIdx] = useState(initialFactors.swr);
   const roofIdx = roofFactorIndex(roofYear);
   const yearIdx = yearBuiltFactorIndex(yearBuilt);
   const windIdx = windMitigationIndex(openingProtectionIdx, roofShapeIdx, swrIdx);
-  const claimsIdx = 0; // General estimates always assume no claims in the past five years.
+  const [hasClaims, setHasClaims] = useState<boolean | null>(null);
+  const [claimRecords, setClaimRecords] = useState<Array<{
+    lossDate: string; claimDetail: string; amount: number | ""; paid: boolean | null; priorResidence: boolean | null;
+  }>>([]);
+  const claimsIdx = hasClaims ? Math.min(3, claimRecords.length) : 0;
 
   // AOP deductible uses the existing `user_answer_sources` jsonb scratch map.
   function resolveExtrasFor(addr: string): { aop: number } {
@@ -702,6 +725,8 @@ export default function InsuranceDashboard() {
       quote_purchase_date: purchaseDate,
       quote_ho6_residence_use: ho6ResidenceUse,
       quote_ho6_rental_term: ho6RentalTerm,
+      quote_has_claims: hasClaims,
+      quote_claim_records: claimRecords,
     };
   }
 
@@ -718,6 +743,15 @@ export default function InsuranceDashboard() {
           ? "Enter the expected closing date."
           : "Enter the date the home was purchased.",
       );
+    }
+    if (hasClaims === null) {
+      throw new Error("Answer whether you have had insurance claims in the past five years.");
+    }
+    if (hasClaims && (claimRecords.length < 1 || claimRecords.some(c =>
+      !c.lossDate || !c.claimDetail.trim() || !Number.isFinite(c.amount) || Number(c.amount) <= 0 ||
+      typeof c.paid !== "boolean" || typeof c.priorResidence !== "boolean",
+    ))) {
+      throw new Error("Complete every claim's loss date, type/cause, amount, paid status, and residence.");
     }
     return resolveQuoteRushPropertyDefaults({
       policyType,
@@ -755,6 +789,14 @@ export default function InsuranceDashboard() {
     useState<string | null>(null);
   const [qrRefreshing, setQrRefreshing] =
     useState(false);
+  const [qrSharedContext, setQrSharedContext] = useState<{
+    propertyDataSnapshot: Record<string, unknown>;
+    propertyDataProvenance: Record<string, unknown>;
+    agencyDefaultSnapshot: Record<string, unknown>;
+    consumerPropertyAnswers: Record<string, unknown>;
+    quoteProfileVersion?: string;
+    assumptions: string[];
+  } | null>(null);
   const [dobPromptOpen, setDobPromptOpen] = useState(false);
   const [dobInput, setDobInput] = useState("");
   const [dobError, setDobError] = useState("");
@@ -800,6 +842,22 @@ export default function InsuranceDashboard() {
     setOpeningProtectionIdx(f.openingProtection);
     setRoofShapeIdx(f.roofShape);
     setSwrIdx(f.swr);
+    const savedScenario = getInsuranceScenarios().find(
+      s => (s.address ?? "").trim().toLowerCase() ===
+        (addressParam ?? "").trim().toLowerCase(),
+    );
+    const answers = savedScenario?.userAnswerSources ?? {};
+    propertyCharacteristicLocksRef.current = {
+      floodZone: answers.property_characteristics_flood_zone_source === "manual",
+      yearBuilt: answers.property_characteristics_year_built_source === "manual",
+      squareFeet: answers.property_characteristics_square_feet_source === "manual",
+      construction: answers.property_characteristics_construction_source === "manual",
+    };
+    setSquareFeet(
+      typeof answers.square_feet_living === "number" && answers.square_feet_living > 0
+        ? answers.square_feet_living : 0,
+    );
+    setPropertyCharacteristicsNote("");
     const ex = resolveExtrasFor(addressParam);
     setAopDeductible(ex.aop);
     const quoteProperty = resolveQuotePropertyAnswersFor(addressParam);
@@ -807,6 +865,14 @@ export default function InsuranceDashboard() {
     setPurchaseDate(quoteProperty.purchaseDate);
     setHo6ResidenceUse(quoteProperty.ho6ResidenceUse);
     setHo6RentalTerm(quoteProperty.ho6RentalTerm);
+    setHasClaims(
+      answers.quote_has_claims === true ? true :
+        answers.quote_has_claims === false ? false : null,
+    );
+    setClaimRecords(
+      Array.isArray(answers.quote_claim_records)
+        ? answers.quote_claim_records.slice(0, 3) : [],
+    );
     console.debug("[insurance-user-load] loaded user fields", {
       address: addressParam, factors: f, aop: ex.aop, quoteProperty,
     });
@@ -842,7 +908,7 @@ export default function InsuranceDashboard() {
 
   const address = scenarios.find(s => s.id === activeScenarioId)?.address || addressParam;
 
-  // ── Flood-zone resolution ─────────────────────────────────────────────────
+  // ── Property-characteristics resolution ───────────────────────────────────
   // Resolve the FEMA flood zone for the active address. Priority:
   //   1. a value already saved on this insurance scenario
   //   2. the shared `/api/flood-zone` FEMA lookup (same source the
@@ -852,22 +918,61 @@ export default function InsuranceDashboard() {
   useEffect(() => {
     const addr = (address ?? "").trim();
     if (!addr) { setFloodZone(""); setFloodZoneSource(""); return; }
+    let cancelled = false;
     const saved = getInsuranceScenarios().find(
       s => (s.address ?? "").trim().toLowerCase() === addr.toLowerCase(),
     );
     const savedZone = saved?.userAnswerSources?.flood_zone;
-    if (typeof savedZone === "string" && savedZone.trim()) {
+    if (
+      propertyCharacteristicLocksRef.current.floodZone &&
+      typeof savedZone === "string" &&
+      savedZone.trim()
+    ) {
       setFloodZone(savedZone.trim());
-      setFloodZoneSource(String(saved?.userAnswerSources?.flood_zone_source ?? "saved"));
-      return;
+      setFloodZoneSource("Manual entry");
+    } else {
+      setFloodZone(""); setFloodZoneSource("");
     }
-    let cancelled = false;
-    setFloodZone(""); setFloodZoneSource("");
-    fetchFloodZone(addr).then(res => {
-      if (cancelled || !res) return;
-      setFloodZone(res.zone);
-      setFloodZoneSource(res.source);
-    });
+    const hasAuth =
+      typeof window !== "undefined" && localStorage.getItem("tateo_auth") === "1";
+    if (!hasAuth) return () => { cancelled = true; };
+    authedFetch(`/api/insurance/property-characteristics?address=${encodeURIComponent(addr)}`)
+      .then(async res => res.ok ? res.json() : null)
+      .then(profile => {
+        if (cancelled || !profile) return;
+        const locks = propertyCharacteristicLocksRef.current;
+        if (!locks.floodZone && typeof profile.floodZone === "string" && profile.floodZone) {
+          setFloodZone(profile.floodZone);
+          setFloodZoneSource(profile.floodDataSource || "FEMA");
+        }
+        if (!locks.yearBuilt && Number.isInteger(profile.yearBuilt) && profile.yearBuilt >= 1800) {
+          setYearBuilt(profile.yearBuilt);
+        }
+        if (!locks.squareFeet && Number.isFinite(profile.squareFeetLiving) && profile.squareFeetLiving > 0) {
+          setSquareFeet(Math.round(profile.squareFeetLiving));
+        }
+        const construction = String(profile.constructionLabel ?? "").trim().toUpperCase();
+        const constructionIndex =
+          ["CONCRETE BLOCK", "CONCRETE", "MASONRY"].includes(construction) ? 0
+            : ["FRAME", "WOOD FRAME", "WOOD"].includes(construction) ? 2
+              : ["MIXED", "MIXED MASONRY / FRAME"].includes(construction) ? 1 : null;
+        if (!locks.construction && constructionIndex != null) setConstIdx(constructionIndex);
+        const notes = [
+          profile.yearBuiltEffective && profile.yearBuiltEffective !== profile.yearBuilt
+            ? `Effective year: ${profile.yearBuiltEffective}.` : "",
+          profile.buildingDataSource ? `Building source: ${profile.buildingDataSource}.` : "",
+        ].filter(Boolean);
+        setPropertyCharacteristicsNote(notes.join(" "));
+      })
+      .catch(() => {
+        // Preserve the prior FEMA-only fallback for an unavailable profile service.
+        fetchFloodZone(addr).then(res => {
+          if (!cancelled && res) {
+            setFloodZone(res.zone);
+            setFloodZoneSource(res.source);
+          }
+        });
+      });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [address]);
@@ -1115,7 +1220,7 @@ export default function InsuranceDashboard() {
     if (!key) return;
     if (phInsuranceCalcFiredRef.current.has(key)) return;
     phInsuranceCalcFiredRef.current.add(key);
-    posthog.capture("scenario_calculated", { type: "insurance" });
+    trackEvent("scenario_calculated", { type: "insurance" });
   }, [rebuild, address]);
 
   // ── Autosave ─────────────────────────────────────────────────────────────
@@ -1238,9 +1343,18 @@ export default function InsuranceDashboard() {
           factor_hurrIdx: hurrIdx,
           factor_constIdx: constIdx,
           factor_yearIdx: yearIdx,
-          factor_claimsIdx: 0,
+          factor_claimsIdx: hasClaims ? claimRecords.length : 0,
           roof_year: roofYear,
           year_built: yearBuilt,
+           square_feet_living: squareFeet,
+           property_characteristics_flood_zone_source:
+             propertyCharacteristicLocksRef.current.floodZone ? "manual" : "auto",
+           property_characteristics_year_built_source:
+             propertyCharacteristicLocksRef.current.yearBuilt ? "manual" : "auto",
+           property_characteristics_square_feet_source:
+             propertyCharacteristicLocksRef.current.squareFeet ? "manual" : "auto",
+           property_characteristics_construction_source:
+             propertyCharacteristicLocksRef.current.construction ? "manual" : "auto",
           opening_protection_idx: openingProtectionIdx,
           roof_shape_idx: roofShapeIdx,
           swr_idx: swrIdx,
@@ -1276,7 +1390,7 @@ export default function InsuranceDashboard() {
       // New scenario only (!match fires once): notify the assigned agent
       // (non-blocking, fire-and-forget).
       if (!match) notifyNewScenario("Insurance", address, "Saved an insurance scenario");
-      posthog.capture("scenario_saved", { type: "insurance" });
+      trackEvent("scenario_saved", { type: "insurance" });
     }, 600);
     return () => window.clearTimeout(t);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1284,7 +1398,7 @@ export default function InsuranceDashboard() {
     isAuthenticated, address, rebuild, policyType, policyTypeSource,
     manualAnnualPremium, roofYear, yearBuilt, openingProtectionIdx, roofShapeIdx,
     swrIdx, hurrIdx, constIdx, aopDeductible, floodZone, floodZoneSource,
-    newPurchase, purchaseDate, ho6ResidenceUse, ho6RentalTerm,
+    newPurchase, purchaseDate, ho6ResidenceUse, ho6RentalTerm, squareFeet,
   ]);
 
   // Auto-trigger / cache-hydrate QuoteRUSH when address + rebuild ready.
@@ -1294,13 +1408,15 @@ export default function InsuranceDashboard() {
   useEffect(() => {
     if (!isAuthenticated || !address) return;
     if (address === "Unknown Address") return;
-    if (qrAutoRef.current === address) return;
-    qrAutoRef.current = address;
+    const quotePolicyType = policyType || "HO3";
+    const quoteIdentity = `${address}|${quotePolicyType}`;
+    if (qrAutoRef.current === quoteIdentity) return;
+    qrAutoRef.current = quoteIdentity;
 
     let cancelled = false;
     (async () => {
       // 1) Fast local cache.
-      const local = getQRCache(address);
+      const local = getQRCache(address, quotePolicyType);
       if (
         local &&
         (local.status === "success" ||
@@ -1324,18 +1440,26 @@ export default function InsuranceDashboard() {
       try {
         const res = await fetch(
           `/api/insurance/qr-cache?address=` +
-            encodeURIComponent(address)
+            encodeURIComponent(address) +
+            `&policyType=${encodeURIComponent(quotePolicyType)}`
         );
         const data = await res.json();
         if (cancelled) return;
         if (data.found) {
           const entry: QRCacheEntry = {
             address,
+            policyType: quotePolicyType,
             leadId: data.leadId ?? null,
             status: data.status ?? "pending",
             quotes: data.quotes ?? [],
             quoteCounter: data.quoteCounter ?? 0,
             coverageA: data.coverageA ?? 0,
+            propertyDataSnapshot: data.propertyDataSnapshot ?? {},
+            propertyDataProvenance: data.propertyDataProvenance ?? {},
+            agencyDefaultSnapshot: data.agencyDefaultSnapshot ?? {},
+            consumerPropertyAnswers: data.consumerPropertyAnswers ?? {},
+            quoteProfileVersion: data.quoteProfileVersion,
+            assumptions: data.assumptions ?? [],
             expiresAt:
               data.expiresAt ??
               new Date().toISOString(),
@@ -1345,14 +1469,11 @@ export default function InsuranceDashboard() {
           };
           if (data.expired) {
             // Show stale top-3 but flag expired → prompt re-run.
-            setQrLeadId(entry.leadId);
-            setQrQuotes(entry.quotes);
-            setQrQuoteCounter(entry.quoteCounter);
-            setQrExpiresAt(entry.expiresAt);
+            loadFromCacheEntry(entry);
             setQrStatus("expired");
             return;
           }
-          setQRCache(address, entry);
+          setQRCache(address, entry, quotePolicyType);
           loadFromCacheEntry(entry);
           if (entry.status === "pending") {
             if (entry.leadId) {
@@ -1381,7 +1502,7 @@ export default function InsuranceDashboard() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, rebuild, isAuthenticated]);
+  }, [address, rebuild, isAuthenticated, policyType]);
 
   // ── QuoteRUSH quoting ─────────────────────
 
@@ -1391,6 +1512,14 @@ export default function InsuranceDashboard() {
     setQrQuotes(e.quotes ?? []);
     setQrQuoteCounter(e.quoteCounter ?? 0);
     setQrExpiresAt(e.expiresAt ?? null);
+    setQrSharedContext({
+      propertyDataSnapshot: e.propertyDataSnapshot ?? {},
+      propertyDataProvenance: e.propertyDataProvenance ?? {},
+      agencyDefaultSnapshot: e.agencyDefaultSnapshot ?? {},
+      consumerPropertyAnswers: e.consumerPropertyAnswers ?? {},
+      quoteProfileVersion: e.quoteProfileVersion,
+      assumptions: e.assumptions ?? [],
+    });
     if (
       e.status === "success" &&
       (e.quotes?.length ?? 0) > 0
@@ -1416,7 +1545,8 @@ export default function InsuranceDashboard() {
       try {
         const res = await fetch(
           `/api/insurance/qr-cache?address=` +
-            encodeURIComponent(addr)
+            encodeURIComponent(addr) +
+            `&policyType=${encodeURIComponent(policyType || "HO3")}`
         );
         const data = await res.json();
         if (data.found && data.expired) {
@@ -1428,19 +1558,25 @@ export default function InsuranceDashboard() {
           data.status === "success" &&
           (data.quotes?.length ?? 0) > 0
         ) {
-          setQrQuotes(data.quotes);
-          setQrQuoteCounter(data.quoteCounter);
-          setQrExpiresAt(data.expiresAt ?? null);
-          setQrStatus("success");
-          setQRCache(addr, {
+          const entry: QRCacheEntry = {
+            address: addr,
+            policyType: policyType || "HO3",
             status: "success",
             leadId: data.leadId,
             quotes: data.quotes,
             quoteCounter: data.quoteCounter,
-            ...(data.expiresAt
-              ? { expiresAt: data.expiresAt }
-              : {}),
-          });
+            coverageA: data.coverageA ?? 0,
+            propertyDataSnapshot: data.propertyDataSnapshot ?? {},
+            propertyDataProvenance: data.propertyDataProvenance ?? {},
+            agencyDefaultSnapshot: data.agencyDefaultSnapshot ?? {},
+            consumerPropertyAnswers: data.consumerPropertyAnswers ?? {},
+            quoteProfileVersion: data.quoteProfileVersion,
+            assumptions: data.assumptions ?? [],
+            expiresAt: data.expiresAt ?? new Date().toISOString(),
+            triggeredAt: data.triggeredAt ?? new Date().toISOString(),
+          };
+          setQRCache(addr, entry, policyType);
+          loadFromCacheEntry(entry);
           return;
         }
         if (data.found && data.leadId) {
@@ -1449,7 +1585,7 @@ export default function InsuranceDashboard() {
           setQRCache(addr, {
             leadId: data.leadId,
             status: "pending",
-          });
+          }, policyType);
           startPolling(data.leadId);
           return;
         }
@@ -1474,6 +1610,7 @@ export default function InsuranceDashboard() {
           body: JSON.stringify({
             leadId: qrLeadId,
             address,
+              policyType: policyType || "HO3",
           }),
         }
       );
@@ -1486,7 +1623,7 @@ export default function InsuranceDashboard() {
           status: "success",
           quotes: data.quotes,
           quoteCounter: data.quoteCounter,
-        });
+        }, policyType);
       }
     } catch (e) {
       console.error("[qr-refresh]", e);
@@ -1522,7 +1659,11 @@ export default function InsuranceDashboard() {
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ leadId, address }),
+            body: JSON.stringify({
+              leadId,
+              address,
+              policyType: policyType || "HO3",
+            }),
           }
         );
         const data = await res.json();
@@ -1536,7 +1677,7 @@ export default function InsuranceDashboard() {
             status: "success",
             quotes: data.quotes ?? [],
             quoteCounter: counter,
-          });
+          }, policyType);
 
           // Stop only after 3 consecutive stable polls.
           if (counter === qrPrevCounterRef.current) {
@@ -1621,10 +1762,11 @@ export default function InsuranceDashboard() {
       clearInterval(qrTimerRef.current);
 
     setQrStatus("starting");
+    setQrSharedContext(null);
     setQrQuotes([]);
     setQrQuoteCounter(0);
     setQrElapsed(0);
-    clearQRCache(address);
+    clearQRCache(address, policyType);
 
     try {
       const startRes = await authedFetch(
@@ -1651,10 +1793,15 @@ export default function InsuranceDashboard() {
             constIdx,
             windIdx,
             hurrIdx,
-            claimsIdx,
+            hasClaims,
+            claimRecords,
+            ...(deriveMortgageForAddress(address) !== undefined
+              ? { hasMortgage: deriveMortgageForAddress(address) }
+              : {}),
             aopDeductible,
-            floodZone: floodZone || "X",
-            sqFt: 0,
+            floodZone,
+            sqFt: squareFeet,
+            propertyCharacteristicLocks: propertyCharacteristicLocksRef.current,
             newPurchase: propertyDefaults.newPurchase === "Yes",
             purchaseDate,
             ...(policyType === "HO6" && ho6ResidenceUse
@@ -1704,7 +1851,11 @@ export default function InsuranceDashboard() {
 
       const leadId: number = data.leadId;
       setQrLeadId(leadId);
-      setQRCache(address, { leadId, status: "pending" });
+      setQRCache(
+        address,
+        { leadId, status: "pending" },
+        policyType,
+      );
 
       // Server may return cached quotes for a shared address.
       if (data.fromCache && (data.quotes?.length ?? 0) > 0) {
@@ -1720,7 +1871,7 @@ export default function InsuranceDashboard() {
           ...(data.expiresAt
             ? { expiresAt: data.expiresAt }
             : {}),
-        });
+        }, policyType);
         return;
       }
 
@@ -2134,13 +2285,40 @@ export default function InsuranceDashboard() {
                   hurricaneDeductible={hurrIdx}
                   onHurricaneDeductibleChange={setHurrIdx}
                   construction={constIdx}
-                  onConstructionChange={setConstIdx}
+                   onConstructionChange={(value) => {
+                     propertyCharacteristicLocksRef.current.construction = true;
+                     setConstIdx(value);
+                   }}
                   yearBuilt={yearBuilt}
-                  onYearBuiltChange={setYearBuilt}
+                   onYearBuiltChange={(value) => {
+                     propertyCharacteristicLocksRef.current.yearBuilt = true;
+                     setYearBuilt(value);
+                   }}
+                   squareFeet={squareFeet}
+                   onSquareFeetChange={(value) => {
+                     propertyCharacteristicLocksRef.current.squareFeet = true;
+                     setSquareFeet(value);
+                   }}
+                   propertyCharacteristicsNote={propertyCharacteristicsNote}
                   aopDeductible={aopDeductible}
                   onAopDeductibleChange={setAopDeductible}
                   floodZone={floodZone}
                   floodZoneSource={floodZoneSource === "fema" ? "FEMA" : floodZoneSource}
+                   onFloodZoneChange={(value) => {
+                     propertyCharacteristicLocksRef.current.floodZone = true;
+                     setFloodZone(value);
+                     setFloodZoneSource("Manual entry");
+                   }}
+                   hasClaims={hasClaims}
+                   onHasClaimsChange={(value) => {
+                     setHasClaims(value);
+                     if (value === false) setClaimRecords([]);
+                     if (value === true && claimRecords.length === 0) {
+                       setClaimRecords([{ lossDate: "", claimDetail: "", amount: "", paid: null, priorResidence: null }]);
+                     }
+                   }}
+                   claimRecords={claimRecords}
+                   onClaimRecordsChange={setClaimRecords}
                   annualPremium={calc.mid}
                 />
               </CardContent>
@@ -2153,7 +2331,9 @@ export default function InsuranceDashboard() {
                     <div className="min-w-0">
                       <CardTitle className="text-sm flex items-center gap-2">
                         <Shield className="h-4 w-4 text-primary shrink-0" />
-                        Live Carrier Quotes
+                        {qrSharedContext
+                          ? "Preliminary carrier quote from last 30 days"
+                          : "Live Carrier Quotes"}
                       </CardTitle>
                       <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
                         {qrStatus === "idle" &&
@@ -2238,6 +2418,54 @@ export default function InsuranceDashboard() {
                 </CardHeader>
                 <CardContent className="pt-0">
                   <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-xs leading-relaxed text-blue-950">
+                    {qrSharedContext ? (
+                      <>
+                        <strong>Original preliminary quote inputs:</strong>{" "}
+                        {String(
+                          qrSharedContext.consumerPropertyAnswers.policyType ??
+                            policyType ??
+                            "HO3",
+                        )}{" "}
+                        with Coverage A of{" "}
+                        {fmt(Number(
+                          qrSharedContext.consumerPropertyAnswers.coverageA ??
+                            rebuild,
+                        ))}, home built{" "}
+                        {String(
+                          qrSharedContext.propertyDataSnapshot.yearBuilt ??
+                            "not confirmed",
+                        )}, roof year{" "}
+                        {String(
+                          qrSharedContext.propertyDataSnapshot.roofYear ??
+                            "not confirmed",
+                        )}, flood zone{" "}
+                        {String(
+                          qrSharedContext.propertyDataSnapshot.floodZone ??
+                            "not confirmed",
+                        )}, and{" "}
+                        {Number(qrSharedContext.propertyDataSnapshot.sqFt ?? 0) > 0
+                          ? `${Number(qrSharedContext.propertyDataSnapshot.sqFt).toLocaleString()} sq. ft.`
+                          : "square footage not confirmed"}
+                        .
+                        {qrSharedContext.quoteProfileVersion ? (
+                          <span className="block mt-1 text-blue-800">
+                            Quote profile: {qrSharedContext.quoteProfileVersion}
+                          </span>
+                        ) : null}
+                        {qrSharedContext.assumptions.length > 0 ? (
+                          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-blue-800">
+                            {qrSharedContext.assumptions.map((assumption) => (
+                              <li key={assumption}>{assumption}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        <span className="block mt-1 text-blue-800">
+                          These saved rates reflect the original request, not
+                          later edits on this page.
+                        </span>
+                      </>
+                    ) : (
+                      <>
                     <strong>New live quote requests use:</strong>{" "}
                     roof installed {roofYear}, home built {yearBuilt},{" "}
                     {openingProtectionIdx === 1
@@ -2265,8 +2493,8 @@ export default function InsuranceDashboard() {
                       <span className="block mt-1 text-blue-800">
                         <strong>Construction subtype default to confirm:</strong>{" "}
                         {constIdx === 1
-                          ? "mixed construction is submitted as concrete-block masonry with stucco framing"
-                          : "frame construction is submitted with a stucco exterior"}
+                          ? "mixed construction includes verified concrete-block masonry; the frame subtype is omitted"
+                          : "the structural frame subtype is omitted until confirmed"}
                         .
                       </span>
                     ) : null}
@@ -2291,9 +2519,15 @@ export default function InsuranceDashboard() {
                           : `purchased ${purchaseDate || "date required"}`},
                       9 months or more occupied, purchase price{" "}
                       {fmt(rebuild * (policyType === "HO6" ? 2 : 1))},
-                      composite-shingle roof, slab foundation, and no claims in the past five years.
-                      Square footage uses the carrier property record when available, otherwise 1,800 sq. ft.
-                      Saved rates may reflect the answers from the original request.
+                       composite-shingle roof, slab foundation, and{" "}
+                       {hasClaims === null
+                         ? "claims history required"
+                         : hasClaims
+                           ? `${claimRecords.length} reported claim${claimRecords.length === 1 ? "" : "s"}`
+                           : "no claims in the past five years"}.
+                      {squareFeet > 0
+                        ? ` Square footage is ${squareFeet.toLocaleString()} sq. ft.`
+                        : " Square footage is omitted until a trusted source or manual answer is available."}
                     </span>
                     <details className="mt-1 text-blue-800">
                       <summary className="cursor-pointer font-semibold">
@@ -2301,12 +2535,14 @@ export default function InsuranceDashboard() {
                       </summary>
                       <span className="block mt-1">
                         QuoteRUSH also assumes excellent credit and permission to use it; currently
-                        insured with no lapse and an unknown current carrier; no mortgage or alarms;
+                        insured with no lapse and an unknown current carrier; mortgage status is omitted when Havo cannot derive it; no alarms;
                         Exposure B terrain with nearby fire protection; and standard ancillary
-                        coverages and endorsements. Wind-mitigation-form status is inferred from the
+                         coverages and endorsements{policyType === "HO6" ? ", including a $2,000 loss-assessment assumption" : ""}. Wind-mitigation-form status is inferred from the
                         property answers above. Confirm these details with the carrier or licensed agent.
                       </span>
                     </details>
+                      </>
+                    )}
                   </div>
 
                   {/* Progress bar */}
