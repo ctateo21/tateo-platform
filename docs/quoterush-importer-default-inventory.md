@@ -20,6 +20,7 @@ Classification: **A** verified fact, **B** intentional agency quote configuratio
 | Opening protection/SWR | C | Shared year-built resolver supplies assumptions; manual answers win |
 | Roof-to-wall/deck values | D | Not sent: QuoteRUSH field mapping is not verified; no inspection metadata invented |
 | Flood zone | A | Sent only when known; no flood policy is synthesized |
+| MilesToCoast | A | Sent to the HO importer as a two-decimal mile string only when calculated from the cached GSHHS level-1 ocean-shoreline proxy; provenance identifies the value as an approximation rather than surveyed mean high water |
 | Current insurance for new purchase | C | Sent as CurrentlyInsured Yes, carrier/policy `New Purchase`, and no-lapse preliminary assumptions |
 | Current insurance for existing home | A | Private user answer is sent when supplied; carrier/lapse/policy fields otherwise omitted and never put in shared cache |
 | Claims | A | Completed private applicant answers sent; neither count nor records are in public cache |
