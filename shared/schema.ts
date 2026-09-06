@@ -86,7 +86,9 @@ export const privateInsuranceProperties = pgTable(
     userId: text("user_id").notNull(),
     addressNormalized: text("address_normalized").notNull(),
     currentPolicyExpirationDate: date("current_policy_expiration_date"),
-    quoteCacheScope: text("quote_cache_scope").notNull(),
+    // Legacy physical column retained to avoid destructive migration risk.
+    // Paid quote identity no longer reads or rotates this value.
+    quoteCacheScope: text("quote_cache_scope").notNull().default("unused"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -492,9 +494,8 @@ export const insertQuestionnaireResponseSchema = createInsertSchema(questionnair
 export type InsertQuestionnaireResponse = z.infer<typeof insertQuestionnaireResponseSchema>;
 export type QuestionnaireResponse = typeof questionnaireResponses.$inferSelect;
 
-// QuoteRUSH live carrier cache. Ordinary quotes use the "shared" scope.
-// Quotes based on private user-owned inputs use an opaque account/property
-// scope and are never returned through the public shared-cache path.
+// QuoteRUSH live carrier cache. Paid-run identity is normalized address +
+// policy type only. cache_scope is a legacy inert physical column.
 export const insuranceQuoteCache = pgTable(
   "insurance_quote_cache",
   {
@@ -570,9 +571,9 @@ export const insuranceQuoteCache = pgTable(
       .notNull(),
   },
   table => ({
-    addressPolicyScopeUnique: unique(
-      "insurance_quote_cache_address_policy_scope_unique",
-    ).on(table.addressNormalized, table.policyType, table.cacheScope),
+    addressPolicyUnique: unique(
+      "insurance_quote_cache_address_policy_unique",
+    ).on(table.addressNormalized, table.policyType),
     expiresAtIdx: index("insurance_quote_cache_expires_at_idx").on(
       table.expiresAt,
     ),

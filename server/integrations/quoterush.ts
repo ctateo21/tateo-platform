@@ -41,7 +41,7 @@ export interface QuoteRushParams {
   rentalTerm: QuoteRushPropertyDefaults["rentalTerm"];
   monthsOccupied: QuoteRushPropertyDefaults["monthsOccupied"];
   newPurchase: string;
-  purchaseDate: string;
+  purchaseDate?: string;
   purchasePrice: number;
   policyEffectiveDate: string;
   firstName: string;
@@ -178,7 +178,7 @@ export function buildImporterPayload(
       Zip: p.zip,
       County: p.county || "",
       NewPurchase: p.newPurchase || "No",
-      PurchaseDate: p.purchaseDate,
+      ...(p.purchaseDate ? { PurchaseDate: p.purchaseDate } : {}),
       PurchasePrice: String(Math.round(p.purchasePrice)),
       UsageType: p.usageType || "Primary",
       MonthsOccupied: p.monthsOccupied,

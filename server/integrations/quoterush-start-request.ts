@@ -148,10 +148,7 @@ export type QuoteRushStartRequest = z.infer<typeof quoteRushStartSchema>;
 
 export function toQuoteCachePolicyEffectiveDate(
   policyEffectiveDate: QuoteRushPropertyDefaults["policyEffectiveDate"],
-  usesPrivateExpiration: boolean,
-): QuoteRushPropertyDefaults["policyEffectiveDate"] |
-  Omit<QuoteRushPropertyDefaults["policyEffectiveDate"], "value"> {
-  if (!usesPrivateExpiration) return policyEffectiveDate;
+): Omit<QuoteRushPropertyDefaults["policyEffectiveDate"], "value"> {
   return {
     source: policyEffectiveDate.source,
     isAssumption: policyEffectiveDate.isAssumption,
@@ -177,15 +174,24 @@ export function prepareQuoteRushStartRequest(
     policyType: request.policyType,
     rebuildCost: request.coverageA,
     newPurchase: request.newPurchase,
+    purchaseDate: request.newPurchase
+      ? request.policyEffectiveDate ?? request.purchaseDate
+      : undefined,
+    purchaseDateSource: request.newPurchase ? "user-confirmed" : undefined,
     policyEffectiveDate:
-      persistedExpiration ??
       request.policyEffectiveDate ??
-      request.purchaseDate,
-    policyEffectiveDateSource: persistedExpiration
-      ? "current-policy-expiration"
-      : request.newPurchase
+      request.purchaseDate ??
+      persistedExpiration,
+    policyEffectiveDateSource:
+      request.policyEffectiveDate || request.purchaseDate
+        ? request.newPurchase
         ? "closing-date"
-        : "user-requested",
+          : "user-requested"
+        : persistedExpiration
+          ? "current-policy-expiration"
+          : request.newPurchase
+            ? "closing-date"
+            : "user-requested",
     usageType: request.usageType,
     rentalTerm: request.rentalTerm,
     purchasePrice: request.purchasePrice,

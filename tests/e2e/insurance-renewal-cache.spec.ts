@@ -55,6 +55,7 @@ async function fulfillJson(route: Route, body: unknown): Promise<void> {
 
 async function installAuthenticatedRenewalMocks(page: Page) {
   let savedExpiration: string | null = null;
+  let startSubmissions = 0;
 
   await page.addInitScript(
     ({ user, address, sharedQuote }) => {
@@ -124,7 +125,6 @@ async function installAuthenticatedRenewalMocks(page: Page) {
   await page.route("**/api/profile/status", route =>
     fulfillJson(route, {
       hasDateOfBirth: true,
-      hasCreditScoreConsent: true,
     }),
   );
   await page.route("**/api/profile/insurance-property?*", route =>
@@ -139,22 +139,21 @@ async function installAuthenticatedRenewalMocks(page: Page) {
     savedExpiration = body.currentPolicyExpirationDate;
     await fulfillJson(route, { ok: true });
   });
-  await page.route("**/api/insurance/qr-cache?*", route => {
-    if (savedExpiration === FIRST_EXPIRATION) {
-      return fulfillJson(route, cacheResponse("First Renewal Carrier", 601));
-    }
-    if (savedExpiration === SECOND_EXPIRATION) {
-      return fulfillJson(route, { found: false });
-    }
-    return fulfillJson(route, cacheResponse("Shared Server Carrier", 502));
+  await page.route("**/api/insurance/qr-cache?*", route =>
+    fulfillJson(route, cacheResponse("Shared Server Carrier", 502)),
+  );
+  await page.route("**/api/insurance/qr-start", route => {
+    startSubmissions += 1;
+    return fulfillJson(route, cacheResponse("Unexpected New Carrier", 999));
   });
 
   return {
     getSavedExpiration: () => savedExpiration,
+    getStartSubmissions: () => startSubmissions,
   };
 }
 
-test("renewal expiration changes rotate private quotes and clearing restores shared cache", async ({
+test("renewal expiration persists without replacing or rerunning a shared quote", async ({
   page,
 }) => {
   const state = await installAuthenticatedRenewalMocks(page);
@@ -170,22 +169,22 @@ test("renewal expiration changes rotate private quotes and clearing restores sha
   );
   await expiration.fill(FIRST_EXPIRATION);
   await expect.poll(state.getSavedExpiration).toBe(FIRST_EXPIRATION);
-  await expect(page.getByText("First Renewal Carrier")).toBeVisible();
-  await expect(page.getByText("Shared Cache Carrier")).toHaveCount(0);
+  await expect(page.getByText("Shared Cache Carrier")).toBeVisible();
+  expect(state.getStartSubmissions()).toBe(0);
 
   await page.reload();
   await page.getByTestId("select-new-purchase").selectOption("no");
   await page.getByTestId("select-currently-insured").selectOption("yes");
   await expect(expiration).toHaveValue(FIRST_EXPIRATION);
-  await expect(page.getByText("First Renewal Carrier")).toBeVisible();
+  await expect(page.getByText("Shared Cache Carrier")).toBeVisible();
 
   await expiration.fill(SECOND_EXPIRATION);
   await expect.poll(state.getSavedExpiration).toBe(SECOND_EXPIRATION);
-  await expect(page.getByText("First Renewal Carrier")).toHaveCount(0);
-  await expect(page.getByText("Shared Cache Carrier")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Get Live Quotes" })).toBeVisible();
+  await expect(page.getByText("Shared Cache Carrier")).toBeVisible();
+  expect(state.getStartSubmissions()).toBe(0);
 
   await expiration.fill("");
   await expect.poll(state.getSavedExpiration).toBe(null);
   await expect(page.getByText("Shared Cache Carrier")).toBeVisible();
+  expect(state.getStartSubmissions()).toBe(0);
 });

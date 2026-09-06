@@ -15,6 +15,8 @@ export interface QuoteRushPropertyDefaultInput {
   rentalTerm?: QuoteRushRentalTerm | "";
   purchasePrice?: number | null;
   purchasePriceSource?: QuoteRushPurchasePrice["source"];
+  purchaseDate?: string | null;
+  purchaseDateSource?: QuoteRushPurchaseDate["source"];
   policyEffectiveDate?: string;
   policyEffectiveDateSource?: Exclude<QuoteRushPolicyEffectiveDate["source"], "30-day-default">;
 }
@@ -31,12 +33,16 @@ export interface QuoteRushPolicyEffectiveDate {
   source: "closing-date" | "user-requested" | "current-policy-expiration" | "30-day-default";
   isAssumption: boolean;
 }
+export interface QuoteRushPurchaseDate {
+  value: string | null;
+  source: "user-confirmed" | "purchase-scenario" | "prior-sale" | "unknown";
+}
 export interface QuoteRushPropertyDefaults {
   usageType: "Primary" | "Secondary" | "Investment";
   rentalTerm: "" | "Annual" | "Monthly" | "Weekly";
   monthsOccupied: typeof QUOTERUSH_MONTHS_OCCUPIED;
   newPurchase: "Yes" | "No";
-  purchaseDate: string;
+  purchaseDate: QuoteRushPurchaseDate;
   purchasePrice: QuoteRushPurchasePrice;
   policyEffectiveDate: QuoteRushPolicyEffectiveDate;
 }
@@ -145,15 +151,23 @@ export function resolveQuoteRushPropertyDefaults(
       : "30-day-default",
     isAssumption: !hasSuppliedDate,
   };
+  const suppliedPurchaseDate = input.purchaseDate ?? "";
+  const hasPurchaseDate = isValidQuoteRushDate(suppliedPurchaseDate);
+  const purchaseDate: QuoteRushPurchaseDate = {
+    value: hasPurchaseDate ? formatQuoteRushDate(suppliedPurchaseDate) : null,
+    source: hasPurchaseDate
+      ? (input.purchaseDateSource ?? "user-confirmed")
+      : "unknown",
+  };
 
   return {
     usageType,
     rentalTerm,
     monthsOccupied: QUOTERUSH_MONTHS_OCCUPIED,
     newPurchase: input.newPurchase ? "Yes" : "No",
-    // PurchaseDate is only transaction context; it is not made up when
-    // unavailable for an existing-home rewrite.
-    purchaseDate: hasSuppliedDate ? formatQuoteRushDate(suppliedDate) : "",
+    // PurchaseDate is transaction history only. It never inherits a rewrite
+    // effective date or a current-policy expiration.
+    purchaseDate,
     purchasePrice,
     policyEffectiveDate,
   };

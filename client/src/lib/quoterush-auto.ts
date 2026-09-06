@@ -55,7 +55,6 @@ export interface QRCacheEntry {
   coverageA: number;
   propertyDataSnapshot?: Record<string, unknown>;
   propertyDataProvenance?: Record<string, unknown>;
-  agencyDefaultSnapshot?: Record<string, unknown>;
   consumerPropertyAnswers?: Record<string, unknown>;
   quoteProfileVersion?: string;
   assumptions?: string[];
@@ -177,7 +176,6 @@ export async function checkServerCache(
       coverageA: data.coverageA ?? 0,
       propertyDataSnapshot: data.propertyDataSnapshot ?? {},
       propertyDataProvenance: data.propertyDataProvenance ?? {},
-      agencyDefaultSnapshot: data.agencyDefaultSnapshot ?? {},
       consumerPropertyAnswers: data.consumerPropertyAnswers ?? {},
       quoteProfileVersion: data.quoteProfileVersion,
       assumptions: data.assumptions ?? [],
