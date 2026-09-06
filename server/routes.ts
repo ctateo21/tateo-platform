@@ -1,3 +1,420 @@
+tely small: a
+  // client must never be able to nominate the user or agent for an event.
+  const ifwActivitySchema = z.object({
+    action: z.enum(["save", "download", "share"]),
+    address: z.string().trim().min(1).max(500),
+    summary: z.object({
+      price: z.number().finite().nonnegative().max(100_000_000).optional(),
+      downPayment: z.number().finite().nonnegative().max(100_000_000).optional(),
+      loanAmount: z.number().finite().nonnegative().max(100_000_000).optional(),
+      monthlyPayment: z.number().finite().nonnegative().max(1_000_000).optional(),
+      cashToClose: z.number().finite().nonnegative().max(100_000_000).optional(),
+      notes: z.string().trim().min(1).max(280).optional(),
+    }).strict().optional(),
+  });
+
+  const IFW_ACTIVITY_WINDOW_MS = 60_000;
+  const IFW_ACTIVITY_MAX_PER_MINUTE = 12;
+  const claimIfwActivity = createIfwActivityClaimHandler(ifwActivityClaimStore, {
+    windowMs: IFW_ACTIVITY_WINDOW_MS,
+    maxPerWindow: IFW_ACTIVITY_MAX_PER_MINUTE,
+    onUnavailable: error => {
+      console.error(
+        "[IFW] notification claim storage unavailable; continuing:",
+        error instanceof Error ? error.message : error,
+      );
+    },
+  });
+
+  function formatIfwSummary(
+    summary: z.infer<typeof ifwActivitySchema>["summary"],
+  ): string {
+    if (!summary) return "";
+    const currency = (value: number) =>
+      value.toLocaleString("en-US", {
+        style: "currency",
+        currency: "USD",
+        maximumFractionDigits: 0,
+      });
+    const lines = [
+      summary.price !== undefined && `Price: ${currency(summary.price)}`,
+      summary.downPayment !== undefined &&
+        `Down payment: ${currency(summary.downPayment)}`,
+      summary.loanAmount !== undefined &&
+        `Loan amount: ${currency(summary.loanAmount)}`,
+      summary.monthlyPayment !== undefined &&
+        `Monthly payment: ${currency(summary.monthlyPayment)}`,
+      summary.cashToClose !== undefined &&
+        `Cash to close: ${currency(summary.cashToClose)}`,
+      summary.notes && `Notes: ${summary.notes}`,
+    ].filter((line): line is string => Boolean(line));
+    return lines.join("\n");
+  }
+
+  // POST /api/ifw/activity
+  // Records save/download/share intent for the authenticated user's assigned
+  // agent. FUB is intentionally best-effort so an outage cannot break a
+  // worksheet action in the browser.
+  app.post("/api/ifw/activity", async (req, res) => {
+    try {
+      const user = await optionalUser(req);
+      if (!user) {
+        return res.status(401).json({ error: "Sign in required" });
+      }
+
+      const input = ifwActivitySchema.parse(req.body);
+      const addressKey = normalizeAddr(input.address);
+      const dedupeKey = `${user.id}:${input.action}:${addressKey}`;
+
+      // The atomic persistent claim shares duplicate and rate-limit state
+      // across restarts/instances. Storage is best-effort: an outage must not
+      // block the worksheet action in the browser.
+      const claim = await claimIfwActivity({ userId: user.id, dedupeKey });
+      if (claim === "duplicate") {
+        return res.json({ ok: true, deduped: true });
+      }
+      if (claim === "rate_limited") {
+        return res.status(429).json({
+          error: "Too many worksheet actions. Please wait a moment.",
+        });
+      }
+
+      // Identity and the account's saved agent choice come from the verified
+      // auth record/profile, never from this request body. Validate the saved
+      // choice against the server's FUB allowlist before routing.
+      const { data: profile } = supabaseAdmin
+        ? await supabaseAdmin
+            .from("profiles")
+            .select("name,phone,agent")
+            .eq("id", user.id)
+            .maybeSingle()
+        : { data: null };
+      const metadata = (user.user_metadata ?? {}) as Record<string, unknown>;
+      const email = String(user.email ?? "").trim();
+      const name = String(profile?.name ?? metadata.name ?? "").trim();
+      const nameParts = name.split(/\s+/).filter(Boolean);
+      const savedAgent = String(profile?.agent ?? metadata.agent ?? "").trim();
+      const assignedAgent = Object.prototype.hasOwnProperty.call(FUB_AGENT_IDS, savedAgent)
+        ? savedAgent
+        : "Team";
+      const actionLabel: Record<z.infer<typeof ifwActivitySchema>["action"], string> = {
+        save: "saved",
+        download: "downloaded",
+        share: "shared",
+      };
+      const summary = formatIfwSummary(input.summary);
+
+      if (email) {
+        createFollowUpBossContact({
+          firstName: nameParts[0] ?? email.split("@")[0] ?? "Havo",
+          lastName: nameParts.slice(1).join(" ") || "Lead",
+          email,
+          phone: String(profile?.phone ?? metadata.phone ?? ""),
+          address: input.address,
+          agent: assignedAgent,
+          messageHeader: `Customer ${actionLabel[input.action]} an IFW worksheet`,
+          scenarioDetails:
+            `The customer ${actionLabel[input.action]} their IFW worksheet for ${input.address}.` +
+            (summary ? `\nWorksheet summary:\n${summary}` : ""),
+        }).catch(error =>
+          console.error("[FUB] IFW activity delivery failed:", error?.message ?? error),
+        );
+      } else {
+        console.warn("[FUB] IFW activity skipped: verified user has no email");
+      }
+
+      return res.json({ ok: true, deduped: false });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Invalid worksheet activity" });
+      }
+      console.error("[IFW] activity processing failed:", error);
+      return res.status(500).json({ error: "Worksheet activity could not be recorded" });
+    }
+  });
+
+  // Simple per-IP rate limiter for the notify endpoint (max 10/min per IP)
+  const _notifyHits = new Map<string, number[]>();
+
+  // Dedupe window for account events (keyed by `${userId}:${event}`) so a
+  // rapid re-login doesn't spam Follow Up Boss with sign-in notes.
+  const _accountEventSeen = new Map<string, number>();
+  function notifyRateLimited(ip: string): boolean {
+    const now = Date.now();
+    const windowMs = 60_000;
+    const hits = (_notifyHits.get(ip) || []).filter(t => now - t < windowMs);
+    if (hits.length >= 10) { _notifyHits.set(ip, hits); return true; }
+    hits.push(now);
+    _notifyHits.set(ip, hits);
+    return false;
+  }
+
+  // POST /api/leads/notify-new-scenario
+  // Called when a logged-in user adds another property to their dashboard.
+  // Sends a FUB event so the assigned agent knows the customer is exploring a new property.
+  app.post("/api/leads/notify-new-scenario", async (req, res) => {
+    try {
+      const ip = (req.ip || req.socket.remoteAddress || "unknown").toString();
+      if (notifyRateLimited(ip)) {
+        return res.status(429).json({ error: "Too many notifications. Please wait a moment." });
+      }
+      const { firstName, lastName, email, phone, agent, address, scenarioType, scenarioDetails, referral } = z.object({
+        firstName: z.string().min(1),
+        lastName: z.string().min(1),
+        email: z.string().email(),
+        phone: z.string().optional().default(""),
+        agent: z.string().optional(),
+        address: z.string().min(1),
+        scenarioType: z.string().optional().default("Scenario"),
+        scenarioDetails: z.string().optional(),
+        referral: referralSchema,
+      }).parse(req.body);
+
+      console.log(`[LEAD] New property scenario: ${email} → ${address} (agent: ${agent || "Team"})`);
+
+      // Non-blocking — never fail the request if FUB has an issue
+      createFollowUpBossContact({
+        firstName,
+        lastName,
+        email,
+        phone,
+        address,
+        agent,
+        scenarioDetails,
+        referral,
+        messageHeader: `Customer added another property to their dashboard: ${address}`,
+      }).catch(err => console.error("[FUB] notify-new-scenario failed:", err.message));
+
+      // Internal team alert (non-blocking — never crash the request if email fails)
+      sendInternalAlert({
+        scenarioType,
+        userEmail: email,
+        address,
+        summary: scenarioDetails ?? "",
+      }).catch(err => console.error("[internal-alert] notify-new-scenario failed:", err?.message ?? err));
+
+      res.json({ ok: true });
+    } catch (err: any) {
+      console.error("notify-new-scenario error:", err);
+      res.status(400).json({ error: err.message || "Failed to notify agent" });
+    }
+  });
+
+  // ── FUB Team Leaderboard ─────────────────────────────────────────────────
+  app.get("/api/fub/leaderboard", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Not authenticated" });
+    }
+    const token = authHeader.slice(7);
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: "Auth backend not configured" });
+    }
+    try {
+      const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+      if (error || !user) return res.status(401).json({ error: "Invalid session" });
+      const email = user.email?.toLowerCase() ?? "";
+      const allowed = LEADERBOARD_TEAM.some((m) => m.email === email) ||
+        (LEADERBOARD_VIEWERS as readonly string[]).includes(email);
+      if (!allowed) return res.status(403).json({ error: "Access denied" });
+    } catch {
+      return res.status(401).json({ error: "Auth check failed" });
+    }
+
+    const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: "FOLLOWUPBOSS_API_KEY not set on server" });
+    }
+
+    const raw = (req.query.period as string) ?? "today";
+    const validPeriods: Period[] = ["today", "yesterday", "week", "month", "quarter", "year"];
+    const period: Period = (validPeriods.includes(raw as Period) ? raw : "today") as Period;
+
+    try {
+      const result = await getLeaderboardData(apiKey, period);
+      res.json({
+        ...result.data,
+        refreshState: result.refreshState,
+        ...(result.retryAfterSeconds !== undefined ? { retryAfterSeconds: result.retryAfterSeconds } : {}),
+      });
+    } catch (err: any) {
+      console.error("[leaderboard] fetch error:", err.message);
+      res.status(500).json({ error: err.message ?? "Failed to fetch leaderboard data" });
+    }
+  });
+
+  app.post("/api/fub/leaderboard/refresh", async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Not authenticated" });
+    const token = authHeader.slice(7);
+    if (!supabaseAdmin) {
+      return res.status(503).json({ error: "Auth backend not configured" });
+    }
+    try {
+      const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+      if (error || !user) return res.status(401).json({ error: "Invalid session" });
+      const email = user.email?.toLowerCase() ?? "";
+      const isAdmin = LEADERBOARD_TEAM.some((m) => m.email === email && m.isAdmin);
+      if (!isAdmin) return res.status(403).json({ error: "Admin only" });
+    } catch {
+      return res.status(401).json({ error: "Auth check failed" });
+    }
+    bustLeaderboardCache();
+    res.json({ ok: true, message: "Leaderboard cache cleared" });
+  });
+
+  app.get("/api/fub/leaderboard/debug", async (_req, res) => {
+    const apiKey = process.env.FOLLOWUPBOSS_API_KEY;
+    if (!apiKey) return res.status(500).json({ error: "FOLLOWUPBOSS_API_KEY not set" });
+
+    try {
+      let allDeals: any[] = [];
+      let offset = 0;
+      while (true) {
+        const r = await fetch(
+          `https://api.followupboss.com/v1/deals?limit=200&offset=${offset}`,
+          { headers: fubHeaders(apiKey) }
+        );
+        const d = await r.json();
+        const items: any[] = d.deals ?? [];
+        allDeals.push(...items);
+        const total: number = d._metadata?.total ?? items.length;
+        offset += 200;
+        if (offset >= total || items.length === 0) break;
+      }
+
+      // Show every commission-related field on every deal
+      const commissionBreakdown = allDeals.map((d: any) => ({
+        id:                d.id,
+        name:              d.name,
+        pipelineName:      d.pipelineName,
+        stageName:         d.stageName,
+        price:             d.price,
+        // All commission fields — we need to see which one holds the right value
+        commissionValue:   d.commissionValue,
+        agentCommission:   d.agentCommission,
+        teamCommission:    d.teamCommission,
+        users:             (d.users ?? []).map((u: any) => ({ id: u.id, name: u.name })),
+      }));
+
+      // Flag any deals where commissionValue !== agentCommission + teamCommission
+      const mismatches = commissionBreakdown.filter((d: any) => {
+        const sum = (d.agentCommission ?? 0) + (d.teamCommission ?? 0);
+        return Math.abs(sum - (d.commissionValue ?? 0)) > 1;
+      });
+
+      // Summary: which field has non-zero values
+      const agentCommissionNonZero = commissionBreakdown.filter((d: any) => (d.agentCommission ?? 0) > 0).length;
+      const commissionValueNonZero = commissionBreakdown.filter((d: any) => (d.commissionValue ?? 0) > 0).length;
+      const teamCommissionNonZero  = commissionBreakdown.filter((d: any) => (d.teamCommission  ?? 0) > 0).length;
+
+      res.json({
+        totalDeals: allDeals.length,
+        fieldSummary: {
+          dealsWithAgentCommission: agentCommissionNonZero,
+          dealsWithCommissionValue: commissionValueNonZero,
+          dealsWithTeamCommission:  teamCommissionNonZero,
+        },
+        mismatchCount: mismatches.length,
+        mismatches,
+        allDeals: commissionBreakdown,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/fub/showing-request
+  // Fired when a user taps "Schedule your showing now" on Purchase with Loan
+  // (Likely Qualifies only) or Purchase with Cash. Notifies Follow Up Boss
+  // with the property address. The tel: link is handled entirely client-side
+  // and is NEVER blocked by this endpoint — if FUB fails the user can still
+  // call. Works for logged-in and logged-out visitors: with an email we
+  // create/append the FUB contact note; either way the team gets an internal
+  // alert email so anonymous requests still reach us.
+  app.post("/api/fub/showing-request", async (req, res) => {
+    try {
+      const ip = (req.ip || req.socket.remoteAddress || "unknown").toString();
+      if (notifyRateLimited(ip)) {
+        return res.status(429).json({ error: "Too many requests. Please wait a moment." });
+      }
+      const body = z.object({
+        address: z.string().min(1),
+        service: z.enum(["purchase_with_loan", "purchase_with_cash"]),
+        eventType: z.enum([
+          "showing_request_started",
+          "showing_request_text_selected",
+          "showing_request_call_selected",
+        ]).optional(),
+        contactMethod: z.enum(["text", "call"]).nullish(),
+        qualificationStatus: z.string().optional(),
+        estimatedPrice: z.number().optional(),
+        normalizedPropertyKey: z.string().optional(),
+        pageUrl: z.string().optional().default(""),
+        firstName: z.string().optional(),
+        lastName: z.string().optional(),
+        email: z.string().email().optional(),
+        phone: z.string().optional().default(""),
+        agent: z.string().optional(),
+        userId: z.string().optional(),
+      }).parse(req.body);
+
+      const serviceLabel = body.service === "purchase_with_loan" ? "Purchase with Loan" : "Purchase with Cash";
+      const contactLabel = body.contactMethod === "text" ? "Text" : body.contactMethod === "call" ? "Call" : "";
+      // Headline + lead-in line vary by which step of the flow fired this.
+      const eventType = body.eventType ?? "showing_request_started";
+      const eventTitle =
+        eventType === "showing_request_text_selected"
+          ? "User selected Text for showing request."
+          : eventType === "showing_request_call_selected"
+          ? "User selected Call for showing request."
+          : "Showing request started from Havo.";
+      console.log("[api/fub/showing-request] request received");
+      console.log(`[api/fub/showing-request] property address: ${body.address}`);
+      console.log(`[api/fub/showing-request] user email: ${body.email || "(none)"}`);
+      console.log(`[api/fub/showing-request] user phone: ${body.phone || "(none)"}`);
+      console.log(`[showing-alert-env] RESEND_API_KEY present ${!!process.env.RESEND_API_KEY}`);
+      console.log(`[showing-alert-env] ALERT_FROM_EMAIL present ${!!process.env.ALERT_FROM_EMAIL}`);
+      console.log(`[showing-alert-env] INTERNAL_ALERT_EMAIL present ${!!process.env.INTERNAL_ALERT_EMAIL}`);
+      console.log(`[showing-alert-env] ALERT_FROM_EMAIL uses updates.tateoco.com ${(process.env.ALERT_FROM_EMAIL || "").includes("updates.tateoco.com")}`);
+      console.log(`[showing-request] ${serviceLabel} → ${body.address} (event: ${eventType}, user: ${body.email || "anonymous"}, contact: ${body.contactMethod || "n/a"})`);
+      console.log("[showing-request-schema] sql needed no");
+
+      const priceLine = typeof body.estimatedPrice === "number" && body.estimatedPrice > 0
+        ? `Estimated Price: $${Math.round(body.estimatedPrice).toLocaleString()}`
+        : "";
+      // Resolve a display name from first/last (the "-" placeholder lastName
+      // means "no last name supplied", so drop it).
+      const contactName = [
+        body.firstName,
+        body.lastName && body.lastName !== "-" ? body.lastName : "",
+      ].filter((p) => (p || "").trim()).join(" ").trim();
+      const contactEmail = body.email || "Not provided";
+      const contactPhone = body.phone || "Not provided";
+      const noteBody = [
+        eventTitle,
+        "",
+        "Contact:",
+        `Name: ${contactName || "Not provided"}`,
+        `Email: ${contactEmail}`,
+        `Phone: ${contactPhone}`,
+        "",
+        `Property: ${body.address}`,
+        "",
+        contactLabel ? `Preferred contact action: ${contactLabel}` : "",
+        `Service: ${serviceLabel}`,
+        body.qualificationStatus ? `Qualification Status: ${body.qualificationStatus}` : "",
+        priceLine,
+        body.pageUrl ? `Page: ${body.pageUrl}` : "",
+        eventType === "showing_request_started"
+          ? "The user clicked Schedule your showing now. Follow up even if no call/text was completed."
+          : "",
+      ].filter(Boolean).join("\n");
+
+      // 1) Follow Up Boss — only when we have an email to match/create a contact.
+      // This CRM note is unchanged in behaviour; we now await it so the response
+      // can report its outcome alongside the email alert.
+      const fub: { ok: boolean; noteAdded: boolean; skipped: boolean; error: string | null } =
         { ok: false, noteAdded: false, skipped: false, error: null };
       if (body.email) {
         console.log("[api/fub/showing-request] FUB note start");

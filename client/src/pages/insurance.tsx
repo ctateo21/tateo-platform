@@ -1,4 +1,456 @@
--colors ${
+rn;
+        }
+        if (data.found && data.leadId) {
+          setQrLeadId(data.leadId);
+          setQrStatus("pending");
+          setInsuranceQRCache(addr, {
+            leadId: data.leadId,
+            status: "pending",
+          }, policyType);
+          startPolling(data.leadId);
+          return;
+        }
+        pollCacheForLead(addr, attempts + 1);
+      } catch {
+        pollCacheForLead(addr, attempts + 1);
+      }
+    }, 5000);
+  }
+
+  // Refresh — pulls the latest carrier results for an existing lead
+  // WITHOUT re-submitting (no new cost). Fixes "only 1 carrier showing".
+  async function refreshQuotes(): Promise<void> {
+    if (!qrLeadId || qrRefreshing) return;
+    setQrRefreshing(true);
+    try {
+      const res = await authedFetch(
+        "/api/insurance/qr-refresh",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            leadId: qrLeadId,
+            address,
+              policyType: policyType || "HO3",
+          }),
+        }
+      );
+      const data = await res.json();
+      if ((data.quotes?.length ?? 0) > 0) {
+        setQrQuotes(data.quotes);
+        setQrQuoteCounter(data.quoteCounter);
+        setQrStatus("success");
+        setInsuranceQRCache(address, {
+          status: "success",
+          quotes: data.quotes,
+          quoteCounter: data.quoteCounter,
+        }, policyType);
+      }
+    } catch (e) {
+      console.error("[qr-refresh]", e);
+    } finally {
+      setQrRefreshing(false);
+    }
+  }
+
+  // Polls qr-quotes until the carrier count is stable across 3
+  // consecutive polls (gives slower carriers time to respond).
+  function startPolling(leadId: number): void {
+    if (qrPollRef.current)
+      clearInterval(qrPollRef.current);
+    if (qrTimerRef.current)
+      clearInterval(qrTimerRef.current);
+
+    setQrElapsed(0);
+    qrPrevCounterRef.current = 0;
+    qrStableRef.current = 0;
+
+    qrTimerRef.current = setInterval(() => {
+      setQrElapsed((p) => p + 1);
+    }, 1000);
+
+    let pollCount = 0;
+    const MAX_POLLS = 24; // 12 minutes
+
+    const doPoll = async () => {
+      pollCount++;
+      try {
+        const res = await authedFetch(
+          "/api/insurance/qr-quotes",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              leadId,
+              address,
+              policyType: policyType || "HO3",
+            }),
+          }
+        );
+        const data = await res.json();
+        const counter: number = data.quoteCounter ?? 0;
+
+        if (counter > 0) {
+          setQrQuotes(data.quotes ?? []);
+          setQrQuoteCounter(counter);
+          setQrStatus("success");
+          setInsuranceQRCache(address, {
+            status: "success",
+            quotes: data.quotes ?? [],
+            quoteCounter: counter,
+          }, policyType);
+
+          // Stop only after 3 consecutive stable polls.
+          if (counter === qrPrevCounterRef.current) {
+            qrStableRef.current += 1;
+          } else {
+            qrStableRef.current = 0;
+          }
+          qrPrevCounterRef.current = counter;
+
+          if (
+            qrStableRef.current >= 3 ||
+            pollCount >= MAX_POLLS
+          ) {
+            if (qrPollRef.current)
+              clearInterval(qrPollRef.current);
+            if (qrTimerRef.current)
+              clearInterval(qrTimerRef.current);
+          }
+        } else if (pollCount >= MAX_POLLS) {
+          if (qrPollRef.current)
+            clearInterval(qrPollRef.current);
+          if (qrTimerRef.current)
+            clearInterval(qrTimerRef.current);
+          if (qrQuotes.length === 0) {
+            setQrStatus("error");
+          }
+        }
+      } catch (e) {
+        console.error("[qr-poll]", e);
+      }
+    };
+
+    qrPollRef.current = setInterval(doPoll, 30000);
+  }
+
+  async function startQuoteRush(): Promise<void> {
+    if (!address || !rebuild || !isAuthenticated)
+      return;
+
+    try {
+      currentQuoteRushPropertyDefaults();
+    } catch (error) {
+      toast({
+        title: "Complete the property information",
+        description:
+          error instanceof Error ? error.message : "Complete the required property questions.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!(await currentPolicyExpirationSaveRef.current)) {
+      return;
+    }
+
+    const hasDateOfBirth =
+      getSession()?.hasDateOfBirth ||
+      await hasSavedDateOfBirth();
+    if (!hasDateOfBirth) {
+      setDobError("");
+      setDobPromptOpen(true);
+      return;
+    }
+
+    await submitQuoteRush();
+  }
+
+  async function submitQuoteRush(): Promise<void> {
+    let propertyDefaults;
+    try {
+      propertyDefaults = currentQuoteRushPropertyDefaults();
+    } catch (error) {
+      setQrStatus("idle");
+      toast({
+        title: "Complete the property information",
+        description:
+          error instanceof Error ? error.message : "Complete the required property questions.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (qrPollRef.current)
+      clearInterval(qrPollRef.current);
+    if (qrTimerRef.current)
+      clearInterval(qrTimerRef.current);
+
+    setQrStatus("starting");
+    setQrSharedContext(null);
+    setQrQuotes([]);
+    setQrQuoteCounter(0);
+    setQrElapsed(0);
+    clearQRCache(address, policyType);
+
+    try {
+      const startRes = await authedFetch(
+        "/api/insurance/qr-start",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            address,
+            coverageA: rebuild,
+            policyType: policyType || "HO3",
+            // Send the answers as entered. The index fields remain for
+            // compatibility with older callers of this endpoint.
+            yearBuilt,
+            roofYear,
+            openingProtection: openingProtectionIdx === 1,
+            roofShape: ["Hip", "Flat", "Gable"][roofShapeIdx] ?? "Gable",
+            secondaryWaterResistance:
+              swrIdx === 2 ? "Yes" : swrIdx === 0 ? "No" : "Unknown",
+            windMitigationLocks: windMitigationLocksRef.current,
+            yearIdx,
+            roofIdx,
+            constIdx,
+            windIdx,
+            hurrIdx,
+            hasClaims,
+            claimRecords,
+            ...(deriveMortgageForAddress(address) !== undefined
+              ? { hasMortgage: deriveMortgageForAddress(address) }
+              : {}),
+            aopDeductible,
+            floodZone,
+            sqFt: squareFeet,
+            propertyCharacteristicLocks: propertyCharacteristicLocksRef.current,
+            newPurchase: propertyDefaults.newPurchase === "Yes",
+            ...(propertyDefaults.newPurchase === "No"
+              ? {
+                  currentlyInsured,
+                  ...(currentlyInsured && currentCarrier.trim()
+                    ? { currentCarrier: currentCarrier.trim() }
+                    : {}),
+                }
+              : {}),
+            policyEffectiveDate: purchaseDate || undefined,
+            ...(ho6ResidenceUse
+              ? { usageType: ho6ResidenceUse }
+              : {}),
+            ...((policyType === "DP3" || ho6ResidenceUse === "investment") &&
+            ho6RentalTerm
+              ? { rentalTerm: ho6RentalTerm }
+              : {}),
+            ...(purchasePrice > 0 && purchasePriceSource
+              ? {
+                  purchasePrice,
+                  purchasePriceSource,
+                }
+              : {}),
+          }),
+        }
+      );
+
+      const data = await startRes.json();
+
+      if (!startRes.ok) {
+        if (
+          startRes.status === 428 &&
+          data.code === "DOB_REQUIRED"
+        ) {
+          setQrStatus("idle");
+          setDobError("");
+          setDobPromptOpen(true);
+          return;
+        }
+        setQrStatus("error");
+        if (qrTimerRef.current)
+          clearInterval(qrTimerRef.current);
+        return;
+      }
+
+      // Lost the claim race — another concurrent request is submitting
+      // this address but its leadId isn't published yet. Wait for it
+      // rather than firing a second (paid) submission.
+      if (!data.leadId) {
+        if (data.status === "pending") {
+          setQrStatus("pending");
+          pollCacheForLead(address);
+        } else {
+          setQrStatus("error");
+          if (qrTimerRef.current)
+            clearInterval(qrTimerRef.current);
+        }
+        return;
+      }
+
+      const leadId: number = data.leadId;
+      setQrLeadId(leadId);
+      setInsuranceQRCache(
+        address,
+        { leadId, status: "pending" },
+        policyType,
+      );
+
+      // Server may return cached quotes for a shared address.
+      if (data.fromCache && (data.quotes?.length ?? 0) > 0) {
+        setQrQuotes(data.quotes);
+        setQrQuoteCounter(data.quoteCounter);
+        setQrStatus("success");
+        if (data.expiresAt) setQrExpiresAt(data.expiresAt);
+        setInsuranceQRCache(address, {
+          leadId,
+          status: "success",
+          quotes: data.quotes,
+          quoteCounter: data.quoteCounter,
+          ...(data.expiresAt
+            ? { expiresAt: data.expiresAt }
+            : {}),
+        }, policyType);
+        return;
+      }
+
+      setQrStatus("pending");
+      startPolling(leadId);
+    } catch (err) {
+      console.error("[qr-start]", err);
+      setQrStatus("error");
+      if (qrTimerRef.current)
+        clearInterval(qrTimerRef.current);
+    }
+  }
+
+  async function handleDobPreflight(
+    event: React.FormEvent<HTMLFormElement>,
+  ): Promise<void> {
+    event.preventDefault();
+    setDobError("");
+    if (!normalizeDateOfBirth(dobInput)) {
+      setDobError("Please enter a valid date of birth.");
+      return;
+    }
+
+    setDobSaving(true);
+    const result = await saveDateOfBirth(dobInput);
+    setDobSaving(false);
+    if (!result.ok) {
+      setDobError(result.error || "We couldn't save your date of birth.");
+      return;
+    }
+
+    setDobPromptOpen(false);
+    setDobInput("");
+    await submitQuoteRush();
+  }
+
+  // ── Calculations ─────────────────────────────────────────────────────────
+  const region = REGIONS[regionKey];
+
+  const calc = useMemo(() => {
+    // Anchor the midpoint to the shared 0.75%-of-value default so this
+    // tab always agrees with Purchase with Loan, Cash Buy, and the
+    // Ongoing Costs row for the same property. Factors still scale the
+    // band, but they're normalized against the default product so a
+    // property with neutral factors lands exactly on the 0.75% number.
+    // Claims are not a user input: general estimates always assume no
+    // claims during the past five years.
+    const rawAdj = ROOF_ADJ[roofIdx]
+      * OPENING_PROTECTION_ADJ[openingProtectionIdx]
+      * ROOF_SHAPE_ADJ[roofShapeIdx]
+      * SWR_ADJ[swrIdx]
+      * HURR_ADJ[hurrIdx]
+      * CONST_ADJ[constIdx]
+      * YEAR_ADJ[yearIdx];
+    const adj = rawAdj / NEUTRAL_FACTOR_PRODUCT;
+    const midRate  = DEFAULT_HOMEOWNERS_INSURANCE_PERCENT * adj;
+    const hurrDeductiblePct = [0.02, 0.05, 0.10][hurrIdx];
+    return {
+      mid: rebuild * midRate,
+      hurrDeductible: rebuild * hurrDeductiblePct,
+      hurrPct: hurrDeductiblePct * 100,
+    };
+  }, [
+    rebuild, roofIdx, openingProtectionIdx, roofShapeIdx, swrIdx,
+    hurrIdx, constIdx, yearIdx,
+  ]);
+
+  // ─────────────────────────────────────────────────────────────────────────
+
+  return (
+    <>
+      <Helmet><title>Insurance Estimate — {address || "Havo"}</title></Helmet>
+
+      {showInsuranceEmptyState ? (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-12">
+          <Card className="w-full max-w-md">
+            <CardContent className="py-10 px-6 flex flex-col items-center text-center gap-4">
+              <Shield className="h-12 w-12 text-primary" />
+              <div className="space-y-1">
+                <h2 className="text-xl font-bold">No properties added yet</h2>
+                <p className="text-sm text-muted-foreground">
+                  Add a property address to get an insurance estimate
+                </p>
+              </div>
+              {!showEmptyAddInput ? (
+                <Button
+                  className="mt-2"
+                  onClick={() => setShowEmptyAddInput(true)}
+                  data-testid="insurance-empty-add-property"
+                >
+                  Add Property Address
+                </Button>
+              ) : (
+                <div className="w-full mt-2">
+                  <div className="flex items-center gap-2 border rounded-md px-3 py-2 bg-white">
+                    <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <input
+                      ref={addressInputRef}
+                      type="text"
+                      placeholder="Enter a property address"
+                      onKeyDown={e => {
+                        if (e.key === "Enter") {
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val) {
+                            setShowEmptyAddInput(false);
+                            setLocation(`/insurance?address=${encodeURIComponent(val)}`);
+                          }
+                        } else if (e.key === "Escape") {
+                          setShowEmptyAddInput(false);
+                        }
+                      }}
+                      className="flex-1 bg-transparent outline-none text-sm"
+                      autoComplete="off"
+                      data-testid="insurance-empty-address-input"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setShowEmptyAddInput(false)}
+                    className="text-xs text-muted-foreground hover:text-foreground mt-2"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+      <div className="min-h-screen bg-gray-50">
+
+        {/* ── Sticky top bar (same pattern as estimate page) ── */}
+        <div className="bg-white border-b shadow-sm sticky top-[73px] z-40">
+
+          {/* Scenario tabs */}
+          <div className="container mx-auto px-4 pt-2 flex items-center gap-1 overflow-x-auto scrollbar-none">
+            {scenarios.map((sc) => (
+              <div
+                key={sc.id}
+                onClick={() => switchScenario(sc.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium cursor-pointer whitespace-nowrap border border-b-0 transition-colors ${
                   sc.id === activeScenarioId
                     ? "bg-white border-border text-foreground shadow-sm -mb-px relative z-10"
                     : "bg-gray-100 border-transparent text-muted-foreground hover:bg-gray-200"

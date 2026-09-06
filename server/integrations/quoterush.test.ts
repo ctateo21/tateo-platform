@@ -1,3 +1,501 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { test } from "node:test";
+import {
+  buildImporterPayload,
+  getQuotes,
+  importAndSubmit,
+  type QuoteRushParams,
+} from "./quoterush";
+import { resolveQuoteRushPropertyInputs } from "./quoterush-inputs";
+import { claimQuoteRushAddress } from "./quoterush-cache-claim";
+import {
+  prepareQuoteRushStartRequest,
+  toQuoteCachePolicyEffectiveDate,
+} from "./quoterush-start-request";
+import { resolveQuoteRushPropertyDefaults } from "@shared/quoterush-property-defaults";
+import { resolvePurchasePriceProvenance } from "@shared/purchase-price-provenance";
+
+const params: QuoteRushParams = {
+  streetAddress: "123 Palm Way",
+  city: "Tampa",
+  state: "FL",
+  zip: "33602",
+  county: "Hillsborough",
+  coverageA: 425_000,
+  policyType: "HO3",
+  yearBuilt: 2007,
+  roofYear: 2022,
+  constructionType: "Mixed",
+  masonryConstruction: "Concrete Block",
+  frameConstruction: "Stucco",
+  hurrDeductible: "5%",
+  aopDeductible: "$1,000",
+  priorClaims: 0,
+  claimRecords: [],
+  floodZone: "X",
+  sqFt: 2_100,
+  milesToCoast: 10.5,
+  windMitForm: true,
+  openingProtection: "Hurricane Protection",
+  secondaryWaterResistance: "Yes",
+  roofShape: "Hip",
+  usageType: "Primary",
+  rentalTerm: "",
+  monthsOccupied: "9 months or more",
+  newPurchase: "No",
+  purchaseDate: "08/31/2023",
+  purchasePrice: 425_000,
+  policyEffectiveDate: "09/30/2023",
+  firstName: "Test",
+  lastName: "Applicant",
+  email: "test@example.com",
+  phone: "5555555555",
+  creditPermissionGranted: true,
+};
+
+test("importer payload retains exact property answers, mixed construction, and both deductibles", () => {
+  const payload = buildImporterPayload(params, "agent@example.com");
+  assert.deepEqual(
+    {
+      yearBuilt: payload.HO.YearBuilt,
+      roofYear: payload.HO.UpdateRoofYear,
+      openingProtection: payload.HO.OpeningProtection,
+      roofShape: payload.HO.RoofShape,
+      swr: payload.HO.SecondaryWaterResistance,
+      constructionType: payload.HO.ConstructionType,
+      construction: payload.HO.Construction,
+      masonry: payload.HO.MasonryConstruction,
+      frame: payload.HO.FrameConstruction,
+      hurricane: payload.HO.HurricaneDeductible,
+      windHail: payload.HO.WindHailDeductible,
+      aop: payload.HO.AllOtherPerilsDeductible,
+      usageType: payload.HO.UsageType,
+      rentalTerm: payload.HO.RentalTerm,
+      monthsOccupied: payload.HO.MonthsOccupied,
+      newPurchase: payload.HO.NewPurchase,
+      purchaseDate: payload.HO.PurchaseDate,
+      purchasePrice: payload.HO.PurchasePrice,
+      milesToCoast: payload.HO.MilesToCoast,
+    },
+    {
+      yearBuilt: "2007",
+      roofYear: "2022",
+      openingProtection: "Hurricane Protection",
+      roofShape: "Hip",
+      swr: "Yes",
+      constructionType: "Mixed",
+      construction: "Concrete Block",
+      masonry: "Concrete Block",
+      frame: undefined,
+      hurricane: "5%",
+      windHail: "5%",
+      aop: "$1,000",
+      usageType: "Primary",
+      rentalTerm: undefined,
+      monthsOccupied: "9 months or more",
+      newPurchase: "No",
+      purchaseDate: "08/31/2023",
+      purchasePrice: "425000",
+      milesToCoast: "10.50",
+    },
+  );
+});
+
+test("six zero-cost policy payload sanity cases stay normalized", () => {
+  const cases = [
+    {
+      name: "HO3 primary purchase",
+      input: { policyType: "HO3", usageType: "Primary", newPurchase: "Yes", rentalTerm: "" },
+      expected: { formType: "HO-3: Home Owners Policy", usageType: "Primary", newPurchase: "Yes", rentalTerm: undefined },
+    },
+    {
+      name: "HO3 secondary",
+      input: { policyType: "HO3", usageType: "Secondary", newPurchase: "No", rentalTerm: "" },
+      expected: { formType: "HO-3: Home Owners Policy", usageType: "Secondary", newPurchase: "No", rentalTerm: undefined },
+    },
+    {
+      name: "HO6 primary",
+      input: { policyType: "HO6", usageType: "Primary", newPurchase: "No", rentalTerm: "" },
+      expected: { formType: "HO-6: Condo Unit Owners Policy", usageType: "Primary", newPurchase: "No", rentalTerm: undefined },
+    },
+    {
+      name: "HO6 investment",
+      input: { policyType: "HO6", usageType: "Investment", newPurchase: "No", rentalTerm: "Monthly" },
+      expected: { formType: "HO-6: Condo Unit Owners Policy", usageType: "Investment", newPurchase: "No", rentalTerm: "Monthly" },
+    },
+    {
+      name: "DP3 annual",
+      input: { policyType: "DP3", usageType: "Investment", newPurchase: "No", rentalTerm: "Annual" },
+      expected: { formType: "DP-3: Dwelling Fire Policy", usageType: "Investment", newPurchase: "No", rentalTerm: "Annual" },
+    },
+    {
+      name: "DP3 weekly",
+      input: { policyType: "DP3", usageType: "Investment", newPurchase: "No", rentalTerm: "Weekly" },
+      expected: { formType: "DP-3: Dwelling Fire Policy", usageType: "Investment", newPurchase: "No", rentalTerm: "Weekly" },
+    },
+  ] as const;
+
+  for (const item of cases) {
+    const payload = buildImporterPayload(
+      { ...params, ...item.input },
+      "agent@example.com",
+    );
+    assert.deepEqual(
+      {
+        formType: payload.HO.FormType,
+        usageType: payload.HO.UsageType,
+        newPurchase: payload.HO.NewPurchase,
+        rentalTerm: payload.HO.RentalTerm,
+      },
+      item.expected,
+      item.name,
+    );
+  }
+});
+
+test("importer always sends the agency-confirmed credit permission value", () => {
+  assert.equal(
+    buildImporterPayload(
+      { ...params, creditPermissionGranted: true },
+      "agent@example.com",
+    ).Client.CreditPermission,
+    "Yes",
+  );
+  assert.equal(
+    buildImporterPayload(
+      { ...params, creditPermissionGranted: false },
+      "agent@example.com",
+    ).Client.CreditPermission,
+    "Yes",
+  );
+});
+
+test("prior insurance uses only documented new-purchase assumptions and private existing answers", () => {
+  const newPurchase = buildImporterPayload(
+    { ...params, newPurchase: "Yes" },
+    "agent@example.com",
+  );
+  assert.deepEqual(
+    {
+      insured: newPurchase.HO.CurrentlyInsured,
+      carrier: newPurchase.HO.CurrentCarrier,
+      policy: newPurchase.HO.CurrentPolicyNumber,
+      lapses: newPurchase.HO.AnyLapses,
+    },
+    { insured: "Yes", carrier: "New Purchase", policy: "New Purchase", lapses: "No" },
+  );
+  const existing = buildImporterPayload(
+    { ...params, newPurchase: "No", currentlyInsured: true, currentCarrier: "Acme Insurance" },
+    "agent@example.com",
+  );
+  assert.equal(existing.HO.CurrentlyInsured, "Yes");
+  assert.equal(existing.HO.CurrentCarrier, "Acme Insurance");
+  assert.equal("CurrentPolicyNumber" in existing.HO, false);
+  assert.equal("AnyLapses" in existing.HO, false);
+  const uninsured = buildImporterPayload(
+    { ...params, newPurchase: "No", currentlyInsured: false },
+    "agent@example.com",
+  );
+  assert.equal(uninsured.HO.CurrentlyInsured, "No");
+  assert.equal("CurrentCarrier" in uninsured.HO, false);
+});
+
+test("year-built wind assumptions are conservative and manual wind answers win", () => {
+  const resolve = (yearBuilt: number) => resolveQuoteRushPropertyInputs({
+    yearBuilt, constIdx: 0, windIdx: 1,
+    windMitigationLocks: {},
+    openingProtection: true,
+    secondaryWaterResistance: "Yes",
+  });
+  assert.deepEqual(
+    { opening: resolve(1999).openingProtection, swr: resolve(1999).secondaryWaterResistance, assumption: resolve(1999).windAssumption },
+    { opening: "None", swr: "No", assumption: "conservative/no-credit" },
+  );
+  assert.deepEqual(
+    { opening: resolve(2010).openingProtection, swr: resolve(2010).secondaryWaterResistance, assumption: resolve(2010).windAssumption },
+    { opening: "None", swr: "No", assumption: "basic/clips where supported" },
+  );
+  assert.deepEqual(
+    { opening: resolve(2020).openingProtection, swr: resolve(2020).secondaryWaterResistance },
+    { opening: "Hurricane Protection", swr: "Yes" },
+  );
+  const manual = resolveQuoteRushPropertyInputs({
+    yearBuilt: 2022, constIdx: 0, windIdx: 0,
+    windMitigationLocks: { openingProtection: true, secondaryWaterResistance: true },
+    openingProtection: false, secondaryWaterResistance: "No",
+  });
+  assert.equal(manual.openingProtection, "None");
+  assert.equal(manual.secondaryWaterResistance, "No");
+});
+
+test("policy defaults keep purchase price separate and resolve all occupancy and rental rules", () => {
+  const base = {
+    rebuildCost: 425_000,
+    newPurchase: true,
+    policyEffectiveDate: "2026-09-30",
+    purchasePrice: 610_000,
+    purchasePriceSource: "havo-purchase-scenario" as const,
+  };
+  for (const [policyType, usageType] of [
+    ["HO3", "primary"], ["HO3", "secondary"], ["HO6", "primary"],
+    ["HO6", "secondary"], ["HO6", "investment"], ["DP3", "investment"],
+  ] as const) {
+    const result = resolveQuoteRushPropertyDefaults({
+      ...base, policyType, usageType,
+      ...(usageType === "investment" ? { rentalTerm: "annual" as const } : {}),
+    });
+    assert.equal(result.purchasePrice.value, 610_000);
+    assert.equal(result.purchasePrice.source, "havo-purchase-scenario");
+    assert.notEqual(result.purchasePrice.value, base.rebuildCost);
+  }
+
+  for (const [input, expected] of [
+    ["annual", "Annual"],
+    ["monthly", "Monthly"],
+    ["weekly", "Weekly"],
+  ] as const) {
+    const resolved = resolveQuoteRushPropertyDefaults({
+      ...base,
+      policyType: "HO6",
+      usageType: "investment",
+      rentalTerm: input,
+    });
+    assert.equal(resolved.usageType, "Investment");
+    assert.equal(resolved.rentalTerm, expected);
+    assert.equal(resolved.purchasePrice.value, 610_000);
+  }
+
+  assert.deepEqual(
+    resolveQuoteRushPropertyDefaults({
+      ...base,
+      policyType: "DP3",
+      newPurchase: false,
+      policyEffectiveDate: "2023-08-31",
+      rentalTerm: "weekly",
+    }),
+    {
+      usageType: "Investment",
+       rentalTerm: "Weekly",
+      monthsOccupied: "9 months or more",
+      newPurchase: "No",
+      purchaseDate: {
+        value: null,
+        source: "unknown",
+      },
+      purchasePrice: {
+        value: 610_000,
+        source: "havo-purchase-scenario",
+         isAssumption: true,
+      },
+      policyEffectiveDate: {
+        value: "08/31/2023",
+        source: "user-requested",
+        isAssumption: false,
+      },
+    },
+  );
+});
+
+test("policy effective date preserves supplied source and marks transparent +30 fallback", () => {
+  const supplied = resolveQuoteRushPropertyDefaults({
+    policyType: "HO3",
+    rebuildCost: 425_000,
+    newPurchase: true,
+    usageType: "primary",
+    purchasePrice: 610_000,
+    policyEffectiveDate: "2027-04-15",
+    policyEffectiveDateSource: "closing-date",
+  });
+  assert.deepEqual(supplied.policyEffectiveDate, {
+    value: "04/15/2027",
+    source: "closing-date",
+    isAssumption: false,
+  });
+  assert.deepEqual(supplied.purchaseDate, {
+    value: null,
+    source: "unknown",
+  });
+
+  const before = new Date();
+  before.setDate(before.getDate() + 30);
+  const fallback = resolveQuoteRushPropertyDefaults({
+    policyType: "HO3",
+    rebuildCost: 425_000,
+    newPurchase: false,
+    usageType: "secondary",
+    purchasePrice: 610_000,
+  });
+  const after = new Date();
+  after.setDate(after.getDate() + 30);
+  const expectedDates = [before, after].map(date => {
+    const [year, month, day] = date.toISOString().slice(0, 10).split("-");
+    return `${month}/${day}/${year}`;
+  });
+  assert.ok(expectedDates.includes(fallback.policyEffectiveDate.value));
+  assert.equal(fallback.policyEffectiveDate.source, "30-day-default");
+  assert.equal(fallback.policyEffectiveDate.isAssumption, true);
+  assert.deepEqual(fallback.purchaseDate, {
+    value: null,
+    source: "unknown",
+  });
+});
+
+test("purchase date is independent from rewrite policy effective dates", () => {
+  const purchase = resolveQuoteRushPropertyDefaults({
+    policyType: "HO3",
+    rebuildCost: 425_000,
+    newPurchase: true,
+    usageType: "primary",
+    purchasePrice: 610_000,
+    purchaseDate: "2027-04-15",
+    purchaseDateSource: "purchase-scenario",
+    policyEffectiveDate: "2027-05-01",
+    policyEffectiveDateSource: "closing-date",
+  });
+  assert.deepEqual(purchase.purchaseDate, {
+    value: "04/15/2027",
+    source: "purchase-scenario",
+  });
+  assert.equal(purchase.policyEffectiveDate.value, "05/01/2027");
+
+  const rewrite = resolveQuoteRushPropertyDefaults({
+    policyType: "HO3",
+    rebuildCost: 425_000,
+    newPurchase: false,
+    usageType: "primary",
+    purchasePrice: 610_000,
+    policyEffectiveDate: "2027-05-01",
+    policyEffectiveDateSource: "current-policy-expiration",
+  });
+  assert.deepEqual(rewrite.purchaseDate, {
+    value: null,
+    source: "unknown",
+  });
+});
+
+test("unknown purchase price remains null and is never replaced with Coverage A", () => {
+  const result = resolveQuoteRushPropertyDefaults({
+    policyType: "HO3",
+    rebuildCost: 425_000,
+    newPurchase: false,
+    usageType: "primary",
+    purchasePrice: null,
+  });
+  assert.deepEqual(result.purchasePrice, {
+    value: null,
+    source: "unknown",
+    isAssumption: false,
+  });
+  assert.notEqual(result.purchasePrice.value, 425_000);
+});
+
+const purchasePriceCandidates = {
+  purchaseScenario: { price: 700_000, priceSource: "zillow" as const },
+  cashBuyScenario: {
+    purchasePrice: 650_000,
+    purchasePriceSource: "zillow_listing" as const,
+  },
+  trackedLoan: {
+    originalPurchasePrice: 500_000,
+    estimatedHomeValue: 725_000,
+  },
+};
+
+test("confirmed contract purchase price beats an exact listing", () => {
+  assert.deepEqual(
+    resolvePurchasePriceProvenance({
+      ...purchasePriceCandidates,
+      purchaseScenario: { price: 675_000, priceSource: "manual" },
+    }),
+    { value: 675_000, source: "user-confirmed-contract" },
+  );
+});
+
+test("exact listing purchase price beats a prior sale", () => {
+  assert.deepEqual(
+    resolvePurchasePriceProvenance(purchasePriceCandidates),
+    { value: 650_000, source: "listing" },
+  );
+});
+
+test("prior sale purchase price beats market value", () => {
+  assert.deepEqual(
+    resolvePurchasePriceProvenance({
+      purchaseScenario: purchasePriceCandidates.purchaseScenario,
+      trackedLoan: purchasePriceCandidates.trackedLoan,
+    }),
+    { value: 500_000, source: "prior-sale" },
+  );
+});
+
+test("unknown purchase price stays null", () => {
+  assert.deepEqual(
+    resolvePurchasePriceProvenance({}),
+    { value: null, source: "unknown" },
+  );
+});
+
+test("manual existing-home correction records property-value provenance", () => {
+  assert.deepEqual(
+    resolvePurchasePriceProvenance({
+      manual: { value: 740_000, newPurchase: false },
+      cashBuyScenario: purchasePriceCandidates.cashBuyScenario,
+    }),
+    { value: 740_000, source: "user-confirmed-property-value" },
+  );
+});
+
+test("quote-start rejects incomplete property details before a cache claim can run", () => {
+  const validRequest = {
+    address: "123 Palm Way, Tampa, FL 33602",
+    coverageA: 425_000,
+    policyType: "HO3" as const,
+    usageType: "primary" as const,
+    constIdx: 1,
+    windIdx: 1,
+    hurrIdx: 1,
+    hasClaims: false,
+    claimRecords: [],
+    newPurchase: true,
+    policyEffectiveDate: "2026-09-30",
+    purchasePrice: 610_000,
+    purchasePriceSource: "havo-purchase-scenario" as const,
+  };
+  let resolverCalls = 0;
+  let cacheClaims = 0;
+  const resolver = (input: Parameters<typeof resolveQuoteRushPropertyDefaults>[0]) => {
+    resolverCalls++;
+    return resolveQuoteRushPropertyDefaults(input);
+  };
+  const prepareThenClaim = (request: unknown) => {
+    const prepared = prepareQuoteRushStartRequest(request, resolver);
+    cacheClaims++;
+    return prepared;
+  };
+
+  for (const [invalidRequest, expectedPath] of [
+    [{ ...validRequest, usageType: undefined }, "usageType"],
+    [{ ...validRequest, policyType: "HO6" as const, usageType: undefined }, "usageType"],
+    [
+      {
+        ...validRequest,
+        policyType: "HO6" as const,
+        usageType: "investment" as const,
+      },
+      "rentalTerm",
+    ],
+    [
+      { ...validRequest, policyType: "DP3" as const },
+      "rentalTerm",
+    ],
+  ] as const) {
+    assert.throws(() => prepareThenClaim(invalidRequest), (error: unknown) => {
+      assert.equal(error instanceof Error, true);
+      assert.match(String(error), new RegExp(expectedPath, "i"));
+      return true;
+    });
+  }
   assert.equal(resolverCalls, 0);
   assert.equal(cacheClaims, 0);
 });
