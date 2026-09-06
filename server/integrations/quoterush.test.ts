@@ -154,7 +154,7 @@ test("six zero-cost policy payload sanity cases stay normalized", () => {
   }
 });
 
-test("importer sends credit permission only from the trusted consent value", () => {
+test("importer always sends the agency-confirmed credit permission value", () => {
   assert.equal(
     buildImporterPayload(
       { ...params, creditPermissionGranted: true },
@@ -167,7 +167,7 @@ test("importer sends credit permission only from the trusted consent value", () 
       { ...params, creditPermissionGranted: false },
       "agent@example.com",
     ).Client.CreditPermission,
-    "No",
+    "Yes",
   );
 });
 
@@ -716,14 +716,8 @@ test("quote-start route prepares property details before claiming the paid-quote
   const paidSubmission = routeSource.indexOf(
     "const result = await importAndSubmit",
   );
-  const consentGate = routeSource.indexOf(
-    "CREDIT_PERMISSION_REQUIRED",
-  );
   const cachedQuoteReturn = routeSource.indexOf(
     "cache hit (success)",
-  );
-  const submissionConsentCheck = routeSource.indexOf(
-    "const submissionConsentProfile",
   );
   const dobGate = routeSource.indexOf("DOB_REQUIRED");
   const staleReclaim = routeSource.indexOf(".set(initialRunValues)");
@@ -733,20 +727,15 @@ test("quote-start route prepares property details before claiming the paid-quote
   assert.notEqual(preparation, -1);
   assert.notEqual(cacheClaim, -1);
   assert.notEqual(paidSubmission, -1);
-  assert.notEqual(consentGate, -1);
   assert.notEqual(cachedQuoteReturn, -1);
-  assert.notEqual(submissionConsentCheck, -1);
   assert.notEqual(dobGate, -1);
   assert.notEqual(staleReclaim, -1);
   assert.ok(preparation < cacheClaim);
-  assert.ok(cachedQuoteReturn < consentGate);
   assert.ok(cachedQuoteReturn < dobGate);
   assert.ok(dobGate < staleReclaim);
-  assert.ok(consentGate < staleReclaim);
-  assert.ok(consentGate < cacheClaim);
-  assert.ok(cacheClaim < submissionConsentCheck);
-  assert.ok(submissionConsentCheck < paidSubmission);
   assert.ok(cacheClaim < paidSubmission);
+  assert.equal(routeSource.indexOf("CREDIT_PERMISSION_REQUIRED"), -1);
+  assert.equal(routeSource.indexOf("const submissionConsentProfile"), -1);
   const preserveLead = routeSource.indexOf(
     ".set({ leadId: result.leadId })",
   );
@@ -833,6 +822,10 @@ test("verification assumptions and consumer wind disclosure remain explicit", ()
     /This estimate assumes wind mitigation credits based on the home's age\. A wind mitigation inspection is required to confirm them — without one, your premium may be higher\./,
   );
   assert.match(insuranceSource, /Send wind mitigation report/);
+  assert.doesNotMatch(
+    insuranceSource,
+    /creditScoreConsent|insurance-credit-score-consent|Authorization required/,
+  );
 });
 
 test("quote-start resolves normalized HO3, HO6, and DP3 defaults before cache access", () => {

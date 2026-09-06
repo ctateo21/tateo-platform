@@ -1613,8 +1613,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         }
 
-        // Private profile and consent gates intentionally occur after valid
-        // shared-cache returns, but before an expired/error row is reclaimed.
+        // Private profile gates intentionally occur after valid shared-cache
+        // returns, but before an expired/error row is reclaimed.
         // A caller who cannot submit must never turn a stale row into pending.
         const { data: profile } = supabaseAdmin
           ? await supabaseAdmin
@@ -1636,13 +1636,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
             code: "DOB_REQUIRED",
             error:
               "A valid date of birth is required before requesting live quotes.",
-          });
-        }
-        if (privateInsuranceProfile.creditScoreConsentAt == null) {
-          return res.status(428).json({
-            code: "CREDIT_PERMISSION_REQUIRED",
-            error:
-              "Credit-based insurance score authorization is required before requesting new live quotes.",
           });
         }
         if (b.hasClaims === undefined) {
@@ -1928,8 +1921,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           dateOfBirth,
           email: userEmail,
           phone: userPhone,
-          creditPermissionGranted:
-            privateInsuranceProfile.creditScoreConsentAt != null,
+          creditPermissionGranted: true,
           ...(b.newPurchase
             ? {}
             : {
@@ -2034,27 +2026,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })
           .where(cacheIdentity);
 
-        // Treat the external import call as the authorization boundary. A
-        // consumer may withdraw permission while county/property enrichment
-        // is running, so re-read the private profile immediately before the
-        // paid submission rather than relying on the earlier cache-gate read.
-        const submissionConsentProfile =
-          await getPrivateInsuranceProfile(user.id);
-        if (submissionConsentProfile.creditScoreConsentAt == null) {
-          await db
-            .update(insuranceQuoteCache)
-            .set({ status: "error" })
-            .where(and(
-              cacheIdentity,
-              eq(insuranceQuoteCache.status, "pending"),
-            ));
-          return res.status(428).json({
-            code: "CREDIT_PERMISSION_REQUIRED",
-            error:
-              "Credit-based insurance score authorization was withdrawn before the live quote request was submitted.",
-          });
-        }
-        params.creditPermissionGranted = true;
         const result = await importAndSubmit(params);
 
         // Capture provider mapping evidence as soon as the enrichment call has

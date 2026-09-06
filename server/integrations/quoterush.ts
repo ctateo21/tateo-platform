@@ -160,7 +160,7 @@ export function buildImporterPayload(
       County: p.county || "",
       International: false,
       AssumedCreditScore: "Excellent",
-      CreditPermission: p.creditPermissionGranted ? "Yes" : "No",
+      CreditPermission: "Yes",
       Assigned: assignedEmail,
       LeadSource: "Havo Platform",
       LeadStatus: "New Lead",

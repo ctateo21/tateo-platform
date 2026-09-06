@@ -28,7 +28,6 @@ import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ArrowLeft, Shield, MapPin, Home, AlertTriangle,
@@ -881,9 +880,6 @@ export default function InsuranceDashboard() {
   const [dobInput, setDobInput] = useState("");
   const [dobError, setDobError] = useState("");
   const [dobSaving, setDobSaving] = useState(false);
-  const [creditScoreConsent, setCreditScoreConsent] = useState(false);
-  const [creditScoreConsentLoading, setCreditScoreConsentLoading] =
-    useState(false);
   const windMitigationReportConfirmed =
     qrSharedContext?.propertyDataProvenance
       ?.windMitigationReportConfirmed === true;
@@ -1172,36 +1168,6 @@ export default function InsuranceDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(() =>
     typeof window !== "undefined" && localStorage.getItem("tateo_auth") === "1"
   );
-  useEffect(() => {
-    let active = true;
-    if (!isAuthenticated) {
-      setCreditScoreConsent(false);
-      return;
-    }
-    setCreditScoreConsentLoading(true);
-    authedFetch("/api/profile/status")
-      .then(async response => {
-        if (!response.ok) return null;
-        return response.json();
-      })
-      .then(data => {
-        if (active) {
-          setCreditScoreConsent(
-            data?.hasCreditScoreConsent === true,
-          );
-        }
-      })
-      .catch(() => {
-        if (active) setCreditScoreConsent(false);
-      })
-      .finally(() => {
-        if (active) setCreditScoreConsentLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [isAuthenticated]);
-
   useEffect(() => {
     let active = true;
     currentPolicyExpirationDirtyRef.current = false;
@@ -1960,16 +1926,6 @@ export default function InsuranceDashboard() {
       return;
     }
 
-    if (!creditScoreConsent) {
-      toast({
-        title: "Authorization required",
-        description:
-          "Authorize use of a credit-based insurance score before requesting live quotes.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     if (!(await currentPolicyExpirationSaveRef.current)) {
       return;
     }
@@ -2085,19 +2041,6 @@ export default function InsuranceDashboard() {
           setQrStatus("idle");
           setDobError("");
           setDobPromptOpen(true);
-          return;
-        }
-        if (
-          startRes.status === 428 &&
-          data.code === "CREDIT_PERMISSION_REQUIRED"
-        ) {
-          setQrStatus("idle");
-          setCreditScoreConsent(false);
-          toast({
-            title: "Authorization required",
-            description: data.error,
-            variant: "destructive",
-          });
           return;
         }
         setQrStatus("error");
@@ -2696,9 +2639,7 @@ export default function InsuranceDashboard() {
                           disabled={
                             !address ||
                             !rebuild ||
-                            !isAuthenticated ||
-                            !creditScoreConsent ||
-                            creditScoreConsentLoading
+                            !isAuthenticated
                           }
                         >
                           Get Live Quotes
@@ -2730,10 +2671,6 @@ export default function InsuranceDashboard() {
                         <Button
                           size="sm"
                           onClick={startQuoteRush}
-                          disabled={
-                            !creditScoreConsent ||
-                            creditScoreConsentLoading
-                          }
                         >
                           Re-run
                         </Button>
@@ -2742,67 +2679,6 @@ export default function InsuranceDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
-                  <div className="mb-4 flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
-                    <Checkbox
-                      id="insurance-credit-score-consent"
-                      checked={creditScoreConsent}
-                      disabled={
-                        !isAuthenticated ||
-                        creditScoreConsentLoading
-                      }
-                      onCheckedChange={async checked => {
-                        const consent = checked === true;
-                        setCreditScoreConsentLoading(true);
-                        try {
-                          const response = await authedFetch(
-                            "/api/profile/insurance-credit-consent",
-                            {
-                              method: "POST",
-                              headers: {
-                                "Content-Type": "application/json",
-                              },
-                              body: JSON.stringify({ consent }),
-                            },
-                          );
-                          const data = await response.json();
-                          if (!response.ok) {
-                            throw new Error(
-                              data.error || "Consent could not be saved",
-                            );
-                          }
-                          setCreditScoreConsent(
-                            data.hasCreditScoreConsent === true,
-                          );
-                        } catch (error) {
-                          setCreditScoreConsent(false);
-                          toast({
-                            title: "Consent not saved",
-                            description:
-                              error instanceof Error
-                                ? error.message
-                                : "Please try again.",
-                            variant: "destructive",
-                          });
-                        } finally {
-                          setCreditScoreConsentLoading(false);
-                        }
-                      }}
-                      data-testid="checkbox-credit-score-consent"
-                      className="mt-0.5"
-                    />
-                    <label
-                      htmlFor="insurance-credit-score-consent"
-                      className="cursor-pointer text-xs leading-relaxed text-foreground"
-                    >
-                      I authorize Tateo &amp; Co. to obtain a credit-based
-                      insurance score for quoting purposes.
-                      {!isAuthenticated ? (
-                        <span className="block text-muted-foreground">
-                          Sign in to save this authorization.
-                        </span>
-                      ) : null}
-                    </label>
-                  </div>
                   <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-xs leading-relaxed text-blue-950">
                     {qrSharedContext ? (
                       <>
