@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, json, jsonb, date, timestamp, varchar, unique, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, json, jsonb, date, timestamp, varchar, unique, index, primaryKey } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -73,9 +73,27 @@ export const userSubscriptions = pgTable("user_subscriptions", {
 export const privateUserProfiles = pgTable("private_user_profiles", {
   userId: text("user_id").primaryKey(),
   dateOfBirth: date("date_of_birth").notNull(),
+  creditScoreConsentAt: timestamp("credit_score_consent_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// Property-specific insurance details owned by one authenticated user. These
+// values must not be copied into the shared address quote cache.
+export const privateInsuranceProperties = pgTable(
+  "private_insurance_properties",
+  {
+    userId: text("user_id").notNull(),
+    addressNormalized: text("address_normalized").notNull(),
+    currentPolicyExpirationDate: date("current_policy_expiration_date"),
+    quoteCacheScope: text("quote_cache_scope").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  table => ({
+    pk: primaryKey({ columns: [table.userId, table.addressNormalized] }),
+  }),
+);
 
 // Short-lived claims for IFW save/download/share notifications. Keeping these
 // in Neon makes dedupe and per-user throttling shared by every server instance.
@@ -474,9 +492,9 @@ export const insertQuestionnaireResponseSchema = createInsertSchema(questionnair
 export type InsertQuestionnaireResponse = z.infer<typeof insertQuestionnaireResponseSchema>;
 export type QuestionnaireResponse = typeof questionnaireResponses.$inferSelect;
 
-// Shared address + policy-type cache of QuoteRUSH live carrier quotes. The
-// first user to search that combination pays the QuoteRUSH cost; everyone
-// searching it within 30 days shares the cached result (no duplicate cost).
+// QuoteRUSH live carrier cache. Ordinary quotes use the "shared" scope.
+// Quotes based on private user-owned inputs use an opaque account/property
+// scope and are never returned through the public shared-cache path.
 export const insuranceQuoteCache = pgTable(
   "insurance_quote_cache",
   {
@@ -508,6 +526,9 @@ export const insuranceQuoteCache = pgTable(
     policyType: text("policy_type")
       .notNull()
       .default("HO3"),
+    cacheScope: text("cache_scope")
+      .notNull()
+      .default("shared"),
     // Quote inputs and their sources only. These JSON snapshots must never
     // contain applicant identity/contact data or DOB.
     propertyDataSnapshot: jsonb("property_data_snapshot")
@@ -525,6 +546,19 @@ export const insuranceQuoteCache = pgTable(
     quoteProfileVersion: text("quote_profile_version")
       .notNull()
       .default("legacy-v1"),
+    // Complete successful GetPropertyData response. Unknown provider fields
+    // are retained and may contain sensitive or personal data. This column is
+    // server-only mapping evidence: never log it or serialize it from a public
+    // route.
+    rawQuoterushPropertyData: jsonb("raw_quoterush_property_data")
+      .$type<Record<string, unknown>>(),
+    rawQuoterushPropertyDataSource: text("raw_quoterush_property_data_source"),
+    rawQuoterushPropertyDataFetchedAt: timestamp(
+      "raw_quoterush_property_data_fetched_at",
+    ),
+    rawQuoterushPropertyDataExpiresAt: timestamp(
+      "raw_quoterush_property_data_expires_at",
+    ),
     assumptions: jsonb("assumptions")
       .$type<string[]>()
       .default([]),
@@ -536,9 +570,9 @@ export const insuranceQuoteCache = pgTable(
       .notNull(),
   },
   table => ({
-    addressPolicyUnique: unique(
-      "insurance_quote_cache_address_policy_unique",
-    ).on(table.addressNormalized, table.policyType),
+    addressPolicyScopeUnique: unique(
+      "insurance_quote_cache_address_policy_scope_unique",
+    ).on(table.addressNormalized, table.policyType, table.cacheScope),
     expiresAtIdx: index("insurance_quote_cache_expires_at_idx").on(
       table.expiresAt,
     ),

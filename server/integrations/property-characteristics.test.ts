@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   lookupFemaNfhl,
+  lookupMilesToCoast,
   constructionIndexFromCharacteristics,
   mergeConfirmedCharacteristics,
   resolveQuoteRushCharacteristicValues,
@@ -52,6 +53,27 @@ test("FEMA lookup uses validated NFHL layer 28 fields and parses attributes", as
     sfha: true,
     source: "fema-nfhl-layer-28",
   });
+});
+
+test("miles to coast is calculated once from the nearest shoreline segment", async () => {
+  const result = await lookupMilesToCoast(
+    28,
+    -82,
+    async (input) => {
+      const url = new URL(String(input));
+      assert.equal(url.searchParams.get("where"), "level_ = 1");
+      assert.equal(url.searchParams.get("outFields"), "OBJECTID,level_");
+      return new Response(JSON.stringify({
+        features: [{
+          attributes: { OBJECTID: 1, level_: 1 },
+          geometry: { rings: [[[-81.99, 27], [-81.99, 29]]] },
+        }],
+      }));
+    },
+  );
+  assert.ok(result.milesToCoast != null);
+  assert.ok(result.milesToCoast > 0.60 && result.milesToCoast < 0.62);
+  assert.equal(result.source, "noaa-gshhs-level-1-ocean-shoreline-proxy");
 });
 
 test("Manatee enriches building fields and only uses verified domain labels", async () => {
@@ -162,6 +184,8 @@ test("confirmed manual categories win an automated refresh", () => {
     constructionLabel: null,
     buildingDataSource: "county-auto",
     floodDataSource: "fema-nfhl-layer-28",
+    milesToCoast: 2,
+    coastDataSource: "noaa-gshhs-level-1-ocean-shoreline-proxy",
     queriedAt: now,
     expiresAt: now,
   };
@@ -267,6 +291,8 @@ test("a valid cache row prevents every outbound lookup", async () => {
     constructionLabel: null,
     buildingDataSource: "no-county-source",
     floodDataSource: "fema-nfhl-layer-28",
+    milesToCoast: 2,
+    coastDataSource: "noaa-gshhs-level-1-ocean-shoreline-proxy",
     queriedAt: new Date("2026-01-01T00:00:00Z"),
     expiresAt: new Date("2027-01-01T00:00:00Z"),
   };

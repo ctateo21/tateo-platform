@@ -28,10 +28,11 @@ import { Helmet } from "react-helmet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ArrowLeft, Shield, MapPin, Home, AlertTriangle,
-  Share2, Save, Plus, X, Pencil,
+  Share2, Save, Plus, X, Pencil, Upload,
 } from "lucide-react";
 import { getCountyName } from "@/lib/county-tax-estimator";
 import { normalizePropertyKey } from "@/lib/property-key";
@@ -42,9 +43,11 @@ import { trackEvent } from "@/lib/posthog";
 import { useToast } from "@/hooks/use-toast";
 import {
   resolveQuoteRushPropertyDefaults,
+  type QuoteRushPurchasePrice,
   type QuoteRushResidenceUse,
   type QuoteRushRentalTerm,
 } from "@shared/quoterush-property-defaults";
+import { resolvePurchasePriceProvenance } from "@shared/purchase-price-provenance";
 import { InsuranceEstimateForm } from "@/components/insurance/insurance-estimate-form";
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -164,40 +167,30 @@ function deriveMortgageForAddress(address: string): boolean | undefined {
   return !(loan.freeAndClear || loan.entryMethod === "free_and_clear" || loan.loanBalance <= 0);
 }
 
-function getKnownPropertyValueForAddress(address: string): number {
-  if (!address) return 0;
-  if (!address.trim()) return 0;
+function getKnownPurchasePriceForAddress(address: string): {
+  value: number | null;
+  source: QuoteRushPurchasePrice["source"];
+} {
+  if (!address || !address.trim()) return { value: null, source: "unknown" };
 
   const purchase = getPurchaseScenarios().find(
     p => isSamePropertyAddress(p.address, address)
   );
-  if (purchase?.price && purchase.price > 0) return purchase.price;
-
   const cash = getCashBuyScenarios().find(
     c => isSamePropertyAddress(c.address, address)
   );
-  if (cash?.purchasePrice && cash.purchasePrice > 0) return cash.purchasePrice;
-
   const loan = getTrackedLoans().find(
     l => isSamePropertyAddress(l.propertyAddress, address)
   );
-  if (loan?.estimatedHomeValue && loan.estimatedHomeValue > 0) return loan.estimatedHomeValue;
+  return resolvePurchasePriceProvenance({
+    purchaseScenario: purchase,
+    cashBuyScenario: cash,
+    trackedLoan: loan,
+  });
+}
 
-  const ins = getInsuranceScenarios().find(
-    s => isSamePropertyAddress(s.address, address)
-  );
-  if (ins?.annualPremium && ins.annualPremium > 0) {
-    // annualPremium ≈ coverageA × 0.75% = (propertyValue × multiplier) × 0.75%.
-    // Divide the multiplier back out so this returns the FULL property value,
-    // consistent with the Purchase/Cash/Loan branches above. Callers
-    // (defaultRebuildFor) then re-apply the multiplier exactly once — without
-    // this an HO6 premium-only row would be halved twice (→ 25%).
-    const { policyType } = resolvePolicyTypeForAddress(address);
-    const multiplier = (policyType ? getInsuranceCoverageMultiplier(policyType) : 1) || 1;
-    return Math.round(ins.annualPremium / (DEFAULT_HOMEOWNERS_INSURANCE_PERCENT * multiplier));
-  }
-
-  return 0;
+function getKnownPropertyValueForAddress(address: string): number {
+  return getKnownPurchasePriceForAddress(address).value ?? 0;
 }
 
 // Resolve the policy type (HO3 / HO6 / DP3) for an address from saved
@@ -671,6 +664,10 @@ export default function InsuranceDashboard() {
     purchaseDate: string;
     ho6ResidenceUse: QuoteRushResidenceUse | "";
     ho6RentalTerm: QuoteRushRentalTerm | "";
+    purchasePrice: number;
+    purchasePriceSource: QuoteRushPurchasePrice["source"] | "";
+    currentlyInsured: boolean | null;
+    currentCarrier: string;
   } {
     const key = (addr ?? "").trim().toLowerCase();
     const ins = key
@@ -678,8 +675,37 @@ export default function InsuranceDashboard() {
       : undefined;
     const ua = ins?.userAnswerSources;
     const savedNewPurchase = ua?.quote_new_purchase;
-    const savedResidenceUse = ua?.quote_ho6_residence_use;
-    const savedRentalTerm = ua?.quote_ho6_rental_term;
+    const savedResidenceUse = ua?.quote_usage_type ?? ua?.quote_ho6_residence_use;
+    const savedRentalTerm = ua?.quote_rental_term ?? ua?.quote_ho6_rental_term;
+    const savedPurchasePrice = ua?.quote_purchase_price;
+    const savedPurchasePriceSource = ua?.quote_purchase_price_source;
+    const savedManualSource =
+      savedPurchasePriceSource === "user-confirmed-contract" ||
+      savedPurchasePriceSource === "user-confirmed-property-value";
+    const knownPurchasePrice = savedManualSource
+      ? resolvePurchasePriceProvenance({
+          manual: {
+            value: typeof savedPurchasePrice === "number" ? savedPurchasePrice : null,
+            newPurchase:
+              savedPurchasePriceSource === "user-confirmed-contract",
+          },
+        })
+      : getKnownPurchasePriceForAddress(addr);
+    const purchase = getPurchaseScenarios().find(
+      p => isSamePropertyAddress(p.address, addr)
+    );
+    const cash = getCashBuyScenarios().find(
+      c => isSamePropertyAddress(c.address, addr)
+    );
+    const loan = getTrackedLoans().find(
+      l => isSamePropertyAddress(l.propertyAddress, addr)
+    );
+    const sourceOccupancy =
+      cash?.occupancyType ??
+      loan?.occupancyType ??
+      (loan?.propertyType as QuoteRushResidenceUse | undefined) ??
+      ins?.occupancyType ??
+      (purchase ? "primary" : undefined);
     return {
       newPurchase:
         typeof savedNewPurchase === "boolean" ? savedNewPurchase : null,
@@ -690,17 +716,34 @@ export default function InsuranceDashboard() {
         savedResidenceUse === "secondary" ||
         savedResidenceUse === "investment"
           ? savedResidenceUse
-          : "",
+          : sourceOccupancy === "primary" ||
+              sourceOccupancy === "secondary" ||
+              sourceOccupancy === "investment"
+            ? sourceOccupancy
+            : "",
       ho6RentalTerm:
         savedRentalTerm === "annual" ||
         savedRentalTerm === "monthly" ||
         savedRentalTerm === "weekly"
           ? savedRentalTerm
           : "",
+      purchasePrice:
+        knownPurchasePrice.value ?? 0,
+      purchasePriceSource:
+        knownPurchasePrice.value ? knownPurchasePrice.source : "",
+      currentlyInsured:
+        typeof ua?.quote_currently_insured === "boolean"
+          ? ua.quote_currently_insured : null,
+      currentCarrier:
+        typeof ua?.quote_current_carrier === "string" ? ua.quote_current_carrier : "",
     };
   }
 
-  const initialQuotePropertyAnswers = resolveQuotePropertyAnswersFor(addressParam);
+  // Lazily resolve saved/scenario values once for the initial address. The
+  // address-change hydration effect below resolves again only when needed.
+  const [initialQuotePropertyAnswers] = useState(() =>
+    resolveQuotePropertyAnswersFor(addressParam),
+  );
   const [newPurchase, setNewPurchase] = useState<boolean | null>(
     initialQuotePropertyAnswers.newPurchase,
   );
@@ -715,6 +758,32 @@ export default function InsuranceDashboard() {
     useState<QuoteRushRentalTerm | "">(
       initialQuotePropertyAnswers.ho6RentalTerm,
     );
+  const [purchasePrice, setPurchasePrice] = useState(
+    initialQuotePropertyAnswers.purchasePrice,
+  );
+  const [purchasePriceSource, setPurchasePriceSource] = useState<
+    QuoteRushPurchasePrice["source"] | ""
+  >(initialQuotePropertyAnswers.purchasePriceSource);
+  const [currentlyInsured, setCurrentlyInsured] = useState<boolean | null>(
+    initialQuotePropertyAnswers.currentlyInsured,
+  );
+  const [currentCarrier, setCurrentCarrier] = useState(
+    initialQuotePropertyAnswers.currentCarrier,
+  );
+  const [currentPolicyExpirationDate, setCurrentPolicyExpirationDate] =
+    useState("");
+  const [currentPolicyExpirationLoading, setCurrentPolicyExpirationLoading] =
+    useState(true);
+  const [currentPolicyExpirationSaving, setCurrentPolicyExpirationSaving] =
+    useState(false);
+  const currentPolicyExpirationSaveRef = useRef<Promise<boolean>>(
+    Promise.resolve(true),
+  );
+  const currentPolicyExpirationDirtyRef = useRef(false);
+  const windMitigationLocksRef = useRef({
+    openingProtection: false,
+    secondaryWaterResistance: false,
+  });
 
   function withQuotePropertyAnswers(
     existing: Record<string, any> | undefined,
@@ -723,10 +792,16 @@ export default function InsuranceDashboard() {
       ...(existing ?? {}),
       quote_new_purchase: newPurchase,
       quote_purchase_date: purchaseDate,
+      quote_purchase_price: purchasePrice,
+      quote_purchase_price_source: purchasePriceSource,
+      quote_usage_type: ho6ResidenceUse,
+      quote_rental_term: ho6RentalTerm,
       quote_ho6_residence_use: ho6ResidenceUse,
       quote_ho6_rental_term: ho6RentalTerm,
       quote_has_claims: hasClaims,
       quote_claim_records: claimRecords,
+      quote_currently_insured: currentlyInsured,
+      quote_current_carrier: currentCarrier,
     };
   }
 
@@ -737,12 +812,15 @@ export default function InsuranceDashboard() {
     if (newPurchase === null) {
       throw new Error("Select whether this is a new purchase.");
     }
-    if (!purchaseDate) {
-      throw new Error(
-        newPurchase
-          ? "Enter the expected closing date."
-          : "Enter the date the home was purchased.",
-      );
+    if (!Number.isFinite(purchasePrice) || purchasePrice <= 0) {
+      throw new Error("Enter the property's confirmed purchase price or current value.");
+    }
+    if (newPurchase && !purchaseDate) throw new Error("Enter the confirmed closing date.");
+    if (!newPurchase && currentlyInsured === null) {
+      throw new Error("Answer whether this property is currently insured.");
+    }
+    if (!newPurchase && currentlyInsured && !currentCarrier.trim()) {
+      throw new Error("Enter the current insurance carrier.");
     }
     if (hasClaims === null) {
       throw new Error("Answer whether you have had insurance claims in the past five years.");
@@ -757,9 +835,11 @@ export default function InsuranceDashboard() {
       policyType,
       rebuildCost: rebuild,
       newPurchase,
-      purchaseDate,
-      ho6ResidenceUse,
-      ho6RentalTerm,
+      policyEffectiveDate: purchaseDate || undefined,
+      usageType: ho6ResidenceUse,
+      rentalTerm: ho6RentalTerm,
+      purchasePrice: purchasePrice || undefined,
+      purchasePriceSource: purchasePriceSource || undefined,
     });
   }
 
@@ -801,6 +881,12 @@ export default function InsuranceDashboard() {
   const [dobInput, setDobInput] = useState("");
   const [dobError, setDobError] = useState("");
   const [dobSaving, setDobSaving] = useState(false);
+  const [creditScoreConsent, setCreditScoreConsent] = useState(false);
+  const [creditScoreConsentLoading, setCreditScoreConsentLoading] =
+    useState(false);
+  const windMitigationReportConfirmed =
+    qrSharedContext?.propertyDataProvenance
+      ?.windMitigationReportConfirmed === true;
   const qrPollRef = useRef<
     ReturnType<typeof setInterval> | null
   >(null);
@@ -847,6 +933,18 @@ export default function InsuranceDashboard() {
         (addressParam ?? "").trim().toLowerCase(),
     );
     const answers = savedScenario?.userAnswerSources ?? {};
+    setCurrentlyInsured(
+      typeof answers.quote_currently_insured === "boolean"
+        ? answers.quote_currently_insured : null,
+    );
+    setCurrentCarrier(
+      typeof answers.quote_current_carrier === "string"
+        ? answers.quote_current_carrier : "",
+    );
+    windMitigationLocksRef.current = {
+      openingProtection: answers.opening_protection_source === "manual",
+      secondaryWaterResistance: answers.swr_source === "manual",
+    };
     propertyCharacteristicLocksRef.current = {
       floodZone: answers.property_characteristics_flood_zone_source === "manual",
       yearBuilt: answers.property_characteristics_year_built_source === "manual",
@@ -865,6 +963,8 @@ export default function InsuranceDashboard() {
     setPurchaseDate(quoteProperty.purchaseDate);
     setHo6ResidenceUse(quoteProperty.ho6ResidenceUse);
     setHo6RentalTerm(quoteProperty.ho6RentalTerm);
+    setPurchasePrice(quoteProperty.purchasePrice);
+    setPurchasePriceSource(quoteProperty.purchasePriceSource);
     setHasClaims(
       answers.quote_has_claims === true ? true :
         answers.quote_has_claims === false ? false : null,
@@ -1072,6 +1172,111 @@ export default function InsuranceDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(() =>
     typeof window !== "undefined" && localStorage.getItem("tateo_auth") === "1"
   );
+  useEffect(() => {
+    let active = true;
+    if (!isAuthenticated) {
+      setCreditScoreConsent(false);
+      return;
+    }
+    setCreditScoreConsentLoading(true);
+    authedFetch("/api/profile/status")
+      .then(async response => {
+        if (!response.ok) return null;
+        return response.json();
+      })
+      .then(data => {
+        if (active) {
+          setCreditScoreConsent(
+            data?.hasCreditScoreConsent === true,
+          );
+        }
+      })
+      .catch(() => {
+        if (active) setCreditScoreConsent(false);
+      })
+      .finally(() => {
+        if (active) setCreditScoreConsentLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    let active = true;
+    currentPolicyExpirationDirtyRef.current = false;
+    setCurrentPolicyExpirationDate("");
+    setCurrentPolicyExpirationLoading(true);
+    if (!isAuthenticated || !address) {
+      setCurrentPolicyExpirationLoading(false);
+      return () => { active = false; };
+    }
+    authedFetch(
+      `/api/profile/insurance-property?address=${encodeURIComponent(address)}`,
+    )
+      .then(async response => response.ok ? response.json() : null)
+      .then(data => {
+        if (active && !currentPolicyExpirationDirtyRef.current) {
+          setCurrentPolicyExpirationDate(
+            typeof data?.currentPolicyExpirationDate === "string"
+              ? data.currentPolicyExpirationDate
+              : "",
+          );
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setCurrentPolicyExpirationLoading(false);
+      });
+    return () => { active = false; };
+  }, [isAuthenticated, address]);
+
+  function saveCurrentPolicyExpirationDate(value: string): void {
+    currentPolicyExpirationDirtyRef.current = true;
+    setCurrentPolicyExpirationDate(value);
+    if (!isAuthenticated || !address) return;
+    setCurrentPolicyExpirationSaving(true);
+    const savePromise =
+      currentPolicyExpirationSaveRef.current
+      .then(() => authedFetch(
+        "/api/profile/insurance-property",
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            address,
+            currentPolicyExpirationDate: value || null,
+          }),
+        },
+      ))
+      .then(response => {
+        if (!response.ok) throw new Error("save failed");
+        return true;
+      })
+      .catch(() => {
+        toast({
+          title: "Policy expiration date not saved",
+          description: "Please try selecting the date again before requesting live quotes.",
+          variant: "destructive",
+        });
+        return false;
+      });
+    currentPolicyExpirationSaveRef.current = savePromise;
+    void savePromise.finally(() => {
+      if (currentPolicyExpirationSaveRef.current === savePromise) {
+        setCurrentPolicyExpirationSaving(false);
+      }
+    });
+  }
+
+  function setInsuranceQRCache(
+    addr: string,
+    patch: Partial<QRCacheEntry>,
+    quotePolicyType?: string,
+  ): void {
+    if (currentPolicyExpirationDate) return;
+    setQRCache(addr, patch, quotePolicyType);
+  }
 
   // ── Logged-in landing behavior (no address param) ────────────────────────
   // 1) If the user has saved Insurance scenarios, auto-jump to the first
@@ -1356,8 +1561,12 @@ export default function InsuranceDashboard() {
            property_characteristics_construction_source:
              propertyCharacteristicLocksRef.current.construction ? "manual" : "auto",
           opening_protection_idx: openingProtectionIdx,
+           opening_protection_source:
+             windMitigationLocksRef.current.openingProtection ? "manual" : "auto",
           roof_shape_idx: roofShapeIdx,
           swr_idx: swrIdx,
+           swr_source:
+             windMitigationLocksRef.current.secondaryWaterResistance ? "manual" : "auto",
           ...(factorsChangedFromDefault ? { factor_source: "manual" } : {}),
           aop_deductible: aopDeductible,
           // Only write a flood zone once one is actually resolved so the
@@ -1398,7 +1607,8 @@ export default function InsuranceDashboard() {
     isAuthenticated, address, rebuild, policyType, policyTypeSource,
     manualAnnualPremium, roofYear, yearBuilt, openingProtectionIdx, roofShapeIdx,
     swrIdx, hurrIdx, constIdx, aopDeductible, floodZone, floodZoneSource,
-    newPurchase, purchaseDate, ho6ResidenceUse, ho6RentalTerm, squareFeet,
+     newPurchase, purchaseDate, purchasePrice, purchasePriceSource,
+      ho6ResidenceUse, ho6RentalTerm, squareFeet, currentlyInsured, currentCarrier,
   ]);
 
   // Auto-trigger / cache-hydrate QuoteRUSH when address + rebuild ready.
@@ -1408,15 +1618,28 @@ export default function InsuranceDashboard() {
   useEffect(() => {
     if (!isAuthenticated || !address) return;
     if (address === "Unknown Address") return;
+    if (currentPolicyExpirationLoading || currentPolicyExpirationSaving) return;
     const quotePolicyType = policyType || "HO3";
-    const quoteIdentity = `${address}|${quotePolicyType}`;
+    const quoteIdentity =
+      `${address}|${quotePolicyType}|` +
+      (currentPolicyExpirationDate
+        ? `private:${currentPolicyExpirationDate}`
+        : "shared");
     if (qrAutoRef.current === quoteIdentity) return;
+    if (qrPollRef.current) clearInterval(qrPollRef.current);
+    if (qrTimerRef.current) clearInterval(qrTimerRef.current);
+    if (qrWaitRef.current) clearTimeout(qrWaitRef.current);
+    setQrQuotes([]);
+    setQrLeadId(null);
+    setQrStatus("idle");
     qrAutoRef.current = quoteIdentity;
 
     let cancelled = false;
     (async () => {
       // 1) Fast local cache.
-      const local = getQRCache(address, quotePolicyType);
+      const local = currentPolicyExpirationDate
+        ? null
+        : getQRCache(address, quotePolicyType);
       if (
         local &&
         (local.status === "success" ||
@@ -1438,7 +1661,7 @@ export default function InsuranceDashboard() {
 
       // 2) Shared server cache.
       try {
-        const res = await fetch(
+        const res = await authedFetch(
           `/api/insurance/qr-cache?address=` +
             encodeURIComponent(address) +
             `&policyType=${encodeURIComponent(quotePolicyType)}`
@@ -1473,7 +1696,7 @@ export default function InsuranceDashboard() {
             setQrStatus("expired");
             return;
           }
-          setQRCache(address, entry, quotePolicyType);
+          setInsuranceQRCache(address, entry, quotePolicyType);
           loadFromCacheEntry(entry);
           if (entry.status === "pending") {
             if (entry.leadId) {
@@ -1502,7 +1725,15 @@ export default function InsuranceDashboard() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [address, rebuild, isAuthenticated, policyType]);
+  }, [
+    address,
+    rebuild,
+    isAuthenticated,
+    policyType,
+    currentPolicyExpirationDate,
+    currentPolicyExpirationLoading,
+    currentPolicyExpirationSaving,
+  ]);
 
   // ── QuoteRUSH quoting ─────────────────────
 
@@ -1543,7 +1774,7 @@ export default function InsuranceDashboard() {
     }
     qrWaitRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(
+        const res = await authedFetch(
           `/api/insurance/qr-cache?address=` +
             encodeURIComponent(addr) +
             `&policyType=${encodeURIComponent(policyType || "HO3")}`
@@ -1575,14 +1806,14 @@ export default function InsuranceDashboard() {
             expiresAt: data.expiresAt ?? new Date().toISOString(),
             triggeredAt: data.triggeredAt ?? new Date().toISOString(),
           };
-          setQRCache(addr, entry, policyType);
+          setInsuranceQRCache(addr, entry, policyType);
           loadFromCacheEntry(entry);
           return;
         }
         if (data.found && data.leadId) {
           setQrLeadId(data.leadId);
           setQrStatus("pending");
-          setQRCache(addr, {
+          setInsuranceQRCache(addr, {
             leadId: data.leadId,
             status: "pending",
           }, policyType);
@@ -1619,7 +1850,7 @@ export default function InsuranceDashboard() {
         setQrQuotes(data.quotes);
         setQrQuoteCounter(data.quoteCounter);
         setQrStatus("success");
-        setQRCache(address, {
+        setInsuranceQRCache(address, {
           status: "success",
           quotes: data.quotes,
           quoteCounter: data.quoteCounter,
@@ -1673,7 +1904,7 @@ export default function InsuranceDashboard() {
           setQrQuotes(data.quotes ?? []);
           setQrQuoteCounter(counter);
           setQrStatus("success");
-          setQRCache(address, {
+          setInsuranceQRCache(address, {
             status: "success",
             quotes: data.quotes ?? [],
             quoteCounter: counter,
@@ -1726,6 +1957,20 @@ export default function InsuranceDashboard() {
           error instanceof Error ? error.message : "Complete the required property questions.",
         variant: "destructive",
       });
+      return;
+    }
+
+    if (!creditScoreConsent) {
+      toast({
+        title: "Authorization required",
+        description:
+          "Authorize use of a credit-based insurance score before requesting live quotes.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!(await currentPolicyExpirationSaveRef.current)) {
       return;
     }
 
@@ -1788,6 +2033,7 @@ export default function InsuranceDashboard() {
             roofShape: ["Hip", "Flat", "Gable"][roofShapeIdx] ?? "Gable",
             secondaryWaterResistance:
               swrIdx === 2 ? "Yes" : swrIdx === 0 ? "No" : "Unknown",
+            windMitigationLocks: windMitigationLocksRef.current,
             yearIdx,
             roofIdx,
             constIdx,
@@ -1803,14 +2049,27 @@ export default function InsuranceDashboard() {
             sqFt: squareFeet,
             propertyCharacteristicLocks: propertyCharacteristicLocksRef.current,
             newPurchase: propertyDefaults.newPurchase === "Yes",
-            purchaseDate,
-            ...(policyType === "HO6" && ho6ResidenceUse
+            ...(propertyDefaults.newPurchase === "No"
+              ? {
+                  currentlyInsured,
+                  ...(currentlyInsured && currentCarrier.trim()
+                    ? { currentCarrier: currentCarrier.trim() }
+                    : {}),
+                }
+              : {}),
+            policyEffectiveDate: purchaseDate || undefined,
+            ...(ho6ResidenceUse
               ? { usageType: ho6ResidenceUse }
               : {}),
-            ...(policyType === "HO6" &&
-            ho6ResidenceUse === "investment" &&
+            ...((policyType === "DP3" || ho6ResidenceUse === "investment") &&
             ho6RentalTerm
               ? { rentalTerm: ho6RentalTerm }
+              : {}),
+            ...(purchasePrice > 0 && purchasePriceSource
+              ? {
+                  purchasePrice,
+                  purchasePriceSource,
+                }
               : {}),
           }),
         }
@@ -1826,6 +2085,19 @@ export default function InsuranceDashboard() {
           setQrStatus("idle");
           setDobError("");
           setDobPromptOpen(true);
+          return;
+        }
+        if (
+          startRes.status === 428 &&
+          data.code === "CREDIT_PERMISSION_REQUIRED"
+        ) {
+          setQrStatus("idle");
+          setCreditScoreConsent(false);
+          toast({
+            title: "Authorization required",
+            description: data.error,
+            variant: "destructive",
+          });
           return;
         }
         setQrStatus("error");
@@ -1851,7 +2123,7 @@ export default function InsuranceDashboard() {
 
       const leadId: number = data.leadId;
       setQrLeadId(leadId);
-      setQRCache(
+      setInsuranceQRCache(
         address,
         { leadId, status: "pending" },
         policyType,
@@ -1863,7 +2135,7 @@ export default function InsuranceDashboard() {
         setQrQuoteCounter(data.quoteCounter);
         setQrStatus("success");
         if (data.expiresAt) setQrExpiresAt(data.expiresAt);
-        setQRCache(address, {
+        setInsuranceQRCache(address, {
           leadId,
           status: "success",
           quotes: data.quotes,
@@ -2265,9 +2537,50 @@ export default function InsuranceDashboard() {
                   }}
                   policyTypeNote={policyTypeSource === "manual" ? "Manual selection." : policyType ? "Auto-defaulted from this property's details." : "QuoteRUSH policy defaults are applied automatically when this selection changes."}
                   newPurchase={newPurchase}
-                  onNewPurchaseChange={(value) => { setNewPurchase(value); setPurchaseDate(""); }}
+                  onNewPurchaseChange={(value) => {
+                    setNewPurchase(value); setPurchaseDate("");
+                     if (
+                       purchasePriceSource === "user-confirmed-contract" ||
+                       purchasePriceSource === "user-confirmed-property-value"
+                     ) {
+                       setPurchasePriceSource(
+                         value === true
+                           ? "user-confirmed-contract"
+                           : value === false
+                             ? "user-confirmed-property-value"
+                             : "",
+                       );
+                     }
+                    if (value !== false) { setCurrentlyInsured(null); setCurrentCarrier(""); }
+                  }}
+                  currentlyInsured={currentlyInsured}
+                  onCurrentlyInsuredChange={(value) => {
+                    setCurrentlyInsured(value);
+                    if (value !== true) {
+                      setCurrentCarrier("");
+                      saveCurrentPolicyExpirationDate("");
+                    }
+                  }}
+                  currentCarrier={currentCarrier}
+                  onCurrentCarrierChange={setCurrentCarrier}
+                  currentPolicyExpirationDate={currentPolicyExpirationDate}
+                  onCurrentPolicyExpirationDateChange={
+                    saveCurrentPolicyExpirationDate
+                  }
                   purchaseDate={purchaseDate}
                   onPurchaseDateChange={setPurchaseDate}
+                   purchasePrice={purchasePrice}
+                   onPurchasePriceChange={(value) => {
+                     setPurchasePrice(value);
+                     setPurchasePriceSource(
+                        newPurchase === true
+                          ? "user-confirmed-contract"
+                          : newPurchase === false
+                            ? "user-confirmed-property-value"
+                            : "",
+                     );
+                   }}
+                   purchasePriceSource={purchasePriceSource}
                   residenceUse={ho6ResidenceUse}
                   onResidenceUseChange={(value) => { setHo6ResidenceUse(value); if (value !== "investment") setHo6RentalTerm(""); }}
                   rentalTerm={ho6RentalTerm}
@@ -2277,11 +2590,17 @@ export default function InsuranceDashboard() {
                   roofYear={roofYear}
                   onRoofYearChange={setRoofYear}
                   openingProtection={openingProtectionIdx}
-                  onOpeningProtectionChange={setOpeningProtectionIdx}
+                  onOpeningProtectionChange={(value) => {
+                    windMitigationLocksRef.current.openingProtection = true;
+                    setOpeningProtectionIdx(value);
+                  }}
                   roofShape={roofShapeIdx}
                   onRoofShapeChange={setRoofShapeIdx}
                   swr={swrIdx}
-                  onSwrChange={setSwrIdx}
+                  onSwrChange={(value) => {
+                    windMitigationLocksRef.current.secondaryWaterResistance = true;
+                    setSwrIdx(value);
+                  }}
                   hurricaneDeductible={hurrIdx}
                   onHurricaneDeductibleChange={setHurrIdx}
                   construction={constIdx}
@@ -2377,7 +2696,9 @@ export default function InsuranceDashboard() {
                           disabled={
                             !address ||
                             !rebuild ||
-                            !isAuthenticated
+                            !isAuthenticated ||
+                            !creditScoreConsent ||
+                            creditScoreConsentLoading
                           }
                         >
                           Get Live Quotes
@@ -2409,6 +2730,10 @@ export default function InsuranceDashboard() {
                         <Button
                           size="sm"
                           onClick={startQuoteRush}
+                          disabled={
+                            !creditScoreConsent ||
+                            creditScoreConsentLoading
+                          }
                         >
                           Re-run
                         </Button>
@@ -2417,6 +2742,67 @@ export default function InsuranceDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent className="pt-0">
+                  <div className="mb-4 flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+                    <Checkbox
+                      id="insurance-credit-score-consent"
+                      checked={creditScoreConsent}
+                      disabled={
+                        !isAuthenticated ||
+                        creditScoreConsentLoading
+                      }
+                      onCheckedChange={async checked => {
+                        const consent = checked === true;
+                        setCreditScoreConsentLoading(true);
+                        try {
+                          const response = await authedFetch(
+                            "/api/profile/insurance-credit-consent",
+                            {
+                              method: "POST",
+                              headers: {
+                                "Content-Type": "application/json",
+                              },
+                              body: JSON.stringify({ consent }),
+                            },
+                          );
+                          const data = await response.json();
+                          if (!response.ok) {
+                            throw new Error(
+                              data.error || "Consent could not be saved",
+                            );
+                          }
+                          setCreditScoreConsent(
+                            data.hasCreditScoreConsent === true,
+                          );
+                        } catch (error) {
+                          setCreditScoreConsent(false);
+                          toast({
+                            title: "Consent not saved",
+                            description:
+                              error instanceof Error
+                                ? error.message
+                                : "Please try again.",
+                            variant: "destructive",
+                          });
+                        } finally {
+                          setCreditScoreConsentLoading(false);
+                        }
+                      }}
+                      data-testid="checkbox-credit-score-consent"
+                      className="mt-0.5"
+                    />
+                    <label
+                      htmlFor="insurance-credit-score-consent"
+                      className="cursor-pointer text-xs leading-relaxed text-foreground"
+                    >
+                      I authorize Tateo &amp; Co. to obtain a credit-based
+                      insurance score for quoting purposes.
+                      {!isAuthenticated ? (
+                        <span className="block text-muted-foreground">
+                          Sign in to save this authorization.
+                        </span>
+                      ) : null}
+                    </label>
+                  </div>
                   <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-xs leading-relaxed text-blue-950">
                     {qrSharedContext ? (
                       <>
@@ -2453,11 +2839,16 @@ export default function InsuranceDashboard() {
                           </span>
                         ) : null}
                         {qrSharedContext.assumptions.length > 0 ? (
-                          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-blue-800">
-                            {qrSharedContext.assumptions.map((assumption) => (
-                              <li key={assumption}>{assumption}</li>
-                            ))}
-                          </ul>
+                          <>
+                            <strong className="mt-2 block text-blue-900">
+                              Fields requiring verification:
+                            </strong>
+                            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-blue-800">
+                              {qrSharedContext.assumptions.map((assumption) => (
+                                <li key={assumption}>{assumption}</li>
+                              ))}
+                            </ul>
+                          </>
                         ) : null}
                         <span className="block mt-1 text-blue-800">
                           These saved rates reflect the original request, not
@@ -2516,9 +2907,11 @@ export default function InsuranceDashboard() {
                         ? "purchase status required"
                         : newPurchase
                           ? `new purchase closing ${purchaseDate || "date required"}`
-                          : `purchased ${purchaseDate || "date required"}`},
+                          : currentPolicyExpirationDate
+                            ? `current policy expiration ${currentPolicyExpirationDate} (preferred over requested date ${purchaseDate || "not provided"})`
+                            : `requested effective date ${purchaseDate || "30-day fallback disclosed at quote time"}`},
                       9 months or more occupied, purchase price{" "}
-                      {fmt(rebuild * (policyType === "HO6" ? 2 : 1))},
+                      {purchasePrice > 0 ? fmt(purchasePrice) : "required"},
                        composite-shingle roof, slab foundation, and{" "}
                        {hasClaims === null
                          ? "claims history required"
@@ -2534,8 +2927,9 @@ export default function InsuranceDashboard() {
                         View additional carrier assumptions
                       </summary>
                       <span className="block mt-1">
-                        QuoteRUSH also assumes excellent credit and permission to use it; currently
-                        insured with no lapse and an unknown current carrier; mortgage status is omitted when Havo cannot derive it; no alarms;
+                         Credit permission is assumed and must be confirmed with the client. Credit score is assumed Excellent and is not verified. For a new purchase,
+                         prior insurance is marked as a New Purchase assumption, while existing-home carrier answers remain private;
+                         mortgage status is omitted when Havo cannot derive it; no alarms;
                         Exposure B terrain with nearby fire protection; and standard ancillary
                          coverages and endorsements{policyType === "HO6" ? ", including a $2,000 loss-assessment assumption" : ""}. Wind-mitigation-form status is inferred from the
                         property answers above. Confirm these details with the carrier or licensed agent.
@@ -2580,88 +2974,110 @@ export default function InsuranceDashboard() {
                       {qrQuotes.slice(0, 3).map((q, i) => (
                         <div
                           key={q.siteName + i}
-                          className={`flex items-start justify-between p-3 rounded-lg border ${
+                          className={`p-3 rounded-lg border ${
                             i === 0
                               ? "border-yellow-300 bg-yellow-50"
                               : "border-border bg-muted/20"
                           }`}
                         >
-                          <div className="flex items-start gap-3">
-                            <span className="text-base mt-0.5">
-                              {i === 0
-                                ? "🥇"
-                                : i === 1
-                                ? "🥈"
-                                : i === 2
-                                ? "🥉"
-                                : "•"}
-                            </span>
-                            <div>
-                              <div className="text-sm font-semibold">
-                                {q.siteName}
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-3">
+                              <span className="text-base mt-0.5">
+                                {i === 0
+                                  ? "🥇"
+                                  : i === 1
+                                  ? "🥈"
+                                  : i === 2
+                                  ? "🥉"
+                                  : "•"}
+                              </span>
+                              <div>
+                                <div className="text-sm font-semibold">
+                                  {q.siteName}
+                                </div>
+                                <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+                                  {q.hurricaneDeductible && (
+                                    <div>
+                                      Hurricane deductible:{" "}
+                                      {q.hurricaneDeductible}
+                                    </div>
+                                  )}
+                                  {q.aop && (
+                                    <div>
+                                      AOP deductible: {q.aop}
+                                    </div>
+                                  )}
+                                  {q.coverageA > 0 && (
+                                    <div>
+                                      Coverage A:{" "}
+                                      {new Intl.NumberFormat(
+                                        "en-US",
+                                        {
+                                          style: "currency",
+                                          currency: "USD",
+                                          maximumFractionDigits: 0,
+                                        }
+                                      ).format(q.coverageA)}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                              <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
-                                {q.hurricaneDeductible && (
-                                  <div>
-                                    Hurricane deductible:{" "}
-                                    {q.hurricaneDeductible}
-                                  </div>
-                                )}
-                                {q.aop && (
-                                  <div>
-                                    AOP deductible: {q.aop}
-                                  </div>
-                                )}
-                                {q.coverageA > 0 && (
-                                  <div>
-                                    Coverage A:{" "}
-                                    {new Intl.NumberFormat(
-                                      "en-US",
-                                      {
-                                        style: "currency",
-                                        currency: "USD",
-                                        maximumFractionDigits: 0,
-                                      }
-                                    ).format(q.coverageA)}
-                                  </div>
-                                )}
+                            </div>
+                            <div className="text-right shrink-0 ml-2">
+                              <div className="text-base font-bold font-mono text-primary">
+                                {new Intl.NumberFormat(
+                                  "en-US",
+                                  {
+                                    style: "currency",
+                                    currency: "USD",
+                                    maximumFractionDigits: 0,
+                                  }
+                                ).format(q.annualPremium)}
+                                /yr
                               </div>
+                              <div className="text-xs text-muted-foreground">
+                                {new Intl.NumberFormat(
+                                  "en-US",
+                                  {
+                                    style: "currency",
+                                    currency: "USD",
+                                    maximumFractionDigits: 0,
+                                  }
+                                ).format(q.monthlyPremium)}
+                                /mo
+                              </div>
+                              {q.quoteUrl && (
+                                <a
+                                  href={q.quoteUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-primary underline mt-1 block"
+                                >
+                                  View quote →
+                                </a>
+                              )}
                             </div>
                           </div>
-                          <div className="text-right shrink-0 ml-2">
-                            <div className="text-base font-bold font-mono text-primary">
-                              {new Intl.NumberFormat(
-                                "en-US",
-                                {
-                                  style: "currency",
-                                  currency: "USD",
-                                  maximumFractionDigits: 0,
-                                }
-                              ).format(q.annualPremium)}
-                              /yr
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {new Intl.NumberFormat(
-                                "en-US",
-                                {
-                                  style: "currency",
-                                  currency: "USD",
-                                  maximumFractionDigits: 0,
-                                }
-                              ).format(q.monthlyPremium)}
-                              /mo
-                            </div>
-                            {q.quoteUrl && (
-                              <a
-                                href={q.quoteUrl}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs text-primary underline mt-1 block"
+                          {i === 0 && !windMitigationReportConfirmed && (
+                            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-left">
+                              <p className="text-xs leading-relaxed text-amber-950">
+                                This estimate assumes wind mitigation credits based on the home's age. A wind mitigation inspection is required to confirm them — without one, your premium may be higher.
+                              </p>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="mt-2 h-8 border-amber-300 bg-white text-xs hover:bg-amber-100"
+                                asChild
                               >
-                                View quote →
-                              </a>
-                            )}
-                          </div>
+                                <a
+                                  href={`mailto:christian@tateoco.com?subject=${encodeURIComponent("Wind mitigation report")}&body=${encodeURIComponent(`Property: ${address || "Please add the property address"}\n\nPlease attach the wind mitigation inspection report for review.`)}`}
+                                >
+                                  <Upload className="mr-1.5 h-3.5 w-3.5" />
+                                  Send wind mitigation report
+                                </a>
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       ))}
                       {qrStatus === "pending" && (

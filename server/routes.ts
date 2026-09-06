@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import multer from "multer";
 import { createRequire } from "module";
+import { randomUUID } from "crypto";
 const _require = createRequire(import.meta.url);
 const pdfParse: (buf: Buffer) => Promise<{ text: string }> = _require("pdf-parse");
 import { storage } from "./storage";
@@ -41,6 +42,7 @@ import { db } from "./db";
 import {
   userSubscriptions,
   insuranceQuoteCache,
+  privateInsuranceProperties,
   privateUserProfiles,
 } from "@shared/schema";
 import { and, eq, lte, or } from "drizzle-orm";
@@ -61,7 +63,14 @@ import {
 } from "./integrations/quoterush";
 import { resolveQuoteRushPropertyInputs } from "./integrations/quoterush-inputs";
 import { claimQuoteRushAddress } from "./integrations/quoterush-cache-claim";
-import { prepareQuoteRushStartRequest } from "./integrations/quoterush-start-request";
+import {
+  prepareQuoteRushStartRequest,
+  toQuoteCachePolicyEffectiveDate,
+} from "./integrations/quoterush-start-request";
+import {
+  isValidQuoteRushDate,
+  resolveQuoteRushPropertyDefaults,
+} from "@shared/quoterush-property-defaults";
 import {
   getMarketAnalysisForDisplay,
   precomputeWeeklyMarketAnalysesForAllSellerScenarios,
@@ -925,6 +934,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return rows[0]?.dateOfBirth ?? null;
   }
 
+  async function getPrivateInsuranceProfile(userId: string): Promise<{
+    dateOfBirth: string | null;
+    creditScoreConsentAt: Date | null;
+  }> {
+    const rows = await db
+      .select({
+        dateOfBirth: privateUserProfiles.dateOfBirth,
+        creditScoreConsentAt: privateUserProfiles.creditScoreConsentAt,
+      })
+      .from(privateUserProfiles)
+      .where(eq(privateUserProfiles.userId, userId))
+      .limit(1);
+    return {
+      dateOfBirth: rows[0]?.dateOfBirth ?? null,
+      creditScoreConsentAt: rows[0]?.creditScoreConsentAt ?? null,
+    };
+  }
+
+  async function getPrivateInsuranceProperty(
+    userId: string,
+    address: string,
+  ): Promise<{
+    currentPolicyExpirationDate: string | null;
+    quoteCacheScope: string | null;
+  }> {
+    const rows = await db
+      .select({
+        currentPolicyExpirationDate:
+          privateInsuranceProperties.currentPolicyExpirationDate,
+        quoteCacheScope: privateInsuranceProperties.quoteCacheScope,
+      })
+      .from(privateInsuranceProperties)
+      .where(and(
+        eq(privateInsuranceProperties.userId, userId),
+        eq(privateInsuranceProperties.addressNormalized, normalizeAddr(address)),
+      ))
+      .limit(1);
+    return {
+      currentPolicyExpirationDate:
+        rows[0]?.currentPolicyExpirationDate ?? null,
+      quoteCacheScope: rows[0]?.quoteCacheScope ?? null,
+    };
+  }
+
   // Complete the protected profile directly after Supabase signup. This also
   // works when email confirmation is enabled and signUp returns no session.
   // A short-lived random nonce proves this request belongs to the auth user
@@ -1039,6 +1092,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     leadId: number,
     address: string,
     policyType: "HO3" | "HO6" | "DP3",
+    privateCacheScope: string | null,
   ) {
     const rows = await db
       .select({ id: insuranceQuoteCache.id })
@@ -1047,6 +1101,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         eq(insuranceQuoteCache.leadId, leadId),
         eq(insuranceQuoteCache.addressNormalized, normalizeAddr(address)),
         eq(insuranceQuoteCache.policyType, policyType),
+        privateCacheScope
+          ? or(
+              eq(insuranceQuoteCache.cacheScope, "shared"),
+              eq(insuranceQuoteCache.cacheScope, privateCacheScope),
+            )
+          : eq(insuranceQuoteCache.cacheScope, "shared"),
       ))
       .limit(1);
     return rows[0];
@@ -1180,15 +1240,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!user) {
           return res.status(401).json({ error: "Sign in required" });
         }
-        const dateOfBirth = await getPrivateDateOfBirth(user.id);
+        const privateProfile = await getPrivateInsuranceProfile(user.id);
         return res.json({
           hasDateOfBirth:
-            validProfileDateOfBirth(dateOfBirth),
+            validProfileDateOfBirth(privateProfile.dateOfBirth),
+          hasCreditScoreConsent:
+            privateProfile.creditScoreConsentAt != null,
         });
       } catch {
         return res
           .status(500)
           .json({ error: "Profile status unavailable" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/profile/insurance-property",
+    async (req, res) => {
+      try {
+        const user = await optionalUser(req);
+        if (!user) return res.status(401).json({ error: "Sign in required" });
+        const { address } = z.object({
+          address: z.string().trim().min(5).max(300),
+        }).parse(req.query);
+        return res.json({
+          currentPolicyExpirationDate:
+            (await getPrivateInsuranceProperty(user.id, address))
+              .currentPolicyExpirationDate,
+        });
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: "Invalid property address" });
+        }
+        return res.status(500).json({ error: "Private insurance details unavailable" });
+      }
+    },
+  );
+
+  app.put(
+    "/api/profile/insurance-property",
+    async (req, res) => {
+      try {
+        const user = await optionalUser(req);
+        if (!user) return res.status(401).json({ error: "Sign in required" });
+        const input = z.object({
+          address: z.string().trim().min(5).max(300),
+          currentPolicyExpirationDate: z.union([
+            z.string().refine(isValidQuoteRushDate),
+            z.null(),
+          ]),
+        }).parse(req.body);
+        await db
+          .insert(privateInsuranceProperties)
+          .values({
+            userId: user.id,
+            addressNormalized: normalizeAddr(input.address),
+            currentPolicyExpirationDate: input.currentPolicyExpirationDate,
+            quoteCacheScope: randomUUID(),
+          })
+          .onConflictDoUpdate({
+            target: [
+              privateInsuranceProperties.userId,
+              privateInsuranceProperties.addressNormalized,
+            ],
+            set: {
+              currentPolicyExpirationDate: input.currentPolicyExpirationDate,
+              // Any date change invalidates quotes produced with the previous
+              // private rating date, including pending rows.
+              quoteCacheScope: randomUUID(),
+              updatedAt: new Date(),
+            },
+          });
+        return res.json({ ok: true });
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: "Enter a valid policy expiration date" });
+        }
+        return res.status(500).json({ error: "Private insurance details could not be saved" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/profile/insurance-credit-consent",
+    async (req, res) => {
+      try {
+        const user = await optionalUser(req);
+        if (!user) {
+          return res.status(401).json({ error: "Sign in required" });
+        }
+        const input = z.object({
+          consent: z.boolean(),
+        }).parse(req.body);
+        const consentAt = input.consent ? new Date() : null;
+        const updated = await db
+          .update(privateUserProfiles)
+          .set({
+            creditScoreConsentAt: consentAt,
+            updatedAt: new Date(),
+          })
+          .where(eq(privateUserProfiles.userId, user.id))
+          .returning({ userId: privateUserProfiles.userId });
+        if (!updated.length) {
+          return res.status(428).json({
+            code: "DOB_REQUIRED",
+            error: "Complete your private profile before authorizing a live quote.",
+          });
+        }
+        return res.json({
+          ok: true,
+          hasCreditScoreConsent: consentAt != null,
+        });
+      } catch (error) {
+        if (error instanceof z.ZodError) {
+          return res.status(400).json({ error: "Invalid consent selection" });
+        }
+        console.error("[profile-save] insurance credit consent failed");
+        return res.status(500).json({ error: "Consent could not be saved" });
       }
     },
   );
@@ -1247,8 +1416,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
-  // Public cache lookup — no auth. Used by the client to hydrate from
-  // the shared cache before deciding whether to trigger a new quote.
+  // Public callers can read only the ordinary shared scope. An authenticated
+  // user with a private policy expiration reads only their opaque private
+  // account/property scope.
   app.get(
     "/api/insurance/qr-cache",
     async (req, res) => {
@@ -1264,12 +1434,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
             .json({ error: "address required" });
         }
         const norm = normalizeAddr(address);
+        const user = await optionalUser(req);
+        const privateInsuranceProperty = user
+          ? await getPrivateInsuranceProperty(user.id, address)
+          : null;
+        const cacheScope =
+          privateInsuranceProperty?.currentPolicyExpirationDate &&
+          privateInsuranceProperty.quoteCacheScope
+            ? privateInsuranceProperty.quoteCacheScope
+            : "shared";
         const rows = await db
           .select()
           .from(insuranceQuoteCache)
           .where(and(
             eq(insuranceQuoteCache.addressNormalized, norm),
             eq(insuranceQuoteCache.policyType, policyType),
+            eq(insuranceQuoteCache.cacheScope, cacheScope),
           ))
           .limit(1);
 
@@ -1315,45 +1495,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
           .status(401)
           .json({ error: "Sign in required" });
       }
-      const { data: profile } = supabaseAdmin
-        ? await supabaseAdmin
-            .from("profiles")
-            .select("*")
-            .eq("id", user.id)
-            .maybeSingle()
-        : { data: null };
-      const userMetadata =
-        (user.user_metadata ?? {}) as Record<string, any>;
-      const userEmail = String(
-        profile?.email ?? user.email ?? "",
-      );
-      const userName = String(
-        profile?.name ?? userMetadata.name ?? "",
-      );
-      const userPhone = String(
-        profile?.phone ?? userMetadata.phone ?? "",
-      );
-      const dateOfBirth =
-        await getPrivateDateOfBirth(user.id) ?? "";
-      if (!validProfileDateOfBirth(dateOfBirth)) {
-        return res.status(428).json({
-          code: "DOB_REQUIRED",
-          error:
-            "A valid date of birth is required before requesting live quotes.",
-        });
-      }
-
       try {
         // Parse and resolve every paid-quote property detail before looking
         // up or claiming the shared address cache.
+        const requestedAddress =
+          typeof req.body?.address === "string" ? req.body.address : "";
+        const privateInsuranceProperty = requestedAddress
+          ? await getPrivateInsuranceProperty(user.id, requestedAddress)
+          : {
+              currentPolicyExpirationDate: null,
+              quoteCacheScope: null,
+            };
+        const { currentPolicyExpirationDate } = privateInsuranceProperty;
+        const cacheScope =
+          currentPolicyExpirationDate &&
+          privateInsuranceProperty.quoteCacheScope
+            ? privateInsuranceProperty.quoteCacheScope
+            : "shared";
         const { request: b, propertyDefaults } =
-          prepareQuoteRushStartRequest(req.body);
+          prepareQuoteRushStartRequest(
+            req.body,
+            resolveQuoteRushPropertyDefaults,
+            currentPolicyExpirationDate,
+          );
         const norm = normalizeAddr(b.address);
         const cacheIdentity = and(
           eq(insuranceQuoteCache.addressNormalized, norm),
           eq(insuranceQuoteCache.policyType, b.policyType),
+          eq(insuranceQuoteCache.cacheScope, cacheScope),
         );
         const now = new Date();
+        let reclaimedExpiredCacheRow = false;
+        let retainedRawProvenance: Record<string, unknown> = {};
 
         // ── Shared cache check ──────────────────────────────────────
         const existing = await db
@@ -1365,6 +1538,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (existing.length > 0) {
           const row = existing[0];
           const notExpired = row.expiresAt > now;
+          let cachePropertyDataProvenance =
+            row.propertyDataProvenance ?? {};
+          if (
+            row.rawQuoterushPropertyData &&
+            row.rawQuoterushPropertyDataExpiresAt &&
+            row.rawQuoterushPropertyDataExpiresAt > now
+          ) {
+            retainedRawProvenance = {
+              quoteRushRawPropertyData: {
+                available: true,
+                source: row.rawQuoterushPropertyDataSource ?? "quoterush",
+                fetchedAt: row.rawQuoterushPropertyDataFetchedAt?.toISOString(),
+                expiresAt: row.rawQuoterushPropertyDataExpiresAt.toISOString(),
+              },
+            };
+          }
+          if (
+            row.rawQuoterushPropertyDataExpiresAt &&
+            row.rawQuoterushPropertyDataExpiresAt <= now
+          ) {
+            cachePropertyDataProvenance = {
+              ...cachePropertyDataProvenance,
+              quoteRushRawPropertyData: { available: false },
+            };
+            await db
+              .update(insuranceQuoteCache)
+              .set({
+                rawQuoterushPropertyData: null,
+                rawQuoterushPropertyDataSource: null,
+                rawQuoterushPropertyDataFetchedAt: null,
+                rawQuoterushPropertyDataExpiresAt: null,
+                propertyDataProvenance: cachePropertyDataProvenance,
+              })
+              .where(cacheIdentity);
+          }
 
           if (
             notExpired &&
@@ -1380,7 +1588,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               quoteCounter: row.quoteCounter,
               expiresAt: row.expiresAt,
               propertyDataSnapshot: row.propertyDataSnapshot ?? {},
-              propertyDataProvenance: row.propertyDataProvenance ?? {},
+              propertyDataProvenance: cachePropertyDataProvenance,
               agencyDefaultSnapshot: row.agencyDefaultSnapshot ?? {},
               consumerPropertyAnswers:
                 publicConsumerPropertyAnswers(row.consumerPropertyAnswers),
@@ -1403,16 +1611,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
 
-          // Expired or errored — drop it and re-run.
-          await db
-            .delete(insuranceQuoteCache)
-            .where(and(
-              cacheIdentity,
-              or(
-                lte(insuranceQuoteCache.expiresAt, now),
-                eq(insuranceQuoteCache.status, "error"),
-              ),
-            ));
+        }
+
+        // Private profile and consent gates intentionally occur after valid
+        // shared-cache returns, but before an expired/error row is reclaimed.
+        // A caller who cannot submit must never turn a stale row into pending.
+        const { data: profile } = supabaseAdmin
+          ? await supabaseAdmin
+              .from("profiles")
+              .select("*")
+              .eq("id", user.id)
+              .maybeSingle()
+          : { data: null };
+        const userMetadata =
+          (user.user_metadata ?? {}) as Record<string, any>;
+        const userEmail = String(profile?.email ?? user.email ?? "");
+        const userName = String(profile?.name ?? userMetadata.name ?? "");
+        const userPhone = String(profile?.phone ?? userMetadata.phone ?? "");
+        const privateInsuranceProfile =
+          await getPrivateInsuranceProfile(user.id);
+        const dateOfBirth = privateInsuranceProfile.dateOfBirth ?? "";
+        if (!validProfileDateOfBirth(dateOfBirth)) {
+          return res.status(428).json({
+            code: "DOB_REQUIRED",
+            error:
+              "A valid date of birth is required before requesting live quotes.",
+          });
+        }
+        if (privateInsuranceProfile.creditScoreConsentAt == null) {
+          return res.status(428).json({
+            code: "CREDIT_PERMISSION_REQUIRED",
+            error:
+              "Credit-based insurance score authorization is required before requesting new live quotes.",
+          });
+        }
+        if (b.hasClaims === undefined) {
+          return res.status(422).json({
+            error:
+              "Answer whether you have had insurance claims in the past five years before requesting live quotes.",
+          });
+        }
+        // A shared completed quote remains reusable without collecting another
+        // person's insurance history. These private answers are required only
+        // at the first paid submission boundary.
+        if (!b.newPurchase && b.currentlyInsured === undefined) {
+          return res.status(422).json({
+            error: "Answer whether this property is currently insured before requesting live quotes.",
+          });
+        }
+        if (!b.newPurchase && b.currentlyInsured && !b.currentCarrier) {
+          return res.status(422).json({
+            error: "Enter the current insurance carrier before requesting live quotes.",
+          });
         }
 
         // Keep these mappings in lockstep with the deductible choices in
@@ -1425,6 +1675,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
           5000: "$5,000",
           10000: "$10,000",
         };
+        const claimExpiresAt = new Date(now);
+        claimExpiresAt.setDate(claimExpiresAt.getDate() + 30);
+        const initialRunValues = {
+          addressDisplay: b.address,
+          status: "pending",
+          leadId: null,
+          quotes: [],
+          quoteCounter: 0,
+          coverageA: b.coverageA,
+          propertyDataSnapshot: {},
+          propertyDataProvenance: {
+            ...retainedRawProvenance,
+            windMitigationReportConfirmed: false,
+            manualLocks: b.propertyCharacteristicLocks ?? {},
+            purchasePrice: {
+              source: propertyDefaults.purchasePrice.source,
+              isAssumption: propertyDefaults.purchasePrice.isAssumption,
+            },
+            policyEffectiveDate: {
+              source: propertyDefaults.policyEffectiveDate.source,
+              isAssumption: propertyDefaults.policyEffectiveDate.isAssumption,
+            },
+          },
+          agencyDefaultSnapshot: {
+            usageType: propertyDefaults.usageType,
+            rentalTerm: propertyDefaults.rentalTerm,
+            monthsOccupied: propertyDefaults.monthsOccupied,
+            newPurchase: propertyDefaults.newPurchase,
+            purchaseDate: currentPolicyExpirationDate
+              ? ""
+              : propertyDefaults.purchaseDate,
+            purchasePrice: propertyDefaults.purchasePrice,
+            policyEffectiveDate: toQuoteCachePolicyEffectiveDate(
+              propertyDefaults.policyEffectiveDate,
+              Boolean(currentPolicyExpirationDate),
+            ),
+            hurricaneDeductible: HURR_MAP[b.hurrIdx] ?? "2%",
+            aopDeductible: AOP_MAP[b.aopDeductible] ?? "$2,500",
+            foundationType: "Slab",
+            roofMaterial: "Composite Shingle",
+            roofUpdateType: "Full",
+            terrain: "Exposure B",
+            burglarAlarm: "None",
+            fireAlarm: "None",
+            fireHydrant: "Within 1000 Feet",
+            fireStation: "Within 5 Miles",
+            waterBackup: "$10,000",
+            roofLossSettlement: "Replacement Cost",
+            personalInjuryCoverage: true,
+            identityTheft: true,
+            increasedReplacementCost: true,
+            fieldsRequiringVerification: [
+              "Credit permission — assumed, confirm with client",
+              "Credit score — assumed Excellent, not verified",
+            ],
+            ...(b.policyType === "HO6" ? { lossAssessment: "$2,000" } : {}),
+          },
+          consumerPropertyAnswers: {
+            coverageA: b.coverageA,
+            policyType: b.policyType,
+            yearBuilt: b.yearBuilt,
+            roofYear: b.roofYear,
+            openingProtection: b.openingProtection,
+            roofShape: b.roofShape,
+            secondaryWaterResistance: b.secondaryWaterResistance,
+            constIdx: b.constIdx,
+            hurrIdx: b.hurrIdx,
+            aopDeductible: b.aopDeductible,
+            floodZone: b.floodZone,
+            sqFt: b.sqFt,
+            propertyCharacteristicLocks: b.propertyCharacteristicLocks,
+          },
+          quoteProfileVersion: `${b.policyType}-v3`,
+          assumptions: [
+            currentPolicyExpirationDate
+              ? "This renewal quote is private to your account because it uses your current policy expiration date."
+              : "Quotes are shared for this normalized address and policy type for 30 days.",
+            "Only the three lowest positive carrier premiums are retained.",
+            "Credit permission — assumed, confirm with client.",
+            "Credit score — assumed Excellent, not verified.",
+            "Wind mitigation credits are unconfirmed until an inspection report is reviewed.",
+            ...(b.newPurchase
+              ? ["Prior insurance fields are preliminary new-purchase assumptions (currently insured, New Purchase carrier/policy number, and no lapse)."]
+              : ["Prior insurance answers are private and are not stored in this shared quote snapshot."]),
+          ],
+          triggeredAt: now,
+          completedAt: null,
+          expiresAt: claimExpiresAt,
+        };
+
+        if (existing.length > 0) {
+          // Reclaim atomically only after every submission gate has passed.
+          // Every run-specific field is replaced; independently-retained raw
+          // provider evidence is left in its server-only columns.
+          const reclaimed = await db
+            .update(insuranceQuoteCache)
+            .set(initialRunValues)
+            .where(and(
+              cacheIdentity,
+              or(
+                lte(insuranceQuoteCache.expiresAt, now),
+                eq(insuranceQuoteCache.status, "error"),
+              ),
+            ))
+            .returning({ id: insuranceQuoteCache.id });
+          reclaimedExpiredCacheRow = reclaimed.length > 0;
+          if (!reclaimedExpiredCacheRow) {
+            return res.json({ fromCache: true, status: "pending" });
+          }
+        }
 
         // Parse address components
         const parts = b.address
@@ -1455,66 +1815,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // constraint means onConflictDoNothing lets exactly one concurrent
         // request win the insert; the loser gets 0 rows back and returns
         // the pending state instead of firing a second (paid) submission.
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 30);
-        const claim = await claimQuoteRushAddress(
-          () =>
-            db
-              .insert(insuranceQuoteCache)
+        const claim = reclaimedExpiredCacheRow
+          ? { claimed: true as const, row: undefined }
+          : await claimQuoteRushAddress(
+            () =>
+              db
+                .insert(insuranceQuoteCache)
               .values({
                 addressNormalized: norm,
-                addressDisplay: b.address,
-                leadId: null,
-                status: "pending",
-                quotes: [],
-                quoteCounter: 0,
-                coverageA: b.coverageA,
                 policyType: b.policyType,
-                agencyDefaultSnapshot: {
-                  usageType: propertyDefaults.usageType,
-                  rentalTerm: propertyDefaults.rentalTerm,
-                  monthsOccupied: propertyDefaults.monthsOccupied,
-                  newPurchase: propertyDefaults.newPurchase,
-                  purchasePrice: propertyDefaults.purchasePrice,
-                  hurricaneDeductible: HURR_MAP[b.hurrIdx] ?? "2%",
-                  aopDeductible: AOP_MAP[b.aopDeductible] ?? "$2,500",
-                  lossAssessment: b.policyType === "HO6" ? "$2,000" : undefined,
-                },
-                consumerPropertyAnswers: {
-                  coverageA: b.coverageA,
-                  policyType: b.policyType,
-                  yearBuilt: b.yearBuilt,
-                  roofYear: b.roofYear,
-                  openingProtection: b.openingProtection,
-                  roofShape: b.roofShape,
-                  secondaryWaterResistance: b.secondaryWaterResistance,
-                  constIdx: b.constIdx,
-                  hurrIdx: b.hurrIdx,
-                  aopDeductible: b.aopDeductible,
-                  floodZone: b.floodZone,
-                  sqFt: b.sqFt,
-                  propertyCharacteristicLocks: b.propertyCharacteristicLocks,
-                },
-                quoteProfileVersion: `${b.policyType}-v2`,
-                triggeredAt: new Date(),
-                expiresAt,
+                cacheScope,
+                ...initialRunValues,
               })
               .onConflictDoNothing({
                 target: [
                   insuranceQuoteCache.addressNormalized,
                   insuranceQuoteCache.policyType,
+                  insuranceQuoteCache.cacheScope,
                 ],
               })
               .returning({ id: insuranceQuoteCache.id }),
-          async () => {
-            const rows = await db
-              .select()
-              .from(insuranceQuoteCache)
-              .where(cacheIdentity)
-              .limit(1);
-            return rows[0];
-          },
-        );
+            async () => {
+              const rows = await db
+                .select()
+                .from(insuranceQuoteCache)
+                .where(cacheIdentity)
+                .limit(1);
+              return rows[0];
+            },
+          );
 
         if (!claim.claimed) {
           // Lost the race — another request just claimed this address.
@@ -1584,17 +1913,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
             : {}),
           floodZone: characteristicValues.floodZone,
           sqFt: characteristicValues.sqFt,
+           ...(characteristics?.milesToCoast != null
+             ? { milesToCoast: characteristics.milesToCoast }
+             : {}),
           usageType: propertyDefaults.usageType,
           rentalTerm: propertyDefaults.rentalTerm,
           monthsOccupied: propertyDefaults.monthsOccupied,
           newPurchase: propertyDefaults.newPurchase,
           purchaseDate: propertyDefaults.purchaseDate,
-          purchasePrice: propertyDefaults.purchasePrice,
+          purchasePrice: propertyDefaults.purchasePrice.value!,
+          policyEffectiveDate: propertyDefaults.policyEffectiveDate.value,
           firstName,
           lastName,
           dateOfBirth,
           email: userEmail,
           phone: userPhone,
+          creditPermissionGranted:
+            privateInsuranceProfile.creditScoreConsentAt != null,
+          ...(b.newPurchase
+            ? {}
+            : {
+                currentlyInsured: b.currentlyInsured,
+                ...(b.currentlyInsured && b.currentCarrier
+                  ? { currentCarrier: b.currentCarrier }
+                  : {}),
+              }),
           ...propertyInputs,
         };
 
@@ -1612,27 +1955,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
               constructionType: params.constructionType,
               masonryConstruction: params.masonryConstruction,
               frameConstruction: params.frameConstruction,
+               milesToCoast: characteristics?.milesToCoast ?? null,
             },
             propertyDataProvenance: {
+              ...retainedRawProvenance,
+              windMitigationReportConfirmed: false,
               propertyCharacteristics: characteristics?.buildingDataSource ?? null,
               floodData: characteristics?.floodDataSource ?? null,
+               milesToCoast: characteristics?.coastDataSource ?? null,
               characteristicsFromCache: Boolean(characteristics?.fromCache),
               manualLocks: b.propertyCharacteristicLocks ?? {},
+               windMitigation: {
+                 source: b.windMitigationLocks?.openingProtection ||
+                   b.windMitigationLocks?.secondaryWaterResistance
+                   ? "manual"
+                   : "year-built-preliminary-assumption",
+                 assumption: propertyInputs.windAssumption,
+               },
+                purchasePrice: {
+                  source: propertyDefaults.purchasePrice.source,
+                  isAssumption: propertyDefaults.purchasePrice.isAssumption,
+                },
+                policyEffectiveDate: {
+                  source: propertyDefaults.policyEffectiveDate.source,
+                  isAssumption: propertyDefaults.policyEffectiveDate.isAssumption,
+                },
             },
             agencyDefaultSnapshot: {
               usageType: params.usageType,
               rentalTerm: params.rentalTerm,
               monthsOccupied: params.monthsOccupied,
               newPurchase: params.newPurchase,
-              purchaseDate: params.purchaseDate,
-              purchasePrice: params.purchasePrice,
+              purchaseDate: currentPolicyExpirationDate
+                ? ""
+                : params.purchaseDate,
+              purchasePrice: propertyDefaults.purchasePrice,
+              policyEffectiveDate: toQuoteCachePolicyEffectiveDate(
+                propertyDefaults.policyEffectiveDate,
+                Boolean(currentPolicyExpirationDate),
+              ),
               hurricaneDeductible: params.hurrDeductible,
               aopDeductible: params.aopDeductible,
+               foundationType: "Slab",
+               roofMaterial: "Composite Shingle",
+               roofUpdateType: "Full",
+               terrain: "Exposure B",
+               burglarAlarm: "None",
+               fireAlarm: "None",
+               fireHydrant: "Within 1000 Feet",
+               fireStation: "Within 5 Miles",
+               waterBackup: "$10,000",
+               roofLossSettlement: "Replacement Cost",
+               personalInjuryCoverage: true,
+               identityTheft: true,
+               increasedReplacementCost: true,
+               fieldsRequiringVerification: [
+                 "Credit permission — assumed, confirm with client",
+                 "Credit score — assumed Excellent, not verified",
+               ],
               ...(params.policyType === "HO6" ? { lossAssessment: "$2,000" } : {}),
             },
             assumptions: [
-              "Quotes are shared for this normalized address and policy type for 30 days.",
+              currentPolicyExpirationDate
+                ? "This renewal quote is private to your account because it uses your current policy expiration date."
+                : "Quotes are shared for this normalized address and policy type for 30 days.",
               "Only the three lowest positive carrier premiums are retained.",
+              "Credit permission — assumed, confirm with client.",
+              "Credit score — assumed Excellent, not verified.",
+              "Wind mitigation credits are unconfirmed until an inspection report is reviewed.",
+               `Wind mitigation uses a ${propertyInputs.windAssumption} preliminary assumption unless manually confirmed.`,
+               ...(b.newPurchase
+                 ? ["Prior insurance fields are preliminary new-purchase assumptions (currently insured, New Purchase carrier/policy number, and no lapse)."]
+                 : ["Prior insurance answers are private and are not stored in this shared quote snapshot."]),
               ...(characteristics?.fromCache
                 ? ["Property characteristics were loaded from the shared property cache."]
                 : []),
@@ -1640,7 +2034,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
           })
           .where(cacheIdentity);
 
+        // Treat the external import call as the authorization boundary. A
+        // consumer may withdraw permission while county/property enrichment
+        // is running, so re-read the private profile immediately before the
+        // paid submission rather than relying on the earlier cache-gate read.
+        const submissionConsentProfile =
+          await getPrivateInsuranceProfile(user.id);
+        if (submissionConsentProfile.creditScoreConsentAt == null) {
+          await db
+            .update(insuranceQuoteCache)
+            .set({ status: "error" })
+            .where(and(
+              cacheIdentity,
+              eq(insuranceQuoteCache.status, "pending"),
+            ));
+          return res.status(428).json({
+            code: "CREDIT_PERMISSION_REQUIRED",
+            error:
+              "Credit-based insurance score authorization was withdrawn before the live quote request was submitted.",
+          });
+        }
+        params.creditPermissionGranted = true;
         const result = await importAndSubmit(params);
+
+        // Capture provider mapping evidence as soon as the enrichment call has
+        // returned, including when import/submit subsequently fails. The raw
+        // JSON is intentionally not included in any consumer response.
+        if (result.rawPropertyData) {
+          const rawFetchedAt = new Date();
+          const rawExpiresAt = new Date(rawFetchedAt);
+          rawExpiresAt.setFullYear(rawExpiresAt.getFullYear() + 1);
+          const current = await db
+            .select({
+              propertyDataProvenance:
+                insuranceQuoteCache.propertyDataProvenance,
+            })
+            .from(insuranceQuoteCache)
+            .where(cacheIdentity)
+            .limit(1);
+          await db
+            .update(insuranceQuoteCache)
+            .set({
+              rawQuoterushPropertyData: result.rawPropertyData,
+              rawQuoterushPropertyDataSource: "quoterush",
+              rawQuoterushPropertyDataFetchedAt: rawFetchedAt,
+              rawQuoterushPropertyDataExpiresAt: rawExpiresAt,
+              propertyDataProvenance: {
+                ...(current[0]?.propertyDataProvenance ?? {}),
+                quoteRushRawPropertyData: {
+                  available: true,
+                  source: "quoterush",
+                  fetchedAt: rawFetchedAt.toISOString(),
+                  expiresAt: rawExpiresAt.toISOString(),
+                },
+              },
+            })
+            .where(cacheIdentity);
+        }
 
         if (!result.leadId) {
           await db
@@ -1712,7 +2162,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/insurance/qr-quotes",
     async (req, res) => {
       try {
-        if (!(await optionalUser(req))) {
+        const user = await optionalUser(req);
+        if (!user) {
           return res.status(401).json({ error: "Sign in required" });
         }
         const schema = z.object({
@@ -1722,7 +2173,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         const { leadId, address, policyType } = schema.parse(req.body);
 
-        if (!(await findQuoteCacheLead(leadId, address, policyType))) {
+        const privateCacheScope =
+          (await getPrivateInsuranceProperty(user.id, address)).quoteCacheScope;
+        const cacheLead = await findQuoteCacheLead(
+          leadId,
+          address,
+          policyType,
+          privateCacheScope,
+        );
+        if (!cacheLead) {
           return res
             .status(404)
             .json({ error: "Unknown quote cache entry" });
@@ -1745,11 +2204,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               quoteCounter: result.quoteCounter,
               completedAt: new Date(),
             })
-            .where(and(
-              eq(insuranceQuoteCache.leadId, leadId),
-              eq(insuranceQuoteCache.addressNormalized, normalizeAddr(address)),
-              eq(insuranceQuoteCache.policyType, policyType),
-            ));
+            .where(eq(insuranceQuoteCache.id, cacheLead.id));
         }
 
         res.json({
@@ -1776,7 +2231,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     "/api/insurance/qr-refresh",
     async (req, res) => {
       try {
-        if (!(await optionalUser(req))) {
+        const user = await optionalUser(req);
+        if (!user) {
           return res.status(401).json({ error: "Sign in required" });
         }
         const schema = z.object({
@@ -1786,7 +2242,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
         const { leadId, address, policyType } = schema.parse(req.body);
 
-        if (!(await findQuoteCacheLead(leadId, address, policyType))) {
+        const privateCacheScope =
+          (await getPrivateInsuranceProperty(user.id, address)).quoteCacheScope;
+        const cacheLead = await findQuoteCacheLead(
+          leadId,
+          address,
+          policyType,
+          privateCacheScope,
+        );
+        if (!cacheLead) {
           return res
             .status(404)
             .json({ error: "Unknown quote cache entry" });
@@ -1805,11 +2269,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               quoteCounter: result.quoteCounter,
               completedAt: new Date(),
             })
-            .where(and(
-              eq(insuranceQuoteCache.leadId, leadId),
-              eq(insuranceQuoteCache.addressNormalized, normalizeAddr(address)),
-              eq(insuranceQuoteCache.policyType, policyType),
-            ));
+            .where(eq(insuranceQuoteCache.id, cacheLead.id));
         }
 
         res.json({

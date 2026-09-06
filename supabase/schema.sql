@@ -582,6 +582,8 @@ create table if not exists public.property_characteristics_cache (
   living_units integer, building_count integer, has_pool boolean,
   exterior_wall_code text, exterior_wall_label text, construction_code text,
   construction_label text, building_data_source text, flood_data_source text,
+  design_wind_speed integer, windborne_debris_region boolean,
+  miles_to_coast numeric, wind_data_source text, coast_data_source text,
   queried_at timestamptz not null default now(), expires_at timestamptz not null
 );
 create index if not exists property_characteristics_addr_idx

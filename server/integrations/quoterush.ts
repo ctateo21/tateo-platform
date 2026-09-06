@@ -9,8 +9,8 @@
 // aliases (QUOTERUSH_WEBPASSWORD / QUOTERUSH_AGENCY) are accepted as
 // fallbacks so either naming works.
 //
-// The console.log statements are intentional — they surface the raw
-// API response shapes during the first live tests.
+// GetPropertyData's complete successful response is retained server-side by
+// the quote route for mapping review. Do not log it: it is not public data.
 
 import type { QuoteRushPropertyDefaults } from "@shared/quoterush-property-defaults";
 
@@ -43,12 +43,17 @@ export interface QuoteRushParams {
   newPurchase: string;
   purchaseDate: string;
   purchasePrice: number;
+  policyEffectiveDate: string;
   firstName: string;
   lastName: string;
   dateOfBirth: string;
   email: string;
   phone: string;
+  creditPermissionGranted: boolean;
   hasMortgage?: boolean;
+  currentlyInsured?: boolean;
+  currentCarrier?: string;
+  milesToCoast?: number;
 }
 
 export interface QuoteRushClaimRecord {
@@ -155,7 +160,7 @@ export function buildImporterPayload(
       County: p.county || "",
       International: false,
       AssumedCreditScore: "Excellent",
-      CreditPermission: "Yes",
+      CreditPermission: p.creditPermissionGranted ? "Yes" : "No",
       Assigned: assignedEmail,
       LeadSource: "Havo Platform",
       LeadStatus: "New Lead",
@@ -179,17 +184,7 @@ export function buildImporterPayload(
       MonthsOccupied: p.monthsOccupied,
       ...(p.rentalTerm ? { RentalTerm: p.rentalTerm } : {}),
       YearBuilt: String(p.yearBuilt),
-      PolicyEffectiveDate: (() => {
-        const d = new Date();
-        d.setDate(d.getDate() + 30);
-        return (
-          String(d.getMonth() + 1).padStart(2, "0") +
-          "/" +
-          String(d.getDate()).padStart(2, "0") +
-          "/" +
-          d.getFullYear()
-        );
-      })(),
+       PolicyEffectiveDate: p.policyEffectiveDate,
       // Do not fabricate a square-footage value. Carrier data is only useful
       // when it is supplied by the user or a verified property source.
       ...(p.sqFt > 0 ? { SquareFeet: String(Math.round(p.sqFt)) } : {}),
@@ -227,10 +222,25 @@ export function buildImporterPayload(
       HurricaneDeductible: p.hurrDeductible,
       WindHailDeductible: p.hurrDeductible,
       ...(p.floodZone ? { FloodZone: p.floodZone } : {}),
+      ...(p.milesToCoast != null
+        ? { MilesToCoast: p.milesToCoast.toFixed(2) }
+        : {}),
       FloodPolicy: false,
-      CurrentlyInsured: "Yes",
-      AnyLapses: "No",
-      CurrentCarrier: "Unknown",
+       ...(p.newPurchase === "Yes"
+         ? {
+             // Required preliminary new-purchase Apply Defaults assumptions.
+             CurrentlyInsured: "Yes", CurrentCarrier: "New Purchase",
+             CurrentPolicyNumber: "New Purchase", AnyLapses: "No",
+           }
+         : {
+             ...(p.currentlyInsured !== undefined
+               ? { CurrentlyInsured: p.currentlyInsured ? "Yes" : "No" }
+               : {}),
+             ...(p.currentlyInsured && p.currentCarrier
+               ? { CurrentCarrier: p.currentCarrier }
+               : {}),
+             // Lapse and policy details are omitted for existing homes until verified.
+           }),
       Claims: p.priorClaims > 0 ? "Yes" : "No",
       HaveWindMitForm: p.windMitForm,
       OpeningProtection: p.openingProtection,
@@ -266,17 +276,25 @@ export function buildImporterPayload(
   return payload;
 }
 
-async function getPropertyData(
-  streetAddress: string,
-  city: string,
-  state: string,
-  zip: string
-): Promise<{
+export interface QuoteRushPropertyDataResult {
   sqFt: number;
   yearBuilt: number;
   constructionType: string;
   masonryConstruction: string;
-} | null> {
+  /**
+   * Complete successful provider JSON, for server-side persistence only.
+   * Unknown provider fields are intentionally retained and may contain
+   * sensitive or personal data. Never log or expose this payload publicly.
+   */
+  raw: Record<string, unknown>;
+}
+
+export async function getPropertyData(
+  streetAddress: string,
+  city: string,
+  state: string,
+  zip: string
+): Promise<QuoteRushPropertyDataResult | null> {
   const ENDPOINT_KEY = getEndpointKey();
   const AGENCY = getAgency();
 
@@ -300,32 +318,33 @@ async function getPropertyData(
       }
     );
     const text = await res.text();
-    console.log(
-      "[quoterush] GetPropertyData response:",
-      text
-    );
     if (!res.ok) return null;
-    const json = JSON.parse(text);
+    const json: unknown = JSON.parse(text);
+    // JSONB requires a JSON object. Do not truncate a normal provider payload:
+    // if QuoteRUSH changes to a non-object response, retain no "raw" value.
+    if (!json || Array.isArray(json) || typeof json !== "object") return null;
+    const raw = json as Record<string, unknown>;
     return {
       sqFt: parseInt(
         String(
-          json.SquareFeet ?? json.sqFt ??
-          json.square_feet ?? 0
+          raw.SquareFeet ?? raw.sqFt ??
+          raw.square_feet ?? 0
         ),
         10
       ),
       yearBuilt: parseInt(
         String(
-          json.YearBuilt ?? json.yearBuilt ?? 0
+          raw.YearBuilt ?? raw.yearBuilt ?? 0
         ),
         10
       ),
       constructionType:
-        json.ConstructionType ??
-        json.constructionType ?? "",
+        String(raw.ConstructionType ??
+        raw.constructionType ?? ""),
       masonryConstruction:
-        json.MasonryConstruction ??
-        json.masonry ?? "",
+        String(raw.MasonryConstruction ??
+        raw.masonry ?? ""),
+      raw,
     };
   } catch (e) {
     console.error(
@@ -341,6 +360,8 @@ export async function importAndSubmit(
   leadId: number;
   submitted: boolean;
   error?: string;
+  /** Available after a successful GetPropertyData call even on later failure. */
+  rawPropertyData?: Record<string, unknown>;
 }> {
   const WEBID = getWebId();
   const WEBPASSWORD = getWebPassword();
@@ -366,10 +387,16 @@ export async function importAndSubmit(
     params.state,
     params.zip
   );
+  const rawPropertyData = propData?.raw;
   if (propData) {
     console.log(
       "[quoterush] property data enrichment:",
-      propData
+      {
+        sqFt: propData.sqFt,
+        yearBuilt: propData.yearBuilt,
+        constructionType: propData.constructionType,
+        masonryConstruction: propData.masonryConstruction,
+      },
     );
     if (params.sqFt <= 0 && propData.sqFt > 0)
       params.sqFt = propData.sqFt;
@@ -386,19 +413,31 @@ export async function importAndSubmit(
   const importPayload = buildImporterPayload(
     params, ASSIGNED_EMAIL
   );
-  const importRes = await fetch(
-    `https://importer.quoterush.com/Json/Import/${WEBID}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "webpassword": WEBPASSWORD,
-      },
-      body: JSON.stringify(importPayload),
-    }
-  );
-  const importText = await importRes.text();
-    console.log("[quoterush] import completed:", importRes.status);
+  let importRes: Response;
+  let importText: string;
+  try {
+    importRes = await fetch(
+      `https://importer.quoterush.com/Json/Import/${WEBID}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "webpassword": WEBPASSWORD,
+        },
+        body: JSON.stringify(importPayload),
+      }
+    );
+    importText = await importRes.text();
+  } catch {
+    console.error("[quoterush] importer response could not be read");
+    return {
+      leadId: 0,
+      submitted: false,
+      error: "QuoteRUSH importer response could not be read",
+      ...(rawPropertyData ? { rawPropertyData } : {}),
+    };
+  }
+  console.log("[quoterush] import completed:", importRes.status);
 
   if (!importRes.ok) {
     return {
@@ -406,6 +445,7 @@ export async function importAndSubmit(
       submitted: false,
       error: `Import failed ${importRes.status}: ` +
              importText,
+        ...(rawPropertyData ? { rawPropertyData } : {}),
     };
   }
 
@@ -458,6 +498,7 @@ export async function importAndSubmit(
       leadId: 0,
       submitted: false,
       error: "Could not extract LeadId",
+      ...(rawPropertyData ? { rawPropertyData } : {}),
     };
   }
   console.log("[quoterush] LeadId:", leadId);
@@ -491,6 +532,7 @@ export async function importAndSubmit(
       leadId,
       submitted: false,
       error: "Quote submission status could not be confirmed",
+      ...(rawPropertyData ? { rawPropertyData } : {}),
     };
   }
   console.log(
@@ -501,6 +543,7 @@ export async function importAndSubmit(
     leadId,
     submitted: submitRes.ok,
     error: submitRes.ok ? undefined : submitText,
+    ...(rawPropertyData ? { rawPropertyData } : {}),
   };
 }
 

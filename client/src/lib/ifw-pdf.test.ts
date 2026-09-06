@@ -54,7 +54,10 @@ test("IFW PDF includes the resolved loan officer identity and NMLS", () => {
     new RegExp(`APR ${worksheet.aprPct.toFixed(3)}% - includes applicable fees`),
   );
   assert.doesNotMatch(output, /Rate \/ Estimated APR/);
-  assert.ok(doc.getNumberOfPages() >= 2);
+  assert.equal(doc.getNumberOfPages(), 2);
+  assert.match(output, /WHEN MONEY IS DUE/);
+  assert.match(output, /Earnest money deposit/);
+  assert.match(output, /Remaining estimated cash to close/);
 });
 
 test("IFW PDF filenames are recognizable and address-specific", () => {

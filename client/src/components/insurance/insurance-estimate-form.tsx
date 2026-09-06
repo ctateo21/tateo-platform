@@ -11,8 +11,17 @@ export interface InsuranceEstimateFormProps {
   policyTypeNote?: string;
   newPurchase: boolean | null;
   onNewPurchaseChange: (value: boolean | null) => void;
+  currentlyInsured?: boolean | null;
+  onCurrentlyInsuredChange?: (value: boolean | null) => void;
+  currentCarrier?: string;
+  onCurrentCarrierChange?: (value: string) => void;
+  currentPolicyExpirationDate?: string;
+  onCurrentPolicyExpirationDateChange?: (value: string) => void;
   purchaseDate: string;
   onPurchaseDateChange: (value: string) => void;
+  purchasePrice: number;
+  onPurchasePriceChange: (value: number) => void;
+  purchasePriceSource?: string;
   residenceUse: ResidenceUse;
   onResidenceUseChange: (value: ResidenceUse) => void;
   rentalTerm: RentalTerm;
@@ -283,7 +292,7 @@ export function InsuranceEstimateForm(props: InsuranceEstimateFormProps) {
             <label className={labelClass}>
               {props.newPurchase
                 ? "Expected closing date"
-                : "Date home was purchased"}
+                : "Requested policy effective date"}
             </label>
             <input
               type="date"
@@ -295,9 +304,55 @@ export function InsuranceEstimateForm(props: InsuranceEstimateFormProps) {
           </div>
         )}
       </div>
-      {props.policyType === "HO6" && (
+      {props.newPurchase === false && props.onCurrentlyInsuredChange ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
+            <label className={labelClass}>Is this property currently insured?</label>
+            <select value={props.currentlyInsured === null ? "" : props.currentlyInsured ? "yes" : "no"}
+              onChange={(e) => props.onCurrentlyInsuredChange?.(e.target.value === "yes" ? true : e.target.value === "no" ? false : null)}
+              data-testid="select-currently-insured" className={fieldClass}>
+              <option value="">— select —</option><option value="yes">Yes</option><option value="no">No</option>
+            </select>
+          </div>
+          {props.currentlyInsured === true && <>
+              <div className="space-y-1.5">
+                <label className={labelClass}>What carrier?</label>
+                <input value={props.currentCarrier ?? ""} onChange={(e) => props.onCurrentCarrierChange?.(e.target.value)}
+                  data-testid="input-current-carrier" className={fieldClass} />
+              </div>
+              <div className="space-y-1.5 sm:col-span-2">
+                <label className={labelClass}>Current policy expiration date</label>
+                <input type="date" value={props.currentPolicyExpirationDate ?? ""}
+                  onChange={(e) => props.onCurrentPolicyExpirationDateChange?.(e.target.value)}
+                  data-testid="input-current-policy-expiration-date" className={fieldClass} />
+                <p className="text-xs text-muted-foreground">
+                  Used first for renewal quotes. This private date is saved only to your account for this property.
+                </p>
+              </div>
+            </>}
+        </div>
+      ) : null}
+      <div className="space-y-1.5">
+        <label className={labelClass}>Property purchase price / current value</label>
+        <input
+          type="number"
+          inputMode="decimal"
+          min="1"
+          value={props.purchasePrice || ""}
+          onChange={(e) => props.onPurchasePriceChange(Number(e.target.value) || 0)}
+          data-testid="input-property-purchase-price"
+          className={fieldClass}
+          placeholder="Required for live quotes"
+        />
+        <p className="text-xs text-muted-foreground">
+          {props.purchasePriceSource
+            ? `Source: ${props.purchasePriceSource}.`
+            : "Enter the confirmed purchase price or current property value."}
+        </p>
+      </div>
+      {(props.policyType === "HO3" || props.policyType === "HO6" || props.policyType === "DP3") && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {props.policyType !== "DP3" && <div className="space-y-1.5">
             <label className={labelClass}>Residence use</label>
             <select
               value={props.residenceUse}
@@ -310,24 +365,24 @@ export function InsuranceEstimateForm(props: InsuranceEstimateFormProps) {
               <option value="">— select —</option>
               <option value="primary">Primary residence</option>
               <option value="secondary">Secondary residence</option>
-              <option value="investment">Investment property</option>
+                {props.policyType === "HO6" && <option value="investment">Investment property</option>}
             </select>
-          </div>
-          {props.residenceUse === "investment" && (
+          </div>}
+          {(props.policyType === "DP3" || props.residenceUse === "investment") && (
             <div className="space-y-1.5">
-              <label className={labelClass}>Rental term</label>
+              <label className={labelClass}>What type of rental is this?</label>
               <select
                 value={props.rentalTerm}
                 onChange={(e) =>
                   props.onRentalTermChange(e.target.value as RentalTerm)
                 }
                 className={fieldClass}
-                data-testid="select-ho6-rental-term"
+                data-testid="select-rental-term"
               >
                 <option value="">— select —</option>
-                <option value="annual">Annual</option>
+                <option value="annual">Annual / long-term</option>
                 <option value="monthly">Monthly</option>
-                <option value="weekly">Week and under</option>
+                <option value="weekly">Weekly / short-term</option>
               </select>
             </div>
           )}
@@ -337,20 +392,17 @@ export function InsuranceEstimateForm(props: InsuranceEstimateFormProps) {
         <div className="rounded-lg border border-primary/15 bg-primary/5 p-3 text-xs leading-relaxed text-foreground">
           <strong>QuoteRUSH defaults:</strong>{" "}
           {props.policyType === "HO3"
-            ? "Primary residence"
+            ? props.residenceUse === "secondary" ? "Secondary residence" : "Primary residence"
             : props.policyType === "DP3"
               ? "Investment property"
               : props.residenceUse
                 ? `${props.residenceUse[0].toUpperCase()}${props.residenceUse.slice(1)} residence`
                 : "Choose the residence use above"}
-          {props.policyType === "HO6" && props.residenceUse === "investment"
+          {(props.policyType === "DP3" || (props.policyType === "HO6" && props.residenceUse === "investment"))
             ? `, ${props.rentalTerm || "rental term required"} rental term`
             : ""}
-          , 9 months or more occupied, and a purchase price of $
-          {(
-            props.rebuild * (props.policyType === "HO6" ? 2 : 1)
-          ).toLocaleString()}
-          .
+          , 9 months or more occupied. Purchase price uses verified property
+          value data and is never derived from Coverage A.
         </div>
       )}
       <RebuildField value={props.rebuild} onChange={props.onRebuildChange} />

@@ -2610,6 +2610,7 @@ export default function Estimate() {
   const insurancePolicyTouchedRef = useRef(false);
   const [insuranceNewPurchase, setInsuranceNewPurchase] = useState<boolean | null>(true);
   const [insurancePurchaseDate, setInsurancePurchaseDate] = useState("");
+  const [insurancePurchasePrice, setInsurancePurchasePrice] = useState(0);
   const [insuranceResidenceUse, setInsuranceResidenceUse] = useState<ResidenceUse>("primary");
   const [insuranceRentalTerm, setInsuranceRentalTerm] = useState<RentalTerm>("");
   const [insuranceRoofYear, setInsuranceRoofYear] = useState(new Date().getFullYear() - 10);
@@ -6314,6 +6315,8 @@ export default function Estimate() {
                       onNewPurchaseChange={(value) => { setInsuranceNewPurchase(value); setInsurancePurchaseDate(""); }}
                       purchaseDate={insurancePurchaseDate}
                       onPurchaseDateChange={setInsurancePurchaseDate}
+                      purchasePrice={insurancePurchasePrice}
+                      onPurchasePriceChange={setInsurancePurchasePrice}
                       residenceUse={insuranceResidenceUse}
                       onResidenceUseChange={(value) => { setInsuranceResidenceUse(value); if (value !== "investment") setInsuranceRentalTerm(""); }}
                       rentalTerm={insuranceRentalTerm}

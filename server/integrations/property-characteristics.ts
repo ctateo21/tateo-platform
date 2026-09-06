@@ -12,6 +12,8 @@ type Attributes = Record<string, unknown>;
 const TIMEOUT_MS = 8_000;
 const FEMA_LAYER =
   "https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/28";
+const GSHHS_COASTLINE_LAYER =
+  "https://services7.arcgis.com/WSiUmUhlFx4CtMBB/arcgis/rest/services/GSHHS_GlobalCoastlines_HighResolution/FeatureServer/0";
 const MANATEE_LAYER =
   "https://gis.manateepao.com/arcgis/rest/services/Website/WebLayers/MapServer/0";
 const PINELLAS_SEARCH_LAYER =
@@ -54,6 +56,11 @@ export interface PropertyCharacteristics {
   constructionLabel: string | null;
   buildingDataSource: string;
   floodDataSource: string | null;
+  designWindSpeed?: number | null;
+  windborneDebrisRegion?: boolean | null;
+  milesToCoast?: number | null;
+  windDataSource?: string | null;
+  coastDataSource?: string | null;
   queriedAt: Date;
   expiresAt: Date;
   fromCache?: boolean;
@@ -371,6 +378,140 @@ export async function lookupFemaNfhl(
   };
 }
 
+type ArcGisGeometry = { paths?: number[][][]; rings?: number[][][] };
+
+function pointToSegmentMiles(
+  latitude: number,
+  longitude: number,
+  start: number[],
+  end: number[],
+): number {
+  const milesPerLonDegree = 69.172 * Math.cos(latitude * Math.PI / 180);
+  const ax = (start[0] - longitude) * milesPerLonDegree;
+  const ay = (start[1] - latitude) * 69.0;
+  const bx = (end[0] - longitude) * milesPerLonDegree;
+  const by = (end[1] - latitude) * 69.0;
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared === 0
+    ? 0
+    : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lengthSquared));
+  return Math.hypot(ax + t * dx, ay + t * dy);
+}
+
+function closestPointOnGeometry(
+  latitude: number,
+  longitude: number,
+  geometry: ArcGisGeometry,
+): { latitude: number; longitude: number; distanceMiles: number } | null {
+  const milesPerLonDegree = 69.172 * Math.cos(latitude * Math.PI / 180);
+  let closest: { latitude: number; longitude: number; distanceMiles: number } | null = null;
+  for (const path of geometry.paths ?? geometry.rings ?? []) {
+    for (let index = 1; index < path.length; index += 1) {
+      const start = path[index - 1];
+      const end = path[index];
+      const ax = (start[0] - longitude) * milesPerLonDegree;
+      const ay = (start[1] - latitude) * 69.0;
+      const bx = (end[0] - longitude) * milesPerLonDegree;
+      const by = (end[1] - latitude) * 69.0;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const lengthSquared = dx * dx + dy * dy;
+      const t = lengthSquared === 0
+        ? 0
+        : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lengthSquared));
+      const distanceMiles = Math.hypot(ax + t * dx, ay + t * dy);
+      if (!closest || distanceMiles < closest.distanceMiles) {
+        closest = {
+          longitude: start[0] + (end[0] - start[0]) * t,
+          latitude: start[1] + (end[1] - start[1]) * t,
+          distanceMiles,
+        };
+      }
+    }
+  }
+  return closest;
+}
+
+async function queryNearbyGeometry(
+  layer: string,
+  latitude: number,
+  longitude: number,
+  fetchImpl: FetchImplementation,
+  params: Record<string, string>,
+): Promise<Array<{ attributes: Attributes; geometry: ArcGisGeometry }>> {
+  const query = new URLSearchParams({
+    where: "1=1",
+    geometry: `${longitude},${latitude}`,
+    geometryType: "esriGeometryPoint",
+    inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects",
+    returnGeometry: "true",
+    outSR: "4326",
+    f: "json",
+    ...params,
+  });
+  const response = await fetchImpl(`${layer}/query?${query}`, {
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`ArcGIS geography request failed (${response.status})`);
+  const json = await response.json() as {
+    error?: { message?: string };
+    features?: Array<{ attributes?: Attributes; geometry?: ArcGisGeometry }>;
+  };
+  if (json.error) throw new Error(json.error.message ?? "ArcGIS geography error");
+  return (json.features ?? [])
+    .filter((feature) => feature.attributes && feature.geometry)
+    .map((feature) => ({
+      attributes: feature.attributes!,
+      geometry: feature.geometry!,
+    }));
+}
+
+/**
+ * Straight-line distance to the nearest GSHHS level-1 ocean/land shoreline.
+ * This is an approximate ocean-shoreline proxy, not a surveyed legal mean
+ * high-water line. Inland lakes and non-ocean water boundaries are excluded.
+ */
+export async function lookupMilesToCoast(
+  latitude: number,
+  longitude: number,
+  fetchImpl: FetchImplementation = fetch,
+): Promise<{
+  milesToCoast: number | null;
+  source: "noaa-gshhs-level-1-ocean-shoreline-proxy";
+}> {
+  const features = await queryNearbyGeometry(
+    GSHHS_COASTLINE_LAYER,
+    latitude,
+    longitude,
+    fetchImpl,
+    {
+      where: "level_ = 1",
+      outFields: "OBJECTID,level_",
+      maxAllowableOffset: "0.001",
+      geometryPrecision: "5",
+    },
+  );
+  const nearest = features
+    .map((feature) => closestPointOnGeometry(latitude, longitude, feature.geometry))
+    .filter((point): point is NonNullable<typeof point> => point != null)
+    .sort((a, b) => a.distanceMiles - b.distanceMiles)[0];
+  return {
+    milesToCoast: nearest?.distanceMiles ?? null,
+    ...(nearest
+      ? { coastLatitude: nearest.latitude, coastLongitude: nearest.longitude }
+      : {}),
+    source: "noaa-gshhs-level-1-ocean-shoreline-proxy",
+  } as {
+    milesToCoast: number | null;
+    coastLatitude?: number;
+    coastLongitude?: number;
+    source: "noaa-gshhs-level-1-ocean-shoreline-proxy";
+  };
+}
+
 async function geocode(
   address: string,
   fetchImpl: FetchImplementation,
@@ -424,6 +565,14 @@ function rowFromSupabase(row: Record<string, unknown>): PropertyCharacteristics 
     constructionLabel: text(row.construction_label),
     buildingDataSource: String(row.building_data_source ?? ""),
     floodDataSource: text(row.flood_data_source),
+    designWindSpeed: positiveInteger(row.design_wind_speed),
+    windborneDebrisRegion:
+      typeof row.windborne_debris_region === "boolean"
+        ? row.windborne_debris_region
+        : null,
+    milesToCoast: finiteNumber(row.miles_to_coast),
+    windDataSource: text(row.wind_data_source),
+    coastDataSource: text(row.coast_data_source),
     queriedAt: new Date(String(row.queried_at ?? "")),
     expiresAt: new Date(String(row.expires_at ?? "")),
   };
@@ -478,6 +627,11 @@ export const propertyCharacteristicsCache: PropertyCharacteristicsCache = {
       construction_label: profile.constructionLabel,
       building_data_source: profile.buildingDataSource,
       flood_data_source: profile.floodDataSource,
+      design_wind_speed: profile.designWindSpeed ?? null,
+      windborne_debris_region: profile.windborneDebrisRegion ?? null,
+      miles_to_coast: profile.milesToCoast ?? null,
+      wind_data_source: profile.windDataSource ?? null,
+      coast_data_source: profile.coastDataSource ?? null,
       queried_at: profile.queriedAt.toISOString(),
       expires_at: profile.expiresAt.toISOString(),
     };
@@ -525,6 +679,14 @@ export function mergeConfirmedCharacteristics(
       floodDataSource: existing.floodDataSource,
     };
   }
+  if (isConfirmedSource(existing.windDataSource)) {
+    result = {
+      ...result,
+      designWindSpeed: existing.designWindSpeed ?? null,
+      windborneDebrisRegion: existing.windborneDebrisRegion ?? null,
+      windDataSource: existing.windDataSource ?? null,
+    };
+  }
   return result;
 }
 
@@ -560,6 +722,11 @@ export function toPublicPropertyCharacteristics(profile: PropertyCharacteristics
     constructionLabel: profile.constructionLabel,
     buildingDataSource: profile.buildingDataSource,
     floodDataSource: profile.floodDataSource,
+    designWindSpeed: profile.designWindSpeed ?? null,
+    windborneDebrisRegion: profile.windborneDebrisRegion ?? null,
+    milesToCoast: profile.milesToCoast ?? null,
+    windDataSource: profile.windDataSource ?? null,
+    coastDataSource: profile.coastDataSource ?? null,
     fromCache: Boolean(profile.fromCache),
   };
 }
@@ -631,7 +798,11 @@ export async function resolvePropertyCharacteristics(
 
   if (!options.skipCache) {
     const cached = await cache.read(addressNormalized, now);
-    if (cached) return { ...cached, fromCache: true };
+    if (
+      cached &&
+      cached.milesToCoast != null &&
+      cached.coastDataSource
+    ) return { ...cached, fromCache: true };
   }
 
   const existing = await cache.read(addressNormalized, now, true);
@@ -649,16 +820,15 @@ export async function resolvePropertyCharacteristics(
   }
 
   let flood: Awaited<ReturnType<typeof lookupFemaNfhl>> | null = null;
+  let coast: Awaited<ReturnType<typeof lookupMilesToCoast>> | null = null;
   if (coordinates) {
-    try {
-      flood = await lookupFemaNfhl(
-        coordinates.latitude,
-        coordinates.longitude,
-        fetchImpl,
-      );
-    } catch (error: any) {
-      errors.push(error?.message ?? "FEMA NFHL lookup failed");
-    }
+    const [floodResult, coastResult] = await Promise.allSettled([
+      lookupFemaNfhl(coordinates.latitude, coordinates.longitude, fetchImpl),
+      lookupMilesToCoast(coordinates.latitude, coordinates.longitude, fetchImpl),
+    ]);
+    if (floodResult.status === "fulfilled") flood = floodResult.value;
+    else errors.push(floodResult.reason?.message ?? "FEMA NFHL lookup failed");
+    if (coastResult.status === "fulfilled") coast = coastResult.value;
   }
 
   let building = {
@@ -697,6 +867,11 @@ export async function resolvePropertyCharacteristics(
     ...building.values,
     buildingDataSource: building.source,
     floodDataSource: flood?.source ?? null,
+    designWindSpeed: null,
+    milesToCoast: coast?.milesToCoast ?? null,
+    windborneDebrisRegion: null,
+    windDataSource: null,
+    coastDataSource: coast?.source ?? null,
     queriedAt: now,
     expiresAt,
     ...(errors.length ? { errors } : {}),

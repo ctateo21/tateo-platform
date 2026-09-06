@@ -8,6 +8,11 @@ export interface QuoteRushPropertyInputs {
   openingProtection?: boolean;
   secondaryWaterResistance?: "Yes" | "No" | "Unknown";
   roofShape?: "Hip" | "Flat" | "Gable";
+  /** Present for current clients so untouched UI defaults are not facts. */
+  windMitigationLocks?: {
+    openingProtection?: boolean;
+    secondaryWaterResistance?: boolean;
+  };
 }
 
 export function resolveQuoteRushPropertyInputs(
@@ -43,39 +48,33 @@ export function resolveQuoteRushPropertyInputs(
             frameConstruction: "",
           };
 
-  const wind =
-    inputs.windIdx === 0
-      ? {
-          windMitForm: false,
-          openingProtection: "None",
-          secondaryWaterResistance: "No",
-        }
-      : inputs.windIdx === 2
-        ? {
-            windMitForm: true,
-            openingProtection: "Hurricane Protection",
-            secondaryWaterResistance: "Yes",
-          }
-        : {
-            windMitForm: true,
-            openingProtection: "Basic",
-            secondaryWaterResistance: "No",
-          };
+  const yearBuilt = inputs.yearBuilt ?? yearMap[inputs.yearIdx ?? 1] ?? 1995;
+  // QuoteRUSH has verified mappings only for OpeningProtection and SWR.
+  // Keep the roof-to-wall/deck posture as provenance/assumptions; never
+  // invent unverified importer keys for it.
+  const wind = yearBuilt < 2000
+    ? { windMitForm: false, openingProtection: "None", secondaryWaterResistance: "No", windAssumption: "conservative/no-credit" }
+    : yearBuilt < 2020
+      ? { windMitForm: true, openingProtection: "None", secondaryWaterResistance: "No", windAssumption: "basic/clips where supported" }
+      : { windMitForm: true, openingProtection: "Hurricane Protection", secondaryWaterResistance: "Yes", windAssumption: "strongest supported code-compliant values" };
+  const legacyExactAnswers = inputs.windMitigationLocks === undefined;
 
   return {
-    yearBuilt: inputs.yearBuilt ?? yearMap[inputs.yearIdx ?? 1] ?? 1995,
+    yearBuilt,
     roofYear:
       inputs.roofYear ?? roofYearMap[inputs.roofIdx ?? 1] ?? currentYear - 8,
     ...construction,
     ...wind,
-    ...(inputs.openingProtection !== undefined
+    ...((legacyExactAnswers || inputs.windMitigationLocks?.openingProtection) &&
+    inputs.openingProtection !== undefined
       ? {
           openingProtection: inputs.openingProtection
             ? "Hurricane Protection"
             : "None",
         }
       : {}),
-    ...(inputs.secondaryWaterResistance
+    ...((legacyExactAnswers || inputs.windMitigationLocks?.secondaryWaterResistance) &&
+    inputs.secondaryWaterResistance
       ? { secondaryWaterResistance: inputs.secondaryWaterResistance }
       : {}),
     roofShape: inputs.roofShape ?? "Gable",
